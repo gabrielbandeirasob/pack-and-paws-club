@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { DateField } from '@/features/calendar/DateField';
 import type { DogRef } from '@/features/calendar/dayMath';
 import { colors, radii } from '@/features/theme/tokens';
 
@@ -50,6 +51,10 @@ export function NewReservationForm({ dogs, onSave, onCancel }: Props) {
       return;
     }
     const effectiveEnd = serviceType === 'boarding' ? endDate : startDate;
+    if (serviceType === 'boarding' && endDate < startDate) {
+      setError('End date must be on or after the start date.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -68,8 +73,7 @@ export function NewReservationForm({ dogs, onSave, onCancel }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Text style={styles.eyebrow}>NEW RESERVATION</Text>
         <Text style={styles.title}>Schedule care</Text>
         <View style={styles.card}>
@@ -95,14 +99,10 @@ export function NewReservationForm({ dogs, onSave, onCancel }: Props) {
             ))}
           </View>
 
-          <Text style={styles.label}>Start date</Text>
-          <TextInput accessibilityLabel="Start date" autoCapitalize="none" placeholder="YYYY-MM-DD" value={startDate} onChangeText={setStartDate} style={styles.input} />
+          <DateField label="Start date" value={startDate} onChange={setStartDate} />
 
           {serviceType === 'boarding' ? (
-            <>
-              <Text style={styles.label}>End date</Text>
-              <TextInput accessibilityLabel="End date" autoCapitalize="none" placeholder="YYYY-MM-DD" value={endDate} onChangeText={setEndDate} style={styles.input} />
-            </>
+            <DateField label="End date" value={endDate} onChange={setEndDate} />
           ) : (
             <Pressable accessibilityRole="button" accessibilityLabel="Repeat weekly" onPress={() => setRepeatWeekly((current) => !current)} style={styles.repeatRow}>
               <Text style={styles.repeatLabel}>Repeat weekly</Text>
@@ -137,12 +137,10 @@ export function NewReservationForm({ dogs, onSave, onCancel }: Props) {
           </Pressable>
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
   container: { padding: 22, backgroundColor: colors.cream, flexGrow: 1 },
   eyebrow: { color: colors.gold, fontSize: 11, fontWeight: '900', letterSpacing: 1.5, marginTop: 12 },
   title: { fontFamily: 'serif', fontSize: 30, fontWeight: '800', color: colors.forest900, marginTop: 8, marginBottom: 18 },
@@ -159,7 +157,6 @@ const styles = StyleSheet.create({
   dogOptionActive: { backgroundColor: colors.sage, borderColor: colors.forest500 },
   dogOptionText: { color: colors.ink, fontWeight: '700', fontSize: 13 },
   dogOptionTextActive: { color: colors.forest900 },
-  input: { backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, color: colors.ink, fontSize: 15 },
   repeatRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 },
   repeatLabel: { color: colors.ink, fontWeight: '800', fontSize: 13 },
   transportTextBlock: { flex: 1, marginRight: 12 },
