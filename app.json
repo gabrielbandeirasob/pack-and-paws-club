@@ -47,7 +47,8 @@
         {
           "contactsPermission": "Allow Pack & Paws Club to access contacts you choose to add as clients."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true

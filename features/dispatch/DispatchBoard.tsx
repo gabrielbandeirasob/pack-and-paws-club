@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
+import { TimeField } from '@/features/dispatch/TimeField';
 import { colors, radii } from '@/features/theme/tokens';
 
 export type DispatchConstraint = {
@@ -243,19 +244,16 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
             {kind === 'window' ? (
               <View style={styles.timeRow}>
                 <View style={styles.timeField}>
-                  <Text style={styles.fieldLabel}>From (HH:MM)</Text>
-                  <TextInput accessibilityLabel="Window start" keyboardType="numbers-and-punctuation" placeholder="07:30" value={windowStart} onChangeText={setWindowStart} style={styles.timeInput} />
+                  <TimeField label="From" accessibilityLabel="Window start" value={windowStart || null} onChange={setWindowStart} testID="window-start-picker" />
                 </View>
                 <View style={styles.timeField}>
-                  <Text style={styles.fieldLabel}>Until (HH:MM)</Text>
-                  <TextInput accessibilityLabel="Window end" keyboardType="numbers-and-punctuation" placeholder="08:15" value={windowEnd} onChangeText={setWindowEnd} style={styles.timeInput} />
+                  <TimeField label="Until" accessibilityLabel="Window end" value={windowEnd || null} onChange={setWindowEnd} testID="window-end-picker" />
                 </View>
               </View>
             ) : null}
             {kind === 'exact' ? (
               <View style={styles.timeField}>
-                <Text style={styles.fieldLabel}>Exact time (HH:MM)</Text>
-                <TextInput accessibilityLabel="Exact time input" keyboardType="numbers-and-punctuation" placeholder="07:45" value={exactTime} onChangeText={setExactTime} style={styles.timeInput} />
+                <TimeField label="Exact time" accessibilityLabel="Exact time input" value={exactTime || null} onChange={setExactTime} testID="exact-time-picker" />
               </View>
             ) : null}
 
@@ -350,7 +348,6 @@ const styles = StyleSheet.create({
   segmentTextActive: { color: 'white' },
   timeRow: { flexDirection: 'row', gap: 10 },
   timeField: { flex: 1 },
-  timeInput: { backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, color: colors.ink, fontSize: 15 },
   error: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginTop: 10 },
   saveButton: { backgroundColor: colors.gold, borderRadius: 14, padding: 14, alignItems: 'center', marginTop: 16 },
   saveText: { color: colors.forest900, fontWeight: '900', fontSize: 15 },
