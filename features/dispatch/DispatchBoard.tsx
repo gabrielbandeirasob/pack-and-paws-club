@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
-import { TimeField } from '@/features/dispatch/TimeField';
+import { TimePicker } from '@/features/dispatch/TimePicker';
 import { colors, radii } from '@/features/theme/tokens';
 
 export type DispatchConstraint = {
@@ -55,10 +55,12 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
   const [priority, setPriority] = useState<'normal' | 'priority'>('normal');
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const [timeTarget, setTimeTarget] = useState<'from' | 'until' | 'exact' | null>(null);
 
   useEffect(() => {
     if (!sheet) return;
     setError(null);
+    setTimeTarget(null);
     setKind('none');
     setWindowStart('');
     setWindowEnd('');
@@ -234,7 +236,7 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
             <Text style={styles.fieldHint}>No window means the driver can stop at any time.</Text>
             <View style={styles.segmented}>
               {(['none', 'window', 'exact'] as ConstraintKind[]).map((option) => (
-                <Pressable key={option} accessibilityRole="button" accessibilityLabel={option === 'none' ? 'Any time' : option === 'window' ? 'Time window' : 'Exact time'} onPress={() => setKind(option)} style={[styles.segment, kind === option && styles.segmentActive]}>
+                <Pressable key={option} accessibilityRole="button" accessibilityLabel={option === 'none' ? 'Any time' : option === 'window' ? 'Time window' : 'Exact time'} onPress={() => { setKind(option); setTimeTarget(null); }} style={[styles.segment, kind === option && styles.segmentActive]}>
                   <Text style={[styles.segmentText, kind === option && styles.segmentTextActive]}>
                     {option === 'none' ? 'Any time' : option === 'window' ? 'Time window' : 'Exact time'}
                   </Text>
@@ -243,18 +245,24 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
             </View>
             {kind === 'window' ? (
               <View style={styles.timeRow}>
-                <View style={styles.timeField}>
-                  <TimeField label="From" accessibilityLabel="Window start" value={windowStart || null} onChange={setWindowStart} testID="window-start-picker" />
-                </View>
-                <View style={styles.timeField}>
-                  <TimeField label="Until" accessibilityLabel="Window end" value={windowEnd || null} onChange={setWindowEnd} testID="window-end-picker" />
-                </View>
+                <TimeTargetButton label="From" accessibilityLabel="Window start" value={windowStart} active={timeTarget === 'from'} onPress={() => setTimeTarget('from')} />
+                <TimeTargetButton label="Until" accessibilityLabel="Window end" value={windowEnd} active={timeTarget === 'until'} onPress={() => setTimeTarget('until')} />
               </View>
             ) : null}
             {kind === 'exact' ? (
-              <View style={styles.timeField}>
-                <TimeField label="Exact time" accessibilityLabel="Exact time input" value={exactTime || null} onChange={setExactTime} testID="exact-time-picker" />
-              </View>
+              <TimeTargetButton label="Exact time" accessibilityLabel="Exact time input" value={exactTime} active={timeTarget === 'exact'} onPress={() => setTimeTarget('exact')} />
+            ) : null}
+            {timeTarget && kind !== 'none' ? (
+              <TimePicker
+                testID="time-picker"
+                value={timeTarget === 'from' ? windowStart : timeTarget === 'until' ? windowEnd : exactTime}
+                onChange={(value) => {
+                  if (timeTarget === 'from') setWindowStart(value);
+                  else if (timeTarget === 'until') setWindowEnd(value);
+                  else setExactTime(value);
+                }}
+                onDone={() => setTimeTarget(null)}
+              />
             ) : null}
 
             <Text style={styles.fieldLabel}>Priority</Text>
@@ -290,6 +298,15 @@ function Badge({ text, color }: { text: string; color: string }) {
     <View style={[styles.badge, { backgroundColor: `${color}18` }]}>
       <Text style={[styles.badgeText, { color }]}>{text}</Text>
     </View>
+  );
+}
+
+function TimeTargetButton({ label, accessibilityLabel, value, active, onPress }: { label: string; accessibilityLabel: string; value: string; active: boolean; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={[styles.timeTarget, active && styles.timeTargetActive]}>
+      <Text style={styles.timeTargetLabel}>{label}</Text>
+      <Text style={[styles.timeTargetValue, !value && styles.timeTargetPlaceholder]}>{value || 'Select…'}</Text>
+    </Pressable>
   );
 }
 
@@ -346,8 +363,12 @@ const styles = StyleSheet.create({
   segmentActive: { backgroundColor: colors.forest700 },
   segmentText: { color: colors.muted, fontWeight: '800', fontSize: 12 },
   segmentTextActive: { color: 'white' },
-  timeRow: { flexDirection: 'row', gap: 10 },
-  timeField: { flex: 1 },
+  timeRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
+  timeTarget: { flex: 1, backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  timeTargetActive: { borderColor: colors.gold, backgroundColor: '#F8F1E1' },
+  timeTargetLabel: { color: colors.muted, fontWeight: '800', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4 },
+  timeTargetValue: { color: colors.ink, fontWeight: '800', fontSize: 16, marginTop: 3 },
+  timeTargetPlaceholder: { color: colors.muted, fontWeight: '500' },
   error: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginTop: 10 },
   saveButton: { backgroundColor: colors.gold, borderRadius: 14, padding: 14, alignItems: 'center', marginTop: 16 },
   saveText: { color: colors.forest900, fontWeight: '900', fontSize: 15 },

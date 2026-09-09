@@ -1,11 +1,12 @@
 const pad = (value: number) => String(value).padStart(2, '0');
 
-export type TimeFieldProps = {
-  label: string;
-  accessibilityLabel: string;
+export type TimePickerProps = {
+  label?: string;
+  accessibilityLabel?: string;
+  testID?: string;
   value: string | null;
   onChange: (hhmm: string) => void;
-  testID?: string;
+  onDone?: () => void;
 };
 
 /** Formats a Date as local 'HH:MM'. */
