@@ -65,7 +65,7 @@ describe('DispatchBoard', () => {
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
     await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Driver Rafael' }));
-    await fireEvent.press(screen.getByRole('button', { name: 'Schedule window' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Time window' }));
     await fireEvent.changeText(screen.getByLabelText('Window start'), '07:30');
     await fireEvent.changeText(screen.getByLabelText('Window end'), '08:15');
     await fireEvent.press(screen.getByRole('button', { name: 'Priority priority' }));
@@ -78,7 +78,7 @@ describe('DispatchBoard', () => {
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
     await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Driver Rafael' }));
-    await fireEvent.press(screen.getByRole('button', { name: 'Schedule window' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Time window' }));
     await fireEvent.changeText(screen.getByLabelText('Window start'), '09:00');
     await fireEvent.changeText(screen.getByLabelText('Window end'), '08:00');
     await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
@@ -105,8 +105,8 @@ describe('DispatchBoard', () => {
     const onSaveStop = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={routes} {...noops} onSaveStop={onSaveStop} />);
     await fireEvent.press(screen.getByRole('button', { name: 'Options for Luna' }));
-    await fireEvent.press(screen.getByRole('button', { name: 'Schedule exact' }));
-    await fireEvent.changeText(screen.getByLabelText('Exact time'), '07:45');
+    await fireEvent.press(screen.getByRole('button', { name: 'Exact time' }));
+    await fireEvent.changeText(screen.getByLabelText('Exact time input'), '07:45');
     await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
     expect(onSaveStop).toHaveBeenCalledWith('route-1', 'dog-luna', { windowStart: null, windowEnd: null, exactTime: '07:45', priority: 'normal' });
   });
@@ -123,5 +123,21 @@ describe('DispatchBoard', () => {
     expect(alertSpy).toHaveBeenCalledWith('Remove stop', expect.stringContaining('John · Luna'), expect.any(Array));
     expect(onRemoveStop).toHaveBeenCalledWith('route-1', 'dog-luna');
     alertSpy.mockRestore();
+  });
+
+  it('closes the panel only through the close or cancel buttons', async () => {
+    const onAssign = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
+    // Panel content stays after pressing the backdrop area (no dismiss-on-tap-outside).
+    expect(screen.getByText('Assign Maria · Bob')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Driver Rafael' })).toBeTruthy();
+    // The explicit close button closes it.
+    await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('button', { name: 'Driver Rafael' })).toBeNull();
+    // Cancel closes too.
+    await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('button', { name: 'Driver Rafael' })).toBeNull();
   });
 });

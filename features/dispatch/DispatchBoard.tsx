@@ -208,9 +208,14 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
       </ScrollView>
 
       <Modal visible={sheet !== null} transparent animationType="fade" onRequestClose={() => setSheet(null)}>
-        <Pressable style={styles.backdrop} onPress={() => setSheet(null)}>
+        <View style={styles.backdrop}>
           <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>{sheetTitle}</Text>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>{sheetTitle}</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setSheet(null)} hitSlop={10}>
+                <Text style={styles.sheetClose}>✕</Text>
+              </Pressable>
+            </View>
 
             <Text style={styles.fieldLabel}>Driver</Text>
             <View style={styles.driverOptions}>
@@ -224,12 +229,13 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
               })}
             </View>
 
-            <Text style={styles.fieldLabel}>Schedule</Text>
+            <Text style={styles.fieldLabel}>Pickup time</Text>
+            <Text style={styles.fieldHint}>No window means the driver can stop at any time.</Text>
             <View style={styles.segmented}>
               {(['none', 'window', 'exact'] as ConstraintKind[]).map((option) => (
-                <Pressable key={option} accessibilityRole="button" accessibilityLabel={`Schedule ${option === 'none' ? 'no constraint' : option}`} onPress={() => setKind(option)} style={[styles.segment, kind === option && styles.segmentActive]}>
+                <Pressable key={option} accessibilityRole="button" accessibilityLabel={option === 'none' ? 'Any time' : option === 'window' ? 'Time window' : 'Exact time'} onPress={() => setKind(option)} style={[styles.segment, kind === option && styles.segmentActive]}>
                   <Text style={[styles.segmentText, kind === option && styles.segmentTextActive]}>
-                    {option === 'none' ? 'No constraint' : option === 'window' ? 'Time window' : 'Exact time'}
+                    {option === 'none' ? 'Any time' : option === 'window' ? 'Time window' : 'Exact time'}
                   </Text>
                 </Pressable>
               ))}
@@ -249,7 +255,7 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
             {kind === 'exact' ? (
               <View style={styles.timeField}>
                 <Text style={styles.fieldLabel}>Exact time (HH:MM)</Text>
-                <TextInput accessibilityLabel="Exact time" keyboardType="numbers-and-punctuation" placeholder="07:45" value={exactTime} onChangeText={setExactTime} style={styles.timeInput} />
+                <TextInput accessibilityLabel="Exact time input" keyboardType="numbers-and-punctuation" placeholder="07:45" value={exactTime} onChangeText={setExactTime} style={styles.timeInput} />
               </View>
             ) : null}
 
@@ -275,7 +281,7 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
               <Text style={styles.sheetCancelText}>Cancel</Text>
             </Pressable>
           </View>
-        </Pressable>
+        </View>
       </Modal>
     </View>
   );
@@ -327,8 +333,11 @@ const styles = StyleSheet.create({
   chipText: { color: colors.ink, fontWeight: '800', fontSize: 13 },
   backdrop: { flex: 1, backgroundColor: '#0D1B12AA', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.paper, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 18, paddingBottom: 34 },
-  sheetTitle: { fontFamily: 'serif', fontSize: 19, fontWeight: '800', color: colors.forest900, marginBottom: 12 },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  sheetTitle: { fontFamily: 'serif', fontSize: 19, fontWeight: '800', color: colors.forest900, flex: 1 },
+  sheetClose: { color: colors.muted, fontSize: 17, fontWeight: '800', paddingHorizontal: 6 },
   fieldLabel: { color: colors.ink, fontWeight: '800', fontSize: 11, marginTop: 12, marginBottom: 6 },
+  fieldHint: { color: colors.muted, fontSize: 11, marginBottom: 6 },
   driverOptions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   driverOption: { backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
   driverOptionActive: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
