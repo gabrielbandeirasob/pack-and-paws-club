@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { buildDay, type DayItem, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
+import { buildDay, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { todayLocalISO } from '@/features/calendar/dates';
-import { DispatchBoard, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
+import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -12,7 +12,16 @@ type DriverRow = { user_id: string; profiles: { full_name: string | null } | nul
 type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; dog: { id: string; name: string; client: { name: string } } };
 type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; transport_required: boolean; dog: { id: string; name: string; client: { name: string } } };
 type ExceptionRow = { id: string; recurring_schedule_id: string; action: 'skip' | 'transport_on' | 'transport_off'; start_date: string; end_date: string };
-type RouteRow = { id: string; driver_id: string; status: DispatchRoute['status']; route_stops: { dog: { id: string; name: string; client: { name: string } } }[] };
+type StopRow = {
+  dog_id: string;
+  sequence: number;
+  window_start: string | null;
+  window_end: string | null;
+  exact_time: string | null;
+  priority: 'normal' | 'priority';
+  dog: { id: string; name: string; client: { name: string } };
+};
+type RouteRow = { id: string; driver_id: string; status: DispatchRoute['status']; route_stops: StopRow[] | null };
 
 function toDogRef(dog: { id: string; name: string; client: { name: string } }) {
   return { id: dog.id, dogName: dog.name, clientName: dog.client.name };
@@ -41,7 +50,7 @@ export default function DispatchScreen() {
       supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'confirmed'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId),
-      supabase.from('routes').select('id, driver_id, status, route_stops(dog:dogs(id, name, client:clients(name)))').eq('organization_id', orgId).eq('route_date', date),
+      supabase.from('routes').select('id, driver_id, status, route_stops(dog_id, sequence, window_start, window_end, exact_time, priority, dog:dogs(id, name, client:clients(name)))').eq('organization_id', orgId).eq('route_date', date),
     ]);
     const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? routeResult.error;
     if (firstError) { setError(firstError.message); setLoading(false); return; }
@@ -60,52 +69,91 @@ export default function DispatchScreen() {
     }));
 
     const day = buildDay(date, reservations, recurring, exceptions);
-    const items = [...day.daycare, ...day.boarding];
+    const items = [...day.daycare, ...day.boarding].filter((item) => item.transportRequired);
     const seen = new Set<string>();
     setDayItems(items.filter((item) => (seen.has(item.dogId) ? false : (seen.add(item.dogId), true))).map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind })));
 
     const routeRows = (routeResult.data as unknown as RouteRow[]) ?? [];
     setRoutes(routeRows.map((row) => ({
+      routeId: row.id,
       driverId: row.driver_id,
       status: row.status,
-      stops: (row.route_stops ?? []).map((stop) => ({ dogId: stop.dog.id, clientName: stop.dog.client.name, dogName: stop.dog.name })),
+      stops: (row.route_stops ?? []).map((stop) => ({
+        dogId: stop.dog_id,
+        sequence: stop.sequence,
+        clientName: stop.dog.client.name,
+        dogName: stop.dog.name,
+        reservationKind: undefined,
+        windowStart: stop.window_start ? stop.window_start.slice(0, 5) : null,
+        windowEnd: stop.window_end ? stop.window_end.slice(0, 5) : null,
+        exactTime: stop.exact_time ? stop.exact_time.slice(0, 5) : null,
+        priority: stop.priority,
+      })),
     })));
     setLoading(false);
   }, [date]);
 
   useEffect(() => { load(); }, [load]);
 
-  const assign = useCallback(async (dogId: string, driverId: string) => {
+  const routeIdForDriver = useCallback(async (driverId: string) => {
     if (!organizationId) throw new Error('Organization not found.');
     const { data: route, error: routeError } = await supabase.from('routes').upsert(
       { organization_id: organizationId, route_date: date, driver_id: driverId, status: 'draft' },
       { onConflict: 'organization_id,route_date,driver_id' },
     ).select('id').single();
     if (routeError) throw new Error(routeError.message);
-    const routeId = (route as { id: string }).id;
-    // Remove the dog from any other route on this date, then add it to this route.
-    const { error: moveError } = await supabase.rpc('move_stop_to_route', { p_route_id: routeId, p_dog_id: dogId });
-    if (moveError) {
-      // Fallback for environments without the RPC: plain sequential deletes/inserts.
-      const { data: dayRoutes } = await supabase.from('routes').select('id').eq('organization_id', organizationId).eq('route_date', date);
-      for (const other of (dayRoutes as { id: string }[]) ?? []) {
-        await supabase.from('route_stops').delete().eq('route_id', other.id).eq('dog_id', dogId);
-      }
-      const { data: existing } = await supabase.from('route_stops').select('sequence').eq('route_id', routeId).order('sequence', { ascending: false }).limit(1);
-      const next = ((existing as { sequence: number }[] | null)?.[0]?.sequence ?? 0) + 1;
-      const { error: insertError } = await supabase.from('route_stops').insert({ route_id: routeId, dog_id: dogId, sequence: next });
-      if (insertError) throw new Error(insertError.message);
-    }
-    await load();
-  }, [organizationId, date, load]);
+    return (route as { id: string }).id;
+  }, [organizationId, date]);
 
-  const publish = useCallback(async (driverId: string) => {
-    if (!organizationId) return;
-    const { error } = await supabase.from('routes').update({ status: 'published', published_at: new Date().toISOString() })
-      .eq('organization_id', organizationId).eq('route_date', date).eq('driver_id', driverId);
+  const assign = useCallback(async (dogId: string, driverId: string, constraint: DispatchConstraint) => {
+    const routeId = await routeIdForDriver(driverId);
+    const { error } = await supabase.rpc('assign_stop_to_route', {
+      p_route_id: routeId,
+      p_dog_id: dogId,
+      p_window_start: constraint.windowStart,
+      p_window_end: constraint.windowEnd,
+      p_exact_time: constraint.exactTime,
+      p_priority: constraint.priority,
+    });
     if (error) throw new Error(error.message);
     await load();
-  }, [organizationId, date, load]);
+  }, [routeIdForDriver, load]);
+
+  const saveStopConstraint = useCallback(async (routeId: string, dogId: string, constraint: DispatchConstraint) => {
+    const { error } = await supabase.from('route_stops').update({
+      window_start: constraint.windowStart,
+      window_end: constraint.windowEnd,
+      exact_time: constraint.exactTime,
+      priority: constraint.priority,
+    }).eq('route_id', routeId).eq('dog_id', dogId);
+    if (error) throw new Error(error.message);
+    await load();
+  }, [load]);
+
+  const removeStop = useCallback(async (routeId: string, dogId: string) => {
+    const { error } = await supabase.from('route_stops').delete().eq('route_id', routeId).eq('dog_id', dogId);
+    if (error) throw new Error(error.message);
+    await load();
+  }, [load]);
+
+  const moveStop = useCallback(async (routeId: string, dogId: string, direction: -1 | 1) => {
+    const route = routes.find((candidate) => candidate.routeId === routeId);
+    if (!route) return;
+    const ordered = [...route.stops].sort((a, b) => a.sequence - b.sequence);
+    const index = ordered.findIndex((stop) => stop.dogId === dogId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= ordered.length) return;
+    [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+    const { error } = await supabase.rpc('reorder_route_stops', { p_route_id: routeId, p_dog_ids: ordered.map((stop) => stop.dogId) });
+    if (error) throw new Error(error.message);
+    await load();
+  }, [routes, load]);
+
+  const publish = useCallback(async (routeId: string) => {
+    const { error } = await supabase.rpc('publish_route', { p_route_id: routeId });
+    if (error) throw new Error(error.message);
+    await load();
+  }, [load]);
 
   const summary = useMemo(() => ({ date, drivers, dayItems, routes }), [date, drivers, dayItems, routes]);
 
@@ -118,6 +166,9 @@ export default function DispatchScreen() {
           dayItems={summary.dayItems}
           routes={summary.routes}
           onAssign={assign}
+          onSaveStop={saveStopConstraint}
+          onRemoveStop={removeStop}
+          onMoveStop={moveStop}
           onPublish={publish}
           onDateChange={setDate}
         />
