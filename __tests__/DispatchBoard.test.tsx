@@ -45,7 +45,7 @@ const noops = {
 
 async function pickTime(screen: Awaited<ReturnType<typeof render>>, fieldLabel: string, hour: number, minute: number) {
   await fireEvent.press(screen.getByRole('button', { name: fieldLabel }));
-  await fireEvent(screen.getByTestId('time-picker'), 'onChange', {}, new Date(2026, 0, 1, hour, minute));
+  await fireEvent(screen.getByTestId('time-picker'), 'onValueChange', {}, new Date(2026, 0, 1, hour, minute));
 }
 
 describe('DispatchBoard', () => {
@@ -149,11 +149,11 @@ describe('DispatchBoard', () => {
     // Open From: exactly one picker appears.
     await fireEvent.press(screen.getByRole('button', { name: 'Window start' }));
     expect(screen.queryAllByTestId('time-picker')).toHaveLength(1);
-    await fireEvent(screen.getByTestId('time-picker'), 'onChange', {}, new Date(2026, 0, 1, 7, 30));
+    await fireEvent(screen.getByTestId('time-picker'), 'onValueChange', {}, new Date(2026, 0, 1, 7, 30));
     // Switch to Until: still exactly one picker, now writing to the end field.
     await fireEvent.press(screen.getByRole('button', { name: 'Window end' }));
     expect(screen.queryAllByTestId('time-picker')).toHaveLength(1);
-    await fireEvent(screen.getByTestId('time-picker'), 'onChange', {}, new Date(2026, 0, 1, 8, 15));
+    await fireEvent(screen.getByTestId('time-picker'), 'onValueChange', {}, new Date(2026, 0, 1, 8, 15));
     await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
     expect(onAssign).toHaveBeenCalledWith('dog-bob', 'driver-rafael', { windowStart: '07:30', windowEnd: '08:15', exactTime: null, priority: 'normal' });
   });

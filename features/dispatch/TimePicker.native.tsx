@@ -15,8 +15,8 @@ export function TimePicker({ testID, value, onChange, onDone }: TimePickerProps)
         mode="time"
         display="spinner"
         minuteInterval={5}
-        onChange={(_event: unknown, date?: Date) => {
-          if (date) onChange(toHHMM(date));
+        onValueChange={(_event: unknown, date: Date) => {
+          onChange(toHHMM(date));
         }}
       />
       <Pressable accessibilityRole="button" accessibilityLabel="Done" onPress={onDone} style={styles.doneButton}>
