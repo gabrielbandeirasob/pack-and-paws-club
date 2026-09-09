@@ -246,8 +246,8 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
             {kind === 'window' ? (
               <>
                 <View style={styles.timeRow}>
-                  <TimeTargetButton label="From" accessibilityLabel="Window start" value={windowStart} active={timeTarget === 'from'} onPress={() => setTimeTarget((current) => (current === 'from' ? null : 'from'))} />
-                  <TimeTargetButton label="Until" accessibilityLabel="Window end" value={windowEnd} active={timeTarget === 'until'} onPress={() => setTimeTarget((current) => (current === 'until' ? null : 'until'))} />
+                  <TimeTargetButton label="From" accessibilityLabel="Window start" value={windowStart} active={timeTarget === 'from'} half onPress={() => setTimeTarget((current) => (current === 'from' ? null : 'from'))} />
+                  <TimeTargetButton label="Until" accessibilityLabel="Window end" value={windowEnd} active={timeTarget === 'until'} half onPress={() => setTimeTarget((current) => (current === 'until' ? null : 'until'))} />
                 </View>
                 {timeTarget === 'from' ? (
                   <TimeWheel testID="time-picker-from" value={windowStart || null} onChange={setWindowStart} onDone={() => setTimeTarget(null)} />
@@ -302,9 +302,9 @@ function Badge({ text, color }: { text: string; color: string }) {
   );
 }
 
-function TimeTargetButton({ label, accessibilityLabel, value, active, onPress }: { label: string; accessibilityLabel: string; value: string; active: boolean; onPress: () => void }) {
+function TimeTargetButton({ label, accessibilityLabel, value, active, onPress, half }: { label: string; accessibilityLabel: string; value: string; active: boolean; onPress: () => void; half?: boolean }) {
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={[styles.timeTarget, active && styles.timeTargetActive]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={[styles.timeTarget, half && styles.timeTargetHalf, active && styles.timeTargetActive]}>
       <Text style={styles.timeTargetLabel}>{label}</Text>
       <Text style={[styles.timeTargetValue, !value && styles.timeTargetPlaceholder]}>{value || 'Select…'}</Text>
     </Pressable>
@@ -365,7 +365,8 @@ const styles = StyleSheet.create({
   segmentText: { color: colors.muted, fontWeight: '800', fontSize: 12 },
   segmentTextActive: { color: 'white' },
   timeRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
-  timeTarget: { flex: 1, backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10 },
+  timeTarget: { backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, alignSelf: 'stretch' },
+  timeTargetHalf: { flex: 1, alignSelf: 'auto' },
   timeTargetActive: { borderColor: colors.gold, backgroundColor: '#F8F1E1' },
   timeTargetLabel: { color: colors.muted, fontWeight: '800', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4 },
   timeTargetValue: { color: colors.ink, fontWeight: '800', fontSize: 16, marginTop: 3 },
