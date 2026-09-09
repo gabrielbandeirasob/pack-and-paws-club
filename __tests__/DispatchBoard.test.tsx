@@ -43,9 +43,9 @@ const noops = {
   onDateChange: jest.fn(),
 };
 
-async function pickTime(screen: Awaited<ReturnType<typeof render>>, fieldLabel: string, hour: number, minute: number) {
+async function pickTime(screen: Awaited<ReturnType<typeof render>>, fieldLabel: string, testID: string, hour: number, minute: number) {
   await fireEvent.press(screen.getByRole('button', { name: fieldLabel }));
-  await fireEvent(screen.getByTestId('time-picker'), 'onValueChange', {}, new Date(2026, 0, 1, hour, minute));
+  await fireEvent(screen.getByTestId(testID), 'onValueChange', {}, new Date(2026, 0, 1, hour, minute));
 }
 
 describe('DispatchBoard', () => {
@@ -80,8 +80,8 @@ describe('DispatchBoard', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Driver Rafael' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Time window' }));
-    await pickTime(screen, 'Window start', 7, 30);
-    await pickTime(screen, 'Window end', 8, 15);
+    await pickTime(screen, 'Window start', 'time-picker-from', 7, 30);
+    await pickTime(screen, 'Window end', 'time-picker-until', 8, 15);
     await fireEvent.press(screen.getByRole('button', { name: 'Priority priority' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
     expect(onAssign).toHaveBeenCalledWith('dog-bob', 'driver-rafael', { windowStart: '07:30', windowEnd: '08:15', exactTime: null, priority: 'priority' });
@@ -93,8 +93,8 @@ describe('DispatchBoard', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Driver Rafael' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Time window' }));
-    await pickTime(screen, 'Window start', 9, 0);
-    await pickTime(screen, 'Window end', 8, 0);
+    await pickTime(screen, 'Window start', 'time-picker-from', 9, 0);
+    await pickTime(screen, 'Window end', 'time-picker-until', 8, 0);
     await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
     expect(screen.getByText('The window end must be after its start.')).toBeTruthy();
     expect(onAssign).not.toHaveBeenCalled();
@@ -120,7 +120,7 @@ describe('DispatchBoard', () => {
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={routes} {...noops} onSaveStop={onSaveStop} />);
     await fireEvent.press(screen.getByRole('button', { name: 'Options for Luna' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Exact time' }));
-    await pickTime(screen, 'Exact time input', 7, 45);
+    await pickTime(screen, 'Exact time input', 'time-picker-exact', 7, 45);
     await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
     expect(onSaveStop).toHaveBeenCalledWith('route-1', 'dog-luna', { windowStart: null, windowEnd: null, exactTime: '07:45', priority: 'normal' });
   });
@@ -139,21 +139,24 @@ describe('DispatchBoard', () => {
     alertSpy.mockRestore();
   });
 
-  it('shows a single time picker and switches target between From and Until', async () => {
+  it('keeps From and Until pickers separate but only one open at a time', async () => {
     const onAssign = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
     await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Driver Rafael' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Time window' }));
-    expect(screen.queryAllByTestId('time-picker')).toHaveLength(0);
-    // Open From: exactly one picker appears.
+    expect(screen.queryAllByTestId('time-picker-from')).toHaveLength(0);
+    expect(screen.queryAllByTestId('time-picker-until')).toHaveLength(0);
+    // Open From: only the From picker exists.
     await fireEvent.press(screen.getByRole('button', { name: 'Window start' }));
-    expect(screen.queryAllByTestId('time-picker')).toHaveLength(1);
-    await fireEvent(screen.getByTestId('time-picker'), 'onValueChange', {}, new Date(2026, 0, 1, 7, 30));
-    // Switch to Until: still exactly one picker, now writing to the end field.
+    expect(screen.queryAllByTestId('time-picker-from')).toHaveLength(1);
+    expect(screen.queryAllByTestId('time-picker-until')).toHaveLength(0);
+    await fireEvent(screen.getByTestId('time-picker-from'), 'onValueChange', {}, new Date(2026, 0, 1, 7, 30));
+    // Opening Until closes From automatically.
     await fireEvent.press(screen.getByRole('button', { name: 'Window end' }));
-    expect(screen.queryAllByTestId('time-picker')).toHaveLength(1);
-    await fireEvent(screen.getByTestId('time-picker'), 'onValueChange', {}, new Date(2026, 0, 1, 8, 15));
+    expect(screen.queryAllByTestId('time-picker-from')).toHaveLength(0);
+    expect(screen.queryAllByTestId('time-picker-until')).toHaveLength(1);
+    await fireEvent(screen.getByTestId('time-picker-until'), 'onValueChange', {}, new Date(2026, 0, 1, 8, 15));
     await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
     expect(onAssign).toHaveBeenCalledWith('dog-bob', 'driver-rafael', { windowStart: '07:30', windowEnd: '08:15', exactTime: null, priority: 'normal' });
   });

@@ -14,10 +14,12 @@ export function toHHMM(date: Date): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** Parses an 'HH:MM' string into a Date at the given local time (defaults to 08:00). */
+/** Parses an 'HH:MM' string into a Date at the given local time. Empty/invalid values fall back to 08:00 — never midnight. */
 export function parseTime(value: string | null, fallbackHour = 8): Date {
-  const [hour = fallbackHour, minute = 0] = (value ?? '').split(':').map(Number);
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value ?? '');
+  const hour = match ? Number(match[1]) : fallbackHour;
+  const minute = match ? Number(match[2]) : 0;
   const date = new Date();
-  date.setHours(Number.isFinite(hour) ? hour : fallbackHour, Number.isFinite(minute) ? minute : 0, 0, 0);
+  date.setHours(hour, minute, 0, 0);
   return date;
 }

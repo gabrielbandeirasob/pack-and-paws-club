@@ -244,25 +244,26 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
               ))}
             </View>
             {kind === 'window' ? (
-              <View style={styles.timeRow}>
-                <TimeTargetButton label="From" accessibilityLabel="Window start" value={windowStart} active={timeTarget === 'from'} onPress={() => setTimeTarget('from')} />
-                <TimeTargetButton label="Until" accessibilityLabel="Window end" value={windowEnd} active={timeTarget === 'until'} onPress={() => setTimeTarget('until')} />
-              </View>
+              <>
+                <View style={styles.timeRow}>
+                  <TimeTargetButton label="From" accessibilityLabel="Window start" value={windowStart} active={timeTarget === 'from'} onPress={() => setTimeTarget((current) => (current === 'from' ? null : 'from'))} />
+                  <TimeTargetButton label="Until" accessibilityLabel="Window end" value={windowEnd} active={timeTarget === 'until'} onPress={() => setTimeTarget((current) => (current === 'until' ? null : 'until'))} />
+                </View>
+                {timeTarget === 'from' ? (
+                  <TimePicker testID="time-picker-from" value={windowStart || null} onChange={setWindowStart} onDone={() => setTimeTarget(null)} />
+                ) : null}
+                {timeTarget === 'until' ? (
+                  <TimePicker testID="time-picker-until" value={windowEnd || null} onChange={setWindowEnd} onDone={() => setTimeTarget(null)} />
+                ) : null}
+              </>
             ) : null}
             {kind === 'exact' ? (
-              <TimeTargetButton label="Exact time" accessibilityLabel="Exact time input" value={exactTime} active={timeTarget === 'exact'} onPress={() => setTimeTarget('exact')} />
-            ) : null}
-            {timeTarget && kind !== 'none' ? (
-              <TimePicker
-                testID="time-picker"
-                value={timeTarget === 'from' ? windowStart : timeTarget === 'until' ? windowEnd : exactTime}
-                onChange={(value) => {
-                  if (timeTarget === 'from') setWindowStart(value);
-                  else if (timeTarget === 'until') setWindowEnd(value);
-                  else setExactTime(value);
-                }}
-                onDone={() => setTimeTarget(null)}
-              />
+              <>
+                <TimeTargetButton label="Exact time" accessibilityLabel="Exact time input" value={exactTime} active={timeTarget === 'exact'} onPress={() => setTimeTarget((current) => (current === 'exact' ? null : 'exact'))} />
+                {timeTarget === 'exact' ? (
+                  <TimePicker testID="time-picker-exact" value={exactTime || null} onChange={setExactTime} onDone={() => setTimeTarget(null)} />
+                ) : null}
+              </>
             ) : null}
 
             <Text style={styles.fieldLabel}>Priority</Text>
