@@ -53,4 +53,23 @@ describe('NewReservationForm', () => {
     const payload = onSave.mock.calls[0][0] as NewReservationPayload;
     expect(payload.weekdays).toEqual([1, 3]);
   });
+
+  it('defaults transport to off and sends transportRequired true when toggled', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<NewReservationForm dogs={dogs} onSave={onSave} onCancel={jest.fn()} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Select dog' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Maria · Bob' }));
+    await fireEvent.changeText(screen.getByLabelText('Start date'), '2026-09-15');
+    await fireEvent.press(screen.getByRole('button', { name: 'Save reservation' }));
+    expect((onSave.mock.calls[0][0] as NewReservationPayload).transportRequired).toBe(false);
+
+    const second = await render(<NewReservationForm dogs={dogs} onSave={onSave} onCancel={jest.fn()} />);
+    await fireEvent.press(second.getByRole('button', { name: 'Transport required' }));
+    await fireEvent.press(second.getByRole('button', { name: 'Select dog' }));
+    await fireEvent.press(second.getByRole('button', { name: 'John · Luna' }));
+    await fireEvent.changeText(second.getByLabelText('Start date'), '2026-09-16');
+    await fireEvent.press(second.getByRole('button', { name: 'Save reservation' }));
+    const payload = onSave.mock.calls[1][0] as NewReservationPayload;
+    expect(payload).toMatchObject({ dogId: 'dog-luna', serviceType: 'daycare', startDate: '2026-09-16', transportRequired: true });
+  });
 });

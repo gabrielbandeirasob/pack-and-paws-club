@@ -2,15 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { buildDay, type DayItem, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
+import { buildDay, type DayItem, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DispatchBoard, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
 type DriverRow = { user_id: string; profiles: { full_name: string | null } | null };
-type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; dog: { id: string; name: string; client: { name: string } } };
-type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; dog: { id: string; name: string; client: { name: string } } };
+type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; dog: { id: string; name: string; client: { name: string } } };
+type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; transport_required: boolean; dog: { id: string; name: string; client: { name: string } } };
+type ExceptionRow = { id: string; recurring_schedule_id: string; action: 'skip' | 'transport_on' | 'transport_off'; start_date: string; end_date: string };
 type RouteRow = { id: string; driver_id: string; status: DispatchRoute['status']; route_stops: { dog: { id: string; name: string; client: { name: string } } }[] };
 
 function toDogRef(dog: { id: string; name: string; client: { name: string } }) {
@@ -35,26 +36,30 @@ export default function DispatchScreen() {
     const orgId = (memberships as { organization_id: string }[] | null)?.[0]?.organization_id ?? null;
     setOrganizationId(orgId);
     if (!orgId) { setLoading(false); return; }
-    const [driverResult, reservationResult, recurringResult, routeResult] = await Promise.all([
+    const [driverResult, reservationResult, recurringResult, exceptionResult, routeResult] = await Promise.all([
       supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', orgId).eq('role', 'driver').eq('status', 'active'),
-      supabase.from('reservations').select('id, service_type, start_date, end_date, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'confirmed'),
-      supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
+      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'confirmed'),
+      supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
+      supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId),
       supabase.from('routes').select('id, driver_id, status, route_stops(dog:dogs(id, name, client:clients(name)))').eq('organization_id', orgId).eq('route_date', date),
     ]);
-    const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? routeResult.error;
+    const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? routeResult.error;
     if (firstError) { setError(firstError.message); setLoading(false); return; }
 
     const driverRows = (driverResult.data as unknown as DriverRow[]) ?? [];
     setDrivers(driverRows.map((row) => ({ id: row.user_id, name: row.profiles?.full_name?.trim() || 'Driver' })));
 
     const reservations: ReservationRecord[] = ((reservationResult.data as unknown as ReservationRow[]) ?? []).map((row) => ({
-      id: row.id, dog: toDogRef(row.dog), serviceType: row.service_type, startDate: row.start_date, endDate: row.end_date,
+      id: row.id, dog: toDogRef(row.dog), serviceType: row.service_type, startDate: row.start_date, endDate: row.end_date, transportRequired: row.transport_required,
     }));
     const recurring: RecurringScheduleRecord[] = ((recurringResult.data as unknown as RecurringRow[]) ?? []).map((row) => ({
-      id: row.id, dog: toDogRef(row.dog), weekdays: row.weekdays, startDate: row.start_date, endDate: row.end_date, active: row.active,
+      id: row.id, dog: toDogRef(row.dog), weekdays: row.weekdays, startDate: row.start_date, endDate: row.end_date, active: row.active, transportRequired: row.transport_required,
+    }));
+    const exceptions: RecurringExceptionRecord[] = ((exceptionResult.data as unknown as ExceptionRow[]) ?? []).map((row) => ({
+      id: row.id, scheduleId: row.recurring_schedule_id, action: row.action, startDate: row.start_date, endDate: row.end_date,
     }));
 
-    const day = buildDay(date, reservations, recurring);
+    const day = buildDay(date, reservations, recurring, exceptions);
     const items = [...day.daycare, ...day.boarding];
     const seen = new Set<string>();
     setDayItems(items.filter((item) => (seen.has(item.dogId) ? false : (seen.add(item.dogId), true))).map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind })));

@@ -6,6 +6,7 @@ export type ReservationRecord = {
   serviceType: 'daycare' | 'boarding';
   startDate: string;
   endDate: string;
+  transportRequired: boolean;
 };
 
 export type RecurringScheduleRecord = {
@@ -15,6 +16,18 @@ export type RecurringScheduleRecord = {
   startDate: string;
   endDate: string | null;
   active: boolean;
+  transportRequired: boolean;
+};
+
+export type RecurringExceptionAction = 'skip' | 'transport_on' | 'transport_off';
+
+export type RecurringExceptionRecord = {
+  id: string;
+  scheduleId: string;
+  action: RecurringExceptionAction;
+  startDate: string;
+  endDate: string;
+  reason?: string | null;
 };
 
 export type DayItem = {
@@ -25,6 +38,9 @@ export type DayItem = {
   dogId: string;
   dogName: string;
   clientName: string;
+  transportRequired: boolean;
+  // True when this recurring occurrence is currently overridden to skip (paused) on the built day.
+  paused?: boolean;
 };
 
 export type DaySummary = { daycare: DayItem[]; boarding: DayItem[] };
@@ -49,6 +65,7 @@ function itemize(kind: DayItem['kind'], reservation: ReservationRecord | null, s
     clientName: dog.clientName,
     reservationId: reservation?.id ?? null,
     recurringScheduleId: schedule?.id ?? null,
+    transportRequired: source.transportRequired,
   };
 }
 
@@ -56,7 +73,32 @@ function compareByName(a: DayItem, b: DayItem): number {
   return a.clientName.localeCompare(b.clientName) || a.dogName.localeCompare(b.dogName);
 }
 
-export function buildDay(isoDate: string, reservations: ReservationRecord[], recurring: RecurringScheduleRecord[]): DaySummary {
+/** Effective transport for a recurring schedule on a date, after per-occurrence overrides. */
+function transportForSchedule(schedule: RecurringScheduleRecord, isoDate: string, exceptions: RecurringExceptionRecord[]): boolean {
+  let transport = schedule.transportRequired;
+  for (const exception of exceptions) {
+    if (exception.scheduleId !== schedule.id) continue;
+    if (!isWithin(isoDate, exception.startDate, exception.endDate)) continue;
+    if (exception.action === 'transport_on') transport = true;
+    if (exception.action === 'transport_off') transport = false;
+  }
+  return transport;
+}
+
+/** True when a skip exception (pause/absence) covers this date for the schedule. */
+export function isSkipped(scheduleId: string, isoDate: string, exceptions: RecurringExceptionRecord[]): boolean {
+  return exceptions.some(
+    (exception) =>
+      exception.scheduleId === scheduleId && exception.action === 'skip' && isWithin(isoDate, exception.startDate, exception.endDate),
+  );
+}
+
+export function buildDay(
+  isoDate: string,
+  reservations: ReservationRecord[],
+  recurring: RecurringScheduleRecord[],
+  exceptions: RecurringExceptionRecord[] = [],
+): DaySummary {
   const daycare: DayItem[] = [];
   const boarding: DayItem[] = [];
 
@@ -75,7 +117,8 @@ export function buildDay(isoDate: string, reservations: ReservationRecord[], rec
     if (isoDate < schedule.startDate) continue;
     if (schedule.endDate && isoDate > schedule.endDate) continue;
     if (!schedule.weekdays.includes(weekday)) continue;
-    daycare.push(itemize('recurring-daycare', null, schedule));
+    if (isSkipped(schedule.id, isoDate, exceptions)) continue;
+    daycare.push({ ...itemize('recurring-daycare', null, schedule), transportRequired: transportForSchedule(schedule, isoDate, exceptions) });
   }
 
   daycare.sort(compareByName);

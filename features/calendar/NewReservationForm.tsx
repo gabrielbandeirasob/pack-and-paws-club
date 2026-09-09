@@ -10,6 +10,7 @@ export type NewReservationPayload = {
   startDate: string;
   endDate: string;
   weekdays?: number[];
+  transportRequired: boolean;
 };
 
 type Props = {
@@ -35,6 +36,7 @@ export function NewReservationForm({ dogs, onSave, onCancel }: Props) {
   const [endDate, setEndDate] = useState('');
   const [repeatWeekly, setRepeatWeekly] = useState(false);
   const [weekdays, setWeekdays] = useState<number[]>([]);
+  const [transportRequired, setTransportRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -56,6 +58,7 @@ export function NewReservationForm({ dogs, onSave, onCancel }: Props) {
         serviceType,
         startDate,
         endDate: effectiveEnd,
+        transportRequired,
         ...(repeatWeekly ? { weekdays } : {}),
       });
     } catch (reason) {
@@ -117,6 +120,14 @@ export function NewReservationForm({ dogs, onSave, onCancel }: Props) {
             </View>
           ) : null}
 
+          <Pressable accessibilityRole="button" accessibilityLabel="Transport required" onPress={() => setTransportRequired((current) => !current)} style={styles.repeatRow}>
+            <View style={styles.transportTextBlock}>
+              <Text style={styles.repeatLabel}>Transport required</Text>
+              <Text style={styles.transportHint}>Pickup or drop-off on this reservation</Text>
+            </View>
+            <View style={[styles.checkbox, transportRequired && styles.checkboxOn]}>{transportRequired ? <Text style={styles.checkMark}>✓</Text> : null}</View>
+          </Pressable>
+
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Pressable accessibilityRole="button" accessibilityLabel="Save reservation" disabled={saving} onPress={submit} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
             {saving ? <ActivityIndicator color={colors.forest900} /> : <Text style={styles.primaryText}>Save reservation</Text>}
@@ -151,6 +162,8 @@ const styles = StyleSheet.create({
   input: { backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, color: colors.ink, fontSize: 15 },
   repeatRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 },
   repeatLabel: { color: colors.ink, fontWeight: '800', fontSize: 13 },
+  transportTextBlock: { flex: 1, marginRight: 12 },
+  transportHint: { color: colors.muted, fontSize: 11, marginTop: 2 },
   checkbox: { width: 24, height: 24, borderRadius: 7, borderWidth: 1.5, borderColor: colors.line, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F4F2EA' },
   checkboxOn: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
   checkMark: { color: 'white', fontWeight: '900', fontSize: 13 },
