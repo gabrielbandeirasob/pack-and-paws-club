@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
-import { TimeGridPicker } from '@/features/dispatch/TimeGridPicker';
+import { TimeWheel } from '@/features/dispatch/TimeWheel';
 import { colors, radii } from '@/features/theme/tokens';
 
 export type DispatchConstraint = {
@@ -250,10 +250,10 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
                   <TimeTargetButton label="Until" accessibilityLabel="Window end" value={windowEnd} active={timeTarget === 'until'} onPress={() => setTimeTarget((current) => (current === 'until' ? null : 'until'))} />
                 </View>
                 {timeTarget === 'from' ? (
-                  <TimeGridPicker testID="time-picker-from" value={windowStart || null} onChange={setWindowStart} onDone={() => setTimeTarget(null)} />
+                  <TimeWheel testID="time-picker-from" value={windowStart || null} onChange={setWindowStart} onDone={() => setTimeTarget(null)} />
                 ) : null}
                 {timeTarget === 'until' ? (
-                  <TimeGridPicker testID="time-picker-until" value={windowEnd || null} onChange={setWindowEnd} onDone={() => setTimeTarget(null)} />
+                  <TimeWheel testID="time-picker-until" value={windowEnd || null} onChange={setWindowEnd} onDone={() => setTimeTarget(null)} />
                 ) : null}
               </>
             ) : null}
@@ -261,7 +261,7 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
               <>
                 <TimeTargetButton label="Exact time" accessibilityLabel="Exact time input" value={exactTime} active={timeTarget === 'exact'} onPress={() => setTimeTarget((current) => (current === 'exact' ? null : 'exact'))} />
                 {timeTarget === 'exact' ? (
-                  <TimeGridPicker testID="time-picker-exact" value={exactTime || null} onChange={setExactTime} onDone={() => setTimeTarget(null)} />
+                  <TimeWheel testID="time-picker-exact" value={exactTime || null} onChange={setExactTime} onDone={() => setTimeTarget(null)} />
                 ) : null}
               </>
             ) : null}
