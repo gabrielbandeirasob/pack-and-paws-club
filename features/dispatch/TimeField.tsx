@@ -1,14 +1,7 @@
 import { Text, TextInput, View, StyleSheet } from 'react-native';
 
 import { colors } from '@/features/theme/tokens';
-
-export type TimeFieldProps = {
-  label: string;
-  accessibilityLabel: string;
-  value: string | null;
-  onChange: (hhmm: string) => void;
-  testID?: string;
-};
+import type { TimeFieldProps } from '@/features/dispatch/timeFormat';
 
 /** Web-safe base implementation: manual HH:MM input. The native build uses a time spinner. */
 export function TimeField({ label, accessibilityLabel, value, onChange, testID }: TimeFieldProps) {

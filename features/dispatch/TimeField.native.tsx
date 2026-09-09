@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 
 import { colors, radii } from '@/features/theme/tokens';
-import type { TimeFieldProps } from '@/features/dispatch/TimeField';
+import type { TimeFieldProps } from '@/features/dispatch/timeFormat';
 import { parseTime, toHHMM } from '@/features/dispatch/timeFormat';
 
 /** Native implementation: expands an iOS-style time spinner (5-minute steps). */

@@ -1,5 +1,13 @@
 const pad = (value: number) => String(value).padStart(2, '0');
 
+export type TimeFieldProps = {
+  label: string;
+  accessibilityLabel: string;
+  value: string | null;
+  onChange: (hhmm: string) => void;
+  testID?: string;
+};
+
 /** Formats a Date as local 'HH:MM'. */
 export function toHHMM(date: Date): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;

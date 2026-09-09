@@ -168,7 +168,8 @@ begin
   join public.route_stops rs on rs.route_id = r.id
   join public.dogs d on d.id = rs.dog_id
   join public.clients c on c.id = d.client_id
-  where r.id = p_route_id;
+  where r.id = p_route_id
+  group by r.id, r.status;
 
   update public.routes
   set status = 'published', published_at = now(), updated_at = now()
