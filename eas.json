@@ -28,8 +28,13 @@
   "submit": {
     "production": {
       "ios": {
+        "appleId": "gabriel.bdsobrinho@gmail.com",
+        "ascAppId": "6810688458",
+        "appleTeamId": "957KA752J5",
         "bundleIdentifier": "br.com.automadigital.app",
-        "appleTeamId": "957KA752J5"
+        "ascApiKeyPath": "/opt/data/.apple/AuthKey_856ZHZY4PJ.p8",
+        "ascApiKeyId": "856ZHZY4PJ",
+        "ascApiKeyIssuerId": "9d093488-99dd-41d1-ac95-dbfd17028d09"
       }
     }
   }

@@ -243,12 +243,18 @@ export default function DashboardScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
+    <>
       {loading ? (
-        <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
+        <SafeAreaView style={styles.screen} edges={['top']}>
+          <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
+        </SafeAreaView>
       ) : error ? (
-        <Text style={styles.error}>{error}</Text>
+        <SafeAreaView style={styles.screen} edges={['top']}>
+          <Text style={styles.error}>{error}</Text>
+        </SafeAreaView>
       ) : (
+        // Sem SafeAreaView aqui: o ManagerDashboard tem o seu proprio e absorve o recuo do topo.
+        // Embrulhar de novo pintava uma faixa creme atras da status bar (bug do topo).
         <ManagerDashboard
           dateLabel={header.dateLabel}
           greeting={header.greeting}
@@ -261,7 +267,7 @@ export default function DashboardScreen() {
           onNewReservation={() => router.push('/calendar')}
         />
       )}
-    </SafeAreaView>
+    </>
   );
 }
 

@@ -31,6 +31,9 @@ function RootNavigator(){
     <Stack.Protected guard={isAuthenticated && !mustChangePassword}>
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="drivers" options={{ headerShown: false }} />
+      <Stack.Screen name="client-edit" options={{ headerShown: false }} />
+      <Stack.Screen name="reservation-edit" options={{ headerShown: false }} />
+      <Stack.Screen name="route-history" options={{ headerShown: false }} />
       <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
     </Stack.Protected>
     <Stack.Screen name="+not-found"/>

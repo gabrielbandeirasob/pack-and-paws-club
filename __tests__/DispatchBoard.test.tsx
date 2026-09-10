@@ -32,6 +32,9 @@ const noops = {
   onMoveStop: jest.fn().mockResolvedValue(undefined),
   onOptimize: jest.fn().mockResolvedValue(undefined),
   onPublish: jest.fn().mockResolvedValue(undefined),
+  onUnpublish: jest.fn().mockResolvedValue(undefined),
+  onCancelRoute: jest.fn().mockResolvedValue(undefined),
+  onCompleteRoute: jest.fn().mockResolvedValue(undefined),
   onDateChange: jest.fn(),
 };
 

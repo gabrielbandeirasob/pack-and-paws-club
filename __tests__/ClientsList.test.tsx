@@ -1,15 +1,15 @@
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 import { ClientsList } from '@/features/clients/ClientsList';
 import type { ClientWithDogs } from '@/features/clients/types';
 
 const clients: ClientWithDogs[] = [
-  { id: '1', name: 'Maria Silva', phone: '+55 62 99999-0000', address_line_1: '123 Main St', city: 'Goiania', state: 'GO', dogs: ['Bob'] },
-  { id: '2', name: 'Joao Souza', phone: null, address_line_1: null, city: null, state: null, dogs: ['Luna', 'Max'] },
+  { id: '1', name: 'Maria Silva', phone: '+55 62 99999-0000', address_line_1: '123 Main St', city: 'Goiania', state: 'GO', active: true, dogs: ['Bob'] },
+  { id: '2', name: 'Joao Souza', phone: null, address_line_1: null, city: null, state: null, active: false, dogs: ['Luna', 'Max'] },
 ];
 
 describe('ClientsList', () => {
   it('renders clients with their dogs', async () => {
-    const screen = await render(<ClientsList clients={clients} loading={false} onAddClient={jest.fn()} />);
+    const screen = await render(<ClientsList clients={clients} loading={false} onAddClient={jest.fn()} onOpenClient={jest.fn()} />);
     expect(screen.getByText('Maria Silva')).toBeTruthy();
     expect(screen.getByText('Bob')).toBeTruthy();
     expect(screen.getByText('Joao Souza')).toBeTruthy();
@@ -19,8 +19,20 @@ describe('ClientsList', () => {
 
   it('shows an empty state and the add button', async () => {
     const onAdd = jest.fn();
-    const screen = await render(<ClientsList clients={[]} loading={false} onAddClient={onAdd} />);
+    const screen = await render(<ClientsList clients={[]} loading={false} onAddClient={onAdd} onOpenClient={jest.fn()} />);
     expect(screen.getByText('No clients yet')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Add from Contacts' })).toBeTruthy();
+  });
+
+  it('abre a edicao ao tocar no cliente (era impossivel editar endereco)', async () => {
+    const onOpenClient = jest.fn();
+    const screen = await render(<ClientsList clients={clients} loading={false} onAddClient={jest.fn()} onOpenClient={onOpenClient} />);
+    fireEvent.press(screen.getByLabelText('Edit Maria Silva'));
+    expect(onOpenClient).toHaveBeenCalledWith('1');
+  });
+
+  it('marca cliente inativo (para poder reativar depois)', async () => {
+    const screen = await render(<ClientsList clients={clients} loading={false} onAddClient={jest.fn()} onOpenClient={jest.fn()} />);
+    expect(screen.getByText('INACTIVE')).toBeTruthy();
   });
 });

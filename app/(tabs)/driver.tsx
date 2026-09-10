@@ -19,6 +19,10 @@ import {
   type DriverEventStatus,
 } from '@/features/driver/offlineStore';
 import { colors, radii } from '@/features/theme/tokens';
+import { NavigationSheet } from '@/features/maps/NavigationSheet';
+import type { NavTarget } from '@/features/maps/links';
+import { navigationUrlFor, type NavApp } from '@/features/maps/navigation';
+import { loadPreferredNavApp, savePreferredNavApp } from '@/features/maps/preferences';
 import { rowToStop, type DriverRouteRow, type DriverStopRow } from '@/features/driver/rows';
 import { supabase } from '@/lib/supabase';
 
@@ -27,6 +31,7 @@ type RouteResult = DriverRouteRow;
 
 export default function DriverTodayScreen() {
   const [stops, setStops] = useState<DriverStop[]>([]);
+  const [navTarget, setNavTarget] = useState<{ stopId: string; target: NavTarget } | null>(null);
   const [loading, setLoading] = useState(true);
   const [publishedAt, setPublishedAt] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -72,7 +77,7 @@ export default function DriverTodayScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       const { data: routes, error } = await supabase
         .from('routes')
-        .select('id, organization_id, published_at, route_stops(id, sequence, status, window_end, exact_time, dog:dogs(id, name, client:clients(name, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
+        .select('id, organization_id, published_at, route_stops(id, sequence, status, window_end, exact_time, dog:dogs(id, name, behavior_notes, medical_notes, client:clients(name, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
         .eq('driver_id', user?.id ?? '')
         .eq('route_date', todayLocalISO())
         .eq('status', 'published')
@@ -198,9 +203,23 @@ export default function DriverTodayScreen() {
     setMessage(null);
     if (action === 'navigate') {
       const stop = stops.find((candidate) => candidate.id === stopId);
-      const query = [stop?.address, stop?.city, stop?.clientName].filter(Boolean).join(', ');
-      if (!query) { setMessage('This stop has no address to navigate to.'); return; }
-      await Linking.openURL(`https://maps.apple.com/?q=${encodeURIComponent(query)}`);
+      const query = [stop?.address, stop?.city].filter(Boolean).join(', ');
+      const target: NavTarget = {
+        address: query || null,
+        latitude: typeof stop?.latitude === 'number' ? stop.latitude : null,
+        longitude: typeof stop?.longitude === 'number' ? stop.longitude : null,
+      };
+      if (!target.address && (target.latitude === null || target.longitude === null)) {
+        setMessage('This stop has no address to navigate to.');
+        return;
+      }
+      // O app não navega: redireciona para o mapa escolhido pelo motorista (Google ou Apple).
+      const preferred = await loadPreferredNavApp();
+      if (preferred) {
+        await Linking.openURL(navigationUrlFor(preferred, target));
+        return;
+      }
+      setNavTarget({ stopId, target });
       return;
     }
     const statusMap: Partial<Record<DriverAction, DriverEventStatus>> = {
@@ -274,12 +293,24 @@ export default function DriverTodayScreen() {
           </Pressable>
         ) : null}
       </View>
+      <NavigationSheet
+        visible={navTarget !== null}
+        target={navTarget?.target ?? null}
+        onClose={() => setNavTarget(null)}
+        onChoose={async (app: NavApp, remember: boolean) => {
+          const target = navTarget?.target ?? null;
+          setNavTarget(null);
+          if (!target) return;
+          if (remember) await savePreferredNavApp(app);
+          await Linking.openURL(navigationUrlFor(app, target));
+        }}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.cream },
+  screen: { flex: 1, backgroundColor: colors.forest700 },
   header: { backgroundColor: colors.forest700, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 24, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
   eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
   title: { color: 'white', fontFamily: 'serif', fontSize: 28, fontWeight: '800', marginTop: 6 },
@@ -290,7 +321,7 @@ const styles = StyleSheet.create({
   etaBannerLate: { backgroundColor: '#FBEAE6' },
   etaText: { color: colors.forest900, fontSize: 12, fontWeight: '800', textAlign: 'center' },
   etaTextLate: { color: colors.urgency },
-  body: { flex: 1 },
+  body: { flex: 1, backgroundColor: colors.cream },
   center: { marginTop: 80 },
   empty: { alignItems: 'center', paddingHorizontal: 34, marginTop: 90 },
   emptyEmoji: { fontSize: 44 },

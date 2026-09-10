@@ -6,6 +6,8 @@ export type GoogleEventInput = {
   start: { date: string };
   end: { date: string };
   recurrence?: string[];
+  /** Propriedades privadas do evento — usadas para idempotencia do sync (appKey = id da reserva). */
+  extendedProperties?: { private: Record<string, string> };
 };
 
 export type ReservationForSync = {

@@ -44,6 +44,9 @@ type Props = {
   onMoveStop: (routeId: string, dogId: string, direction: -1 | 1) => Promise<void>;
   onOptimize: (routeId: string) => Promise<void>;
   onPublish: (routeId: string) => Promise<void>;
+  onUnpublish: (routeId: string) => Promise<void>;
+  onCancelRoute: (routeId: string) => Promise<void>;
+  onCompleteRoute: (routeId: string) => Promise<void>;
   onDateChange: (date: string) => void;
 };
 
@@ -53,7 +56,7 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onOptimize, onPublish, onDateChange }: Props) {
+export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange }: Props) {
   const [sheet, setSheet] = useState<SheetState>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
   const [kind, setKind] = useState<ConstraintKind>('none');
@@ -155,7 +158,7 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
         </View>
         <Text style={styles.summary}>{dayItems.length} transport dogs · {drivers.length} drivers</Text>
       </View>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {drivers.map((driver) => {
           const route = routesByDriver.get(driver.id);
           const stops = route ? [...route.stops].sort((a, b) => a.sequence - b.sequence) : [];
@@ -202,6 +205,19 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
                     ) : null}
                     <Pressable accessibilityRole="button" accessibilityLabel={`Publish ${driver.name} route`} disabled={working} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
                       <Text style={styles.publishText}>{route.status === 'published' ? 'Republish' : 'Publish'}</Text>
+                    </Pressable>
+                    {route.status === 'published' ? (
+                      <>
+                        <Pressable accessibilityRole="button" accessibilityLabel={`Unpublish ${driver.name} route`} disabled={working} onPress={() => void onUnpublish(route.routeId)} style={styles.unpublishButton}>
+                          <Text style={styles.unpublishText}>Unpublish</Text>
+                        </Pressable>
+                        <Pressable accessibilityRole="button" accessibilityLabel={`Complete ${driver.name} route`} disabled={working} onPress={() => void onCompleteRoute(route.routeId)} style={styles.completeButton}>
+                          <Text style={styles.completeText}>✓ Done</Text>
+                        </Pressable>
+                      </>
+                    ) : null}
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Cancel ${driver.name} route`} disabled={working} onPress={() => void onCancelRoute(route.routeId)} style={styles.cancelRouteButton}>
+                      <Text style={styles.cancelRouteText}>✕</Text>
                     </Pressable>
                   </View>
                 ) : null}
@@ -353,7 +369,8 @@ function TimeTargetButton({ label, accessibilityLabel, value, active, onPress, h
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.cream },
+  screen: { flex: 1, backgroundColor: colors.forest700 },
+  scroll: { flex: 1, backgroundColor: colors.cream },
   header: { backgroundColor: colors.forest700, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 18, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
   eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
   dateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
@@ -372,6 +389,12 @@ const styles = StyleSheet.create({
   lateText: { color: colors.urgency, fontWeight: '800' },
   publishButton: { backgroundColor: colors.gold, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
   publishText: { color: colors.forest900, fontWeight: '900', fontSize: 12 },
+  unpublishButton: { borderWidth: 1, borderColor: colors.line, backgroundColor: colors.paper, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  unpublishText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
+  completeButton: { backgroundColor: '#4E8D5C', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  completeText: { color: 'white', fontWeight: '900', fontSize: 12 },
+  cancelRouteButton: { borderWidth: 1, borderColor: '#E8BFBF', backgroundColor: '#FBEDED', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8 },
+  cancelRouteText: { color: colors.urgency, fontWeight: '900', fontSize: 12 },
   driverActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   optimizeButton: { backgroundColor: colors.forest500, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
   optimizeText: { color: 'white', fontWeight: '900', fontSize: 12 },

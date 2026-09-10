@@ -194,6 +194,27 @@ export default function DispatchScreen() {
     await load();
   }, [load]);
 
+  // Volta a rota para rascunho: o motorista deixa de ver a rota, mas nada e apagado.
+  const unpublish = useCallback(async (routeId: string) => {
+    const { error } = await supabase.from('routes').update({ status: 'draft', published_at: null }).eq('id', routeId);
+    if (error) throw new Error(error.message);
+    await load();
+  }, [load]);
+
+  // Cancela a rota (status cancelado): sai da operacao e sai da tela do motorista.
+  const cancelRoute = useCallback(async (routeId: string) => {
+    const { error } = await supabase.from('routes').update({ status: 'cancelled' }).eq('id', routeId);
+    if (error) throw new Error(error.message);
+    await load();
+  }, [load]);
+
+  // Fecha a rota: ela sai da operacao (motorista deixa de ver) e entra no historico.
+  const completeRoute = useCallback(async (routeId: string) => {
+    const { error } = await supabase.from('routes').update({ status: 'completed' }).eq('id', routeId);
+    if (error) throw new Error(error.message);
+    await load();
+  }, [load]);
+
   const optimize = useCallback(async (routeId: string) => {
     const route = routes.find((candidate) => candidate.routeId === routeId);
     if (!route) return;
@@ -252,6 +273,9 @@ export default function DispatchScreen() {
           onMoveStop={moveStop}
           onOptimize={optimize}
           onPublish={publish}
+          onUnpublish={unpublish}
+          onCancelRoute={cancelRoute}
+          onCompleteRoute={completeRoute}
           onDateChange={setDate}
         />
       )}
@@ -260,7 +284,7 @@ export default function DispatchScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.cream },
+  screen: { flex: 1, backgroundColor: colors.forest700 },
   center: { marginTop: 80 },
   errorText: { color: colors.urgency, textAlign: 'center', marginTop: 60, paddingHorizontal: 24 },
 });

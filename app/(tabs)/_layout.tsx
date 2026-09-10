@@ -1,4 +1,5 @@
 import { Tabs } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, Text } from 'react-native';
 import { View } from 'react-native';
 
@@ -34,6 +35,7 @@ export default function TabLayout() {
   const activeNames = new Set((role === 'manager' ? MANAGER_TABS : DRIVER_TABS).map((tab) => tab.name));
 
   return (
+    <><StatusBar style="light" />
     <Tabs
       screenOptions={{
         headerShown: false,
@@ -58,5 +60,6 @@ export default function TabLayout() {
         );
       })}
     </Tabs>
+    </>
   );
 }

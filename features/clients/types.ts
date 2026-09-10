@@ -5,6 +5,7 @@ export type ClientWithDogs = {
   address_line_1: string | null;
   city: string | null;
   state: string | null;
+  active: boolean;
   dogs: string[];
 };
 

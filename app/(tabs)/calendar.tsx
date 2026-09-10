@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
 import { CalendarGrid, BOARDING_DOT, DAYCARE_DOT } from '@/features/calendar/CalendarGrid';
 import { addDaysISO, formatDayLabel, todayLocalISO } from '@/features/calendar/dates';
@@ -20,6 +21,7 @@ type DogRow = { id: string; name: string; client: { name: string } };
 const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function CalendarScreen() {
+  const router = useRouter();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState(todayLocalISO());
   const [view, setView] = useState<ViewMode>('day');
@@ -224,6 +226,16 @@ export default function CalendarScreen() {
     Alert.alert(`${item.clientName} · ${item.dogName}`, `Repeats ${schedule.weekdays.map((day) => WEEKDAY_NAMES[day]).join(' · ')}`, buttons);
   };
 
+  const openReservationActions = (item: DayItem) => {
+    if (!item.reservationId) { confirmRemoveReservation(item); return; }
+    const label = `${item.clientName} · ${item.dogName}`;
+    Alert.alert(label, 'What do you want to do with this reservation?', [
+      { text: 'Edit reservation', onPress: () => router.push({ pathname: '/reservation-edit', params: { id: item.reservationId as string } }) },
+      { text: 'Remove', style: 'destructive', onPress: () => void removeReservation(item) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
   const confirmRemoveReservation = (item: DayItem) => {
     const label = `${item.clientName} · ${item.dogName}`;
     Alert.alert('Remove reservation', `Remove ${label} from the calendar?`, [
@@ -272,7 +284,7 @@ export default function CalendarScreen() {
 
       <View style={styles.body}>
         {loading ? <ActivityIndicator style={styles.marginTop} color={colors.gold} size="large" /> : error ? <Text style={styles.errorText}>{error}</Text> : (
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.list}>
+          <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" showsVerticalScrollIndicator={false} contentContainerStyle={styles.list}>
             {grid && view !== 'day' ? (
               <View style={styles.gridCard}>
                 <CalendarGrid rows={grid.rows} counts={grid.counts} selectedDate={selectedDay} onSelectDate={setSelectedDay} />
@@ -287,16 +299,16 @@ export default function CalendarScreen() {
               color={colors.gold}
               items={summary.daycare}
               empty="No daycare on this day"
-              onPressItem={(item) => (item.kind === 'recurring-daycare' ? openItemActions(item) : confirmRemoveReservation(item))}
-              onRemoveLabel={(item) => (item.kind === 'recurring-daycare' ? `Recurring options ${item.dogName}` : `Remove ${item.dogName}`)}
+              onPressItem={(item) => (item.kind === 'recurring-daycare' ? openItemActions(item) : openReservationActions(item))}
+              onRemoveLabel={(item) => (item.kind === 'recurring-daycare' ? `Recurring options ${item.dogName}` : `Options ${item.dogName}`)}
             />
             <Section
               title="Boarding"
               color="#4E8D5C"
               items={summary.boarding}
               empty="No boarding on this day"
-              onPressItem={confirmRemoveReservation}
-              onRemoveLabel={(item) => `Remove ${item.dogName}`}
+              onPressItem={openReservationActions}
+              onRemoveLabel={(item) => `Options ${item.dogName}`}
             />
             {pausedToday.length > 0 ? (
               <View style={styles.section}>
@@ -368,7 +380,7 @@ function Section({ title, color, items, empty, onPressItem, onRemoveLabel }: { t
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.cream },
+  screen: { flex: 1, backgroundColor: colors.forest700 },
   header: { backgroundColor: colors.forest700, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 22, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
   eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
@@ -384,7 +396,7 @@ const styles = StyleSheet.create({
   arrow: { width: 44, height: 40, alignItems: 'center', justifyContent: 'center' },
   arrowText: { color: colors.forest700, fontSize: 30, fontWeight: '700', lineHeight: 32 },
   dayLabel: { color: colors.forest900, fontFamily: 'serif', fontWeight: '800', fontSize: 16, textTransform: 'capitalize', textAlign: 'center', flexShrink: 1 },
-  body: { flex: 1 },
+  body: { flex: 1, backgroundColor: colors.cream },
   list: { padding: 18, paddingBottom: 40 },
   marginTop: { marginTop: 60 },
   errorText: { color: colors.urgency, textAlign: 'center', marginTop: 40, paddingHorizontal: 24 },

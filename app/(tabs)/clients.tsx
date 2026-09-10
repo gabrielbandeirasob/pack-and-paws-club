@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
 import { AddClientReview } from '@/features/clients/AddClientReview';
 import { ClientsList } from '@/features/clients/ClientsList';
@@ -10,10 +11,11 @@ import type { ClientWithDogs, NewClientInput, PhoneContactCandidate } from '@/fe
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
-type ClientRow = { id: string; name: string; phone: string | null; address_line_1: string | null; city: string | null; state: string | null; dogs: { name: string }[] };
+type ClientRow = { id: string; name: string; phone: string | null; address_line_1: string | null; city: string | null; state: string | null; active: boolean; dogs: { name: string }[] };
 type MembershipRow = { organization_id: string };
 
 export default function ClientsScreen() {
+  const router = useRouter();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [clients, setClients] = useState<ClientWithDogs[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,9 +45,8 @@ export default function ClientsScreen() {
     if (!organization_id) { setClients([]); setLoading(false); return; }
     const { data: rows, error: clientsError } = await supabase
       .from('clients')
-      .select('id, name, phone, address_line_1, city, state, dogs(name)')
+      .select('id, name, phone, address_line_1, city, state, active, dogs(name)')
       .eq('organization_id', organization_id)
-      .eq('active', true)
       .order('name');
     if (clientsError) { setError(clientsError.message); setLoading(false); return; }
     setClients(((rows as ClientRow[]) ?? []).map((row) => ({ ...row, dogs: (row.dogs ?? []).map((dog) => dog.name) })));
@@ -119,7 +120,12 @@ export default function ClientsScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <ClientsList clients={clients} loading={loading} onAddClient={openPicker} />
+      <ClientsList
+        clients={clients}
+        loading={loading}
+        onAddClient={openPicker}
+        onOpenClient={(clientId) => router.push({ pathname: '/client-edit', params: { id: clientId } })}
+      />
       {error ? <Text style={styles.banner}>{error}</Text> : null}
       <Modal visible={pickerVisible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setPickerVisible(false)}>
         <SafeAreaView style={styles.modal}>
@@ -171,7 +177,7 @@ export default function ClientsScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.cream },
+  screen: { flex: 1, backgroundColor: colors.forest700 },
   banner: { position: 'absolute', left: 16, right: 16, bottom: 24, backgroundColor: colors.urgency, color: 'white', borderRadius: 12, padding: 12, overflow: 'hidden', textAlign: 'center' },
   flex: { flex: 1 },
   modal: { flex: 1, backgroundColor: colors.cream },

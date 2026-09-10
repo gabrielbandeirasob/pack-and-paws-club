@@ -15,6 +15,8 @@ export type DriverStopRow = {
     | {
         id: string;
         name: string | null;
+        behavior_notes: string | null;
+        medical_notes: string | null;
         client:
           | {
               name: string | null;
@@ -47,6 +49,8 @@ export function rowToStop(row: DriverStopRow): DriverStop {
     address: client?.address_line_1 ?? null,
     city: client?.city ?? null,
     instructions: client?.client_instructions?.pickup_access_instructions ?? null,
+    behaviorNotes: dog?.behavior_notes ?? null,
+    medicalNotes: dog?.medical_notes ?? null,
     latitude: client?.latitude ?? null,
     longitude: client?.longitude ?? null,
     windowEnd: row.window_end ? row.window_end.slice(0, 5) : null,

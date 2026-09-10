@@ -23,6 +23,10 @@ export default function MoreScreen() {
           <View><Text style={styles.rowTitle}>Drivers</Text><Text style={styles.rowHint}>Invite and manage delivery drivers</Text></View>
           <Text style={styles.chevron}>›</Text>
         </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Route history" onPress={() => router.push('/route-history')} style={styles.row}>
+          <View><Text style={styles.rowTitle}>Route history</Text><Text style={styles.rowHint}>Past routes, what was done and what was missed</Text></View>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
         <View style={styles.accountBox}>
           <Text style={styles.rowHint}>Signed in as</Text>
           <Text style={styles.accountEmail}>{session?.user.email}</Text>
@@ -36,11 +40,11 @@ export default function MoreScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.cream },
+  screen: { flex: 1, backgroundColor: colors.forest700 },
   header: { backgroundColor: colors.forest700, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 26, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
   eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
   title: { color: 'white', fontFamily: 'serif', fontSize: 30, fontWeight: '800', marginTop: 6 },
-  list: { padding: 18 },
+  list: { flex: 1, padding: 18, backgroundColor: colors.cream },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, padding: 15, marginBottom: 10 },
   rowTitle: { color: colors.ink, fontWeight: '800', fontSize: 15 },
   rowHint: { color: colors.muted, fontSize: 12, marginTop: 3 },

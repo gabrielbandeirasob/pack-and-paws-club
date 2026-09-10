@@ -40,7 +40,7 @@ export default function DriverScheduleScreen() {
         {loading ? <ActivityIndicator style={styles.center} color={colors.gold} size="large" /> : routes.length === 0 ? (
           <Text style={styles.empty}>No routes published to you yet.</Text>
         ) : (
-          <ScrollView contentContainerStyle={styles.list}>
+          <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" contentContainerStyle={styles.list}>
             {routes.map((route) => (
               <View key={route.id} style={styles.card}>
                 <Text style={styles.date}>{route.route_date}</Text>
@@ -55,11 +55,11 @@ export default function DriverScheduleScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.cream },
+  screen: { flex: 1, backgroundColor: colors.forest700 },
   header: { backgroundColor: colors.forest700, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 24, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
   eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
   title: { color: 'white', fontFamily: 'serif', fontSize: 28, fontWeight: '800', marginTop: 6 },
-  body: { flex: 1 },
+  body: { flex: 1, backgroundColor: colors.cream },
   center: { marginTop: 80 },
   empty: { color: colors.muted, textAlign: 'center', marginTop: 90, paddingHorizontal: 30, fontSize: 14 },
   list: { padding: 16 },

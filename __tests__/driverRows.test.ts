@@ -9,6 +9,8 @@ const fullRow: DriverStopRow = {
   dog: {
     id: 'dog-1',
     name: 'Marcejamba',
+    behavior_notes: 'Foge com barulho de caminhão',
+    medical_notes: 'Alergia a frango',
     client: {
       name: 'Raphael Stefan',
       address_line_1: 'Pier 39',
@@ -28,6 +30,9 @@ describe('rowToStop', () => {
     expect(stop.dogName).toBe('Marcejamba');
     expect(stop.address).toBe('Pier 39');
     expect(stop.city).toBe('San Francisco');
+    // Notas de seguranca do cao: o motorista PRECISA ver (antes nao chegavam na tela).
+    expect(stop.behaviorNotes).toBe('Foge com barulho de caminhão');
+    expect(stop.medicalNotes).toBe('Alergia a frango');
     expect(stop.instructions).toBe('Gate code 4321');
     expect(stop.latitude).toBe(37.8087);
     expect(stop.windowEnd).toBe('08:15'); // seconds trimmed for display
@@ -55,7 +60,7 @@ describe('rowToStop', () => {
   it('falls back to placeholder names for blank values', () => {
     const stop = rowToStop({
       ...fullRow,
-      dog: { id: 'dog-1', name: '   ', client: { name: '', address_line_1: null, city: null, latitude: null, longitude: null, client_instructions: null } },
+      dog: { id: 'dog-1', name: '   ', behavior_notes: null, medical_notes: null, client: { name: '', address_line_1: null, city: null, latitude: null, longitude: null, client_instructions: null } },
     });
 
     expect(stop.dogName).toBe('Dog');
