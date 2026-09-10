@@ -28,7 +28,8 @@
   "submit": {
     "production": {
       "ios": {
-        "bundleIdentifier": "br.com.automadigital.app"
+        "bundleIdentifier": "br.com.automadigital.app",
+        "appleTeamId": "957KA752J5"
       }
     }
   }
