@@ -19,35 +19,11 @@ import {
   type DriverEventStatus,
 } from '@/features/driver/offlineStore';
 import { colors, radii } from '@/features/theme/tokens';
+import { rowToStop, type DriverRouteRow, type DriverStopRow } from '@/features/driver/rows';
 import { supabase } from '@/lib/supabase';
 
-type StopRow = {
-  id: string;
-  sequence: number;
-  status: DriverStop['status'];
-  window_end: string | null;
-  exact_time: string | null;
-  dog: { id: string; name: string; client: { name: string; address_line_1: string | null; city: string | null; latitude: number | null; longitude: number | null; client_instructions: { pickup_access_instructions: string | null } | null } };
-};
-
-type RouteResult = { id: string; organization_id: string; published_at: string | null; route_stops: StopRow[] };
-
-function rowToStop(row: StopRow): DriverStop {
-  return {
-    id: row.id,
-    sequence: row.sequence,
-    status: row.status,
-    clientName: row.dog.client.name,
-    dogName: row.dog.name,
-    address: row.dog.client.address_line_1,
-    city: row.dog.client.city,
-    instructions: row.dog.client.client_instructions?.pickup_access_instructions ?? null,
-    latitude: row.dog.client.latitude,
-    longitude: row.dog.client.longitude,
-    windowEnd: row.window_end ? row.window_end.slice(0, 5) : null,
-    exactTime: row.exact_time ? row.exact_time.slice(0, 5) : null,
-  };
-}
+type StopRow = DriverStopRow;
+type RouteResult = DriverRouteRow;
 
 export default function DriverTodayScreen() {
   const [stops, setStops] = useState<DriverStop[]>([]);

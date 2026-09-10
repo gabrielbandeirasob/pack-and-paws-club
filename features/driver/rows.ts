@@ -1,0 +1,55 @@
+import type { DriverStop } from '@/features/driver/DriverRouteView';
+
+/**
+ * Shape of a route_stops row as returned by PostgREST with the driver embed.
+ * dogs/clients come back null when row-level security does not grant access,
+ * so every nested value must be treated as optional (see migration 013).
+ */
+export type DriverStopRow = {
+  id: string;
+  sequence: number;
+  status: DriverStop['status'];
+  window_end: string | null;
+  exact_time: string | null;
+  dog:
+    | {
+        id: string;
+        name: string | null;
+        client:
+          | {
+              name: string | null;
+              address_line_1: string | null;
+              city: string | null;
+              latitude: number | null;
+              longitude: number | null;
+              client_instructions: { pickup_access_instructions: string | null } | null;
+            }
+          | null;
+      }
+    | null;
+};
+
+export type DriverRouteRow = { id: string; organization_id: string; published_at: string | null; route_stops: DriverStopRow[] };
+
+const UNKNOWN_DOG = 'Dog';
+const UNKNOWN_CLIENT = 'Client';
+
+/** Maps a database row to the driver stop model without ever throwing on missing embeds. */
+export function rowToStop(row: DriverStopRow): DriverStop {
+  const dog = row.dog ?? null;
+  const client = dog?.client ?? null;
+  return {
+    id: row.id,
+    sequence: row.sequence,
+    status: row.status,
+    clientName: client?.name?.trim() || UNKNOWN_CLIENT,
+    dogName: dog?.name?.trim() || UNKNOWN_DOG,
+    address: client?.address_line_1 ?? null,
+    city: client?.city ?? null,
+    instructions: client?.client_instructions?.pickup_access_instructions ?? null,
+    latitude: client?.latitude ?? null,
+    longitude: client?.longitude ?? null,
+    windowEnd: row.window_end ? row.window_end.slice(0, 5) : null,
+    exactTime: row.exact_time ? row.exact_time.slice(0, 5) : null,
+  };
+}

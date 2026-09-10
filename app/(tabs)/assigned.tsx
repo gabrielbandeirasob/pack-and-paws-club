@@ -7,7 +7,11 @@ import { todayLocalISO } from '@/features/calendar/dates';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
-type StopRow = { id: string; status: string; dog: { name: string; client: { name: string } } };
+type StopRow = {
+  id: string;
+  status: string;
+  dog: { name: string | null; client: { name: string | null } | null } | null;
+};
 
 export default function DriverAssignedScreen() {
   const [stops, setStops] = useState<StopRow[]>([]);
@@ -46,7 +50,7 @@ export default function DriverAssignedScreen() {
           <ScrollView contentContainerStyle={styles.list}>
             {stops.map((stop) => (
               <View key={stop.id} style={styles.card}>
-                <Text style={styles.name}>{stop.dog.client.name} · {stop.dog.name}</Text>
+                <Text style={styles.name}>{stop.dog?.client?.name?.trim() || 'Client'} · {stop.dog?.name?.trim() || 'Dog'}</Text>
                 <Text style={styles.meta}>{stop.status}</Text>
               </View>
             ))}
