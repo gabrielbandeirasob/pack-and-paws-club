@@ -10,7 +10,13 @@
     "backgroundColor": "#F7F3E8",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.packandpaws.club"
+      "bundleIdentifier": "com.packandpaws.club",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "Pack & Paws Club shares your location with dispatch only while a route is active.",
+        "NSContactsUsageDescription": "Allow Pack & Paws Club to access contacts you choose to add as clients."
+      }
     },
     "android": {
       "adaptiveIcon": {
