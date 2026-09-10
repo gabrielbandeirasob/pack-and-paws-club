@@ -28,7 +28,7 @@
   "submit": {
     "production": {
       "ios": {
-        "bundleIdentifier": "com.packandpaws.club"
+        "bundleIdentifier": "br.com.automadigital.app"
       }
     }
   }

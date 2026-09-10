@@ -6,7 +6,7 @@
 |---|---|
 | Name (30) | `Pack & Paws Club` |
 | Subtitle (30) | `Dog daycare & transport runs` |
-| Bundle ID | `com.packandpaws.club` |
+| Bundle ID | `br.com.automadigital.app` |
 | SKU | `packandpawsclub` |
 | Primary category | Business |
 | Secondary category | Productivity |

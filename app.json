@@ -10,7 +10,7 @@
     "backgroundColor": "#F7F3E8",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.packandpaws.club",
+      "bundleIdentifier": "br.com.automadigital.app",
       "buildNumber": "1",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
@@ -26,7 +26,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.packandpaws.club",
+      "package": "br.com.automadigital.app",
       "permissions": [
         "android.permission.READ_CONTACTS",
         "android.permission.WRITE_CONTACTS"

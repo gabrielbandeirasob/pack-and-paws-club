@@ -1,58 +1,99 @@
 # TestFlight — checklist pós-aprovação da Apple
 
-Tudo que **não** depende da Apple já está pronto neste repositório:
+Conta Apple Developer **aprovada e ativa** (Individual, Apple ID `gabriel.bdsobrinho@gmail.com`).
+Conta Expo/EAS: **jarbasdev** (owner) · projeto EAS `784897ee-2e4f-47e0-bb1c-1eacc39d412b`.
 
-- `app.json` com bundle ID `com.packandpaws.club`, `buildNumber`, descrições de permissão (localização/contatos) e `ITSAppUsesNonExemptEncryption: false`.
-- `eas.json` com profiles `development`, `preview` e `production` (+ `autoIncrement` no production) e submit iOS apontando para o bundle ID.
-- EAS CLI instalado e logado na conta **jarbasdev** (owner). Projeto EAS vinculado: `784897ee-2e4f-47e0-bb1c-1eacc39d412b`.
-- `expo-doctor`: 21/21 checks passando; `tsc --noEmit` limpo; 99 testes passando; ícone 1024×1024 **sem transparência**.
+## Decisões fechadas (imutáveis depois do 1º build/submissão)
+
+| Item | Valor |
+|---|---|
+| Bundle ID (iOS) | `br.com.automadigital.app` |
+| Package (Android) | `br.com.automadigital.app` |
+| SKU (App Store Connect) | `packandpawsclub` |
+| Nome na loja | `Pack & Paws Club` |
+| Idioma primário | English (U.S.) |
+| Apple ID da conta | `gabriel.bdsobrinho@gmail.com` |
+| E-mail público (privacidade/suporte) | `automadigitalsup@gmail.com` |
+
+## ✅ Já pronto (não depende da Apple)
+
+- `app.json`: bundle/package `br.com.automadigital.app`, `buildNumber: 1`, descrições de permissão (localização/contatos), `ITSAppUsesNonExemptEncryption: false`.
+- `eas.json`: profiles `development` / `preview` / `production` (`autoIncrement: true`) + `submit.production.ios` apontando para o bundle ID.
+- EAS CLI logado na conta **jarbasdev**.
+- `expo-doctor` 21/21 · `tsc --noEmit` limpo · **106 testes** passando · ícone 1024×1024 sem transparência.
 - Site legal publicado (obrigatório na App Store):
   - Privacidade: https://pack-and-paws-legal.vercel.app/privacy
   - Suporte: https://pack-and-paws-legal.vercel.app/support
-  - E-mail de contato usado nas páginas: **support@autonestmobile.com** ⚠️ confirmar/criar este e-mail (ou trocar em `pack-and-paws/legal/*.html` e republicar).
+  - E-mail de contato: **automadigitalsup@gmail.com** ✅
 
-## 1. Quando a Apple aprovar o enrollment
+## Etapa 1 — Apple Developer Portal (navegador)
 
-1. Confirmar em https://developer.apple.com/account → *Membership details* (Team ID à mão).
-2. Registrar o **App ID** (bundle ID): *Identifiers* → `+` → App IDs → App → `com.packandpaws.club` → habilitar as capabilities usadas (nenhuma especial é necessária além do padrão; localização em uso não exige capability).
-3. Criar o app no **App Store Connect** (*My Apps* → `+` → New App):
-   - Platform: iOS · Name: `Pack & Paws Club` · Primary language: English (U.S.)
-   - Bundle ID: `com.packandpaws.club` · SKU: `packandpawsclub`
-   - User access: Full Access
+1. https://developer.apple.com/account → *Membership details* → anotar o **Team ID**.
+2. *Certificates, Identifiers & Profiles* → **Identifiers** → `+` → **App IDs** → **App** → Continue.
+   - Description: `Pack & Paws Club`
+   - Bundle ID: **Explicit** → `br.com.automadigital.app`
+   - Capabilities: nenhuma especial (localização em uso não exige capability).
+3. *Users and Access* → **Integrations** (aba superior) → **App Store Connect API** → **Team Keys** → `+`
+   - Name: `EAS Build` · Access/Role: **Admin**
+   - **Download** o arquivo `AuthKey_XXXXXXXXXX.p8` (só pode baixar UMA vez).
+   - Anotar **Key ID** e **Issuer ID**.
 
-## 2. Build de teste (EAS Build na nuvem)
+## Etapa 2 — App Store Connect (navegador)
+
+*My Apps* → `+` → **New App**:
+
+- Platform: **iOS**
+- Name: `Pack & Paws Club`
+- Primary language: **English (U.S.)**
+- Bundle ID: `br.com.automadigital.app` (aparece no dropdown depois da Etapa 1)
+- SKU: `packandpawsclub`
+- User Access: **Full Access**
+
+## Etapa 3 — Credenciais no EAS (terminal, sem senha e sem 2FA)
+
+Colocar o `.p8` no servidor e registrar na config:
+
+```bash
+install -m 600 /path/AuthKey_XXXXXXXXXX.p8 /opt/data/pack-and-paws/keys/ios/AuthKey_XXXXXXXXXX.p8
+```
+
+`eas.json` → `submit.production.ios`:
+
+```json
+{
+  "ascAppId": "ID_DO_APP_NO_ASC",
+  "ascApiKeyPath": "/opt/data/pack-and-paws/keys/ios/AuthKey_XXXXXXXXXX.p8",
+  "ascApiKeyId": "KEY_ID",
+  "ascApiKeyIssuerId": "ISSUER_ID"
+}
+```
+
+Registrar a chave no projeto EAS: `npx eas-cli credentials --platform ios` →
+*App Store Connect: Manage your API Key* → *Set up your project to use an API Key*.
+
+## Etapa 4 — Build de teste
 
 ```bash
 cd /opt/data/pack-and-paws/mobile
-npx eas-cli login            # se pedir: conta jarbasdev
-npx eas-cli build:configure  # só se o projeto EAS precisar ser reconfigurado
-npx eas-cli device:create    # registrar o iPhone de cada testador (development/preview)
-npx eas-cli build --platform ios --profile preview
+npx eas-cli build --platform ios --profile preview   # instala direto no aparelho registrado
+npx eas-cli device:create                            # registra o iPhone do testador (UDID)
 ```
 
-No primeiro build o EAS pergunta pelas credenciais Apple — escolher **"Let EAS handle it"** (o EAS cria o certificado de distribuição e o provisioning profile na conta Apple).
-
-Distribuir o build `preview` (integração/instalação direta no aparelho): o EAS devolve um link de instalação; o iPhone precisa estar registrado (`device:create`).
-
-## 3. Subir para o TestFlight
+## Etapa 5 — TestFlight
 
 ```bash
 npx eas-cli build --platform ios --profile production
 npx eas-cli submit --platform ios --profile production
 ```
 
-No `submit`, informar: Apple ID, App Store Connect App ID (`ascAppId`) e Team ID. Para automatizar depois, preencher em `eas.json` → `submit.production.ios`:
+No App Store Connect → **TestFlight**:
+1. Aguardar o processamento (5–15 min); o questionário de export compliance já é respondido por `ITSAppUsesNonExemptEncryption: false`.
+2. Criar o grupo **Internal Testers** e adicionar o e-mail do cliente (Raphael).
+   - Testador **interno** precisa ser um usuário no App Store Connect: *Users and Access* → *People* → convidar e-mail (conta Individual pode ter até 50 usuários). Sem review da Apple.
+   - Alternativa sem conta: grupo **External Testers** (convite por e-mail) — mas exige uma revisão beta da Apple (~1 dia).
+3. O testador instala o app **TestFlight** na App Store, abre o link e usa o app.
 
-```json
-"ios": { "appleId": "SEU_APPLE_ID", "ascAppId": "ID_DO_APP", "appleTeamId": "TEAM_ID" }
-```
-
-No App Store Connect → TestFlight:
-1. Aguardar o processamento do build (5–15 min) e responder o questionário de export compliance (já respondido automaticamente por `ITSAppUsesNonExemptEncryption: false`).
-2. Criar o grupo **Internal Testers** e adicionar o e-mail do cliente (Raphael) — testadores internos não precisam de review da Apple.
-3. Enviar o convite; o testador instala o **TestFlight** na App Store, abre o link e usa o app.
-
-## 4. Checklist de uso no aparelho do testador
+## Etapa 6 — Checklist de uso no aparelho do testador
 
 - [ ] Login do manager: `raphael@autonestmobile.com`
 - [ ] Calendário: criar reserva de daycare com transporte marcado
@@ -61,7 +102,7 @@ No App Store Connect → TestFlight:
 - [ ] Aceitar a permissão de localização e confirmar que o Dispatch mostra "📍 N min ago"
 - [ ] Modo avião: marcar ações → religar → confirmar a sincronização
 
-## 5. Pendências só depois da conta Google Cloud (pós-venda)
+## Pendências só depois da conta Google Cloud (pós-venda)
 
 - Matriz de trânsito real (Directions/Routes API) no otimizador de rotas.
 - Push notifications (alertas fora do app) — exige `expo-notifications` + credenciais APNs (o EAS cria a chave APNs automaticamente no primeiro build com o módulo).
