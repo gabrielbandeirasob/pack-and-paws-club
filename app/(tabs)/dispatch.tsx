@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { buildDay, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
+import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -15,11 +16,12 @@ type ExceptionRow = { id: string; recurring_schedule_id: string; action: 'skip' 
 type StopRow = {
   dog_id: string;
   sequence: number;
+  status: 'pending' | 'arrived' | 'picked_up' | 'completed' | 'skipped';
   window_start: string | null;
   window_end: string | null;
   exact_time: string | null;
   priority: 'normal' | 'priority';
-  dog: { id: string; name: string; client: { name: string } };
+  dog: { id: string; name: string; client: { name: string; latitude: number | null; longitude: number | null } };
 };
 type RouteRow = { id: string; driver_id: string; status: DispatchRoute['status']; route_stops: StopRow[] | null };
 
@@ -50,7 +52,7 @@ export default function DispatchScreen() {
       supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'confirmed'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId),
-      supabase.from('routes').select('id, driver_id, status, route_stops(dog_id, sequence, window_start, window_end, exact_time, priority, dog:dogs(id, name, client:clients(name)))').eq('organization_id', orgId).eq('route_date', date),
+      supabase.from('routes').select('id, driver_id, status, route_stops(dog_id, sequence, status, window_start, window_end, exact_time, priority, dog:dogs(id, name, client:clients(name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date),
     ]);
     const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? routeResult.error;
     if (firstError) { setError(firstError.message); setLoading(false); return; }
@@ -81,9 +83,12 @@ export default function DispatchScreen() {
       stops: (row.route_stops ?? []).map((stop) => ({
         dogId: stop.dog_id,
         sequence: stop.sequence,
+        status: stop.status,
         clientName: stop.dog.client.name,
         dogName: stop.dog.name,
         reservationKind: undefined,
+        latitude: stop.dog.client.latitude,
+        longitude: stop.dog.client.longitude,
         windowStart: stop.window_start ? stop.window_start.slice(0, 5) : null,
         windowEnd: stop.window_end ? stop.window_end.slice(0, 5) : null,
         exactTime: stop.exact_time ? stop.exact_time.slice(0, 5) : null,
@@ -155,6 +160,47 @@ export default function DispatchScreen() {
     await load();
   }, [load]);
 
+  const optimize = useCallback(async (routeId: string) => {
+    const route = routes.find((candidate) => candidate.routeId === routeId);
+    if (!route) return;
+    const sorted = [...route.stops].sort((a, b) => a.sequence - b.sequence);
+    const finished = sorted.filter((stop) => stop.status === 'completed' || stop.status === 'skipped');
+    const remaining = sorted.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped');
+    if (remaining.length < 2) return;
+
+    const result = optimizeRoute(
+      remaining.map((stop) => ({
+        dogId: stop.dogId,
+        clientName: stop.clientName,
+        dogName: stop.dogName,
+        latitude: stop.latitude,
+        longitude: stop.longitude,
+        windowStart: stop.windowStart,
+        windowEnd: stop.windowEnd,
+        exactTime: stop.exactTime,
+        priority: stop.priority,
+      })),
+    );
+    if (!result.feasible) {
+      Alert.alert('Cannot optimize this route', result.reason ?? 'The schedule is infeasible.');
+      return;
+    }
+    const lines = result.stops.map((stop) => `• ${stop.sequence}. ${stop.clientName} · ${stop.dogName} — arrive ${stop.plannedArrival}`);
+    Alert.alert('Optimized route', `Suggested order:\n${lines.join('\n')}`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Apply',
+        onPress: () => {
+          const order = [...finished.map((stop) => stop.dogId), ...result.stops.map((stop) => stop.dogId)];
+          void supabase.rpc('reorder_route_stops', { p_route_id: routeId, p_dog_ids: order }).then(({ error }) => {
+            if (error) Alert.alert('Unable to apply the route', error.message);
+            void load();
+          });
+        },
+      },
+    ]);
+  }, [routes, load]);
+
   const summary = useMemo(() => ({ date, drivers, dayItems, routes }), [date, drivers, dayItems, routes]);
 
   return (
@@ -169,6 +215,7 @@ export default function DispatchScreen() {
           onSaveStop={saveStopConstraint}
           onRemoveStop={removeStop}
           onMoveStop={moveStop}
+          onOptimize={optimize}
           onPublish={publish}
           onDateChange={setDate}
         />

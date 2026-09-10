@@ -19,8 +19,8 @@ const routes: DispatchRoute[] = [
     driverId: 'driver-rafael',
     status: 'draft',
     stops: [
-      { dogId: 'dog-luna', clientName: 'John', dogName: 'Luna', sequence: 1, windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' },
-      { dogId: 'dog-max', clientName: 'Sarah', dogName: 'Max', sequence: 2, windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' },
+      { dogId: 'dog-luna', clientName: 'John', dogName: 'Luna', sequence: 1, status: 'pending', latitude: 37.79, longitude: -122.4, windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' },
+      { dogId: 'dog-max', clientName: 'Sarah', dogName: 'Max', sequence: 2, status: 'pending', latitude: 37.8, longitude: -122.41, windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' },
     ],
   },
 ];
@@ -30,6 +30,7 @@ const noops = {
   onSaveStop: jest.fn().mockResolvedValue(undefined),
   onRemoveStop: jest.fn().mockResolvedValue(undefined),
   onMoveStop: jest.fn().mockResolvedValue(undefined),
+  onOptimize: jest.fn().mockResolvedValue(undefined),
   onPublish: jest.fn().mockResolvedValue(undefined),
   onDateChange: jest.fn(),
 };
@@ -100,6 +101,13 @@ describe('DispatchBoard', () => {
     expect(screen.getByText('John · Luna')).toBeTruthy();
     await fireEvent.press(screen.getByRole('button', { name: 'Publish Rafael route' }));
     expect(onPublish).toHaveBeenCalledWith('route-1');
+  });
+
+  it('optimizes a route with two pending stops', async () => {
+    const onOptimize = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={routes} {...noops} onOptimize={onOptimize} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Optimize Rafael route' }));
+    expect(onOptimize).toHaveBeenCalledWith('route-1');
   });
 
   it('moves a stop up and reorders through the route callback', async () => {

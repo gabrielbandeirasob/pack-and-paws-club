@@ -16,7 +16,12 @@ export const EMPTY_CONSTRAINT: DispatchConstraint = { windowStart: null, windowE
 
 export type DispatchDriver = { id: string; name: string };
 export type DispatchStopItem = { dogId: string; clientName: string; dogName: string; reservationKind?: string };
-export type DispatchRouteStop = DispatchStopItem & { sequence: number } & DispatchConstraint;
+export type DispatchRouteStop = DispatchStopItem & {
+  sequence: number;
+  status: 'pending' | 'arrived' | 'picked_up' | 'completed' | 'skipped';
+  latitude: number | null;
+  longitude: number | null;
+} & DispatchConstraint;
 export type DispatchRoute = { routeId: string; driverId: string; status: 'draft' | 'published' | 'completed' | 'cancelled'; stops: DispatchRouteStop[] };
 
 type ConstraintKind = 'none' | 'window' | 'exact';
@@ -35,6 +40,7 @@ type Props = {
   onSaveStop: (routeId: string, dogId: string, constraint: DispatchConstraint) => Promise<void>;
   onRemoveStop: (routeId: string, dogId: string) => Promise<void>;
   onMoveStop: (routeId: string, dogId: string, direction: -1 | 1) => Promise<void>;
+  onOptimize: (routeId: string) => Promise<void>;
   onPublish: (routeId: string) => Promise<void>;
   onDateChange: (date: string) => void;
 };
@@ -45,7 +51,7 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSaveStop, onRemoveStop, onMoveStop, onPublish, onDateChange }: Props) {
+export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSaveStop, onRemoveStop, onMoveStop, onOptimize, onPublish, onDateChange }: Props) {
   const [sheet, setSheet] = useState<SheetState>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
   const [kind, setKind] = useState<ConstraintKind>('none');
@@ -162,9 +168,16 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
                   </View>
                 </View>
                 {route && stops.length > 0 ? (
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Publish ${driver.name} route`} disabled={working} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
-                    <Text style={styles.publishText}>{route.status === 'published' ? 'Republish' : 'Publish'}</Text>
-                  </Pressable>
+                  <View style={styles.driverActions}>
+                    {stops.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped').length >= 2 ? (
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Optimize ${driver.name} route`} disabled={working} onPress={() => void onOptimize(route.routeId)} style={styles.optimizeButton}>
+                        <Text style={styles.optimizeText}>Optimize</Text>
+                      </Pressable>
+                    ) : null}
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Publish ${driver.name} route`} disabled={working} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
+                      <Text style={styles.publishText}>{route.status === 'published' ? 'Republish' : 'Publish'}</Text>
+                    </Pressable>
+                  </View>
                 ) : null}
               </View>
               {stops.map((stop, index) => (
@@ -330,6 +343,9 @@ const styles = StyleSheet.create({
   muted: { color: colors.muted, fontSize: 11 },
   publishButton: { backgroundColor: colors.gold, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
   publishText: { color: colors.forest900, fontWeight: '900', fontSize: 12 },
+  driverActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  optimizeButton: { backgroundColor: colors.forest500, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  optimizeText: { color: 'white', fontWeight: '900', fontSize: 12 },
   stop: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 11, borderBottomWidth: 1, borderBottomColor: '#F0F1ED' },
   position: { width: 24, height: 24, borderRadius: 8, backgroundColor: '#EDF3EB', alignItems: 'center', justifyContent: 'center' },
   positionText: { color: colors.forest700, fontSize: 11, fontWeight: '900' },
