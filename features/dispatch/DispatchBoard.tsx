@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
+import { isPastDeadline, minutesAgo, nextStopEta } from '@/features/driver/eta';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
 import { colors, radii } from '@/features/theme/tokens';
 
@@ -36,6 +37,7 @@ type Props = {
   drivers: DispatchDriver[];
   dayItems: DispatchStopItem[];
   routes: DispatchRoute[];
+  driverLocations?: Record<string, { latitude: number; longitude: number; updatedAt: string }>;
   onAssign: (dogId: string, driverId: string, constraint: DispatchConstraint) => Promise<void>;
   onSaveStop: (routeId: string, dogId: string, constraint: DispatchConstraint) => Promise<void>;
   onRemoveStop: (routeId: string, dogId: string) => Promise<void>;
@@ -51,7 +53,7 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSaveStop, onRemoveStop, onMoveStop, onOptimize, onPublish, onDateChange }: Props) {
+export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onOptimize, onPublish, onDateChange }: Props) {
   const [sheet, setSheet] = useState<SheetState>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
   const [kind, setKind] = useState<ConstraintKind>('none');
@@ -157,6 +159,23 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
         {drivers.map((driver) => {
           const route = routesByDriver.get(driver.id);
           const stops = route ? [...route.stops].sort((a, b) => a.sequence - b.sequence) : [];
+          const location = driverLocations[driver.id];
+          const eta = route && stops.length > 0
+            ? nextStopEta(
+                stops.map((stop) => ({
+                  id: stop.dogId,
+                  sequence: stop.sequence,
+                  clientName: stop.clientName,
+                  dogName: stop.dogName,
+                  latitude: stop.latitude,
+                  longitude: stop.longitude,
+                  windowEnd: stop.windowEnd,
+                  exactTime: stop.exactTime,
+                  status: stop.status,
+                })),
+                location ? { latitude: location.latitude, longitude: location.longitude } : null,
+              )
+            : null;
           return (
             <View key={driver.id} style={styles.driverCard}>
               <View style={styles.driverHeader}>
@@ -165,6 +184,13 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
                   <View>
                     <Text style={styles.driverName}>{driver.name}</Text>
                     <Text style={styles.muted}>{stops.length} stop{stops.length === 1 ? '' : 's'}{route?.status === 'published' ? ' · Published' : route ? ' · Draft' : ''}</Text>
+                    {route && stops.length > 0 ? (
+                      <Text style={[styles.muted, eta?.lateMinutes ? styles.lateText : null]}>
+                        {location ? `📍 ${minutesAgo(location.updatedAt)} min ago` : '📍 not sharing'}
+                        {eta ? ` · ~${eta.minutes} min to ${eta.dogName}` : ''}
+                        {eta && eta.lateMinutes > 0 ? ` · ⚠️ ${eta.lateMinutes} min late` : ''}
+                      </Text>
+                    ) : null}
                   </View>
                 </View>
                 {route && stops.length > 0 ? (
@@ -186,6 +212,8 @@ export function DispatchBoard({ date, drivers, dayItems, routes, onAssign, onSav
                   <View style={styles.stopMain}>
                     <Text style={styles.stopName}>{stop.clientName} · {stop.dogName}</Text>
                     <View style={styles.badgeRow}>
+                      {stop.status === 'skipped' ? <Badge text="⚠ Problem" color={colors.urgency} /> : null}
+                      {stop.status === 'pending' && isPastDeadline(stop.windowEnd, stop.exactTime) ? <Badge text="Late" color={colors.urgency} /> : null}
                       {stop.priority === 'priority' ? <Badge text="⚡ High" color={colors.urgency} /> : null}
                       {stop.windowStart && stop.windowEnd ? <Badge text={`⏰ ${stop.windowStart}–${stop.windowEnd}`} color={colors.forest500} /> : null}
                       {stop.exactTime ? <Badge text={`@ ${stop.exactTime}`} color={colors.gold} /> : null}
@@ -341,6 +369,7 @@ const styles = StyleSheet.create({
   avatarText: { color: 'white', fontWeight: '900' },
   driverName: { fontWeight: '900', color: colors.ink },
   muted: { color: colors.muted, fontSize: 11 },
+  lateText: { color: colors.urgency, fontWeight: '800' },
   publishButton: { backgroundColor: colors.gold, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
   publishText: { color: colors.forest900, fontWeight: '900', fontSize: 12 },
   driverActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },

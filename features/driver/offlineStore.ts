@@ -41,6 +41,15 @@ export async function saveRouteSnapshot(snapshot: RouteSnapshot): Promise<void> 
   }
 }
 
+/** Removes the cached route (used when the route ends/expires, so sensitive instructions do not linger). */
+export async function clearRouteSnapshot(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(ROUTE_KEY);
+  } catch {
+    // Best-effort.
+  }
+}
+
 // --- outbox ---------------------------------------------------------------
 
 export async function loadOutbox(): Promise<DriverEvent[]> {

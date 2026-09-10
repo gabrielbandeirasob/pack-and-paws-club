@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -35,8 +35,10 @@ export default function DispatchScreen() {
   const [drivers, setDrivers] = useState<DispatchDriver[]>([]);
   const [dayItems, setDayItems] = useState<DispatchStopItem[]>([]);
   const [routes, setRoutes] = useState<DispatchRoute[]>([]);
+  const [driverLocations, setDriverLocations] = useState<Record<string, { latitude: number; longitude: number; updatedAt: string }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const realtimeRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,10 +97,42 @@ export default function DispatchScreen() {
         priority: stop.priority,
       })),
     })));
+
+    const { data: locationRows } = await supabase
+      .from('driver_locations')
+      .select('driver_id, latitude, longitude, updated_at')
+      .eq('organization_id', orgId);
+    setDriverLocations(
+      Object.fromEntries(
+        ((locationRows as unknown as { driver_id: string; latitude: number; longitude: number; updated_at: string }[]) ?? []).map((row) => [
+          row.driver_id,
+          { latitude: row.latitude, longitude: row.longitude, updatedAt: row.updated_at },
+        ]),
+      ),
+    );
     setLoading(false);
   }, [date]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Realtime: route/stop/location changes from drivers land instantly on the board.
+  useEffect(() => {
+    if (!organizationId) return;
+    const refresh = () => {
+      if (realtimeRefresh.current) clearTimeout(realtimeRefresh.current);
+      realtimeRefresh.current = setTimeout(() => void load(), 700);
+    };
+    const channel = supabase
+      .channel(`dispatch-${organizationId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'routes', filter: `organization_id=eq.${organizationId}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'route_stops' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_locations', filter: `organization_id=eq.${organizationId}` }, refresh)
+      .subscribe();
+    return () => {
+      if (realtimeRefresh.current) clearTimeout(realtimeRefresh.current);
+      void supabase.removeChannel(channel);
+    };
+  }, [organizationId, load]);
 
   const routeIdForDriver = useCallback(async (driverId: string) => {
     if (!organizationId) throw new Error('Organization not found.');
@@ -211,6 +245,7 @@ export default function DispatchScreen() {
           drivers={summary.drivers}
           dayItems={summary.dayItems}
           routes={summary.routes}
+          driverLocations={driverLocations}
           onAssign={assign}
           onSaveStop={saveStopConstraint}
           onRemoveStop={removeStop}

@@ -47,6 +47,12 @@
         {
           "contactsPermission": "Allow Pack & Paws Club to access contacts you choose to add as clients."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Pack & Paws Club shares your location with dispatch only while a route is active."
+        }
       ]
     ],
     "experiments": {

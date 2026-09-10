@@ -1,12 +1,15 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DriverRouteView, type DriverAction, type DriverStop } from '@/features/driver/DriverRouteView';
+import { nextStopEta, type EtaResult } from '@/features/driver/eta';
+import { startLocationSharing, type LocationHandle, type LocationUpdate } from '@/features/driver/locationService';
 import {
   applyPendingEvents,
+  clearRouteSnapshot,
   enqueueEvent,
   isNetworkError,
   loadOutbox,
@@ -22,8 +25,12 @@ type StopRow = {
   id: string;
   sequence: number;
   status: DriverStop['status'];
-  dog: { id: string; name: string; client: { name: string; address_line_1: string | null; city: string | null; client_instructions: { pickup_access_instructions: string | null } | null } };
+  window_end: string | null;
+  exact_time: string | null;
+  dog: { id: string; name: string; client: { name: string; address_line_1: string | null; city: string | null; latitude: number | null; longitude: number | null; client_instructions: { pickup_access_instructions: string | null } | null } };
 };
+
+type RouteResult = { id: string; organization_id: string; published_at: string | null; route_stops: StopRow[] };
 
 function rowToStop(row: StopRow): DriverStop {
   return {
@@ -35,6 +42,10 @@ function rowToStop(row: StopRow): DriverStop {
     address: row.dog.client.address_line_1,
     city: row.dog.client.city,
     instructions: row.dog.client.client_instructions?.pickup_access_instructions ?? null,
+    latitude: row.dog.client.latitude,
+    longitude: row.dog.client.longitude,
+    windowEnd: row.window_end ? row.window_end.slice(0, 5) : null,
+    exactTime: row.exact_time ? row.exact_time.slice(0, 5) : null,
   };
 }
 
@@ -45,6 +56,12 @@ export default function DriverTodayScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const [pendingSync, setPendingSync] = useState(0);
+  const [routeId, setRouteId] = useState<string | null>(null);
+  const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [position, setPosition] = useState<LocationUpdate | null>(null);
+  const [eta, setEta] = useState<EtaResult | null>(null);
+  const locationHandle = useRef<LocationHandle | null>(null);
+  const realtimeRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const syncOutbox = useCallback(async (): Promise<boolean> => {
     const events = await loadOutbox();
@@ -57,11 +74,9 @@ export default function DriverTodayScreen() {
       const { error } = await supabase.from('route_stops').update({ status: event.status }).eq('id', event.stopId);
       if (error) {
         if (isNetworkError(error.message)) {
-          // Still offline: stop trying and keep the rest queued.
           remaining.push(event, ...events.slice(events.indexOf(event) + 1));
           break;
         }
-        // Non-network failure (e.g. route unpublished): drop the event, it will never succeed.
         continue;
       }
     }
@@ -81,27 +96,35 @@ export default function DriverTodayScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       const { data: routes, error } = await supabase
         .from('routes')
-        .select('id, published_at, route_stops(id, sequence, status, dog:dogs(id, name, client:clients(name, address_line_1, city, client_instructions(pickup_access_instructions))))')
+        .select('id, organization_id, published_at, route_stops(id, sequence, status, window_end, exact_time, dog:dogs(id, name, client:clients(name, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
         .eq('driver_id', user?.id ?? '')
         .eq('route_date', todayLocalISO())
         .eq('status', 'published')
         .order('published_at', { ascending: false })
         .limit(1);
       if (error) throw error;
-      const route = (routes as unknown as { id: string; published_at: string | null; route_stops: StopRow[] }[] | null)?.[0];
+      const route = (routes as unknown as RouteResult[] | null)?.[0];
       if (route) {
         const mapped = ((route.route_stops ?? []) as StopRow[]).map(rowToStop);
         snapshot = { savedAt: new Date().toISOString(), publishedAt: route.published_at, stops: mapped };
         await saveRouteSnapshot(snapshot);
+        setRouteId(route.id);
+        setOrganizationId(route.organization_id);
         setOffline(false);
+      } else {
+        // Route finished/not published: drop the cached copy (sensitive instructions must not linger).
+        await clearRouteSnapshot();
+        setRouteId(null);
+        setOrganizationId(null);
       }
+      // Retention: prune stale positions opportunistically.
+      void supabase.rpc('cleanup_driver_locations');
     } catch (reason) {
       if (!isNetworkError(reason)) {
         setMessage(reason instanceof Error ? reason.message : 'Unable to load your route.');
         setLoading(false);
         return;
       }
-      // Network failure: fall back to the saved snapshot below.
       setOffline(true);
       snapshot = await loadRouteSnapshot();
     }
@@ -127,6 +150,74 @@ export default function DriverTodayScreen() {
     }, [load]),
   );
 
+  // Realtime: route/stops changes from the manager push into the driver screen immediately.
+  useEffect(() => {
+    let channel = supabase.channel(`driver-route-${routeId ?? 'today'}`);
+    const scheduleReload = () => {
+      if (realtimeRefresh.current) clearTimeout(realtimeRefresh.current);
+      realtimeRefresh.current = setTimeout(() => void load(), 800);
+    };
+    channel = channel.on('postgres_changes', { event: '*', schema: 'public', table: 'routes' }, scheduleReload);
+    if (routeId) {
+      channel = channel.on('postgres_changes', { event: '*', schema: 'public', table: 'route_stops', filter: `route_id=eq.${routeId}` }, scheduleReload);
+    }
+    channel.subscribe();
+    return () => {
+      if (realtimeRefresh.current) clearTimeout(realtimeRefresh.current);
+      void supabase.removeChannel(channel);
+    };
+  }, [routeId, load]);
+
+  // Location sharing only while a published route is active.
+  useEffect(() => {
+    if (!routeId || !organizationId) {
+      locationHandle.current?.stop();
+      locationHandle.current = null;
+      setPosition(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const handle = await startLocationSharing((update) => {
+        if (cancelled) return;
+        setPosition(update);
+        void supabase.auth.getUser().then(({ data: { user } }) => {
+          if (!user) return;
+          void supabase.from('driver_locations').upsert(
+            {
+              route_id: routeId,
+              organization_id: organizationId,
+              driver_id: user.id,
+              latitude: update.latitude,
+              longitude: update.longitude,
+              recorded_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'route_id' },
+          );
+        });
+      });
+      if (cancelled) {
+        handle?.stop();
+        return;
+      }
+      locationHandle.current = handle;
+    })();
+    return () => {
+      cancelled = true;
+      locationHandle.current?.stop();
+      locationHandle.current = null;
+    };
+  }, [routeId, organizationId]);
+
+  // ETA for the next pending stop, recalculated as position/time change.
+  useEffect(() => {
+    const compute = () => setEta(nextStopEta(stops, position));
+    compute();
+    const timer = setInterval(compute, 60_000);
+    return () => clearInterval(timer);
+  }, [stops, position]);
+
   const act = async (stopId: string, action: DriverAction) => {
     setMessage(null);
     if (action === 'navigate') {
@@ -142,7 +233,6 @@ export default function DriverTodayScreen() {
     const status = statusMap[action];
     if (!status) return;
 
-    // Optimistic local update so the driver always sees feedback.
     setStops((current) => current.map((stop) => (stop.id === stopId ? { ...stop, status } : stop)));
 
     try {
@@ -154,14 +244,12 @@ export default function DriverTodayScreen() {
         }
         throw new Error(error.message);
       }
-      // Went through: clear any queued event for this stop and refresh.
       const events = (await loadOutbox()).filter((event) => event.stopId !== stopId);
       await saveOutbox(events);
       setPendingSync(events.length);
       if (events.length === 0) setOffline(false);
       await load();
     } catch (reason) {
-      // Offline: queue the event to sync later.
       const events = enqueueEvent(await loadOutbox(), { stopId, status, createdAt: new Date().toISOString() });
       await saveOutbox(events);
       setPendingSync(events.length);
@@ -182,6 +270,15 @@ export default function DriverTodayScreen() {
           <Text style={styles.offlineText}>
             {offline ? '📡 Offline — showing the saved route. ' : ''}
             {pendingSync > 0 ? `${pendingSync} change${pendingSync === 1 ? '' : 's'} waiting to sync.` : 'Changes will sync when you are back online.'}
+          </Text>
+        </View>
+      ) : null}
+      {eta ? (
+        <View style={[styles.etaBanner, eta.lateMinutes > 0 && styles.etaBannerLate]} accessibilityRole="alert">
+          <Text style={[styles.etaText, eta.lateMinutes > 0 && styles.etaTextLate]}>
+            {eta.lateMinutes > 0
+              ? `⚠️ Running ${eta.lateMinutes} min late for ${eta.clientName} · ${eta.dogName}`
+              : `Next: ${eta.clientName} · ${eta.dogName} — ~${eta.minutes} min away${position ? '' : ' (sharing location…)'}`}
           </Text>
         </View>
       ) : null}
@@ -213,6 +310,10 @@ const styles = StyleSheet.create({
   date: { color: '#D7E1D4', fontSize: 12, marginTop: 4 },
   offlineBanner: { backgroundColor: '#FBF0D9', borderBottomWidth: 1, borderBottomColor: '#EADFB8', paddingHorizontal: 16, paddingVertical: 8 },
   offlineText: { color: '#7A5E12', fontSize: 12, fontWeight: '800', textAlign: 'center' },
+  etaBanner: { backgroundColor: colors.sage, paddingHorizontal: 16, paddingVertical: 9 },
+  etaBannerLate: { backgroundColor: '#FBEAE6' },
+  etaText: { color: colors.forest900, fontSize: 12, fontWeight: '800', textAlign: 'center' },
+  etaTextLate: { color: colors.urgency },
   body: { flex: 1 },
   center: { marginTop: 80 },
   empty: { alignItems: 'center', paddingHorizontal: 34, marginTop: 90 },

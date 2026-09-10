@@ -11,6 +11,10 @@ export type DriverStop = {
   address: string | null;
   city: string | null;
   instructions: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  windowEnd?: string | null;
+  exactTime?: string | null;
 };
 
 export type DriverAction = 'navigate' | 'arrived' | 'picked_up' | 'completed' | 'problem';
@@ -41,6 +45,7 @@ export function DriverRouteView({ stops, onAction }: Props) {
               <StatusBadge status={stop.status} />
             </View>
             {address ? <Text style={styles.address}>{address}</Text> : null}
+            {stop.exactTime ? <Text style={styles.deadline}>⏱ Must arrive by {stop.exactTime}</Text> : stop.windowEnd ? <Text style={styles.deadline}>⏱ Window until {stop.windowEnd}</Text> : null}
             {stop.instructions ? <View style={styles.instructions}><Text style={styles.instructionsLabel}>ACCESS INSTRUCTIONS</Text><Text style={styles.instructionsText}>{stop.instructions}</Text></View> : null}
             {!done ? (
               <View style={styles.actions}>
@@ -78,7 +83,7 @@ export function DriverRouteView({ stops, onAction }: Props) {
 
 function StatusBadge({ status }: { status: DriverStop['status'] }) {
   const labels: Record<DriverStop['status'], string> = {
-    pending: 'Pending', arrived: 'Arrived', picked_up: 'Dog picked up', completed: 'Completed', skipped: 'Skipped',
+    pending: 'Pending', arrived: 'Arrived', picked_up: 'Dog picked up', completed: 'Completed', skipped: 'Problem',
   };
   const colorsByStatus: Record<DriverStop['status'], string> = {
     pending: '#8A6D1F', arrived: colors.forest700, picked_up: '#4E8D5C', completed: '#4E8D5C', skipped: colors.muted,
@@ -94,6 +99,7 @@ const styles = StyleSheet.create({
   title: { fontFamily: 'serif', fontSize: 17, fontWeight: '800', color: colors.forest900, flex: 1 },
   badge: { fontSize: 11, fontWeight: '900', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, overflow: 'hidden' },
   address: { color: colors.ink, fontSize: 13, marginTop: 6 },
+  deadline: { color: '#8A6D1F', fontSize: 12, fontWeight: '800', marginTop: 5 },
   instructions: { backgroundColor: '#FBF6E8', borderWidth: 1, borderColor: '#EADFB8', borderRadius: 12, padding: 11, marginTop: 10 },
   instructionsLabel: { color: '#8A6D1F', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 },
   instructionsText: { color: colors.ink, fontSize: 13, lineHeight: 19, marginTop: 4 },
