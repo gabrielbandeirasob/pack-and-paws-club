@@ -12,22 +12,25 @@ type Props = {
    * no cadastro existente (o banco nao permite dois clientes para o mesmo contato).
    */
   existingClient?: ExistingContactClient | null;
+  /**
+   * Dica de nome de cachorro ja lida do contato ("Leigh Ann(Mowgli)" -> "Mowgli").
+   * Entra preenchida e o usuario pode editar antes de salvar.
+   */
+  initialDogNames?: string;
   onSave: (payload: { client: NewClientInput; dogs: string[] }) => Promise<void>;
   onCancel: () => void;
 };
 
-export function AddClientReview({ initial, existingClient = null, onSave, onCancel }: Props) {
-  const [dogNames, setDogNames] = useState('');
+export function AddClientReview({ initial, existingClient = null, initialDogNames = '', onSave, onCancel }: Props) {
+  const [dogNames, setDogNames] = useState(initialDogNames);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const addressLine = [initial.address_line_1, initial.city].filter(Boolean).join(' · ');
   const submit = async () => {
+    // Cachorro e opcional: da para cadastrar o cliente agora e cadastrar os caes
+    // depois na ficha do cliente.
     const dogs = splitDogNames(dogNames);
-    if (dogs.length === 0) {
-      setError('Enter at least one dog name to add this client.');
-      return;
-    }
     setSaving(true);
     setError(null);
     try {
@@ -73,7 +76,9 @@ export function AddClientReview({ initial, existingClient = null, onSave, onCanc
             style={styles.input}
             placeholder="e.g. Bob"
           />
-          <Text style={styles.hint}>Two dogs? Separate the names with a comma — e.g. Mowgli, Kona.</Text>
+          <Text style={styles.hint}>
+            Optional — you can add the dog later in the client card. Two dogs now? Separate the names with a comma — e.g. Mowgli, Kona.
+          </Text>
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Pressable
             accessibilityRole="button"

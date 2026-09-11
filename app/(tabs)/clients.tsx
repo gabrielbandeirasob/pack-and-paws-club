@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 
 import { AddClientReview } from '@/features/clients/AddClientReview';
 import { ClientsList } from '@/features/clients/ClientsList';
-import { planContactAdd, type ExistingContactClient } from '@/features/clients/clientsService';
+import { planContactAdd, splitContactName, type ExistingContactClient } from '@/features/clients/clientsService';
 import { createContactsService, type ContactsService } from '@/features/clients/contactsService';
 import { mapContactToClientInput } from '@/features/clients/mapContact';
 import type { ClientWithDogs, NewClientInput, PhoneContactCandidate } from '@/features/clients/types';
@@ -25,7 +25,13 @@ export default function ClientsScreen() {
   const [query, setQuery] = useState('');
   const [contacts, setContacts] = useState<PhoneContactCandidate[]>([]);
   const [contactSearching, setContactSearching] = useState(false);
-  const [selected, setSelected] = useState<{ input: NewClientInput; contactId: string; existing: ExistingContactClient | null } | null>(null);
+  const [selected, setSelected] = useState<{
+    input: NewClientInput;
+    contactId: string;
+    existing: ExistingContactClient | null;
+    /** Nome de cachorro lido do contato ("Leigh Ann(Mowgli)") para ja vir preenchido. */
+    dogHint: string;
+  } | null>(null);
   const [contactError, setContactError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [service] = useState<ContactsService>(() => createContactsService());
@@ -121,7 +127,7 @@ export default function ClientsScreen() {
     setContactSearching(true);
     try {
       const existing = await findExistingClient(contact.id);
-      setSelected({ input, contactId: contact.id, existing });
+      setSelected({ input, contactId: contact.id, existing, dogHint: splitContactName(contact.name).dogHint });
     } catch (reason) {
       setContactError(reason instanceof Error ? reason.message : 'Unable to check this contact.');
     } finally {
@@ -208,6 +214,7 @@ export default function ClientsScreen() {
               <AddClientReview
                 initial={selected.input}
                 existingClient={selected.existing}
+                initialDogNames={selected.dogHint}
                 onSave={finishAdd}
                 onCancel={() => { setSelected(null); setContactError(null); }}
               />

@@ -1,4 +1,5 @@
 import type { NewClientInput, PhoneContactCandidate } from '@/features/clients/types';
+import { splitContactName } from '@/features/clients/clientsService';
 
 export function mapContactToClientInput(
   contact: PhoneContactCandidate,
@@ -8,7 +9,8 @@ export function mapContactToClientInput(
   const address = contact.address ?? null;
   const note = options.instructions ?? contact.note ?? null;
   return {
-    name: contact.name.trim(),
+    // "Leigh Ann(Mowgli)" vira cliente "Leigh Ann" (o cachorro entra como dica no formulario).
+    name: splitContactName(contact.name).clientName || contact.name.trim(),
     phone: contact.phone?.trim() || null,
     address_line_1: address?.street?.trim() || null,
     address_line_2: null,

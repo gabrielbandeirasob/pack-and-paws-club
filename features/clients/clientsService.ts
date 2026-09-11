@@ -203,3 +203,35 @@ export function planContactAdd(
     instructionsToAdd: existing.hasInstructions ? null : instructions,
   };
 }
+
+/**
+ * Separa o nome do contato do telefone em nome do cliente + dica de nome de cachorro.
+ *
+ * O chefe salva o contato com o cachorro colado no nome: "Leigh Ann(Mowgli)". O app
+ * usava esse texto inteiro como nome do cliente e ainda pedia o nome do cachorro de
+ * novo. Aqui o parenteses no FIM do nome vira dica de cachorro — e a dica ja entra
+ * preenchida no formulario, que continua editavel.
+ *
+ * Regras: parenteses repetidos no fim sao somados ("Ana(Mowgli)(Kona)" -> "Mowgli, Kona");
+ * " e " / " & " dentro do parenteses viram virgula; se o que sobrar for vazio
+ * ("(Mowgli)"), o nome do cliente fica o texto original — melhor manter do que
+ * cadastrar cliente sem nome.
+ */
+export function splitContactName(raw: string): { clientName: string; dogHint: string } {
+  const original = (raw ?? '').trim();
+  if (!original) return { clientName: '', dogHint: '' };
+
+  const trailingParentheses = /\(\s*([^()]*?)\s*\)\s*$/;
+  const hints: string[] = [];
+  let rest = original;
+  let match = trailingParentheses.exec(rest);
+  while (match) {
+    const inner = match[1].replace(/\s+(?:e|&)\s+/gi, ', ').trim();
+    if (inner) hints.unshift(inner);
+    rest = rest.slice(0, match.index).trim();
+    match = trailingParentheses.exec(rest);
+  }
+
+  const dogHint = uniqueDogNames(hints.flatMap((hint) => hint.split(','))).join(', ');
+  return { clientName: rest || original, dogHint };
+}

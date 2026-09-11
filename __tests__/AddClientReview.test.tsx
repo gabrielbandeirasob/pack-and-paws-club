@@ -24,12 +24,21 @@ describe('AddClientReview', () => {
     expect(screen.getByText('Call box 185. Key inside lockbox.')).toBeTruthy();
   });
 
-  it('requires a dog name before saving', async () => {
-    const onSave = jest.fn();
+  it('saves the client with no dog (the dog can be added later in the client card)', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<AddClientReview initial={input} onSave={onSave} onCancel={jest.fn()} />);
     await fireEvent.press(screen.getByRole('button', { name: 'Add as client' }));
-    expect(screen.getByText('Enter at least one dog name to add this client.')).toBeTruthy();
-    expect(onSave).not.toHaveBeenCalled();
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ dogs: [] }));
+  });
+
+  it('ja vem com o nome de cachorro lido do contato, e da para editar', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(
+      <AddClientReview initial={input} initialDogNames="Mowgli, Kona" onSave={onSave} onCancel={jest.fn()} />,
+    );
+    expect(screen.getByLabelText('Dog name').props.value).toBe('Mowgli, Kona');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add as client' }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ dogs: ['Mowgli', 'Kona'] }));
   });
 
   it('saves client payload together with the dog', async () => {
