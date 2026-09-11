@@ -42,11 +42,11 @@ export function NavigationSheet({ visible, target, onClose, onChoose }: Props) {
 
           <View style={styles.rememberRow}>
             <Switch value={remember} onValueChange={setRemember} trackColor={{ true: colors.forest700 }} />
-            <Text style={styles.rememberText}>Lembrar minha escolha</Text>
+            <Text style={styles.rememberText}>Remember my choice</Text>
           </View>
 
-          <Pressable accessibilityRole="button" accessibilityLabel="Cancelar" onPress={onClose} style={styles.cancel}>
-            <Text style={styles.cancelText}>Cancelar</Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={onClose} style={styles.cancel}>
+            <Text style={styles.cancelText}>Cancel</Text>
           </Pressable>
         </View>
       </View>

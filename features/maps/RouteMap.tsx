@@ -3,7 +3,7 @@
  * para o Google/Apple Maps). Usa o Google Maps quando a chave do Maps SDK está no
  * build; senão cai no mapa nativo do iOS, para nunca aparecer mapa quebrado.
  */
-import { StyleSheet, Text, View } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT, PROVIDER_GOOGLE } from 'react-native-maps';
 
 import { isMapsConfigured } from '@/features/integrations/google/config';
@@ -30,13 +30,27 @@ export function RouteMap({ stops, height = 210 }: Props) {
 
   const region = regionForPoints(points.map(({ latitude, longitude }) => ({ latitude, longitude })));
 
+  // react-native-maps nao tem versao web: no navegador a tela inteira quebrava
+  // ("codegenNativeComponent is not a function"). A web e usada para testes, entao
+  // mostramos um resumo em vez de derrubar a tela. No iPhone o mapa funciona normal.
+  if (Platform.OS === 'web') {
+    return (
+      <View style={[styles.empty, { height }]}>
+        <Text style={styles.emptyTitle}>{points.length > 0 ? `${points.length} stops on the map` : 'No stops yet'}</Text>
+        <Text style={styles.emptyText}>
+          The map is shown in the app on the phone. Use Navigate to open Google Maps or Apple Maps.
+        </Text>
+      </View>
+    );
+  }
+
   if (!region) {
     return (
       <View style={[styles.empty, { height }]}>
-        <Text style={styles.emptyTitle}>Mapa indisponível</Text>
+        <Text style={styles.emptyTitle}>Map unavailable</Text>
         <Text style={styles.emptyText}>
-          As paradas ainda não têm coordenadas. Adicione o endereço do cliente (com latitude/longitude) para ver a
-          rota no mapa.
+          These stops have no coordinates yet. Add the client address (with latitude/longitude) to see the route on
+          the map.
         </Text>
       </View>
     );
