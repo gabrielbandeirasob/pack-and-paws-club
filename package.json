@@ -44,7 +44,9 @@
     "web": "expo start --web",
     "web:export": "expo export --platform web",
     "typecheck": "tsc --noEmit",
-    "test": "jest --runInBand"
+    "test": "jest --runInBand",
+    "test:coverage": "jest --runInBand --coverage",
+    "test:db": "node scripts/db-flows-test.mjs"
   },
   "jest": {
     "preset": "jest-expo"
