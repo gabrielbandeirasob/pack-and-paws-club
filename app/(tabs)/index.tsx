@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,6 +11,8 @@ import {
   type ReservationRecord,
 } from '@/features/calendar/dayMath';
 import { ManagerDashboard, type DashboardRoute } from '@/features/dashboard/ManagerDashboard';
+import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
+import { landingRouteForRole } from '@/features/navigation/roleTabs';
 import { haversineKm } from '@/features/dispatch/routeOptimizer';
 import { isPastDeadline, nextStopEta } from '@/features/driver/eta';
 import { colors } from '@/features/theme/tokens';
@@ -138,8 +140,13 @@ function toDashboardRoute(
   };
 }
 
-export default function DashboardScreen() {
+export default function HomeScreen() {
   const router = useRouter();
+  const { role, isLoading: roleLoading } = useOrganizationRole();
+  const landingRoute = landingRouteForRole(role, roleLoading);
+  useEffect(() => {
+    if (landingRoute) router.replace(landingRoute as never);
+  }, [landingRoute, router]);
   const [managerName, setManagerName] = useState('');
   const [counts, setCounts] = useState({ daycare: 0, boarding: 0 });
   const [routes, setRoutes] = useState<DashboardRoute[]>([]);
@@ -241,6 +248,17 @@ export default function DashboardScreen() {
     () => ({ dateLabel: todayLabel(new Date()), greeting: `${salutation(new Date())}, ${managerName || 'there'}`, initials: initialsOf(managerName) }),
     [managerName],
   );
+
+  // Motorista nao tem painel de gestao (nem "Add from Contacts"/"New reservation"):
+  // enquanto o papel carrega, ou quando e driver, mostramos o carregando e o efeito
+  // acima leva ele para "Today's Route". Antes ele abria o painel do gerente.
+  if (roleLoading || role !== 'manager') {
+    return (
+      <SafeAreaView style={styles.screen} edges={['top']}>
+        <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <>

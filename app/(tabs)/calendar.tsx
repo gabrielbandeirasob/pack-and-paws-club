@@ -343,8 +343,8 @@ function weekRangeLabel(week: string[]): string {
   const [year, month] = week[0].split('-').map(Number);
   const start = new Date(Date.UTC(year, month - 1, Number(week[0].slice(-2))));
   const end = new Date(Date.UTC(year, month - 1, Number(week[6].slice(-2))));
-  const short = (date: Date) => date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', timeZone: 'UTC' }).replace('.', '');
-  if (start.getUTCMonth() === end.getUTCMonth()) return `${short(start)} – ${short(end)} de ${end.getUTCFullYear()}`;
+  const short = (date: Date) => date.toLocaleDateString('en-US', { day: '2-digit', month: 'short', timeZone: 'UTC' }).replace('.', '');
+  if (start.getUTCMonth() === end.getUTCMonth()) return `${short(start)} – ${short(end)}, ${end.getUTCFullYear()}`;
   return `${short(start)} – ${short(end)}`;
 }
 

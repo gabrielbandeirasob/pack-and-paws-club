@@ -27,6 +27,8 @@ export function shortWeekday(isoDate: string): string {
 
 export function formatDayLabel(isoDate: string): string {
   const [year, month, day] = isoDate.split('-').map(Number);
-  const label = new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', timeZone: 'UTC' });
+  // en-US: o app inteiro esta em ingles ("Daycare", "Boarding", "Transport"). Estava
+  // saindo "Fri, 11 De Set" — dia da semana em ingles com mes em portugues.
+  const label = new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-US', { day: '2-digit', month: 'short', timeZone: 'UTC' });
   return `${SHORT_WEEKDAYS[weekdayOfISO(isoDate)]}, ${label.replace('.', '')}`;
 }

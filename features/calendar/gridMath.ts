@@ -25,7 +25,7 @@ export function weekDatesISO(isoDate: string): string[] {
 
 export function monthLabel(isoDate: string): string {
   const [year, month] = isoDate.split('-').map(Number);
-  const label = new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const label = new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 

@@ -49,7 +49,7 @@ async function pickTime(screen: Awaited<ReturnType<typeof render>>, fieldLabel: 
 describe('DispatchBoard', () => {
   it('shows the selected date with unassigned transport dogs', async () => {
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} />);
-    expect(screen.getByText('Wed, 09 de set')).toBeTruthy();
+    expect(screen.getByText('Wed, Sep 09')).toBeTruthy();
     expect(screen.getByText('Maria · Bob')).toBeTruthy();
     expect(screen.getByText('3 unassigned')).toBeTruthy();
   });

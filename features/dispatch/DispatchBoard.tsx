@@ -5,6 +5,7 @@ import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
 import { isPastDeadline, minutesAgo, nextStopEta } from '@/features/driver/eta';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
 import { colors, radii } from '@/features/theme/tokens';
+import { plural } from '@/lib/plural';
 
 export type DispatchConstraint = {
   windowStart: string | null;
@@ -156,7 +157,9 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
             <Text style={styles.arrowText}>›</Text>
           </Pressable>
         </View>
-        <Text style={styles.summary}>{dayItems.length} transport dogs · {drivers.length} drivers</Text>
+        <Text style={styles.summary}>
+          {plural(dayItems.length, 'transport dog', 'transport dogs')} · {plural(drivers.length, 'driver', 'drivers')}
+        </Text>
       </View>
       <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {drivers.map((driver) => {

@@ -24,8 +24,8 @@ describe('gridMath week helpers', () => {
 });
 
 describe('gridMath month helpers', () => {
-  it('formats the month label in pt-BR', () => {
-    expect(monthLabel('2026-09-09')).toBe('Setembro de 2026');
+  it('formats the month label in English (the app language)', () => {
+    expect(monthLabel('2026-09-09')).toBe('September 2026');
   });
 
   it('adds months without overflowing short months', () => {
@@ -36,7 +36,7 @@ describe('gridMath month helpers', () => {
 
   it('builds a grid that starts on Sunday and covers the month cells', () => {
     const grid = monthMatrixISO('2026-09-09');
-    expect(grid.label).toBe('Setembro de 2026');
+    expect(grid.label).toBe('September 2026');
     // September 2026 starts on a Tuesday (weekday 2) → 2 leading nulls.
     expect(grid.weeks[0].slice(0, 2)).toEqual([null, null]);
     expect(grid.weeks[0][2]).toBe('2026-09-01');
