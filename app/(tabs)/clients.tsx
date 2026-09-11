@@ -5,7 +5,7 @@ import { useRouter } from 'expo-router';
 
 import { AddClientReview } from '@/features/clients/AddClientReview';
 import { ClientsList } from '@/features/clients/ClientsList';
-import { planContactAdd, splitContactName, type ExistingContactClient } from '@/features/clients/clientsService';
+import { clientHasInstructions, planContactAdd, splitContactName, type ExistingContactClient } from '@/features/clients/clientsService';
 import { createContactsService, type ContactsService } from '@/features/clients/contactsService';
 import { mapContactToClientInput } from '@/features/clients/mapContact';
 import type { ClientWithDogs, NewClientInput, PhoneContactCandidate } from '@/features/clients/types';
@@ -110,12 +110,13 @@ export default function ClientsScreen() {
       id: string;
       name: string;
       dogs: { name: string }[] | null;
-      client_instructions: { id: string }[] | null;
+      // a API devolve OBJETO (UNIQUE em client_id), nao lista
+      client_instructions: { id: string } | { id: string }[] | null;
     };
     return {
       id: row.id,
       name: row.name,
-      hasInstructions: (row.client_instructions ?? []).length > 0,
+      hasInstructions: clientHasInstructions(row.client_instructions),
       dogs: (row.dogs ?? []).map((dog) => dog.name),
     };
   }, [organizationId]);

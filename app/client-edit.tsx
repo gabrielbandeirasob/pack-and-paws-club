@@ -8,7 +8,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { EditClientForm, type ClientSavePayload, type EditableDog } from '@/features/clients/EditClientForm';
-import { clientUpdatePayload, dogUpdatePayload, normalizeText, type EditableClient } from '@/features/clients/clientsService';
+import {
+  clientUpdatePayload,
+  dogUpdatePayload,
+  firstInstruction,
+  instructionWritePlan,
+  normalizeText,
+  type EditableClient,
+} from '@/features/clients/clientsService';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -45,9 +52,13 @@ export default function ClientEditScreen() {
     const row = data as unknown as EditableClient & {
       active: boolean;
       dogs: { id: string; name: string; breed: string | null; behavior_notes: string | null; medical_notes: string | null }[] | null;
-      client_instructions: { id: string; pickup_access_instructions: string | null }[] | null;
+      // a API devolve OBJETO (UNIQUE em client_id), nao lista
+      client_instructions:
+        | { id: string; pickup_access_instructions: string | null }
+        | { id: string; pickup_access_instructions: string | null }[]
+        | null;
     };
-    const instruction = (row.client_instructions ?? [])[0] ?? null;
+    const instruction = firstInstruction(row.client_instructions);
     setLoaded({
       current: row,
       dogs: (row.dogs ?? []).map((dog) => ({ id: dog.id, name: dog.name, breed: dog.breed, behavior_notes: dog.behavior_notes, medical_notes: dog.medical_notes })),
@@ -85,13 +96,16 @@ export default function ClientEditScreen() {
       }
 
       const instructions = normalizeText(payload.instructions);
-      if (loaded.instructionId) {
-        const { error: instructionError } = await supabase.from('client_instructions').update({ pickup_access_instructions: instructions }).eq('id', loaded.instructionId);
+      const plan = instructionWritePlan(loaded.instructionId, instructions);
+      if (plan.mode === 'update') {
+        const { error: instructionError } = await supabase.from('client_instructions').update({ pickup_access_instructions: instructions }).eq('id', plan.id);
         if (instructionError) throw new Error(instructionError.message);
-      } else if (instructions) {
+      } else if (plan.mode === 'upsert') {
         const { data: client } = await supabase.from('clients').select('organization_id').eq('id', id).single();
         const organizationId = (client as { organization_id: string } | null)?.organization_id ?? null;
-        const { error: instructionError } = await supabase.from('client_instructions').insert({ organization_id: organizationId, client_id: id, pickup_access_instructions: instructions });
+        const { error: instructionError } = await supabase
+          .from('client_instructions')
+          .upsert({ organization_id: organizationId, client_id: id, pickup_access_instructions: instructions }, { onConflict: 'client_id' });
         if (instructionError) throw new Error(instructionError.message);
       }
 

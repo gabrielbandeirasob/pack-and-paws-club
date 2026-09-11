@@ -1,7 +1,10 @@
 import {
   addressChanged,
+  clientHasInstructions,
   clientUpdatePayload,
   dogUpdatePayload,
+  firstInstruction,
+  instructionWritePlan,
   normalizeText,
   splitDogNames,
 } from '@/features/clients/clientsService';
@@ -76,5 +79,41 @@ describe('edição de cliente', () => {
     expect(splitDogNames('Luna, Thor ; Mel')).toEqual(['Luna', 'Thor', 'Mel']);
     expect(splitDogNames('   ')).toEqual([]);
     expect(splitDogNames('Luna, luna')).toEqual(['Luna']);
+  });
+});
+
+/**
+ * Bug encontrado no teste de ponta a ponta (11/09/2026): o embed de client_instructions
+ * vem como OBJETO (ha UNIQUE em client_id, entao o PostgREST trata como "para um").
+ * As telas do gerente faziam `(obj ?? [])[0]` -> sempre null -> campo aparecia vazio e o
+ * salvar tentava INSERIR de novo, batendo no UNIQUE.
+ */
+describe('instrucoes de acesso: objeto ou lista', () => {
+  const obj = { id: 'i1', pickup_access_instructions: 'Gate code 4821' };
+
+  it('aceita objeto, lista, lista vazia e nulo', () => {
+    expect(firstInstruction(obj)).toEqual(obj);
+    expect(firstInstruction([obj])).toEqual(obj);
+    expect(firstInstruction([])).toBeNull();
+    expect(firstInstruction(null)).toBeNull();
+    expect(firstInstruction(undefined)).toBeNull();
+  });
+
+  it('le o texto do cliente que tem instrucoes (antes vinha vazio)', () => {
+    expect(firstInstruction(obj)?.pickup_access_instructions).toBe('Gate code 4821');
+  });
+
+  it('detecta que o cliente JA tem instrucoes nos dois formatos', () => {
+    expect(clientHasInstructions(obj)).toBe(true);
+    expect(clientHasInstructions([{ id: 'i1' }])).toBe(true);
+    expect(clientHasInstructions([])).toBe(false);
+    expect(clientHasInstructions(null)).toBe(false);
+  });
+
+  it('decide como gravar: atualizar, upsert (idempotente) ou nada', () => {
+    expect(instructionWritePlan('i1', 'Gate 4821')).toEqual({ mode: 'update', id: 'i1' });
+    expect(instructionWritePlan('i1', null)).toEqual({ mode: 'update', id: 'i1' });
+    expect(instructionWritePlan(null, 'Gate 4821')).toEqual({ mode: 'upsert' });
+    expect(instructionWritePlan(null, null)).toEqual({ mode: 'skip' });
   });
 });

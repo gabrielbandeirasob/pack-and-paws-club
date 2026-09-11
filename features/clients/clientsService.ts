@@ -205,6 +205,42 @@ export function planContactAdd(
 }
 
 /**
+ * A API do Supabase devolve o embed de `client_instructions` como **OBJETO**, nao como
+ * lista: existe UNIQUE em client_id (uma instrucao por cliente), entao o PostgREST
+ * entende a relacao como "para um".
+ *
+ * O motorista ja tratava como objeto (por isso via as instrucoes); as telas do gerente
+ * faziam `[0]` no objeto e viam tudo vazio — e, achando que nao existia, tentavam
+ * INSERIR de novo e batiam no UNIQUE. Estas duas funcoes aceitam as duas formas.
+ */
+export type InstructionEmbed<T extends { id: string }> = T | T[] | null | undefined;
+
+export function firstInstruction<T extends { id: string }>(value: InstructionEmbed<T>): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+/** O cliente ja tem instrucoes de acesso? (usado para nao inserir duas vezes) */
+export function clientHasInstructions(value: InstructionEmbed<{ id: string }>): boolean {
+  return firstInstruction(value) !== null;
+}
+
+/**
+ * Como gravar as instrucoes no salvar:
+ * - ja existe linha -> update (inclusive para limpar, mandando null)
+ * - nao existe e o texto foi preenchido -> upsert por client_id (idempotente: se outro
+ *   aparelho criou a linha primeiro, atualiza em vez de estourar o UNIQUE)
+ * - nao existe e o texto esta vazio -> nao faz nada
+ */
+export type InstructionWritePlan = { mode: 'update'; id: string } | { mode: 'upsert' } | { mode: 'skip' };
+
+export function instructionWritePlan(instructionId: string | null, instructions: string | null): InstructionWritePlan {
+  if (instructionId) return { mode: 'update', id: instructionId };
+  if (instructions) return { mode: 'upsert' };
+  return { mode: 'skip' };
+}
+
+/**
  * Separa o nome do contato do telefone em nome do cliente + dica de nome de cachorro.
  *
  * O chefe salva o contato com o cachorro colado no nome: "Leigh Ann(Mowgli)". O app
