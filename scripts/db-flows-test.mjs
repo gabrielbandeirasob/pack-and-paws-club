@@ -86,7 +86,8 @@ const ctx = (await sql(`
          (select count(*) from routes) as n_routes,
          (select count(*) from route_stops) as n_stops,
          (select count(*) from recurring_schedules) as n_sched,
-         (select count(*) from client_instructions) as n_instr;
+         (select count(*) from client_instructions) as n_instr,
+         (select count(*) from device_tokens) as n_tokens;
 `))[0]
 
 const { org: ORG, manager: MANAGER, driver: DRIVER, route: ROUTE, other_driver: OTHER_DRIVER,
@@ -185,14 +186,29 @@ await caso('nao le clientes', ANON, `select count(*)::int as n from clients;`, '
 await caso('nao le caes', ANON, `select count(*)::int as n from dogs;`, 'n==0')
 await caso('nao le rotas', ANON, `select count(*)::int as n from routes;`, 'n==0')
 
+console.log('\n== PUSH: token do aparelho (device_tokens) ==')
+const TOKEN_TESTE = 'ExponentPushToken[SUITE-' + U().slice(0, 8) + ']'
+// cada caso roda em transacao propria com rollback: inserir e ler tem de ficar no MESMO caso
+await caso('motorista registra o aparelho e le de volta', DRV,
+  `insert into device_tokens (organization_id, user_id, token, platform) values ('${ORG}','${DRIVER}','${TOKEN_TESTE}','ios');
+   select count(*)::int as n from device_tokens where token='${TOKEN_TESTE}';`, 'n>0')
+await caso('gerente NAO ve o token do motorista (troca de identidade no mesmo caso)', DRV,
+  `insert into device_tokens (organization_id, user_id, token, platform) values ('${ORG}','${DRIVER}','${TOKEN_TESTE}-2','ios');
+   select set_config('request.jwt.claims', json_build_object('sub','${MANAGER}','role','authenticated')::text, true);
+   select count(*)::int as n from device_tokens where token='${TOKEN_TESTE}-2';`, 'n==0')
+await caso('motorista NAO grava token em nome de outro', DRV,
+  `insert into device_tokens (organization_id, user_id, token, platform) values ('${ORG}','${MANAGER}','ExponentPushToken[ROUBADO-${U().slice(0, 6)}]','ios'); select 1 as n;`, 'erro')
+await caso('NAO grava token em organizacao alheia', DRV,
+  `insert into device_tokens (organization_id, user_id, token, platform) values ('00000000-0000-0000-0000-000000000000','${DRIVER}','ExponentPushToken[ALHEIA-${U().slice(0, 6)}]','ios'); select 1 as n;`, 'erro')
+
 console.log('\n== INTEGRIDADE: nada pode ter ficado gravado ==')
 const depois = (await sql(`
   select (select count(*) from clients) as n_clients, (select count(*) from dogs) as n_dogs,
          (select count(*) from reservations) as n_res, (select count(*) from routes) as n_routes,
          (select count(*) from route_stops) as n_stops, (select count(*) from recurring_schedules) as n_sched,
-         (select count(*) from client_instructions) as n_instr;
+         (select count(*) from client_instructions) as n_instr, (select count(*) from device_tokens) as n_tokens;
 `))[0]
-for (const k of ['n_clients', 'n_dogs', 'n_res', 'n_routes', 'n_stops', 'n_sched', 'n_instr']) {
+for (const k of ['n_clients', 'n_dogs', 'n_res', 'n_routes', 'n_stops', 'n_sched', 'n_instr', 'n_tokens']) {
   const igual = Number(depois[k]) === Number(ctx[k])
   console.log(`${igual ? '  OK   ' : ' FALHA '} ${k}: antes ${ctx[k]} / depois ${depois[k]}`)
   if (!igual) falhas++
