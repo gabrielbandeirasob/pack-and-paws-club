@@ -3,22 +3,15 @@
  * para o Google/Apple Maps). Usa o Google Maps quando a chave do Maps SDK está no
  * build; senão cai no mapa nativo do iOS, para nunca aparecer mapa quebrado.
  */
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT, PROVIDER_GOOGLE } from 'react-native-maps';
 
 import { isMapsConfigured } from '@/features/integrations/google/config';
 import { colors, radii } from '@/features/theme/tokens';
+import type { MapStop } from './mapStop';
 import { regionForPoints } from './region';
 
-export type MapStop = {
-  id: string;
-  sequence: number;
-  dogName: string;
-  address?: string | null;
-  status?: string;
-  latitude?: number | null;
-  longitude?: number | null;
-};
+export type { MapStop };
 
 type Props = { stops: MapStop[]; height?: number };
 
@@ -29,20 +22,6 @@ export function RouteMap({ stops, height = 210 }: Props) {
     .map((stop) => ({ latitude: stop.latitude as number, longitude: stop.longitude as number, stop }));
 
   const region = regionForPoints(points.map(({ latitude, longitude }) => ({ latitude, longitude })));
-
-  // react-native-maps nao tem versao web: no navegador a tela inteira quebrava
-  // ("codegenNativeComponent is not a function"). A web e usada para testes, entao
-  // mostramos um resumo em vez de derrubar a tela. No iPhone o mapa funciona normal.
-  if (Platform.OS === 'web') {
-    return (
-      <View style={[styles.empty, { height }]}>
-        <Text style={styles.emptyTitle}>{points.length > 0 ? `${points.length} stops on the map` : 'No stops yet'}</Text>
-        <Text style={styles.emptyText}>
-          The map is shown in the app on the phone. Use Navigate to open Google Maps or Apple Maps.
-        </Text>
-      </View>
-    );
-  }
 
   if (!region) {
     return (

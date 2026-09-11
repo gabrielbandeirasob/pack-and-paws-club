@@ -29,4 +29,17 @@ describe('DriverRouteView', () => {
     const screen = await render(<DriverRouteView stops={progressed} onAction={jest.fn()} />);
     expect(screen.getByText('Dog picked up')).toBeTruthy();
   });
+
+  it('numera as paradas pela posicao, mesmo se o banco trouxer sequence 0', async () => {
+    // Visto no teste na web: a tela mostrava "0. Maria Silva" porque o sequence vinha 0
+    // (o painel do Dispatch numerava 1, 2 — a tela do motorista usava o campo cru).
+    const zerados: DriverStop[] = [
+      { ...stops[0], sequence: 0 },
+      { ...stops[1], sequence: 0 },
+    ];
+    const screen = await render(<DriverRouteView stops={zerados} onAction={jest.fn()} />);
+    expect(screen.getByText('1. Maria · Bob')).toBeTruthy();
+    expect(screen.getByText('2. John · Luna')).toBeTruthy();
+    expect(screen.queryByText('0. Maria · Bob')).toBeNull();
+  });
 });

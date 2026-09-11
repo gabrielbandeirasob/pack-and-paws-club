@@ -41,9 +41,9 @@ export function DriverRouteView({ stops, onAction }: Props) {
     <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
       {ordered.length > 0 ? (
         <RouteMap
-          stops={ordered.map((stop) => ({
+          stops={ordered.map((stop, index) => ({
             id: stop.id,
-            sequence: stop.sequence,
+            sequence: index + 1,
             dogName: stop.dogName,
             address: addressLine(stop),
             status: stop.status,
@@ -52,13 +52,15 @@ export function DriverRouteView({ stops, onAction }: Props) {
           }))}
         />
       ) : null}
-      {ordered.map((stop) => {
+      {ordered.map((stop, index) => {
         const done = stop.status === 'completed' || stop.status === 'skipped';
         const address = addressLine(stop);
         return (
           <View key={stop.id} style={[styles.card, done && styles.cardDone]}>
             <View style={styles.rowTop}>
-              <Text style={styles.title}>{stop.sequence}. {stop.clientName} · {stop.dogName}</Text>
+              {/* Numera pela posicao na rota (1, 2, 3...). O painel do Dispatch ja fazia assim;
+                  aqui saia o campo cru do banco, que pode vir 0 ("0. Maria Silva"). */}
+              <Text style={styles.title}>{index + 1}. {stop.clientName} · {stop.dogName}</Text>
               <StatusBadge status={stop.status} />
             </View>
             {address ? <Text style={styles.address}>{address}</Text> : null}
