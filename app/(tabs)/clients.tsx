@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 
 import { AddClientReview } from '@/features/clients/AddClientReview';
 import { ClientsList } from '@/features/clients/ClientsList';
+import { planContactAdd, type ExistingContactClient } from '@/features/clients/clientsService';
 import { createContactsService, type ContactsService } from '@/features/clients/contactsService';
 import { mapContactToClientInput } from '@/features/clients/mapContact';
 import type { ClientWithDogs, NewClientInput, PhoneContactCandidate } from '@/features/clients/types';
@@ -24,8 +25,9 @@ export default function ClientsScreen() {
   const [query, setQuery] = useState('');
   const [contacts, setContacts] = useState<PhoneContactCandidate[]>([]);
   const [contactSearching, setContactSearching] = useState(false);
-  const [selected, setSelected] = useState<{ input: NewClientInput; contactId: string } | null>(null);
+  const [selected, setSelected] = useState<{ input: NewClientInput; contactId: string; existing: ExistingContactClient | null } | null>(null);
   const [contactError, setContactError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [service] = useState<ContactsService>(() => createContactsService());
 
   const load = useCallback(async () => {
@@ -58,6 +60,7 @@ export default function ClientsScreen() {
   const openPicker = async () => {
     setPickerVisible(true);
     setContactError(null);
+    setNotice(null);
     setQuery('');
     try {
       const permission = await service.requestPermission();
@@ -83,38 +86,102 @@ export default function ClientsScreen() {
     }
   };
 
-  const chooseContact = (contact: PhoneContactCandidate) => {
-    setSelected({ input: mapContactToClientInput(contact, contact.id), contactId: contact.id });
+  /**
+   * Esse contato do telefone ja virou cliente? O banco tem UNIQUE
+   * (organization_id, source_contact_identifier): nao pode existir dois cadastros do mesmo contato.
+   */
+  const findExistingClient = useCallback(async (contactIdentifier: string): Promise<ExistingContactClient | null> => {
+    if (!organizationId || !contactIdentifier) return null;
+    const { data, error: lookupError } = await supabase
+      .from('clients')
+      .select('id, name, dogs(name), client_instructions(id)')
+      .eq('organization_id', organizationId)
+      .eq('source_contact_identifier', contactIdentifier)
+      .maybeSingle();
+    if (lookupError) throw new Error(lookupError.message);
+    if (!data) return null;
+    const row = data as unknown as {
+      id: string;
+      name: string;
+      dogs: { name: string }[] | null;
+      client_instructions: { id: string }[] | null;
+    };
+    return {
+      id: row.id,
+      name: row.name,
+      hasInstructions: (row.client_instructions ?? []).length > 0,
+      dogs: (row.dogs ?? []).map((dog) => dog.name),
+    };
+  }, [organizationId]);
+
+  const chooseContact = async (contact: PhoneContactCandidate) => {
+    const input = mapContactToClientInput(contact, contact.id);
+    setContactError(null);
+    setNotice(null);
+    setContactSearching(true);
+    try {
+      const existing = await findExistingClient(contact.id);
+      setSelected({ input, contactId: contact.id, existing });
+    } catch (reason) {
+      setContactError(reason instanceof Error ? reason.message : 'Unable to check this contact.');
+    } finally {
+      setContactSearching(false);
+    }
   };
 
-  const saveClient = async (payload: { client: NewClientInput; dogs: string[] }) => {
-    if (!organizationId) throw new Error('Organization not found for this account.');
-    const { data: inserted, error: clientError } = await supabase
-      .from('clients')
-      .insert({ ...payload.client, organization_id: organizationId })
-      .select('id')
-      .single();
-    if (clientError) throw new Error(clientError.message);
-    const clientId = inserted.id as string;
-    if (payload.client.pickup_access_instructions) {
-      const { error: instructionError } = await supabase.from('client_instructions').insert({
-        organization_id: organizationId,
-        client_id: clientId,
-        pickup_access_instructions: payload.client.pickup_access_instructions,
-      });
-      if (instructionError) throw new Error(instructionError.message);
-    }
+  const addDogsToClient = async (clientId: string, dogNames: string[]) => {
+    if (dogNames.length === 0) return;
     const { error: dogsError } = await supabase.from('dogs').insert(
-      payload.dogs.map((name) => ({ organization_id: organizationId, client_id: clientId, name })),
+      dogNames.map((name) => ({ organization_id: organizationId, client_id: clientId, name })),
     );
     if (dogsError) throw new Error(dogsError.message);
   };
 
+  const saveClient = async (payload: { client: NewClientInput; dogs: string[] }) => {
+    if (!organizationId) throw new Error('Organization not found for this account.');
+    let plan = planContactAdd(selected?.existing ?? null, payload.client, payload.dogs);
+    let clientId = plan.clientId;
+
+    if (plan.mode === 'create') {
+      const { data: inserted, error: clientError } = await supabase
+        .from('clients')
+        .insert({ ...payload.client, organization_id: organizationId })
+        .select('id')
+        .single();
+      if (clientError && clientError.code !== '23505') throw new Error(clientError.message);
+      if (clientError) {
+        // Corrida: outro aparelho cadastrou o mesmo contato entre a busca e o insert.
+        // Em vez de devolver o erro cru do banco (duplicate key), usa o cadastro que ja existe.
+        const raced = await findExistingClient(payload.client.source_contact_identifier ?? '');
+        if (!raced) throw new Error(clientError.message);
+        plan = planContactAdd(raced, payload.client, payload.dogs);
+        clientId = raced.id;
+      } else {
+        clientId = inserted.id as string;
+      }
+    }
+    if (!clientId) throw new Error('Could not save the client.');
+
+    await addDogsToClient(clientId, plan.dogsToAdd);
+    if (plan.instructionsToAdd) {
+      const { error: instructionError } = await supabase.from('client_instructions').insert({
+        organization_id: organizationId,
+        client_id: clientId,
+        pickup_access_instructions: plan.instructionsToAdd,
+      });
+      if (instructionError) throw new Error(instructionError.message);
+    }
+    return { mode: plan.mode, name: selected?.existing?.name ?? payload.client.name, dogsAdded: plan.dogsToAdd };
+  };
+
   const finishAdd = async (payload: { client: NewClientInput; dogs: string[] }) => {
-    await saveClient(payload);
+    const result = await saveClient(payload);
     setPickerVisible(false);
     setSelected(null);
     setContacts([]);
+    if (result.dogsAdded.length === 0) setNotice(`${result.name} is already a client — no new dog was added.`);
+    else if (result.mode === 'reuse') setNotice(`Added ${result.dogsAdded.join(', ')} to ${result.name} (existing client).`);
+    else setNotice(null);
     await load();
   };
 
@@ -127,6 +194,7 @@ export default function ClientsScreen() {
         onOpenClient={(clientId) => router.push({ pathname: '/client-edit', params: { id: clientId } })}
       />
       {error ? <Text style={styles.banner}>{error}</Text> : null}
+      {notice ? <Text style={styles.noticeBanner}>{notice}</Text> : null}
       <Modal visible={pickerVisible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setPickerVisible(false)}>
         <SafeAreaView style={styles.modal}>
           <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -139,6 +207,7 @@ export default function ClientsScreen() {
             {selected ? (
               <AddClientReview
                 initial={selected.input}
+                existingClient={selected.existing}
                 onSave={finishAdd}
                 onCancel={() => { setSelected(null); setContactError(null); }}
               />
@@ -157,7 +226,7 @@ export default function ClientsScreen() {
                 {contactSearching ? <ActivityIndicator style={styles.marginTop} color={colors.gold} size="large" /> : null}
                 <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.results}>
                   {contacts.map((contact) => (
-                    <Pressable key={contact.id} accessibilityRole="button" onPress={() => chooseContact(contact)} style={({ pressed }) => [styles.contactRow, pressed && styles.pressedRow]}>
+                    <Pressable key={contact.id} accessibilityRole="button" onPress={() => { void chooseContact(contact); }} style={({ pressed }) => [styles.contactRow, pressed && styles.pressedRow]}>
                       <View style={styles.contactAvatar}><Text style={styles.contactInitial}>{(contact.name[0] ?? '?').toUpperCase()}</Text></View>
                       <View style={styles.contactInfo}>
                         <Text style={styles.contactName}>{contact.name}</Text>
@@ -179,6 +248,7 @@ export default function ClientsScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.forest700 },
   banner: { position: 'absolute', left: 16, right: 16, bottom: 24, backgroundColor: colors.urgency, color: 'white', borderRadius: 12, padding: 12, overflow: 'hidden', textAlign: 'center' },
+  noticeBanner: { position: 'absolute', left: 16, right: 16, bottom: 24, backgroundColor: colors.sage, color: colors.forest900, fontWeight: '800', borderRadius: 12, padding: 12, overflow: 'hidden', textAlign: 'center' },
   flex: { flex: 1 },
   modal: { flex: 1, backgroundColor: colors.cream },
   modalHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8, gap: 14 },

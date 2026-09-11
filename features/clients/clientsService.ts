@@ -103,19 +103,24 @@ export function dogUpdatePayload(values: DogFormValues): DogFormValues {
   };
 }
 
-/** Nomes novos digitados num campo so ("Luna, Thor") — sem repetir (ignora maiusculas). */
-export function splitDogNames(raw: string): string[] {
+/** Nomes de cao limpos: sem vazios e sem repeticao (ignora maiusculas e acentos). */
+export function uniqueDogNames(names: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
-  for (const part of raw.split(/[,;\n]/)) {
-    const name = normalizeText(part);
+  for (const raw of names) {
+    const name = normalizeText(raw);
     if (!name) continue;
-    const key = name.toLowerCase();
+    const key = normalizeForSearch(name);
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(name);
   }
   return out;
+}
+
+/** Nomes novos digitados num campo so ("Luna, Thor") — sem repetir (ignora maiusculas). */
+export function splitDogNames(raw: string): string[] {
+  return uniqueDogNames(raw.split(/[,;\n]/));
 }
 
 /** Compara ignorando maiusculas e acentos (buscar "joao" acha "João"). */
@@ -148,4 +153,53 @@ export function filterClients<T extends SearchableClient>(clients: T[], query: s
       .join(' | ');
     return haystack.includes(term);
   });
+}
+
+/**
+ * Cliente que JA veio desse contato do telefone (mesmo organization_id + source_contact_identifier).
+ * O banco tem UNIQUE (organization_id, source_contact_identifier): nao existe (nem pode existir)
+ * dois cadastros para o mesmo contato.
+ */
+export type ExistingContactClient = {
+  id: string;
+  name: string;
+  hasInstructions: boolean;
+  dogs: string[];
+};
+
+export type ContactAddPlan = {
+  /** create = primeiro cadastro desse contato; reuse = contato que ja e cliente. */
+  mode: 'create' | 'reuse';
+  /** id do cliente existente (so no modo reuse). */
+  clientId: string | null;
+  /** Cachorros que realmente precisam ser inseridos (sem repetir os que o cliente ja tem). */
+  dogsToAdd: string[];
+  /** Instrucoes de acesso a inserir (no reuse, so quando o cliente ainda nao tem nenhuma). */
+  instructionsToAdd: string | null;
+};
+
+/**
+ * Decide o que fazer ao adicionar um contato: criar o cliente ou reaproveitar o cadastro.
+ *
+ * Caso real: o mesmo dono tem dois caes (Mowgli e Kona) e entra pelo mesmo contato duas vezes.
+ * Sem isso, a segunda vez estourava "duplicate key value violates unique constraint
+ * clients_organization_id_source_contact_identifier_key" na cara do usuario.
+ */
+export function planContactAdd(
+  existing: ExistingContactClient | null,
+  input: { pickup_access_instructions?: string | null },
+  typedDogNames: string[],
+): ContactAddPlan {
+  const typed = uniqueDogNames(typedDogNames);
+  const instructions = normalizeText(input.pickup_access_instructions);
+  if (!existing) {
+    return { mode: 'create', clientId: null, dogsToAdd: typed, instructionsToAdd: instructions };
+  }
+  const alreadyThere = new Set(existing.dogs.map((name) => normalizeForSearch(name)));
+  return {
+    mode: 'reuse',
+    clientId: existing.id,
+    dogsToAdd: typed.filter((name) => !alreadyThere.has(normalizeForSearch(name))),
+    instructionsToAdd: existing.hasInstructions ? null : instructions,
+  };
 }

@@ -1,5 +1,6 @@
 import { fireEvent, render } from '@testing-library/react-native';
 import { AddClientReview } from '@/features/clients/AddClientReview';
+import type { ExistingContactClient } from '@/features/clients/clientsService';
 import type { NewClientInput } from '@/features/clients/types';
 
 const input: NewClientInput = {
@@ -27,7 +28,7 @@ describe('AddClientReview', () => {
     const onSave = jest.fn();
     const screen = await render(<AddClientReview initial={input} onSave={onSave} onCancel={jest.fn()} />);
     await fireEvent.press(screen.getByRole('button', { name: 'Add as client' }));
-    expect(screen.getByText('Enter the dog name to add this client.')).toBeTruthy();
+    expect(screen.getByText('Enter at least one dog name to add this client.')).toBeTruthy();
     expect(onSave).not.toHaveBeenCalled();
   });
 
@@ -40,5 +41,26 @@ describe('AddClientReview', () => {
       client: expect.objectContaining({ name: 'Maria Silva' }),
       dogs: ['Bob'],
     }));
+  });
+
+  it('accepts two dogs in one field, separated by comma', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<AddClientReview initial={input} onSave={onSave} onCancel={jest.fn()} />);
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Mowgli, Kona');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add as client' }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ dogs: ['Mowgli', 'Kona'] }));
+  });
+
+  it('warns when the contact is already a client and sends the new dog to that record', async () => {
+    const existingClient: ExistingContactClient = { id: 'client-1', name: 'Leigh Ann(Mowgli)', hasInstructions: false, dogs: ['Mowgli'] };
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(
+      <AddClientReview initial={input} existingClient={existingClient} onSave={onSave} onCancel={jest.fn()} />,
+    );
+    expect(screen.getByText('ALREADY A CLIENT')).toBeTruthy();
+    expect(screen.getByText(/already registered \(dogs: Mowgli\)/)).toBeTruthy();
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Kona');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add to existing client' }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ dogs: ['Kona'] }));
   });
 });
