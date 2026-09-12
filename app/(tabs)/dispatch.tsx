@@ -7,6 +7,7 @@ import { todayLocalISO } from '@/features/calendar/dates';
 import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
 import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
 import { STALE_ROUTE_TITLE, expectedVersion, isStaleRouteError, routeErrorMessage } from '@/features/dispatch/staleRoute';
+import { fetchTravelTimes } from '@/features/dispatch/trafficProvider';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -277,6 +278,20 @@ export default function DispatchScreen() {
     const remaining = sorted.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped');
     if (remaining.length < 2) return;
 
+    // Tempos reais de transito (servidor). Sem funcao/chave/internet, cai na estimativa de
+    // linha reta e o gestor nem percebe atraso: a espera e limitada por timeout curto.
+    const traffic = await fetchTravelTimes(remaining.map((stop) => ({
+      dogId: stop.dogId,
+      clientName: stop.clientName,
+      dogName: stop.dogName,
+      latitude: stop.latitude,
+      longitude: stop.longitude,
+      windowStart: stop.windowStart,
+      windowEnd: stop.windowEnd,
+      exactTime: stop.exactTime,
+      priority: stop.priority,
+    })));
+
     const result = optimizeRoute(
       remaining.map((stop) => ({
         dogId: stop.dogId,
@@ -289,13 +304,15 @@ export default function DispatchScreen() {
         exactTime: stop.exactTime,
         priority: stop.priority,
       })),
+      { travel: traffic.travel },
     );
     if (!result.feasible) {
       Alert.alert('Cannot optimize this route', result.reason ?? 'The schedule is infeasible.');
       return;
     }
     const lines = result.stops.map((stop) => `• ${stop.sequence}. ${stop.clientName} · ${stop.dogName} — arrive ${stop.plannedArrival}`);
-    Alert.alert('Optimized route', `Suggested order:\n${lines.join('\n')}`, [
+    const origem = traffic.source === 'live' ? 'live traffic' : 'estimated times';
+    Alert.alert(`Optimized route (${origem})`, `Suggested order:\n${lines.join('\n')}`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Apply',

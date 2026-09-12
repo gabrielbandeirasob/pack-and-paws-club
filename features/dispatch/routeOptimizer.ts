@@ -1,5 +1,8 @@
 // Route optimizer: window/priority aware ordering with feasibility detection.
-// Pure module — no I/O, fully unit-testable. Traffic-aware matrices arrive with GCP (Fase 6 follow-up).
+// Pure module — no I/O, fully unit-testable. Tempos reais de transito entram por
+// `options.travel` (ver travelMatrix.ts); sem eles, cai na linha reta + velocidade media.
+
+import type { TravelTimes } from '@/features/dispatch/travelMatrix';
 
 export type OptimizeStop = {
   dogId: string;
@@ -32,6 +35,8 @@ export type OptimizeOptions = {
   serviceMinutes?: number; // default service time per stop (default 8)
   homeLatitude?: number | null; // driver origin; travel to the first stop counts from here
   homeLongitude?: number | null;
+  /** Tempos reais (Google, via servidor). Ausente/incompleto = estimativa por linha reta. */
+  travel?: TravelTimes | null;
 };
 
 const DEFAULT_START = 8 * 60;
@@ -62,12 +67,16 @@ export function haversineKm(aLat: number, aLng: number, bLat: number, bLng: numb
 }
 
 function travelMinutesBetween(a: OptimizeStop, b: OptimizeStop, options: OptimizeOptions): number {
+  const real = options.travel?.between(a.dogId, b.dogId);
+  if (typeof real === 'number' && Number.isFinite(real)) return real;
   if (a.latitude == null || a.longitude == null || b.latitude == null || b.longitude == null) return 0;
   const km = haversineKm(a.latitude, a.longitude, b.latitude, b.longitude);
   return (km / (options.speedKph ?? DEFAULT_SPEED_KPH)) * 60;
 }
 
 function travelMinutesFromHome(stop: OptimizeStop, options: OptimizeOptions): number {
+  const real = options.travel?.homeTo(stop.dogId);
+  if (typeof real === 'number' && Number.isFinite(real)) return real;
   if (stop.latitude == null || stop.longitude == null) return 0;
   if (options.homeLatitude == null || options.homeLongitude == null) return 0;
   const km = haversineKm(options.homeLatitude, options.homeLongitude, stop.latitude, stop.longitude);
