@@ -77,7 +77,15 @@ cerca de **7.900 eventos por mês**, ou seja **US$ 0**. Se a operação dobrar: 
 
 Em cada uma: **Ativar** (*Enable*).
 
-## 4. CHAVE 1 — a do aplicativo (mapa dentro do celular)
+## 4. CHAVE 1 — a do aplicativo (mapa dentro do celular) — **DECIDIDO NÃO FAZER (12/09/2026)**
+
+> **Decisão do dono em 12/09/2026: o mapa dentro do app fica Apple Maps.** Motivo: o ganho visível
+> é estético e o custo é real (app mais pesado, mais uma chave para manter, mais um ponto de falha
+> no build). O mais importante — navegação — **não muda**: tocar na parada já entrega para o app de
+> mapas do celular, onde o motorista escolhe Apple Maps, Google Maps ou Waze.
+> O código já está preparado (`provider={isMapsConfigured() ? PROVIDER_GOOGLE : PROVIDER_DEFAULT}`):
+> no dia em que valer a pena, é só criar esta chave e gerar um build — **sem mexer em código**.
+> Os passos abaixo ficam guardados para esse dia.
 
 **APIs e serviços** -> **Credenciais** (*Credentials*) -> **+ Criar credenciais** ->
 **Chave de API** (*API key*). Copie a chave (`AIza...`) e clique em **Editar chave de API**:

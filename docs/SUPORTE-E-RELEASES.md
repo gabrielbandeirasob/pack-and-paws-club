@@ -153,8 +153,8 @@ esta parte (o app já chamava o servidor e caía no haversine quando faltava a c
   endereço sem número — pino errado é pior que pino nenhum).
 - Cuidado: `77 Oak Ave, Daly City` voltou como "Oak Ave, **Colma**" (rua, sem número). Endereço
   incompleto gera pino aproximado — **corrigir o endereço no app refaz o pino automaticamente**.
-- Falta (opcional): a chave do **app** (Maps SDK for iOS) para o mapa dentro do celular ser Google
-  em vez de Apple Maps — essa exige build novo. Sem ela, tudo o mais funciona.
+- Mapa dentro do celular: fica **Apple Maps** — decisão do dono em 12/09/2026 (a chave do
+  Maps SDK for iOS não será criada por ora). O código troca sozinho quando a chave existir.
 - Proteção: limite diário de cota por API (5.000) definido no console do Google.
 
 ### Como era antes (referência)
