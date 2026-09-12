@@ -1,0 +1,85 @@
+# Build iOS de graça, no runner macOS do GitHub.
+#
+# Por que existe: o plano grátis do EAS permite 15 builds iOS por mês e a cota estourou
+# (resetava só em 01/10). Este workflow usa os minutos grátis do GitHub Actions (macOS,
+# 2.000 min/mês em repositório privado — o build consome ~10x, então dá ~8 builds) e roda o
+# MESMO build do EAS, só que em modo local (`--local`): sem fila, sem cota.
+#
+# O que ele NÃO muda: o build continua sendo o mesmo (mesmas credenciais da Apple, mesmas
+# variáveis EXPO_PUBLIC_* do ambiente "production" do EAS), então o app sai idêntico ao que
+# subia pelo EAS.
+#
+# Depois que o IPA fica pronto, ele fica disponível em "Artifacts" desta execução e o envio
+# para o TestFlight é feito pelo script `build/publish_local_ipa.py`.
+#
+# SEGREDO NECESSÁRIO: `EXPO_STATE` = conteúdo do arquivo ~/.expo/state.json da máquina que já
+# está logada no Expo (é o que autentica o EAS). Enquanto existir um token de acesso do Expo
+# (expo.dev/settings/access-tokens), o ideal é trocar por ele.
+
+name: iOS build (GitHub runner, sem cota do EAS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      perfil:
+        description: 'Perfil do EAS (production)'
+        required: false
+        default: 'production'
+      pular_testes:
+        description: 'Pular tipos+testes (só em caso de emergência)'
+        type: boolean
+        required: false
+        default: false
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Dependências
+        run: npm ci
+
+      - name: Portão de qualidade (tipos + testes)
+        if: ${{ inputs.pular_testes == false }}
+        run: |
+          npx tsc --noEmit
+          npx jest --runInBand
+
+      - name: Restaurar a sessão do Expo
+        run: |
+          mkdir -p "$HOME/.expo"
+          printf '%s' "$EXPO_STATE" > "$HOME/.expo/state.json"
+          chmod 600 "$HOME/.expo/state.json"
+        env:
+          EXPO_STATE: ${{ secrets.EXPO_STATE }}
+
+      - name: Build iOS (EAS local — sem fila e sem cota)
+        run: |
+          npx --yes eas-cli@latest build \
+            --local \
+            --platform ios \
+            --profile "${{ inputs.perfil || 'production' }}" \
+            --non-interactive \
+            --output ./packpaws.ipa
+
+      - name: Conferir o IPA (existe? tem tamanho?)
+        run: |
+          ls -la ./packpaws.ipa
+          test -s ./packpaws.ipa || (echo "IPA vazio — build falhou"; exit 1)
+
+      - name: Guardar o IPA como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: packpaws-ipa
+          path: ./packpaws.ipa
+          retention-days: 14
+          if-no-files-found: error
