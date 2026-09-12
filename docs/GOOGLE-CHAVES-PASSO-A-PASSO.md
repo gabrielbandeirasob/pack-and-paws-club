@@ -12,6 +12,39 @@ Google, e as duas funções **estão publicadas** no Supabase:
 funcionando como antes (estimativa de linha reta, endereço sem pino) — nada quebra. Com a
 chave, a operação passa a ter trânsito real e pino no mapa.
 
+## 0. Qual conta, e como não perder o link
+
+**Decisão de 12/09/2026:** o projeto fica na conta da **Automa Digital** (`automadigitalsup@gmail.com`)
+— é o que destrava hoje. Quando o app for vendido para o cliente, ele cria um projeto próprio na
+conta dele e a gente **troca as duas chaves**: trocar chave não é migrar projeto, é colar dois
+textos novos (um no `app.json` para o build, outro no segredo do Supabase). Projeto do Google não
+se transfere entre contas comuns sem organização — recriar é mais rápido e mais limpo.
+
+**Se o link abrir na conta errada, ou "perder o link" ao trocar de conta:** o Google descarta o
+endereço na troca e cai na tela inicial do console. Três saídas:
+
+| Saída | Como |
+|---|---|
+| Rápida | Janela anônima (**Ctrl+Shift+N**), login só na conta certa, e colar o link lá dentro |
+| Definitiva | **Perfil separado no Chrome**: ícone do perfil -> *Adicionar* -> *Continuar sem uma conta* -> login só na conta certa (use sempre esse perfil para o console) |
+| Pela URL | Acrescente `?authuser=automadigitalsup@gmail.com` no fim do endereço (se já houver `?`, use `&authuser=...`) |
+
+E, dentro do console, **busque a API pelo nome na Biblioteca** em vez de colar links — não existe
+risco de digitar errado.
+
+**Cartão e custo:** o faturamento exige cartão, e conta nova do Google Cloud costuma vir com
+**US$ 300 de crédito de teste**. Dentro da faixa gratuita o gasto é US$ 0; o cartão só entra se
+estourar — por isso as duas travas abaixo.
+
+**Trava dura contra fatura (faça junto, leva dois minutos):**
+
+- **Cota diária:** APIs e serviços -> **Cotas** (*Quotas & System Limits*) -> filtrar por
+  **Routes API** -> cota de requisições por dia -> **Editar cota** -> **1.000/dia**. Faça o mesmo
+  para **Geocoding API** com **500/dia**. (O volume real hoje é de ~360 eventos de rota por dia e
+  cerca de um endereço novo por dia — então o teto fica 3x acima do uso e ainda trava o estrago.)
+- **Alerta de orçamento:** Faturamento -> **Orçamentos e alertas** -> orçamento de **US$ 5** com
+  avisos em 50%, 90% e 100%. Atenção: alerta **avisa, não bloqueia** — quem bloqueia é a cota.
+
 ## 1. Quanto custa (fonte: tabela oficial do Google, consultada em 12/09/2026)
 
 | Serviço | Grátis por mês | Depois |
