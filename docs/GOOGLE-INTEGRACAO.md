@@ -1,5 +1,23 @@
 # Integração Google (Calendar + Maps) — estado e desenho
 
+## Atualização 12/09/2026 — os dois caminhos do Google estão no ar (falta só a chave)
+
+O que mudou nesta data, com verificação:
+
+| Peça | Estado | Prova |
+|---|---|---|
+| `travel-times` (Routes API, trânsito) | **publicada** no Supabase, `ACTIVE` versão 1 | `POST /functions/v1/travel-times` -> `HTTP 501 {"error":"sem-chave-do-google"}` |
+| `geocode` (Geocoding, endereço -> pino) | **criada e publicada** | mesma resposta de contrato sem chave |
+| App: `features/maps/geocodeService.ts` | novo serviço (timeout curto, sem pino chutado) | 17 testes em `__tests__/geocodeService.test.ts` |
+| App: pino automático ao salvar | cliente novo e endereço alterado pedem o pino em segundo plano | `app/(tabs)/clients.tsx`, `app/client-edit.tsx` |
+| Scripts | `scripts/geocode-clients.mjs` (backfill) e `scripts/google-smoke.mjs` (prova real) | rodam sem chave local |
+| Como ligar | `docs/GOOGLE-CHAVES-PASSO-A-PASSO.md` | passo a passo com rótulos do console |
+
+**Dado que motivou o geocoding (medido em 12/09/2026):** dos 9 clientes, **3 tinham coordenada**,
+**4 tinham endereço e nenhum pino** e 2 não tinham endereço nenhum. Sem pino, esses 4 ficavam
+fora do mapa e fora do cálculo de trânsito — a lista exata está no `scripts/geocode-clients.mjs`
+(que é a fonte desse número, não uma estimativa).
+
 Decisão de produto (confirmada pelo cliente em 10/09/2026):
 
 | Tema | Decisão |
@@ -29,7 +47,6 @@ Decisão de produto (confirmada pelo cliente em 10/09/2026):
 | `/opt/data/pack-and-paws/build/set_google_config.py` | Grava as duas credenciais públicas no `app.json` (idempotente, com backup) |
 
 ## Falta (depende das credenciais do Google Cloud)
-
 1. **Client ID OAuth iOS** (`GOOGLE_IOS_CLIENT_ID`) — habilita o "Conectar Google Calendar".
 2. **Chave do Maps SDK iOS** (`GOOGLE_MAPS_IOS_KEY`) — troca o mapa para o Google.
 

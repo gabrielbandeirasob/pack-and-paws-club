@@ -17,6 +17,7 @@ import {
   type EditableClient,
 } from '@/features/clients/clientsService';
 import { colors } from '@/features/theme/tokens';
+import { fillClientCoordinates } from '@/features/maps/geocodeService';
 import { supabase } from '@/lib/supabase';
 
 type Loaded = {
@@ -76,9 +77,16 @@ export default function ClientEditScreen() {
     setSaving(true);
     setError(null);
     try {
-      const { address_changed: _ignored, ...clientColumns } = clientUpdatePayload(loaded.current, payload.client);
+      const { address_changed: enderecoMudou, ...clientColumns } = clientUpdatePayload(loaded.current, payload.client);
       const { error: clientError } = await supabase.from('clients').update({ ...clientColumns, active: payload.active }).eq('id', id);
       if (clientError) throw new Error(clientError.message);
+
+      // Endereco mudou => as coordenadas antigas foram DESCARTADAS (regra do clientUpdatePayload).
+      // Aqui o pino e refeito pelo servidor (Google Geocoding), em segundo plano: nao segura a
+      // tela, e se nao houver chave/servidor/internet o cliente salva igual — so fica sem pino.
+      if (enderecoMudou && id) {
+        void fillClientCoordinates(id, { ...payload.client, latitude: null, longitude: null });
+      }
 
       for (const dog of payload.dogs) {
         const { error: dogError } = await supabase.from('dogs').update(dogUpdatePayload(dog)).eq('id', dog.id);

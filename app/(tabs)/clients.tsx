@@ -9,6 +9,7 @@ import { clientHasInstructions, planContactAdd, splitContactName, type ExistingC
 import { createContactsService, type ContactsService } from '@/features/clients/contactsService';
 import { mapContactToClientInput } from '@/features/clients/mapContact';
 import type { ClientWithDogs, NewClientInput, PhoneContactCandidate } from '@/features/clients/types';
+import { fillClientCoordinates } from '@/features/maps/geocodeService';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -178,6 +179,12 @@ export default function ClientsScreen() {
       }
     }
     if (!clientId) throw new Error('Could not save the client.');
+
+    // Cliente novo com endereco e sem coordenada: pede o pino ao servidor (Google Geocoding).
+    // Em segundo plano de proposito — o cadastro nao pode esperar por causa de um pino.
+    if (plan.mode === 'create' && clientId) {
+      void fillClientCoordinates(clientId, { ...payload.client, latitude: null, longitude: null });
+    }
 
     await addDogsToClient(clientId, plan.dogsToAdd);
     if (plan.instructionsToAdd) {
