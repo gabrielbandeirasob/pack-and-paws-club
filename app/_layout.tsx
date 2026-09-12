@@ -6,10 +6,14 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';
+import { installGlobalErrorHandler } from '@/features/errors/errorReporter';
 import { PushRegistrar } from '@/features/notifications/PushRegistrar';
 import { colors } from '@/features/theme/tokens';
 
-export { ErrorBoundary } from 'expo-router';
+// tela de erro da marca + registro automatico (substitui a ErrorBoundary crua do expo-router)
+export { AppErrorBoundary as ErrorBoundary } from '@/features/errors/AppErrorBoundary';
+
+installGlobalErrorHandler();
 
 SplashScreen.preventAutoHideAsync();
 

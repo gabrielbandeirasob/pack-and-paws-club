@@ -87,7 +87,8 @@ const ctx = (await sql(`
          (select count(*) from route_stops) as n_stops,
          (select count(*) from recurring_schedules) as n_sched,
          (select count(*) from client_instructions) as n_instr,
-         (select count(*) from device_tokens) as n_tokens;
+         (select count(*) from device_tokens) as n_tokens,
+         (select count(*) from client_errors) as n_errors;
 `))[0]
 
 const { org: ORG, manager: MANAGER, driver: DRIVER, route: ROUTE, other_driver: OTHER_DRIVER,
@@ -201,14 +202,29 @@ await caso('motorista NAO grava token em nome de outro', DRV,
 await caso('NAO grava token em organizacao alheia', DRV,
   `insert into device_tokens (organization_id, user_id, token, platform) values ('00000000-0000-0000-0000-000000000000','${DRIVER}','ExponentPushToken[ALHEIA-${U().slice(0, 6)}]','ios'); select 1 as n;`, 'erro')
 
+console.log('\n== MONITORAMENTO: erros do app (client_errors) ==')
+await caso('motorista registra erro e o gestor enxerga', DRV,
+  `insert into client_errors (organization_id, user_id, app_version, platform, message, stack, context)
+   values ('${ORG}','${DRIVER}','1.0.0','ios','erro de teste da suite','stack de teste','{"origem":"suite"}'::jsonb);
+   select set_config('request.jwt.claims', json_build_object('sub','${MANAGER}','role','authenticated')::text, true);
+   select count(*)::int as n from client_errors where message='erro de teste da suite';`, 'n>0')
+await caso('motorista NAO le os erros da organizacao', DRV,
+  `insert into client_errors (organization_id, user_id, message, platform) values ('${ORG}','${DRIVER}','erro invisivel','ios');
+   select count(*)::int as n from client_errors where message='erro invisivel';`, 'n==0')
+await caso('NAO da para gravar erro em nome de outro usuario', DRV,
+  `insert into client_errors (organization_id, user_id, message, platform) values ('${ORG}','${MANAGER}','forjado','ios'); select 1 as n;`, 'erro')
+await caso('anonimo nao grava nem le erros', ANON,
+  `select count(*)::int as n from client_errors;`, 'n==0')
+
 console.log('\n== INTEGRIDADE: nada pode ter ficado gravado ==')
 const depois = (await sql(`
   select (select count(*) from clients) as n_clients, (select count(*) from dogs) as n_dogs,
          (select count(*) from reservations) as n_res, (select count(*) from routes) as n_routes,
          (select count(*) from route_stops) as n_stops, (select count(*) from recurring_schedules) as n_sched,
-         (select count(*) from client_instructions) as n_instr, (select count(*) from device_tokens) as n_tokens;
+         (select count(*) from client_instructions) as n_instr, (select count(*) from device_tokens) as n_tokens,
+         (select count(*) from client_errors) as n_errors;
 `))[0]
-for (const k of ['n_clients', 'n_dogs', 'n_res', 'n_routes', 'n_stops', 'n_sched', 'n_instr', 'n_tokens']) {
+for (const k of ['n_clients', 'n_dogs', 'n_res', 'n_routes', 'n_stops', 'n_sched', 'n_instr', 'n_tokens', 'n_errors']) {
   const igual = Number(depois[k]) === Number(ctx[k])
   console.log(`${igual ? '  OK   ' : ' FALHA '} ${k}: antes ${ctx[k]} / depois ${depois[k]}`)
   if (!igual) falhas++
