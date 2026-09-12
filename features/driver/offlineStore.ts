@@ -8,6 +8,16 @@ export type DriverEvent = {
   stopId: string;
   status: DriverEventStatus;
   createdAt: string;
+  /**
+   * Comprovante tirado sem rede. A foto fica no aparelho e sobe para o Storage antes de o status
+   * ser aplicado (por isso guardamos o caminho de destino junto do evento).
+   */
+  proof?: {
+    kind: 'pickup' | 'dropoff';
+    localUri: string;
+    path: string;
+    capturedAt: string;
+  };
 };
 
 export type RouteSnapshot = {

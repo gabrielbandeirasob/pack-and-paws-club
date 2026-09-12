@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, View, type AlertButton } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -7,6 +7,18 @@ import { todayLocalISO } from '@/features/calendar/dates';
 import { DriverRouteView, type DriverAction, type DriverStop } from '@/features/driver/DriverRouteView';
 import { nextStopEta, type EtaResult } from '@/features/driver/eta';
 import { startLocationSharing, type LocationHandle, type LocationUpdate } from '@/features/driver/locationService';
+import {
+  captureProofPhoto,
+  proofColumn,
+  proofErrorMessage,
+  proofKindForAction,
+  proofPath,
+  proofRequired,
+  uploadProof,
+  type ProofChoice,
+  type ProofKind,
+  type ProofSettings,
+} from '@/features/driver/proofCapture';
 import {
   applyPendingEvents,
   clearRouteSnapshot,
@@ -29,6 +41,28 @@ import { supabase } from '@/lib/supabase';
 type StopRow = DriverStopRow;
 type RouteResult = DriverRouteRow;
 
+/**
+ * Pergunta ao motorista de onde vem a foto. Obrigatório não oferece pular; opcional oferece;
+ * desistir (fora do alerta) devolve 'cancel' e o passo não é marcado.
+ */
+function askProofChoice(required: boolean): Promise<ProofChoice | 'skip' | 'cancel'> {
+  return new Promise((resolve) => {
+    const buttons: AlertButton[] = [
+      { text: 'Take photo', onPress: () => resolve('camera') },
+      { text: 'Choose from library', onPress: () => resolve('library') },
+    ];
+    if (!required) buttons.push({ text: 'No photo', onPress: () => resolve('skip') });
+    Alert.alert(
+      required ? 'Proof photo required' : 'Attach a proof photo?',
+      required
+        ? 'This stop only moves forward with a photo.'
+        : 'You can attach a photo now, or skip and add it later.',
+      buttons,
+      { cancelable: true, onDismiss: () => resolve('cancel') },
+    );
+  });
+}
+
 export default function DriverTodayScreen() {
   const [stops, setStops] = useState<DriverStop[]>([]);
   const [navTarget, setNavTarget] = useState<{ stopId: string; target: NavTarget } | null>(null);
@@ -41,6 +75,8 @@ export default function DriverTodayScreen() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [position, setPosition] = useState<LocationUpdate | null>(null);
   const [eta, setEta] = useState<EtaResult | null>(null);
+  /** Configuração da creche (migration 020): o comprovante é obrigatório em cada etapa? */
+  const [proofSettings, setProofSettings] = useState<ProofSettings | null>(null);
   const locationHandle = useRef<LocationHandle | null>(null);
   const realtimeRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -52,7 +88,30 @@ export default function DriverTodayScreen() {
     }
     const remaining: typeof events = [];
     for (const event of events) {
-      const { error } = await supabase.from('route_stops').update({ status: event.status }).eq('id', event.stopId);
+      // Comprovante pendente: sobe a foto ANTES de aplicar o status.
+      let prova: Record<string, unknown> = {};
+      if (event.proof) {
+        try {
+          const caminho = await uploadProof(supabase, event.proof.localUri, event.proof.path);
+          prova = {
+            [proofColumn(event.proof.kind, 'path')]: caminho,
+            [proofColumn(event.proof.kind, 'at')]: event.proof.capturedAt,
+          };
+        } catch (reason) {
+          const texto = reason instanceof Error ? reason.message : String(reason ?? '');
+          if (isNetworkError(texto)) {
+            // Sem rede: guarda o evento COM a foto para tentar de novo depois.
+            remaining.push(event, ...events.slice(events.indexOf(event) + 1));
+            break;
+          }
+          // Erro que não é de rede (permissão/arquivo): não deixa o passo preso para sempre -
+          // aplica o status sem a foto.
+        }
+      }
+      const { error } = await supabase
+        .from('route_stops')
+        .update({ status: event.status, ...prova })
+        .eq('id', event.stopId);
       if (error) {
         if (isNetworkError(error.message)) {
           remaining.push(event, ...events.slice(events.indexOf(event) + 1));
@@ -77,7 +136,7 @@ export default function DriverTodayScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       const { data: routes, error } = await supabase
         .from('routes')
-        .select('id, organization_id, published_at, route_stops(id, sequence, status, window_end, exact_time, dog:dogs(id, name, behavior_notes, medical_notes, client:clients(name, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
+        .select('id, organization_id, published_at, organization:organizations(proof_pickup_required, proof_dropoff_required), route_stops(id, sequence, status, window_end, exact_time, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, behavior_notes, medical_notes, client:clients(name, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
         .eq('driver_id', user?.id ?? '')
         .eq('route_date', todayLocalISO())
         .eq('status', 'published')
@@ -91,6 +150,7 @@ export default function DriverTodayScreen() {
         await saveRouteSnapshot(snapshot);
         setRouteId(route.id);
         setOrganizationId(route.organization_id);
+      setProofSettings(route.organization ?? null);
         setOffline(false);
       } else {
         // Route finished/not published: drop the cached copy (sensitive instructions must not linger).
@@ -228,10 +288,47 @@ export default function DriverTodayScreen() {
     const status = statusMap[action];
     if (!status) return;
 
+    // Comprovante de entrega (migration 020): a foto é tirada ANTES de marcar o passo.
+    // Obrigatório bloqueia, opcional só oferece, e sem configuração carregada o motorista
+    // nunca fica preso num passo.
+    const proofKind = proofKindForAction(action);
+    let proof: { kind: ProofKind; localUri: string; path: string; capturedAt: string } | null = null;
+    if (proofKind && organizationId) {
+      const required = proofRequired(proofKind, proofSettings);
+      const choice = await askProofChoice(required);
+      if (choice === 'cancel') return;
+      if (choice !== 'skip') {
+        try {
+          const localUri = await captureProofPhoto(choice);
+          if (localUri) {
+            proof = {
+              kind: proofKind,
+              localUri,
+              path: proofPath(organizationId, stopId, proofKind, localUri),
+              capturedAt: new Date().toISOString(),
+            };
+          } else if (required) {
+            setMessage('The proof photo is required to finish this stop.');
+            return;
+          }
+        } catch (reason) {
+          setMessage(proofErrorMessage(reason));
+          if (required) return;
+        }
+      }
+    }
+
     setStops((current) => current.map((stop) => (stop.id === stopId ? { ...stop, status } : stop)));
 
     try {
-      const { error } = await supabase.from('route_stops').update({ status }).eq('id', stopId);
+      const atualizacao: Record<string, unknown> = { status };
+      if (proof) {
+        // Sobe a foto e grava o caminho junto do status: uma única escrita no banco.
+        const caminho = await uploadProof(supabase, proof.localUri, proof.path);
+        atualizacao[proofColumn(proof.kind, 'path')] = caminho;
+        atualizacao[proofColumn(proof.kind, 'at')] = proof.capturedAt;
+      }
+      const { error } = await supabase.from('route_stops').update(atualizacao).eq('id', stopId);
       if (error) {
         if (!isNetworkError(error.message)) {
           setMessage(error.message);
@@ -245,11 +342,20 @@ export default function DriverTodayScreen() {
       if (events.length === 0) setOffline(false);
       await load();
     } catch (reason) {
-      const events = enqueueEvent(await loadOutbox(), { stopId, status, createdAt: new Date().toISOString() });
+      const events = enqueueEvent(await loadOutbox(), {
+        stopId,
+        status,
+        createdAt: new Date().toISOString(),
+        ...(proof ? { proof } : {}),
+      });
       await saveOutbox(events);
       setPendingSync(events.length);
       setOffline(true);
-      setMessage('You are offline. This change is saved on your device and will sync automatically.');
+      setMessage(
+        proof
+          ? 'No connection: the photo and this step are saved on your device and will sync automatically.'
+          : 'You are offline. This change is saved on your device and will sync automatically.',
+      );
     }
   };
 

@@ -5,6 +5,7 @@ import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
 import { isPastDeadline, minutesAgo, nextStopEta } from '@/features/driver/eta';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
 import { colors, radii } from '@/features/theme/tokens';
+import { StopProofChips } from '@/features/dispatch/ProofViewer';
 import { plural } from '@/lib/plural';
 
 export type DispatchConstraint = {
@@ -23,6 +24,9 @@ export type DispatchRouteStop = DispatchStopItem & {
   status: 'pending' | 'arrived' | 'picked_up' | 'completed' | 'skipped';
   latitude: number | null;
   longitude: number | null;
+  /** Caminhos das fotos de comprovante no bucket privado (migration 020). */
+  pickupProofPath?: string | null;
+  dropoffProofPath?: string | null;
 } & DispatchConstraint;
 export type DispatchRoute = { routeId: string; driverId: string; status: 'draft' | 'published' | 'completed' | 'cancelled'; stops: DispatchRouteStop[] };
 
@@ -240,6 +244,7 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
                       {stop.windowStart && stop.windowEnd ? <Badge text={`⏰ ${stop.windowStart}–${stop.windowEnd}`} color={colors.forest500} /> : null}
                       {stop.exactTime ? <Badge text={`@ ${stop.exactTime}`} color={colors.gold} /> : null}
                     </View>
+                    <StopProofChips pickupPath={stop.pickupProofPath} dropoffPath={stop.dropoffProofPath} />
                   </View>
                   <View style={styles.stopActions}>
                     {route && route.status === 'draft' && stops.length > 1 ? (

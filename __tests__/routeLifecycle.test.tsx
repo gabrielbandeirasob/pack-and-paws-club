@@ -56,3 +56,15 @@ describe('rota publicada: despublicar e cancelar', () => {
     expect(onCompleteRoute).toHaveBeenCalledWith('route-1');
   });
 });
+// Mesmo motivo do DispatchBoard: o painel importa o visualizador de comprovante, que usa o
+// cliente do Supabase (e o módulo real valida a configuração na carga).
+jest.mock('@/lib/supabase', () => ({
+  supabase: {
+    storage: {
+      from: () => ({
+        createSignedUrl: jest.fn().mockResolvedValue({ data: { signedUrl: 'https://example.test/foto.jpg' }, error: null }),
+      }),
+    },
+  },
+}));
+

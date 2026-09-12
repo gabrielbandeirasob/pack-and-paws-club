@@ -11,6 +11,8 @@ export type DriverStopRow = {
   status: DriverStop['status'];
   window_end: string | null;
   exact_time: string | null;
+  pickup_proof_path?: string | null;
+  dropoff_proof_path?: string | null;
   dog:
     | {
         id: string;
@@ -31,7 +33,14 @@ export type DriverStopRow = {
     | null;
 };
 
-export type DriverRouteRow = { id: string; organization_id: string; published_at: string | null; route_stops: DriverStopRow[] };
+export type DriverRouteRow = {
+  id: string;
+  organization_id: string;
+  published_at: string | null;
+  /** Configuração da creche (migration 020) - decide se a foto do comprovante é obrigatória. */
+  organization: { proof_pickup_required: boolean; proof_dropoff_required: boolean } | null;
+  route_stops: DriverStopRow[];
+};
 
 const UNKNOWN_DOG = 'Dog';
 const UNKNOWN_CLIENT = 'Client';

@@ -23,6 +23,8 @@ type StopRow = {
   window_end: string | null;
   exact_time: string | null;
   priority: 'normal' | 'priority';
+  pickup_proof_path: string | null;
+  dropoff_proof_path: string | null;
   dog: { id: string; name: string; client: { name: string; latitude: number | null; longitude: number | null } };
 };
 type RouteRow = { id: string; driver_id: string; status: DispatchRoute['status']; lock_version: number | null; route_stops: StopRow[] | null };
@@ -59,7 +61,7 @@ export default function DispatchScreen() {
       supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'confirmed'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId),
-      supabase.from('routes').select('id, driver_id, status, lock_version, route_stops(dog_id, sequence, status, window_start, window_end, exact_time, priority, dog:dogs(id, name, client:clients(name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date),
+      supabase.from('routes').select('id, driver_id, status, lock_version, route_stops(dog_id, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, client:clients(name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date),
     ]);
     const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? routeResult.error;
     if (firstError) { setError(firstError.message); setLoading(false); return; }
@@ -101,6 +103,8 @@ export default function DispatchScreen() {
         windowEnd: stop.window_end ? stop.window_end.slice(0, 5) : null,
         exactTime: stop.exact_time ? stop.exact_time.slice(0, 5) : null,
         priority: stop.priority,
+        pickupProofPath: stop.pickup_proof_path,
+        dropoffProofPath: stop.dropoff_proof_path,
       })),
     })));
 

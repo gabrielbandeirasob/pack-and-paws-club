@@ -201,3 +201,15 @@ describe('DispatchBoard', () => {
     expect(screen.queryByRole('button', { name: 'Driver Rafael' })).toBeNull();
   });
 });
+// O painel agora mostra o comprovante de entrega, e esse componente pede link assinado ao
+// Supabase. O mock evita que o módulo real valide a configuração (que não existe no teste).
+jest.mock('@/lib/supabase', () => ({
+  supabase: {
+    storage: {
+      from: () => ({
+        createSignedUrl: jest.fn().mockResolvedValue({ data: { signedUrl: 'https://example.test/foto.jpg' }, error: null }),
+      }),
+    },
+  },
+}));
+
