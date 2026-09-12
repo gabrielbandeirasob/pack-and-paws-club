@@ -1,73 +1,41 @@
 /**
- * Registro do aparelho para receber push (iOS/Android).
+ * Registro do aparelho para push — DESLIGADO ate a credencial de push existir.
  *
- * Fluxo: pede permissao -> pega o ExpoPushToken -> grava em `device_tokens` (a RLS garante
- * que cada usuario so mexe no proprio aparelho, na propria organizacao).
- * Ao sair da conta, o token e removido para nao continuar recebendo avisos.
+ * POR QUE ESTA ASSIM: o push exige a capacidade "Push Notifications" no perfil da Apple, e o
+ * EAS so consegue criar isso com acesso a conta Apple (Apple ID + 2FA) — nao tenho e nao vou
+ * adivinhar credencial. Alem disso, so INSTALAR o `expo-notifications` ja injeta a
+ * entitlement `aps-environment` no projeto nativo (autolinking do Expo), o que FAZ O BUILD
+ * FALHAR enquanto o perfil nao tiver a capacidade:
+ *
+ *   "Provisioning profile doesn't include the Push Notifications capability"
+ *
+ * Por isso o pacote foi desinstalado e esta interface virou neutra: o app continua igual, so
+ * nao registra o aparelho nem recebe aviso automatico (o motorista ve a rota ao abrir o app).
+ *
+ * PARA RELIGAR (quando a chave APNs estiver no EAS — ver docs/PUSH-DESTRAVAR.md):
+ *   1) npm install expo-notifications        (o plugin volta sozinho pelo autolinking)
+ *   2) git show b003c86:mobile/features/notifications/pushRegistration.ts  → restaurar o corpo
+ *   3) subir uma nova build (sera a 1.1) e publicar
+ *
+ * O resto do push continua pronto e testado: tabela `device_tokens` com RLS, trigger
+ * `routes_notify_driver` (banco -> Expo Push API via pg_net), `pushPayload.ts` (puro) e o
+ * componente `PushRegistrar` chamando esta interface.
  */
-import * as Notifications from 'expo-notifications'
-import Constants from 'expo-constants'
-import { Platform } from 'react-native'
 
-import { supabase } from '@/lib/supabase'
-import { buildDeviceTokenRow } from '@/features/notifications/pushPayload'
+export type PushRegistration = { token: string | null; reason?: string };
 
-export type PushRegistration = { token: string | null; reason?: string }
-
-/** Mostra o aviso mesmo com o app aberto (padrao do Expo: sem isso o push fica silencioso). */
 export function configureForegroundNotifications(): void {
-  Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    }),
-  })
+  // nada a fazer enquanto o push esta desligado
 }
 
-function projectId(): string | null {
-  const extra = Constants?.expoConfig?.extra as { eas?: { projectId?: string } } | undefined
-  return extra?.eas?.projectId ?? (Constants as unknown as { easConfig?: { projectId?: string } })?.easConfig?.projectId ?? null
+export async function registerDeviceForPush(_input?: { userId: string; organizationId: string }): Promise<PushRegistration> {
+  return { token: null, reason: 'push-desligado-ate-credencial-apns' };
 }
 
-export async function registerDeviceForPush(input: { userId: string; organizationId: string }): Promise<PushRegistration> {
-  try {
-    let { status } = await Notifications.getPermissionsAsync()
-    if (status !== 'granted') {
-      status = (await Notifications.requestPermissionsAsync()).status
-    }
-    if (status !== 'granted') return { token: null, reason: 'permissao-negada' }
-
-    const id = projectId()
-    if (!id) return { token: null, reason: 'project-id-ausente' }
-
-    const { data: token } = await Notifications.getExpoPushTokenAsync({ projectId: id })
-    if (!token) return { token: null, reason: 'token-vazio' }
-
-    const row = buildDeviceTokenRow({ userId: input.userId, organizationId: input.organizationId, token, os: Platform.OS })
-    const { error } = await supabase.from('device_tokens').upsert(row, { onConflict: 'token' })
-    if (error) return { token: null, reason: error.message }
-
-    return { token }
-  } catch (e) {
-    return { token: null, reason: e instanceof Error ? e.message : 'erro-desconhecido' }
-  }
+export async function unregisterDeviceForPush(_token?: string): Promise<void> {
+  // nada a fazer
 }
 
-/** Chamado no logout / troca de usuario. */
-export async function unregisterDeviceForPush(token: string): Promise<void> {
-  try {
-    await supabase.from('device_tokens').delete().eq('token', token)
-  } catch {
-    // sair da conta nunca pode falhar por causa do push
-  }
-}
-
-/** Assina o toque na notificacao; devolve a funcao para cancelar. */
-export function onNotificationTap(handler: (data: unknown) => void): () => void {
-  const sub = Notifications.addNotificationResponseReceivedListener((resposta) => {
-    handler(resposta?.notification?.request?.content?.data)
-  })
-  return () => sub.remove()
+export function onNotificationTap(_handler?: (data: unknown) => void): () => void {
+  return () => undefined;
 }
