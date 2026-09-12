@@ -65,7 +65,31 @@ Ordem do que existe hoje (todas já aplicadas):
 **Regra:** mexeu no banco → rodar `node scripts/db-flows-test.mjs` (ele simula o usuário
 real dentro de transação com rollback e falha se algo persistir).
 
-## 4. Notificações push (ligado)
+## 3.1 Como gerar um build AGORA (CI grátis no GitHub)
+
+O build iOS **não sai mais pelo EAS** — o plano grátis permite 15 builds iOS por mês e a cota
+estourou (reseta em 01/10/2026). O caminho atual é um runner macOS do GitHub, no repositório
+privado `gabrielbandeirasob/pack-and-paws-club`:
+
+1. **Actions** → workflow **"iOS build (grátis, no runner macOS do GitHub)"** → **Run workflow**
+2. O CI roda, nesta ordem: checagem de nomes que colidem no macOS → typecheck → 272 testes →
+   build iOS (EAS local, sem fila e sem cota) → guarda o IPA como artefato
+3. Baixe o IPA em **Artifacts → packpaws-ipa**
+4. Envie ao TestFlight: `python3 build/publish_local_ipa.py --ipa <caminho do IPA>`
+
+Custo: minutos grátis do GitHub (1 build ≈ 20 dos 200 min/mês de runner macOS no plano grátis).
+Quando a cota do EAS voltar (01/10/2026) ou se o plano for assinado, `eas build` volta a
+funcionar — os dois caminhos convivem.
+
+**Lição que quase virou app quebrado:** o CI roda no macOS, onde `dogPicker.ts` e `DogPicker.tsx`
+são o MESMO arquivo. Dois arquivos que só diferem na maiúscula quebram o app no iPhone e **passam**
+nos testes no Linux. Por isso existe `scripts/check-case-collisions.mjs`, a primeira checagem do CI.
+
+## 4. Notificações push (implementado — ligado só depois da chave APNs)
+
+O banco, o disparo e o formato da mensagem estão prontos e testados. O app, no entanto, está com
+o registro **desligado**: falta a capacidade Push Notifications no perfil da Apple e a chave APNs.
+Passo a passo para ligar: `docs/PUSH-DESTRAVAR.md`.
 
 - Tabela `device_tokens`: cada aparelho registra o token ao entrar; sai ao deslogar.
 - Trigger `routes_notify_driver`: quando a rota é **publicada** (ou cancelada), o banco chama a

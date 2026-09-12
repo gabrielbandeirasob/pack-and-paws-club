@@ -8,7 +8,7 @@
 import { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { agruparPorCliente, filtrarCaes, resumoDaBusca } from '@/features/calendar/dogPicker';
+import { agruparPorCliente, filtrarCaes, resumoDaBusca } from '@/features/calendar/dogPickerSearch';
 import type { DogRef } from '@/features/calendar/dayMath';
 import { colors, radii } from '@/features/theme/tokens';
 

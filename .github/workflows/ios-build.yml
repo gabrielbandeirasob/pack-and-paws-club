@@ -48,6 +48,9 @@ jobs:
       - name: Dependências
         run: npm ci
 
+      - name: "Nomes de arquivo que colidem no macOS (ex dogPicker.ts x DogPicker.tsx)"
+        run: node scripts/check-case-collisions.mjs
+
       - name: Portão de qualidade (tipos + testes)
         if: ${{ inputs.pular_testes == false }}
         run: |

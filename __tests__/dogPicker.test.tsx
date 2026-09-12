@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { Text } from 'react-native';
 
 import { DogPicker } from '@/features/calendar/DogPicker';
-import { agruparPorCliente, filtrarCaes, resumoDaBusca, semAcento } from '@/features/calendar/dogPicker';
+import { agruparPorCliente, filtrarCaes, resumoDaBusca, semAcento } from '@/features/calendar/dogPickerSearch';
 import type { DogRef } from '@/features/calendar/dayMath';
 
 const CAES: DogRef[] = [
