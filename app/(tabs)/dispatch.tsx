@@ -6,6 +6,7 @@ import { buildDay, type RecurringExceptionRecord, type RecurringScheduleRecord, 
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
 import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
+import { STALE_ROUTE_TITLE, expectedVersion, isStaleRouteError, routeErrorMessage } from '@/features/dispatch/staleRoute';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -23,7 +24,7 @@ type StopRow = {
   priority: 'normal' | 'priority';
   dog: { id: string; name: string; client: { name: string; latitude: number | null; longitude: number | null } };
 };
-type RouteRow = { id: string; driver_id: string; status: DispatchRoute['status']; route_stops: StopRow[] | null };
+type RouteRow = { id: string; driver_id: string; status: DispatchRoute['status']; lock_version: number | null; route_stops: StopRow[] | null };
 
 function toDogRef(dog: { id: string; name: string; client: { name: string } }) {
   return { id: dog.id, dogName: dog.name, clientName: dog.client.name };
@@ -35,6 +36,9 @@ export default function DispatchScreen() {
   const [drivers, setDrivers] = useState<DispatchDriver[]>([]);
   const [dayItems, setDayItems] = useState<DispatchStopItem[]>([]);
   const [routes, setRoutes] = useState<DispatchRoute[]>([]);
+  // Versao de cada rota (lock otimista): o aparelho guarda o que leu; se outro gestor
+  // escrever antes, o banco recusa a escrita velha com 'stale_route' em vez de sobrescrever.
+  const [versoes, setVersoes] = useState<Record<string, number>>({});
   const [driverLocations, setDriverLocations] = useState<Record<string, { latitude: number; longitude: number; updatedAt: string }>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +58,7 @@ export default function DispatchScreen() {
       supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'confirmed'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId),
-      supabase.from('routes').select('id, driver_id, status, route_stops(dog_id, sequence, status, window_start, window_end, exact_time, priority, dog:dogs(id, name, client:clients(name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date),
+      supabase.from('routes').select('id, driver_id, status, lock_version, route_stops(dog_id, sequence, status, window_start, window_end, exact_time, priority, dog:dogs(id, name, client:clients(name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date),
     ]);
     const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? routeResult.error;
     if (firstError) { setError(firstError.message); setLoading(false); return; }
@@ -78,6 +82,7 @@ export default function DispatchScreen() {
     setDayItems(items.filter((item) => (seen.has(item.dogId) ? false : (seen.add(item.dogId), true))).map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind })));
 
     const routeRows = (routeResult.data as unknown as RouteRow[]) ?? [];
+    setVersoes(Object.fromEntries(routeRows.map((row) => [row.id, row.lock_version ?? 1])));
     setRoutes(routeRows.map((row) => ({
       routeId: row.id,
       driverId: row.driver_id,
@@ -134,6 +139,54 @@ export default function DispatchScreen() {
     };
   }, [organizationId, load]);
 
+  const versaoDe = useCallback((routeId: string) => expectedVersion(versoes, routeId), [versoes]);
+
+  // Dois gestores na mesma rota: avisa e recarrega, em vez de deixar a escrita velha passar.
+  const avisarRotaMudou = useCallback(() => {
+    Alert.alert(STALE_ROUTE_TITLE, routeErrorMessage('stale_route'), [{ text: 'Reload', onPress: () => void load() }]);
+  }, [load]);
+
+  /** Trata erro de escrita: avisa quando for concorrencia e sempre devolve mensagem legivel. */
+  const falhaDeEscrita = useCallback(
+    (erro: { message: string } | null) => {
+      if (!erro) return;
+      if (isStaleRouteError(erro)) avisarRotaMudou();
+      throw new Error(routeErrorMessage(erro));
+    },
+    [avisarRotaMudou],
+  );
+
+  /**
+   * Mexeu nas paradas por fora das RPCs (editar janela, remover)? Marca a rota como alterada
+   * para que a proxima acao de outro aparelho, que leu a versao antiga, tambem seja recusada.
+   */
+  const marcarRotaAlterada = useCallback(
+    async (routeId: string) => {
+      const versao = versaoDe(routeId);
+      if (versao === null) return;
+      await supabase.from('routes').update({ lock_version: versao + 1 }).eq('id', routeId).eq('lock_version', versao);
+    },
+    [versaoDe],
+  );
+
+  /** Troca o status da rota com trava de versao: 0 linhas = outro aparelho mudou antes. */
+  const trocarStatus = useCallback(
+    async (routeId: string, mudanca: { status: DispatchRoute['status']; published_at?: string | null }) => {
+      const versao = versaoDe(routeId);
+      const atualizacao: Record<string, unknown> = { ...mudanca, lock_version: (versao ?? 1) + 1 };
+      let consulta = supabase.from('routes').update(atualizacao).eq('id', routeId);
+      if (versao !== null) consulta = consulta.eq('lock_version', versao);
+      const { data, error } = await consulta.select('id');
+      falhaDeEscrita(error);
+      if (versao !== null && (data ?? []).length === 0) {
+        avisarRotaMudou();
+        throw new Error(routeErrorMessage('stale_route'));
+      }
+      await load();
+    },
+    [versaoDe, falhaDeEscrita, avisarRotaMudou, load],
+  );
+
   const routeIdForDriver = useCallback(async (driverId: string) => {
     if (!organizationId) throw new Error('Organization not found.');
     const { data: route, error: routeError } = await supabase.from('routes').upsert(
@@ -153,10 +206,11 @@ export default function DispatchScreen() {
       p_window_end: constraint.windowEnd,
       p_exact_time: constraint.exactTime,
       p_priority: constraint.priority,
+      p_esperado: versaoDe(routeId),
     });
-    if (error) throw new Error(error.message);
+    falhaDeEscrita(error);
     await load();
-  }, [routeIdForDriver, load]);
+  }, [routeIdForDriver, versaoDe, falhaDeEscrita, load]);
 
   const saveStopConstraint = useCallback(async (routeId: string, dogId: string, constraint: DispatchConstraint) => {
     const { error } = await supabase.from('route_stops').update({
@@ -165,15 +219,17 @@ export default function DispatchScreen() {
       exact_time: constraint.exactTime,
       priority: constraint.priority,
     }).eq('route_id', routeId).eq('dog_id', dogId);
-    if (error) throw new Error(error.message);
+    falhaDeEscrita(error);
+    await marcarRotaAlterada(routeId);
     await load();
-  }, [load]);
+  }, [falhaDeEscrita, marcarRotaAlterada, load]);
 
   const removeStop = useCallback(async (routeId: string, dogId: string) => {
     const { error } = await supabase.from('route_stops').delete().eq('route_id', routeId).eq('dog_id', dogId);
-    if (error) throw new Error(error.message);
+    falhaDeEscrita(error);
+    await marcarRotaAlterada(routeId);
     await load();
-  }, [load]);
+  }, [falhaDeEscrita, marcarRotaAlterada, load]);
 
   const moveStop = useCallback(async (routeId: string, dogId: string, direction: -1 | 1) => {
     const route = routes.find((candidate) => candidate.routeId === routeId);
@@ -183,37 +239,35 @@ export default function DispatchScreen() {
     const target = index + direction;
     if (index < 0 || target < 0 || target >= ordered.length) return;
     [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
-    const { error } = await supabase.rpc('reorder_route_stops', { p_route_id: routeId, p_dog_ids: ordered.map((stop) => stop.dogId) });
-    if (error) throw new Error(error.message);
+    const { error } = await supabase.rpc('reorder_route_stops', {
+      p_route_id: routeId,
+      p_dog_ids: ordered.map((stop) => stop.dogId),
+      p_esperado: versaoDe(routeId),
+    });
+    falhaDeEscrita(error);
     await load();
-  }, [routes, load]);
+  }, [routes, versaoDe, falhaDeEscrita, load]);
 
   const publish = useCallback(async (routeId: string) => {
-    const { error } = await supabase.rpc('publish_route', { p_route_id: routeId });
-    if (error) throw new Error(error.message);
+    const { error } = await supabase.rpc('publish_route', { p_route_id: routeId, p_esperado: versaoDe(routeId) });
+    falhaDeEscrita(error);
     await load();
-  }, [load]);
+  }, [versaoDe, falhaDeEscrita, load]);
 
   // Volta a rota para rascunho: o motorista deixa de ver a rota, mas nada e apagado.
   const unpublish = useCallback(async (routeId: string) => {
-    const { error } = await supabase.from('routes').update({ status: 'draft', published_at: null }).eq('id', routeId);
-    if (error) throw new Error(error.message);
-    await load();
-  }, [load]);
+    await trocarStatus(routeId, { status: 'draft', published_at: null });
+  }, [trocarStatus]);
 
   // Cancela a rota (status cancelado): sai da operacao e sai da tela do motorista.
   const cancelRoute = useCallback(async (routeId: string) => {
-    const { error } = await supabase.from('routes').update({ status: 'cancelled' }).eq('id', routeId);
-    if (error) throw new Error(error.message);
-    await load();
-  }, [load]);
+    await trocarStatus(routeId, { status: 'cancelled' });
+  }, [trocarStatus]);
 
   // Fecha a rota: ela sai da operacao (motorista deixa de ver) e entra no historico.
   const completeRoute = useCallback(async (routeId: string) => {
-    const { error } = await supabase.from('routes').update({ status: 'completed' }).eq('id', routeId);
-    if (error) throw new Error(error.message);
-    await load();
-  }, [load]);
+    await trocarStatus(routeId, { status: 'completed' });
+  }, [trocarStatus]);
 
   const optimize = useCallback(async (routeId: string) => {
     const route = routes.find((candidate) => candidate.routeId === routeId);
@@ -247,14 +301,14 @@ export default function DispatchScreen() {
         text: 'Apply',
         onPress: () => {
           const order = [...finished.map((stop) => stop.dogId), ...result.stops.map((stop) => stop.dogId)];
-          void supabase.rpc('reorder_route_stops', { p_route_id: routeId, p_dog_ids: order }).then(({ error }) => {
-            if (error) Alert.alert('Unable to apply the route', error.message);
+          void supabase.rpc('reorder_route_stops', { p_route_id: routeId, p_dog_ids: order, p_esperado: versaoDe(routeId) }).then(({ error }) => {
+            if (error) Alert.alert(isStaleRouteError(error) ? STALE_ROUTE_TITLE : 'Unable to apply the route', routeErrorMessage(error));
             void load();
           });
         },
       },
     ]);
-  }, [routes, load]);
+  }, [routes, versaoDe, load]);
 
   const summary = useMemo(() => ({ date, drivers, dayItems, routes }), [date, drivers, dayItems, routes]);
 

@@ -216,6 +216,26 @@ await caso('NAO da para gravar erro em nome de outro usuario', DRV,
 await caso('anonimo nao grava nem le erros', ANON,
   `select count(*)::int as n from client_errors;`, 'n==0')
 
+console.log('\n== CONCORRENCIA: dois gestores na mesma rota (lock_version) ==')
+await caso('gestor reordena com a versao que leu', MGR,
+  `select reorder_route_stops('${ROUTE}',
+     (select array_agg(dog_id) from route_stops where route_id='${ROUTE}'),
+     (select lock_version from routes where id='${ROUTE}'));
+   select 1 as n;`, 'ok')
+await caso('gestor com versao VELHA e recusado (nao sobrescreve)', MGR,
+  `select reorder_route_stops('${ROUTE}',
+     (select array_agg(dog_id) from route_stops where route_id='${ROUTE}'),
+     (select lock_version from routes where id='${ROUTE}') + 99);
+   select 1 as n;`, 'erro')
+await caso('publicar com versao VELHA e recusado', MGR,
+  `select publish_route('${ROUTE}', (select lock_version from routes where id='${ROUTE}') + 99); select 1 as n;`, 'erro')
+await caso('publicar com a versao atual funciona', MGR,
+  `select publish_route('${ROUTE}', (select lock_version from routes where id='${ROUTE}')); select 1 as n;`, 'ok')
+await caso('app antigo (sem versao) continua publicando', MGR,
+  `select publish_route('${ROUTE}'); select 1 as n;`, 'ok')
+await caso('motorista nao reordena rota (so gestor)', DRV,
+  `select reorder_route_stops('${ROUTE}', (select array_agg(dog_id) from route_stops where route_id='${ROUTE}')); select 1 as n;`, 'erro')
+
 console.log('\n== INTEGRIDADE: nada pode ter ficado gravado ==')
 const depois = (await sql(`
   select (select count(*) from clients) as n_clients, (select count(*) from dogs) as n_dogs,
