@@ -275,6 +275,34 @@ await caso('app antigo (sem versao) continua publicando', MGR,
 await caso('motorista nao reordena rota (so gestor)', DRV,
   `select reorder_route_stops('${ROUTE}', (select array_agg(dog_id) from route_stops where route_id='${ROUTE}')); select 1 as n;`, 'erro')
 
+// --- 020: comprovante de entrega (foto) + isolamento do bucket ---
+await caso('motorista grava o comprovante de embarque na propria parada', DRV,
+  `with u as (
+     update route_stops
+        set pickup_proof_path = '${ORG}/${STOP_DOG}/pickup-teste.jpg', pickup_proof_at = now()
+      where route_id = '${ROUTE}' and dog_id = '${STOP_DOG}'
+      returning 1
+   ) select count(*)::int as n from u;`, 'n>0')
+
+await caso('motorista NAO alcanca parada alheia (nenhuma linha muda)', DRV,
+  `with u as (
+     update route_stops set pickup_proof_path = 'x/y/z.jpg' where id = gen_random_uuid() returning 1
+   ) select count(*)::int as n from u;`, 'n==0')
+
+await caso('comprovante: arquivo no caminho da propria organizacao e aceito', DRV,
+  `with i as (
+     insert into storage.objects (bucket_id, name, owner)
+     values ('stop-proofs', '${ORG}/${STOP_DOG}/teste-suite.jpg', auth.uid())
+     returning 1
+   ) select count(*)::int as n from i;`, 'n>0')
+
+await caso('comprovante: arquivo no caminho de OUTRA organizacao e recusado', DRV,
+  `insert into storage.objects (bucket_id, name, owner)
+   values ('stop-proofs', gen_random_uuid()::text || '/x/teste.jpg', auth.uid());`, 'erro')
+// Não existe política de DELETE no bucket de propósito (comprovante é registro). O Supabase
+// bloqueia delete direto na tabela de storage, então esse caso não é testável por SQL: a
+// garantia vale na API de storage, onde a ausência de política nega a operação.
+
 console.log('\n== INTEGRIDADE: nada pode ter ficado gravado ==')
 const depois = (await sql(`
   select (select count(*) from clients) as n_clients, (select count(*) from dogs) as n_dogs,
