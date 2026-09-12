@@ -42,4 +42,20 @@ describe('DriverRouteView', () => {
     expect(screen.getByText('2. John · Luna')).toBeTruthy();
     expect(screen.queryByText('0. Maria · Bob')).toBeNull();
   });
+
+  it('parada concluida continua navegavel: o cartao e o botao levam ao mapa', async () => {
+    // Relato do dono (12/09/2026): "rota apareceu mas ao clicar nao direciona a aplicativo algum".
+    // Causa: com a parada em Completed/Skipped, TODOS os botoes ficavam atras de `!done` - inclusive
+    // o Navigate - entao nao havia como abrir o mapa justamente quando o motorista quer reconferir.
+    const onAction = jest.fn().mockResolvedValue(undefined);
+    const feita: DriverStop[] = [{ ...stops[0], status: 'completed' }];
+    const screen = await render(<DriverRouteView stops={feita} onAction={onAction} />);
+    expect(screen.getByText('Completed')).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Navigate to Bob' }));
+    expect(onAction).toHaveBeenCalledWith('stop-1', 'navigate');
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Open navigation for Bob' }));
+    expect(onAction).toHaveBeenCalledTimes(2);
+  });
 });

@@ -167,8 +167,11 @@ console.log('\n== MANAGER: rota (draft -> publicada) ==')
 const ROTA = U()
 // ciclo completo numa unica transacao: a rota criada num caso nao existe no
 // proximo (cada caso termina em rollback), entao o ciclo vai junto.
+// Data longe de qualquer rota real: existe indice unico (motorista + data), e uma rota criada a mao
+// no mesmo dia quebrava este caso (aconteceu em 12/09/2026, ao testar o push no aparelho). A
+// transacao termina em rollback, entao esta rota nunca existe de verdade.
 await caso('ciclo da rota: draft -> parada -> reordenar -> publicar', MGR,
-  `insert into routes (id, organization_id, route_date, driver_id, status) values ('${ROTA}','${ORG}',current_date,'${DRIVER}','draft');
+  `insert into routes (id, organization_id, route_date, driver_id, status) values ('${ROTA}','${ORG}',current_date + 300,'${DRIVER}','draft');
    select assign_stop_to_route('${ROTA}','${FREE_DOG}', null, null, null, 'normal');
    select reorder_route_stops('${ROTA}', array['${FREE_DOG}']::uuid[]);
    select publish_route('${ROTA}');

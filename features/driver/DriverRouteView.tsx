@@ -55,8 +55,18 @@ export function DriverRouteView({ stops, onAction }: Props) {
       {ordered.map((stop, index) => {
         const done = stop.status === 'completed' || stop.status === 'skipped';
         const address = addressLine(stop);
+        // O cartao inteiro abre a navegacao. Relato do dono (12/09/2026): "ao clicar nao direciona a
+        // aplicativo algum" - antes so o botao Navigate fazia isso, e ele SUMIA quando a parada
+        // estava concluida (o bloco de acoes ficava atras de `!done`). Perder a navegacao numa parada
+        // concluida e pior: e justamente quando o motorista precisa reconferir o local.
         return (
-          <View key={stop.id} style={[styles.card, done && styles.cardDone]}>
+          <Pressable
+            key={stop.id}
+            accessibilityRole="button"
+            accessibilityLabel={`Open navigation for ${stop.dogName}`}
+            onPress={() => fire(stop, 'navigate')}
+            style={({ pressed }) => [styles.card, done && styles.cardDone, pressed && styles.cardPressed]}
+          >
             <View style={styles.rowTop}>
               {/* Numera pela posicao na rota (1, 2, 3...). O painel do Dispatch ja fazia assim;
                   aqui saia o campo cru do banco, que pode vir 0 ("0. Maria Silva"). */}
@@ -68,34 +78,33 @@ export function DriverRouteView({ stops, onAction }: Props) {
             {stop.instructions ? <View style={styles.instructions}><Text style={styles.instructionsLabel}>ACCESS INSTRUCTIONS</Text><Text style={styles.instructionsText}>{stop.instructions}</Text></View> : null}
             {stop.medicalNotes ? <View style={[styles.care, styles.careMedical]}><Text style={[styles.careLabel, styles.careLabelMedical]}>⚠ MEDICAL</Text><Text style={styles.careText}>{stop.medicalNotes}</Text></View> : null}
             {stop.behaviorNotes ? <View style={[styles.care, styles.careBehavior]}><Text style={styles.careLabel}>BEHAVIOR</Text><Text style={styles.careText}>{stop.behaviorNotes}</Text></View> : null}
-            {!done ? (
-              <View style={styles.actions}>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Navigate to ${stop.dogName}`} onPress={() => fire(stop, 'navigate')} style={[styles.action, styles.actionDark]}>
-                  <Text style={styles.actionDarkText}>Navigate</Text>
+            <View style={styles.actions}>
+              {/* sempre visivel, inclusive para parada concluida */}
+              <Pressable accessibilityRole="button" accessibilityLabel={`Navigate to ${stop.dogName}`} onPress={() => fire(stop, 'navigate')} style={[styles.action, styles.actionDark]}>
+                <Text style={styles.actionDarkText}>Navigate</Text>
+              </Pressable>
+              {!done && stop.status === 'pending' ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={`Mark arrived ${stop.id}`} onPress={() => fire(stop, 'arrived')} style={[styles.action, styles.actionGold]}>
+                  <Text style={styles.actionGoldText}>Arrived</Text>
                 </Pressable>
-                {stop.status === 'pending' ? (
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Mark arrived ${stop.id}`} onPress={() => fire(stop, 'arrived')} style={[styles.action, styles.actionGold]}>
-                    <Text style={styles.actionGoldText}>Arrived</Text>
+              ) : null}
+              {!done && stop.status === 'arrived' ? (
+                <>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Picked up ${stop.dogName}`} onPress={() => fire(stop, 'picked_up')} style={[styles.action, styles.actionGold]}>
+                    <Text style={styles.actionGoldText}>Dog picked up</Text>
                   </Pressable>
-                ) : null}
-                {stop.status === 'arrived' ? (
-                  <>
-                    <Pressable accessibilityRole="button" accessibilityLabel={`Picked up ${stop.dogName}`} onPress={() => fire(stop, 'picked_up')} style={[styles.action, styles.actionGold]}>
-                      <Text style={styles.actionGoldText}>Dog picked up</Text>
-                    </Pressable>
-                    <Pressable accessibilityRole="button" accessibilityLabel={`Problem ${stop.id}`} onPress={() => fire(stop, 'problem')} style={[styles.action, styles.actionProblem]}>
-                      <Text style={styles.actionProblemText}>Problem</Text>
-                    </Pressable>
-                  </>
-                ) : null}
-                {stop.status === 'picked_up' ? (
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Complete ${stop.id}`} onPress={() => fire(stop, 'completed')} style={[styles.action, styles.actionGold]}>
-                    <Text style={styles.actionGoldText}>Completed</Text>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Problem ${stop.id}`} onPress={() => fire(stop, 'problem')} style={[styles.action, styles.actionProblem]}>
+                    <Text style={styles.actionProblemText}>Problem</Text>
                   </Pressable>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
+                </>
+              ) : null}
+              {!done && stop.status === 'picked_up' ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={`Complete ${stop.id}`} onPress={() => fire(stop, 'completed')} style={[styles.action, styles.actionGold]}>
+                  <Text style={styles.actionGoldText}>Completed</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </Pressable>
         );
       })}
     </ScrollView>
@@ -116,6 +125,7 @@ const styles = StyleSheet.create({
   list: { padding: 16, paddingBottom: 40 },
   card: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, padding: 15, marginBottom: 12 },
   cardDone: { opacity: 0.55 },
+  cardPressed: { opacity: 0.9 },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   title: { fontFamily: 'serif', fontSize: 17, fontWeight: '800', color: colors.forest900, flex: 1 },
   badge: { fontSize: 11, fontWeight: '900', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, overflow: 'hidden' },
