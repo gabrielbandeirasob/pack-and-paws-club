@@ -1,19 +1,17 @@
 # Build iOS de graça, no runner macOS do GitHub.
 #
 # Por que existe: o plano grátis do EAS permite 15 builds iOS por mês e a cota estourou
-# (resetava só em 01/10). Este workflow usa os minutos grátis do GitHub Actions (macOS,
-# 2.000 min/mês em repositório privado — o build consome ~10x, então dá ~8 builds) e roda o
-# MESMO build do EAS, só que em modo local (`--local`): sem fila, sem cota.
+# (resetava só em 01/10/2026). Este workflow usa os minutos grátis do GitHub Actions (macOS) e
+# roda o MESMO build do EAS, só que em modo local (`--local`): sem fila, sem cota.
 #
 # O que ele NÃO muda: o build continua sendo o mesmo (mesmas credenciais da Apple, mesmas
-# variáveis EXPO_PUBLIC_* do ambiente "production" do EAS), então o app sai idêntico ao que
-# subia pelo EAS.
+# variáveis EXPO_PUBLIC_* do ambiente "production" do EAS), então o app sai idêntico ao do EAS.
 #
-# Depois que o IPA fica pronto, ele fica disponível em "Artifacts" desta execução e o envio
-# para o TestFlight é feito pelo script `build/publish_local_ipa.py`.
+# Depois que o IPA fica pronto, ele fica em "Artifacts" desta execução e o envio para o
+# TestFlight é feito pelo script `build/publish_local_ipa.py`.
 #
-# SEGREDO NECESSÁRIO: `EXPO_STATE` = conteúdo do arquivo ~/.expo/state.json da máquina que já
-# está logada no Expo (é o que autentica o EAS). Enquanto existir um token de acesso do Expo
+# SEGREDO NECESSÁRIO: `EXPO_STATE` = conteúdo do arquivo ~/.expo/state.json da máquina logada no
+# Expo (é o que autentica o EAS). Se existir um token de acesso do Expo
 # (expo.dev/settings/access-tokens), o ideal é trocar por ele.
 
 name: iOS build (GitHub runner, sem cota do EAS)
@@ -25,6 +23,10 @@ on:
         description: 'Perfil do EAS (production)'
         required: false
         default: 'production'
+      runner:
+        description: 'Runner do GitHub (macos-15, macos-26...)'
+        required: false
+        default: 'macos-15'
       pular_testes:
         description: 'Pular tipos+testes (só em caso de emergência)'
         type: boolean
@@ -33,7 +35,7 @@ on:
 
 jobs:
   ios:
-    runs-on: macos-15
+    runs-on: ${{ inputs.runner || 'macos-15' }}
     timeout-minutes: 90
     steps:
       - name: Baixar o código
@@ -57,6 +59,17 @@ jobs:
           npx tsc --noEmit
           npx jest --runInBand
 
+      - name: Escolher o Xcode mais novo disponível
+        run: |
+          echo "Xcodes instalados neste runner:"
+          ls -d /Applications/Xcode*.app 2>/dev/null || echo "(nenhum)"
+          ATUAL=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$ATUAL" ]; then
+            sudo xcode-select -s "$ATUAL"
+          fi
+          echo "usando: $(xcode-select -p)"
+          xcodebuild -version
+
       - name: Restaurar a sessão do Expo
         run: |
           mkdir -p "$HOME/.expo"
@@ -73,6 +86,23 @@ jobs:
             --profile "${{ inputs.perfil || 'production' }}" \
             --non-interactive \
             --output ./packpaws.ipa
+
+      # O EAS esconde a saída do xcodebuild (fica num arquivo temporário do runner). Sem isto, o
+      # log só diz "ARCHIVE FAILED" e não dá para saber o que quebrou de verdade.
+      - name: Mostrar os erros do Xcode (só se falhar)
+        if: failure()
+        run: |
+          set +e
+          echo "=== arquivos de log do xcodebuild encontrados ==="
+          LOGS=$(find /var/folders -name '*.log' -mmin -90 2>/dev/null | grep -v "actions-runner" | head -6)
+          echo "$LOGS"
+          for f in $LOGS; do
+            echo ""
+            echo "========== $f =========="
+            grep -nE "error:|❌|fatal error|Undefined symbol|is not available|requires a newer" "$f" | head -40
+            echo "---- últimas 25 linhas ----"
+            tail -25 "$f"
+          done
 
       - name: Conferir o IPA (existe? tem tamanho?)
         run: |
