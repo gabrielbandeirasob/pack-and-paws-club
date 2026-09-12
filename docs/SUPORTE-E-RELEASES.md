@@ -99,17 +99,44 @@ nos testes no Linux. Por isso existe `scripts/check-case-collisions.mjs`, a prim
 4. **O passo de diagnóstico é obrigatório**: sem ele, `ARCHIVE FAILED` não diz nada e você fica
    tentando adivinhar (foi o que aconteceu nas duas primeiras tentativas).
 
-## 4. Notificações push (implementado — ligado só depois da chave APNs)
+## 4. Notificações push (✅ LIGADO e ENTREGANDO — 12/09/2026)
 
-O banco, o disparo e o formato da mensagem estão prontos e testados. O app, no entanto, está com
-o registro **desligado**: falta a capacidade Push Notifications no perfil da Apple e a chave APNs.
-Passo a passo para ligar: `docs/PUSH-DESTRAVAR.md`.
+Cadeia completa, provada ponta a ponta em 12/09/2026 (recibo da Apple: `status: ok`):
 
-- Tabela `device_tokens`: cada aparelho registra o token ao entrar; sai ao deslogar.
-- Trigger `routes_notify_driver`: quando a rota é **publicada** (ou cancelada), o banco chama a
-  Expo Push API. Sai mesmo se o gestor fechar o app.
-- Mensagem **sem dado sensível**: só a contagem de paradas e o id da rota.
-- Testar: publicar uma rota com um motorista que já abriu o app no aparelho.
+1. App pede permissão e grava o token em `device_tokens` (`features/notifications/PushRegistrar.tsx`,
+   montado no layout raiz — registra ao entrar, remove ao sair).
+2. Trigger `routes_notify_driver` (migration `..._016_push_device_tokens.sql`): rota **publicada**
+   (ou cancelada) → `pg_net` → Expo Push API. Sai mesmo com o gestor de app fechado.
+3. Expo → APNs → iPhone. Mensagem **sem dado sensível** (só contagem de paradas + id da rota).
+4. Credenciais: chave APNs `.apple/AuthKey_4JP95YZWZ6.p8` (Key ID `4JP95YZWZ6`,
+   **Sandbox & Production**) subida no EAS pelo site; perfil com `aps-environment = production`.
+
+### Como testar / diagnosticar (receita usada em 12/09)
+
+```sql
+-- 1) o aparelho registrou?
+select left(token,20), platform, created_at from device_tokens order by created_at desc;
+-- 2) publicar a rota (o gatilho dispara na transicao para 'published')
+update routes set status='draft', published_at=null where id='<id>';
+update routes set status='published', published_at=now() where id='<id>';
+-- 3) o que a Expo respondeu (pg_net guarda a resposta)
+select status_code, left(content,300) from net._http_response order by created desc limit 1;
+```
+
+Com o `id` do ticket devolvido no passo 3, pedir o **recibo** (é ele que diz se a Apple aceitou):
+
+```bash
+curl -s https://exp.host/--/api/v2/push/getReceipts \
+  -H 'Content-Type: application/json' -d '{"ids":["<ticket>"]}'
+```
+
+- `status: ok` → entregue ✅
+- `BadEnvironmentKeyInToken (403)` → **a chave APNs está restrita a um ambiente só**. Foi o que
+  aconteceu em 12/09: a tela *Configure Key* vem com `Sandbox` marcado e a escolha **não pode ser
+  editada**. Corrigir criando OUTRA chave com **`Sandbox & Production`** + `Team Scoped (All Topics)`
+  e substituindo no EAS (**não precisa de build novo** — é credencial de servidor).
+- `DeviceNotRegistered` → o aparelho desinstalou/negou permissão: a linha em `device_tokens` deve
+  ser removida (o app já remove ao deslogar).
 
 ## 5. Trânsito real (ligar quando houver conta Google)
 
