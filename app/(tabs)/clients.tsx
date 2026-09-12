@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 import { AddClientReview } from '@/features/clients/AddClientReview';
 import { ClientsList } from '@/features/clients/ClientsList';
@@ -36,8 +36,13 @@ export default function ClientsScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [service] = useState<ContactsService>(() => createContactsService());
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // O Expo Router mantem a aba montada: quem salvava um cao novo voltava para uma lista
+  // velha (o dado existia no banco e nao aparecia na tela). Agora recarrega a cada foco —
+  // silenciosamente depois da primeira vez, para nao piscar o indicador a cada troca de aba.
+  const jaCarregou = useRef(false);
+
+  const load = useCallback(async (opcoes?: { silent?: boolean }) => {
+    if (!opcoes?.silent) setLoading(true);
     setError(null);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
@@ -58,10 +63,15 @@ export default function ClientsScreen() {
       .order('name');
     if (clientsError) { setError(clientsError.message); setLoading(false); return; }
     setClients(((rows as ClientRow[]) ?? []).map((row) => ({ ...row, dogs: (row.dogs ?? []).map((dog) => dog.name) })));
+    jaCarregou.current = true;
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      void load({ silent: jaCarregou.current });
+    }, [load]),
+  );
 
   const openPicker = async () => {
     setPickerVisible(true);

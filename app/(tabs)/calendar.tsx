@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 import { CalendarGrid, BOARDING_DOT, DAYCARE_DOT } from '@/features/calendar/CalendarGrid';
 import { addDaysISO, formatDayLabel, todayLocalISO } from '@/features/calendar/dates';
@@ -33,8 +33,13 @@ export default function CalendarScreen() {
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // Mesma armadilha da aba de clientes: a tela fica montada, entao um cao recem-cadastrado
+  // nao aparecia no seletor do agendamento ate fechar e abrir o app. Recarrega a cada foco,
+  // silenciosamente depois da primeira vez.
+  const jaCarregou = useRef(false);
+
+  const load = useCallback(async (opcoes?: { silent?: boolean }) => {
+    if (!opcoes?.silent) setLoading(true);
     setError(null);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
@@ -76,10 +81,15 @@ export default function CalendarScreen() {
       reason: row.reason,
     })));
     setDogs(((dogResult.data as unknown as DogRow[]) ?? []).map((row) => ({ id: row.id, dogName: row.name, clientName: row.client.name })));
+    jaCarregou.current = true;
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(
+    useCallback(() => {
+      void load({ silent: jaCarregou.current });
+    }, [load]),
+  );
 
   const summary = useMemo(() => buildDay(selectedDay, reservations, recurring, exceptions), [selectedDay, reservations, recurring, exceptions]);
 

@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import { DateField } from '@/features/calendar/DateField';
 import type { DogRef } from '@/features/calendar/dayMath';
+import { DogPicker } from '@/features/calendar/DogPicker';
 import { colors, radii } from '@/features/theme/tokens';
 
 export type NewReservationPayload = {
@@ -88,16 +89,12 @@ export function NewReservationForm({ dogs, onSave, onCancel }: Props) {
           </View>
 
           <Text style={styles.label}>Dog</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Select dog" onPress={() => { /* toggles below */ }}>
-            <Text style={styles.selectValue}>{dog ? `${dog.clientName} · ${dog.dogName}` : 'Select dog…'}</Text>
-          </Pressable>
-          <View style={styles.dogList}>
-            {dogs.map((candidate) => (
-              <Pressable key={candidate.id} accessibilityRole="button" accessibilityLabel={`${candidate.clientName} · ${candidate.dogName}`} onPress={() => setDog(candidate)} style={[styles.dogOption, dog?.id === candidate.id && styles.dogOptionActive]}>
-                <Text style={[styles.dogOptionText, dog?.id === candidate.id && styles.dogOptionTextActive]}>{candidate.clientName} · {candidate.dogName}</Text>
-              </Pressable>
-            ))}
-          </View>
+          <DogPicker
+            dogs={dogs}
+            selected={dog}
+            onSelect={setDog}
+            hint={dogs.length > 6 ? 'Tap to search by dog or client.' : undefined}
+          />
 
           <DateField label="Start date" value={startDate} onChange={setStartDate} />
 

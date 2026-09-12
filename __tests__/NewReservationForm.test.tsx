@@ -14,8 +14,11 @@ const lastDayOfMonth = String(new Date(Date.UTC(Number(today.slice(0, 4)), Numbe
 const lastOfMonth = `${today.slice(0, 8)}${lastDayOfMonth}`;
 
 async function pickDog(screen: Awaited<ReturnType<typeof render>>, dogLabel: string) {
+  // O seletor agora abre um painel com busca e agrupa por cliente; a linha tem o rotulo
+  // "Select <cão> of <cliente>". dogLabel continua no formato "Cliente · Cão".
+  const [clientName, dogName] = dogLabel.split(' · ');
   await fireEvent.press(screen.getByRole('button', { name: 'Select dog' }));
-  await fireEvent.press(screen.getByRole('button', { name: dogLabel }));
+  await fireEvent.press(screen.getByRole('button', { name: `Select ${dogName} of ${clientName}` }));
 }
 
 async function pickDate(screen: Awaited<ReturnType<typeof render>>, fieldLabel: string, isoDate: string) {
