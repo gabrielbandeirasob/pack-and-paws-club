@@ -1,0 +1,381 @@
+{
+ "o_que_e": "Onfleet é uma plataforma de software de gestão de entregas de última milha (last-mile delivery), sediada em San Francisco (EUA). O produto reúne um painel web para despachantes/gestores, apps nativos iOS/Android para motoristas, rastreio em tempo real com ETA preditivo e notificações automáticas para o destinatário, além de API e webhooks. O núcleo do modelo de dados é a 'task' — uma unidade de trabalho de coleta (pickup) OU entrega (dropoff); operações de coleta+entrega no mesmo pedido usam duas tasks vinculadas. Fonte: https://onfleet.com/pricing , https://docs.onfleet.com/reference/setup-tutorial , https://onfleet.com/last-mile-delivery",
+ "publico_alvo": [
+  "Entregadores e operações logísticas (couriers/carriers) — é o público principal do plano/add-on Courier Suite.",
+  "Varejo e e-commerce com entrega própria (ex.: supermercados, floriculturas, restaurantes, mercearia/produce box).",
+  "Farmácia/saúde e cannabis, incluindo operações que exigem verificação de idade/ID e compliance (HIPAA/SOC 2 Type II).",
+  "Operações mistas: frota própria + parceiros terceirizados (fleet híbrida), multi-marca e multi-região (níveis Scale/Enterprise).",
+  "Porte: da pequena equipe (plano Launch) a grandes redes (Enterprise, 10.000+ tasks/mês). Onfleet declara '1.000+ clientes' na página de preços e cita Kroger, Total Wine & More, Drizly, Zumiez, United Supermarkets entre clientes.",
+  "NÃO é ferramenta de service dispatch/work orders (ordens de serviço) — é focada em entrega. Fonte: https://onfleet.com/pricing , https://onfleet.com/devhub (seção 'Trusted by the best'), https://onfleet.com/blog/best-medical-courier-software/ , https://logicatalog.com/vendors/onfleet"
+ ],
+ "preco": {
+  "modelo": "Assinatura por faixas (tiers) baseada em VOLUME DE TASKS concluídas por mês — não por motorista nem por usuário. Usuários são ilimitados. 'Task' = uma coleta OU uma entrega. Telefonia (SMS/ligações) é cobrada à parte por segmento/minuto; há taxa de processamento de 3,5% para cartão/Apple Pay/Google Pay; add-on Courier Suite à parte; sem plano gratuito; teste grátis de 14 dias; sem reembolso de valores pré-pagos (salvo decisão da Onfleet).",
+  "valores_oficiais_verificados_na_pagina_em_2026-09": {
+   "Launch": {
+    "preco_mensal_usd": 619,
+    "tasks_incluidas": 2500,
+    "destaques": [
+     "app do motorista #1",
+     "prova de entrega por foto e assinatura",
+     "chat motorista-despachante",
+     "otimização de rota básica",
+     "notificações por status/ETA",
+     "relatórios históricos de 90 dias",
+     "acesso a API e webhooks",
+     "suporte por e-mail e telefone agendado"
+    ]
+   },
+   "Scale": {
+    "preco_mensal_usd": 1349,
+    "tasks_incluidas": 5000,
+    "destaques": [
+     "leitura de código de barras",
+     "leitura de ID e verificação de idade",
+     "requisitos de conclusão customizados",
+     "otimização de rota avançada (com acesso via API)",
+     "notificações de ETA dinâmico",
+     "auto-dispatch",
+     "campos customizados",
+     "Operational Command Center",
+     "relatórios de 1 ano",
+     "onboarding guiado"
+    ]
+   },
+   "Enterprise": {
+    "preco_mensal_usd": 3099,
+    "tasks_incluidas": "10.000+",
+    "destaques": [
+     "multi-marca e multi-região",
+     "branding e telefonia avançados",
+     "Enterprise SSO",
+     "histórico de relatórios vitalício",
+     "onboarding/implementação/suporte premium"
+    ]
+   },
+   "add_on_Courier_Suite": {
+    "preco_mensal_usd": 299,
+    "descricao": "Add-on para couriers/carriers: tabelas de preço/serviço customizáveis, portais de pedido e rastreio para o cliente, entrada automática de pedidos de e-commerce, Address Book."
+   }
+  },
+  "custo_efetivo_por_task": "≈ US$ 0,25/task no Launch até ≈ US$ 0,31/task no Enterprise, quando se usa exatamente a cota inclusa (valores calculados por terceiros a partir do preço oficial).",
+  "sem_minimo_ou_taxa_de_plataforma_publicados": "Não há 'taxa de plataforma' ou 'mínimo mensal' publicados além do próprio valor do plano; o piso de entrada é o Launch a US$ 619/mês. Overages (tasks acima da cota) existem e são cobrados, mas a tarifa não é pública (a Onfleet informa que é confidencial); acima de 25.000 tasks/mês a empresa pede contato com vendas para preço enterprise. SMS é cobrado POR SEGMENTO (160 chars GSM-7, 70 com emojis) e telefonia por minuto, com ambas as pernas cobradas quando há mascaramento de número.",
+  "discrepancia_de_valores": "Cuidado: várias fontes (inclusive as páginas de Capterra e G2 do próprio fornecedor) ainda citam os preços antigos US$ 599 / US$ 1.299 / US$ 2.999 (e o G2 mostra 'a partir de US$ 500' / 'US$ 1.150'). Os valores atuais lidos direto de onfleet.com/pricing são US$ 619 / US$ 1.349 / US$ 3.099.",
+  "fontes": [
+   "https://onfleet.com/pricing (lido ao vivo)",
+   "https://support.onfleet.com/hc/en-us/articles/360023669252-Billing",
+   "https://www.capterra.com/p/142633/Onfleet",
+   "https://www.g2.com/products/onfleet/reviews",
+   "https://fareye.com/resources/blogs/onfleet-pricing",
+   "https://www.routific.com/blog/routific-vs-onfleet",
+   "https://xpay.sh/saas-pricing/onfleet"
+  ]
+ },
+ "funcionalidades_despacho": [
+  "Criação de tarefas ('task') individualmente no painel, por importação, por API ou por integração com e-commerce/OMS; cada task = 1 pickup ou 1 dropoff; pickup+dropoff vinculados via linked tasks/dependências de tarefa. Fonte: https://docs.onfleet.com/reference/setup-tutorial",
+  "Criação de tasks em lote assíncrona (asynchronous batch task creation) para grandes volumes. Fonte: https://onfleet.com/blog/onfleets-2023-year-in-review",
+  "Auto-dispatch on-demand: atribui automaticamente pedidos ao melhor motorista/rota disponível em tempo real, usando proximidade do motorista, carga de trabalho da rota, trânsito, capacidade e janelas de entrega. Disponível a partir do plano Scale. Fonte: https://onfleet.com/assignment-and-dispatching , https://onfleet.com/last-mile-delivery , https://www.routific.com/blog/routific-vs-onfleet",
+  "Dispatch disparado por API: pedidos do OMS/e-commerce/sistemas internos podem acionar otimização de rota + atribuição de motorista automaticamente via API. Fonte: https://onfleet.com/assignment-and-dispatching , https://onfleet.com/route-optimization",
+  "Despacho híbrido: distribui pedidos entre frota própria e parceiros terceirizados numa única visão (inclui rede de couriers da Onfleet para overflow). Fonte: https://onfleet.com/assignment-and-dispatching",
+  "Otimização de rota por ML treinada em 100M+ entregas; considera hubs, endereços, janelas de tempo, escalas de motorista, capacidade de veículo, tempo de serviço, tráfego histórico e velocidades/restrições de via. Fonte: https://onfleet.com/route-optimization , https://support.onfleet.com/hc/en-us/articles/360023910371-Route-Optimization-Setup",
+  "Modos de otimização escolhíveis: 0 = minimizar distância, 1 = chegar sempre no horário, 2 = equilibrar distância e tempo; parâmetros de serviceTime, maxViolationTime, eviar pedágios (avoidTolls), balancear rotas (balanceRoutes). Fonte: https://docs.onfleet.com/reference/initialize-vehicle-based-route-optimization",
+  "Capacidade por veículo/tipo de veículo: o motor de otimização aceita tipos (walking, bicycle, motorcycle, car, truck), quantidade de veículos de cada tipo, capacidade de cada veículo e máximo de tasks por rota. Ex.: car com maxTasksPerRoute=5 e capacity=1. Fonte: https://docs.onfleet.com/reference/initialize-vehicle-based-route-optimization",
+  "Janelas de tempo (time windows) por task via completeAfter/completeBefore, com penalidade máxima de atraso (maxViolationTime). Fonte: https://docs.onfleet.com/reference/initialize-vehicle-based-route-optimization , https://support.onfleet.com/hc/en-us/articles/360023910371-Route-Optimization-Setup",
+  "Múltiplas janelas de entrega e reatribuição dinâmica pelo despachante (manual override), inclusive por mudanças inesperadas. Fonte: https://onfleet.com/assignment-and-dispatching",
+  "Route Plans: rotas otimizadas podem ser automaticamente materializadas como planos de rota. Fonte: https://support.onfleet.com/hc/en-us/articles/360023910371-Route-Optimization-Setup",
+  "Tratamento de exceções: sinaliza automaticamente atrasos e entregas falhadas (failed deliveries) para reatribuição, com regras configuráveis de nova tentativa. Fonte: https://onfleet.com/assignment-and-dispatching , https://logicatalog.com/vendors/onfleet",
+  "Agendamento de motorista (schedules/shifts) por slots de horário e timezone. Fonte: https://docs.onfleet.com/reference/initialize-vehicle-based-route-optimization",
+  "PRIORIDADE EXPLÍCITA DE TAREFA: não encontrado campo de prioridade de task nas fontes oficiais consultadas (priorização se dá via janelas de tempo, ordem de rota e reatribuição manual). Fonte: não encontrado"
+ ],
+ "app_motorista": [
+  "Fila de tasks do dia com informação de cliente/pedido 'up-to-the-second' e detalhes completos da tarefa. Fonte: https://play.google.com/store/apps/details?hl=en_US&id=com.onfleet.driver.app",
+  "Navegação turn-by-turn (integra com Apple Maps, Google Maps, Waze e HERE WeGo) evitando trânsito. Fonte: https://apps.apple.com/us/app/onfleet-driver/id1084013403 , https://onfleet.com/driver-app",
+  "Prova de entrega por FOTO (obrigatória ou opcional, com opção de bloquear upload da galeria exigindo foto tirada no momento). Fonte: https://onfleet.com/proof-of-delivery , https://support.onfleet.com/hc/en-us/articles/10228814951060-Driver-App-Settings",
+  "Prova de entrega por ASSINATURA digital, inclusive assinatura sem contato coletada antecipadamente pelo cliente. Fonte: https://onfleet.com/proof-of-delivery",
+  "Leitura de CÓDIGO DE BARRAS (múltiplos barcodes por entrega, podendo ser obrigatório) — planos Scale ou superiores. Fonte: https://docs.onfleet.com/reference/setup-tutorial , https://onfleet.com/proof-of-delivery",
+  "Verificação de ID/idade por documento oficial com governança (planos Scale+) e scan de passaporte/documento internacional. Fonte: https://onfleet.com/proof-of-delivery , https://onfleet.com/blog/onfleets-2023-year-in-review",
+  "Adicionar NOTAS/observações em qualquer entrega. Fonte: https://onfleet.com/proof-of-delivery",
+  "Requisitos de conclusão configuráveis por organização: nota, assinatura e foto podem ser 'Required', 'Enabled' (com aviso opcional) ou desabilitados, com configuração independente para pickup e dropoff; a task não pode ser concluída sem o comprovante exigido. Fonte: https://support.onfleet.com/hc/en-us/articles/10228814951060-Driver-App-Settings",
+  "MODO OFFLINE configurável (padrão desligado; quando ligado o motorista continua trabalhando em zonas rurais/urbanas de baixa conectividade). Quando desligado, o motorista tem 2 minutos para iniciar/concluir a task fora de banda. Fonte: https://support.onfleet.com/hc/en-us/articles/10228814951060-Driver-App-Settings",
+  "Controle de ordem: permitir ou bloquear o motorista iniciar tarefas fora da sequência designada. Fonte: https://support.onfleet.com/hc/en-us/articles/10228814951060-Driver-App-Settings , https://onfleet.com/blog/onfleets-2023-year-in-review",
+  "Aviso quando o motorista inicia a tarefa antes do horário permitido (completeAfter). Fonte: https://support.onfleet.com/hc/en-us/articles/10228814951060-Driver-App-Settings",
+  "Motivos customizados de conclusão/fracasso de tarefa (custom task completion reasons) e exigência de foto ao marcar uma entrega como falhada. Fonte: https://onfleet.com/blog/onfleets-2023-year-in-review , https://apps.apple.com/us/app/onfleet-driver/id1084013403 (changelog)",
+  "Antes de entrar em serviço (on duty): pode ser exigido/bloqueado estar dentro da área permitida do hub. Fonte: https://apps.apple.com/us/app/onfleet-driver/id1084013403 (changelog)",
+  "Comunicação com cliente e despachante por texto ou ligação dentro do app, com números mascarados para privacidade. Fonte: https://play.google.com/store/apps/details?hl=en_US&id=com.onfleet.driver.app , https://onfleet.com/chat-and-sms",
+  "Métricas próprias e contador de pacotes/códigos escaneados; função de escanear e ordenar pacotes por rota a partir do menu lateral. Fonte: https://play.google.com/store/apps/details?hl=en_US&id=com.onfleet.driver.app , https://apps.apple.com/us/app/onfleet-driver/id1084013403",
+  "GPS em tempo real ativo durante o turno; a Onfleet declara que não coleta nem armazena dados do motorista quando ele está off-duty/offline. Fonte: https://onfleet.com/driver-app , https://onfleet.com/blog/frequently-asked-questions-about-onfleet"
+ ],
+ "rastreio_e_comunicacao": [
+  "Command Center / Live Command Center: mapa em tempo real de todas as rotas ativas, progresso turn-by-turn, alertas de atraso e capacidade de reatribuir/intervir (plano Scale+). Fonte: https://onfleet.com/visibility-and-tracking , https://onfleet.com/assignment-and-dispatching",
+  "Rastreio unificado de frota própria e de parceiros terceirizados na mesma visão. Fonte: https://onfleet.com/visibility-and-tracking , https://onfleet.com/last-mile-delivery",
+  "ETAs preditivos por IA que se atualizam dinamicamente com base em GPS e padrões históricos de tráfego, sinalizando entregas em risco de atraso antes que atrasem. Fonte: https://onfleet.com/visibility-and-tracking , https://onfleet.com/chat-and-sms",
+  "Notificações automáticas ao destinatário por SMS disparadas por status/etapa (ex.: despachado, a caminho, concluído) e por ETA — com branding; no Launch são 'status and ETA-triggered notifications'; no Scale são 'dynamic ETA notifications'. Fonte: https://onfleet.com/pricing , https://onfleet.com/chat-and-sms",
+  "Página/link de rastreio para o cliente com GPS ao vivo, ETA preditivo, chat com o motorista e pesquisa de feedback; no Enterprise é white-label/private-label. Fonte: https://onfleet.com/last-mile-delivery , https://onfleet.com/visibility-and-tracking , https://www.capterra.com/p/142633/Onfleet/pricing",
+  "30+ webhooks para disparar notificações/automações em eventos (ex.: taskUpdated, taskFailed, mudança de status do motorista). Fonte: https://onfleet.com/visibility-and-tracking , https://docs.onfleet.com/reference/webhooks",
+  "Chat despachante↔motorista dentro da plataforma e chat motorista↔cliente com mascaramento de número de telefone. Fonte: https://onfleet.com/chat-and-sms",
+  "Comprovantes (foto/assinatura) compartilhados instantaneamente com o cliente; URLs hospedadas de comprovante (padrão https://uploads.us.prod.onfleet.com/:uploadId/800x.png e /282x.png) e IDs disponíveis via API/webhook no campo completionDetails. Fonte: https://onfleet.com/last-mile-delivery , https://docs.onfleet.com/reference/proof-of-delivery-retrieval",
+  "Redução de chamados 'onde está meu pedido': a própria Onfleet afirma 80% de redução em consultas de suporte ao cliente. Fonte: https://onfleet.com/visibility-and-tracking",
+  "Idiomas suportados pela interface/plataforma: árabe, alemão, inglês, francês, hebraico, italiano, japonês, holandês, polonês, russo e espanhol. Fonte: https://www.g2.com/products/onfleet/reviews"
+ ],
+ "gestao_relatorios": [
+  "Métricas por motorista e por equipe: taxa de entregas no prazo (on-time rate), conclusão de tarefas, feedback do cliente, TEMPO POR PARADA e distância percorrida. Fonte: https://onfleet.com/data-and-analytics",
+  "Relatórios históricos: 90 dias no Launch, 1 ano no Scale, vitalício no Enterprise. Fonte: https://onfleet.com/pricing , https://www.capterra.com/p/142633/Onfleet/pricing",
+  "Performance de rota: compara rota planejada vs. executada e mostra desvios de sequência, variações de tempo e valores reais por parada. Fonte: https://onfleet.com/data-and-analytics",
+  "Performance de frota interna e externa (parceiros) no mesmo painel. Fonte: https://onfleet.com/data-and-analytics",
+  "Analytics de liderança: visão consolidada da operação pronta para revisão semanal sem montar dados à mão. Fonte: https://onfleet.com/data-and-analytics",
+  "Dashboards customizáveis por papel (despachante, gerente de operações, liderança). Fonte: https://onfleet.com/data-and-analytics",
+  "EXPORTAÇÃO em CSV, conexão com ferramentas de BI e trilhas de auditoria. Fonte: https://onfleet.com/data-and-analytics",
+  "Unified Performance Analytics: taxa on-time, custo por entrega, tempos de serviço e performance por motorista/parceiro. Fonte: https://onfleet.com/last-mile-delivery",
+  "Cálculo de pagamento do motorista (driver pay calculation) já no plano de entrada. Fonte: https://onfleet.com/pricing",
+  "Comprovantes centralizados e recuperáveis (foto/assinatura) via API/webhook para arquivo e disputas. Fonte: https://onfleet.com/proof-of-delivery , https://docs.onfleet.com/reference/proof-of-delivery-retrieval",
+  "Extração de dados de delivery por API e webhooks para pipelines próprios (campos customizados/metadata em workers, tasks e recipients). Fonte: https://onfleet.com/devhub , https://docs.onfleet.com/reference/webhooks"
+ ],
+ "integracoes": [
+  "API REST v2 (https://onfleet.com/api/v2/) com autenticação por API key (basic auth), criada em Settings > API and Webhooks; limite de 20 req/s agregado por organização; ambiente de teste (sandbox) disponível sem custo em planos pagos. Fonte: https://docs.onfleet.com/reference/setup-tutorial , https://onfleet.com/devhub",
+  "Wrappers/SDKs oficiais open source: Node, Python (pyonfleet), PHP, Ruby (deprecado), Go (deprecado), Java (deprecado). Fonte: https://onfleet.com/devhub , https://github.com/onfleet",
+  "Webhooks com 30+ gatilhos (taskCreated, taskUpdated, taskCompleted, taskFailed, mudança de status do motorista, etc.) para disparar automações em URL designada. Fonte: https://onfleet.com/visibility-and-tracking , https://onfleet.com/devhub , https://docs.onfleet.com/reference/webhooks",
+  "Shopify: app próprio na Shopify App Store (criação automática de tasks, zonas de entrega customizáveis e SELEÇÃO DE JANELA DE ENTREGA/time slots pelo cliente no checkout). Fonte: https://apps.shopify.com/onfleet , https://support.onfleet.com/hc/en-us/articles/14687215099412-Shopify-Onfleet-Workflow , https://onfleet.com/blog/onfleets-2023-year-in-review",
+  "Zapier: integração oficial pública (trigger por webhook, ex. taskFailed, e criação de tasks em Zaps; conecta a ~9.000 apps). Fonte: https://support.onfleet.com/hc/en-us/articles/25193583592340-Zapier-Integration , https://zapier.com/apps/onfleet/integrations , https://onfleet.com/blog/onfleets-zapier-2-0-integration",
+  "WooCommerce (via Zapier, Make e n8n). Fonte: https://zapier.com/apps/onfleet/integrations/woocommerce , https://www.make.com/en/integrations/onfleet/woocommerce , https://n8n.io/integrations/onfleet/and/woocommerce/",
+  "Catálogo de integrações pronto para uso no plano Launch ('Ready-to-use integrations'), com 20+ ferramentas listadas por diretórios de terceiros: Airtable, Google Sheets, Google Docs, Dutchie, Flowhub, Meadow, Aeropay, Dispense, Azuga Fleet, BLAZE, BloomNation, CARRIYO, Evermile, Flybuy, MENUU, Mi9 Retail Suite, Mosaic, Nextmv. Fonte: https://onfleet.com/pricing , https://www.capterra.com/p/142633/Onfleet",
+  "Integrações com OMS/plataformas de e-commerce e CRM via API (genérico) e 'Integrations Marketplace' anunciado no roadmap. Fonte: https://onfleet.com/driver-app , https://onfleet.com/blog/onfleets-2023-year-in-review",
+  "Serviços da Onfleet Solutions para integrações, automações e consultoria sob medida (pago, sob escopo). Fonte: https://onfleet.com/devhub",
+  "Canal de suporte de engenharia para integração (ticket dedicado). Fonte: https://onfleet.com/devhub"
+ ],
+ "pontos_fortes": [
+  {
+   "ponto": "App do motorista é o ativo mais elogiado: '#1 avaliado', intuitivo, sem treinamento, app nativo iOS e Android 'out of the box'.",
+   "fonte": "https://onfleet.com/driver-app , https://www.capterra.com/p/142633/Onfleet/reviews (review Vinol Joy D., 14/07/2021: 'It comes with driver apps for Android and iOS out of the box')"
+  },
+  {
+   "ponto": "Rastreio em tempo real + ETA por SMS são os recursos mais citados como úteis: 'Optimized routing and the option to see where our fleet/drivers are in real time. The last feature that is very helpful is the eta text message.'",
+   "fonte": "https://www.capterra.com/p/142633/Onfleet/reviews"
+  },
+  {
+   "ponto": "Facilidade de uso e implantação rápida: 'Setup was quick and easy', 'The interface is very straightforward... I found it simple to use right from the start'.",
+   "fonte": "https://www.capterra.com/p/142633/Onfleet/reviews , https://www.g2.com/products/onfleet/reviews (Isa C., 17/02/2026)"
+  },
+  {
+   "ponto": "API de altíssima qualidade — comparada à do Stripe: 'has world-class UX and an API that rivals Stripe's for completeness, up-time, ease of integration, and capability'.",
+   "fonte": "https://www.capterra.com/p/142633/Onfleet/reviews (James W., 27/10/2023)"
+  },
+  {
+   "ponto": "Notificações customizadas reduzem volume de dúvidas: cliente The Guardsmen relata '10 ou 15 perguntas a menos' pela manhã.",
+   "fonte": "https://onfleet.com/chat-and-sms"
+  },
+  {
+   "ponto": "Otimização de rota com ganho de tempo real: 'levava 8 a 10 horas para roteirizar 500 pedidos; no Onfleet fiz em menos de 1 hora' (Inspired Go).",
+   "fonte": "https://onfleet.com/last-mile-delivery , https://onfleet.com/route-optimization"
+  },
+  {
+   "ponto": "Transparência de preço e modelo pay-per-use elogiados: 'Transparent pricing', 'best pricing model of pay as per use and scale as you go'.",
+   "fonte": "https://www.capterra.com/p/142633/Onfleet/reviews , https://www.g2.com/products/onfleet/reviews (Jonathan V., 02/07/2026)"
+  },
+  {
+   "ponto": "Analytics de produtividade por motorista muito valorizado: 'analytics on drivers... what's been holding them up' (Flowers for Dreams) e alerta proativo de atraso ('you can't find that in other software').",
+   "fonte": "https://onfleet.com/data-and-analytics , https://onfleet.com/visibility-and-tracking"
+  },
+  {
+   "ponto": "Notas agregadas: G2 4,6/5 (142 avaliações) e Capterra 4,6/5 (96 avaliações), com 94% de sentimento positivo no Capterra; valor pelo dinheiro 4,4–4,5.",
+   "fonte": "https://www.g2.com/products/onfleet/reviews , https://www.capterra.com/p/142633/Onfleet"
+  }
+ ],
+ "reclamacoes": [
+  {
+   "reclamacao": "PREÇO: aumento de preço percebido como abusivo e corte de suporte na mesma época. Título literal: 'This company just raised its prices and reduced its support' (26/10/2023, nota 1,0).",
+   "fonte": "https://www.capterra.com/p/142633/Onfleet"
+  },
+  {
+   "reclamacao": "PREÇO: 'The account manager only hits you up to raise prices on you' (Mathew P., CEO, 26/10/2023).",
+   "fonte": "https://www.capterra.com/p/142633/Onfleet/reviews"
+  },
+  {
+   "reclamacao": "PREÇO: 'I liked the price point least, along with the way the scheduling auto-sets.'",
+   "fonte": "https://www.capterra.com/p/142633/Onfleet/reviews"
+  },
+  {
+   "reclamacao": "PREÇO/COBRANÇA: governança de faturamento fraca. Título 'Poor Billing Governance and No Effective Control Over Payment Methods' (Jimmy H., 23/10/2025) e relato 'A payment method associated with me continued to be charged even though I was not the account owner' + 'The account was inactive for months, yet billing continued. When I requested a refund... the request was denied' (Yael F., 08/06/2026).",
+   "fonte": "https://www.capterra.com/p/142633/Onfleet/reviews"
+  },
+  {
+   "reclamacao": "CUSTO/CLAREZA: 'Reviewers call pricing transparent and decent, but some say it feels steep, especially for beginners and add-ons'; o valor de overage por task não é público (a Onfleet diz ser confidencial) e SMS/telefonia são cobrados à parte por segmento/minuto, tornando o custo total imprevisível.",
+   "fonte": "https://www.capterra.com/p/142633/Onfleet , https://checkthat.ai/brands/onfleet/pricing , https://support.onfleet.com/hc/en-us/articles/360023669252-Billing"
+  },
+  {
+   "reclamacao": "SEM REEMBOLSO: política de 'no refunds of prepaid fees' explícita nos termos — citada como fonte de insatisfação em revisões de cobrança.",
+   "fonte": "https://support.onfleet.com/hc/en-us/articles/360023669252-Billing"
+  },
+  {
+   "reclamacao": "PERFORMANCE: lentidão com filtros pesados e necessidade de recarregar a página várias vezes por dia; atraso para a task aparecer como concluída. 'At times, the software can become slow, especially when multiple filters are applied simultaneously' (Jimmy H., 23/10/2025); 'I often find that I need to reload the page several times throughout the day' (Isa C., 17/02/2026).",
+   "fonte": "https://www.capterra.com/p/142633/Onfleet/reviews , https://www.g2.com/products/onfleet/reviews"
+  },
+  {
+   "reclamacao": "FALTA DE FUNÇÕES: sem integração de pagamento a motoristas; sem opção de o motorista pegar tasks sozinho (relevante para pickup+dropoff vinculado); sem comunicação direta entre membros da equipe sobre uma parada ('there aren't any options to communicate directly in the app with another team member about a stop in a route', 02/09/2025).",
+   "fonte": "https://www.capterra.com/p/142633/Onfleet/reviews , https://www.sf.softwareadvice.com (via agregador) — https://www.capterra.com/p/142633/Onfleet/pricing"
+  },
+  {
+   "reclamacao": "FIT PARA ON-DEMAND: 'Route optimization is made for truck or warehouse deliveries and not like on-demand deliveries — if you need 50 drops from one pick up location it takes a lot of workarounds to optimize'; problemas de otimização e downtime. (Vinol Joy D., 14/07/2021)",
+   "fonte": "https://www.capterra.com/p/142633/Onfleet/reviews"
+  },
+  {
+   "reclamacao": "ESCALA/COMPLEXIDADE: agências de comparação apontam que a Onfleet virou 'plataforma de orquestração enterprise' e que recursos essenciais (auto-dispatch, barcode, otimização avançada) só existem no Scale, forçando salto de preço; e que pickup+entrega no mesmo job exige o add-on Courier Suite de US$ 299/mês.",
+   "fonte": "https://www.routific.com/blog/routific-vs-onfleet , https://onro.io/onro-vs-onfleet"
+  }
+ ],
+ "copiar_para_nosso_caso": [
+  {
+   "prioridade": 1,
+   "item": "Rastreio ao vivo do motorista no mapa para o gestor (mapa da operação com posição atual, progresso da rota e status por parada).",
+   "porque": "É a maior lacuna declarada do nosso app e o recurso mais elogiado nas avaliações da Onfleet ('see where our fleet/drivers are in real time'). Com Supabase Realtime + gravação periódica de posição (lat/lng, timestamp, rota_id) já resolvemos; custo baixíssimo com 1 van.",
+   "fonte": "https://onfleet.com/visibility-and-tracking , https://www.capterra.com/p/142633/Onfleet/reviews"
+  },
+  {
+   "prioridade": 2,
+   "item": "Aviso automático ao tutor com ETA ('a van está a ~10 min') + link de acompanhamento por SMS/e-mail.",
+   "porque": "Ataca WISMO (redução de 80% em consultas alegada pela Onfleet) e é o que mais encanta o cliente final. ETA pode sair da mesma Google Route Matrix que já usamos, sem custo novo de roteirização.",
+   "fonte": "https://onfleet.com/visibility-and-tracking , https://onfleet.com/chat-and-sms"
+  },
+  {
+   "prioridade": 3,
+   "item": "Prova de entrega por FOTO e/ou ASSINATURA com requisitos de conclusão configuráveis (obrigatório/opcional/desligado, com opção de exigir foto tirada no momento).",
+   "porque": "Dá lastro contra disputa ('entreguei o cão em segurança') e é exatamente o que falta no nosso fluxo. Câmera + upload no Supabase Storage resolve; a lógica 'não concluir a parada sem o comprovante exigido' é o detalhe que devemos copiar.",
+   "fonte": "https://onfleet.com/proof-of-delivery , https://support.onfleet.com/hc/en-us/articles/10228814951060-Driver-App-Settings"
+  },
+  {
+   "prioridade": 4,
+   "item": "Sequência e confirmação por parada com captura de TEMPO REAL por parada e quilometragem (base dos relatórios de produtividade).",
+   "porque": "Habilita os relatórios que hoje não temos (tempo por parada, distância, cumprimento do horário) sem construir nada exótico — basta carimbar startedAt/completedAt e guardar os trechos da rota.",
+   "fonte": "https://onfleet.com/data-and-analytics"
+  },
+  {
+   "prioridade": 5,
+   "item": "Estados de exceção explícitos: motivo de falha da parada, nova tentativa, e alerta proativo de atraso no painel.",
+   "porque": "Cobre o dia real (cão não estava em casa, dono não atendeu, portão fechado) e evita que o problema vire reclamação; a Onfleet permite motivo customizado e exige foto ao marcar falha.",
+   "fonte": "https://onfleet.com/assignment-and-dispatching , https://onfleet.com/blog/onfleets-2023-year-in-review"
+  },
+  {
+   "prioridade": 6,
+   "item": "Modo offline no app do motorista (já temos) com o contador/limite explícito de tempo e a política de 'sem conexão, não concluir' configuravel.",
+   "porque": "Valida nossa decisão e sugere um refinamento barato: parametrizar se a parada pode ou não ser concluída offline e que dados essenciais (nome do cão, endereço, telefone) fiquem em cache.",
+   "fonte": "https://support.onfleet.com/hc/en-us/articles/10228814951060-Driver-App-Settings"
+  },
+  {
+   "prioridade": 7,
+   "item": "Navegação delegada ao app de mapas nativo (Google/Apple Maps/Waze) em vez de map-matching próprio.",
+   "porque": "Exatamente o que já fazemos e o que a Onfleet faz; evita reinventar navegação turn-by-turn.",
+   "fonte": "https://apps.apple.com/us/app/onfleet-driver/id1084013403"
+  },
+  {
+   "prioridade": 8,
+   "item": "Exportação simples (CSV) da rota/paradas/provas para conferência do gestor e contabilidade.",
+   "porque": "Barato de implementar no Supabase e resolve auditoria interna; relatórios 'analytics' complexos podem esperar.",
+   "fonte": "https://onfleet.com/data-and-analytics"
+  },
+  {
+   "prioridade": 9,
+   "item": "Estrutura de dados 'task por parada (pickup/dropoff)' com vínculo entre busca e entrega do MESMO cão.",
+   "porque": "Nosso caso é literalmente pickup de manhã + dropoff à tarde (o equivalente às 'linked tasks' da Onfleet); modelar como dois eventos vinculados ao cão deixa o histórico e a cobrança consistentes.",
+   "fonte": "https://docs.onfleet.com/reference/setup-tutorial"
+  },
+  {
+   "prioridade": 10,
+   "item": "Capacidade por veículo e janela de horário como parâmetros explícitos da rota.",
+   "porque": "Já roteirizamos com trânsito real; adicionar 'capacidade da van' (nº de caixas/vagas) e janela de busca (ex. 07:00–09:30) evita estourar lotação e horário — é literalmente o que o motor de otimização da Onfleet faz.",
+   "fonte": "https://support.onfleet.com/hc/en-us/articles/360023910371-Route-Optimization-Setup , https://docs.onfleet.com/reference/initialize-vehicle-based-route-optimization"
+  },
+  {
+   "prioridade": 11,
+   "item": "Log simples de eventos (quem fez o quê, quando) por parada para auditoria e suporte.",
+   "porque": "A Onfleet vende 'trilhas de auditoria e comprovantes recuperáveis'; para nós é só uma tabela de eventos com timestamp — vale porque é o que respalda o gestor numa discussão com o tutor.",
+   "fonte": "https://onfleet.com/data-and-analytics , https://docs.onfleet.com/reference/proof-of-delivery-retrieval"
+  }
+ ],
+ "nao_copiar": [
+  {
+   "item": "Auto-dispatch por regras (atribuição automática de tarefas a motoristas)",
+   "motivo": "Com 1 van e 1 motorista não existe decisão de atribuição a automatizar — o custo de construir o motor de regras é alto e o benefício é zero. Na própria Onfleet é recurso de plano Scale (US$ 1.349/mês)."
+  },
+  {
+   "item": "Otimização de rota multi-veículo / motor de roteirização próprio",
+   "motivo": "Já usamos Google Route Matrix com trânsito real. Duplicar otimização por ML não traz ganho com 2–6 cães em uma van."
+  },
+  {
+   "item": "Rede de couriers terceiros / hybrid fleet dispatch / overflow de parceiros",
+   "motivo": "Não temos frota terceirizada e não vamos contratar courier externo; é funcionalidade de escala da Onfleet (e parte do add-on Courier Suite de US$ 299/mês)."
+  },
+  {
+   "item": "Add-on Courier Suite (portais cliente, tabelas de preço/serviço, entrada automática de pedidos de e-commerce)",
+   "motivo": "É feito para couriers que vendem entrega a terceiros. Nosso 'cliente' é o tutor do cão e o pedido nasce no nosso próprio app — não precisamos de portal de pedidos B2B."
+  },
+  {
+   "item": "Barcode scanning, verificação de ID/idade, scan de passaporte",
+   "motivo": "Não existe 'pacote' para escanear nem exigência legal de idade no transporte de cães. Recurso de plano pago (Scale+) e de compliance regulado (álcool/cannabis/farmácia)."
+  },
+  {
+   "item": "Modelo de preço por task com tiers de milhares de entregas e cobrança de SMS por segmento",
+   "motivo": "É o ponto mais criticado da Onfleet (relatos de aumento de preço e cobrança opaca). Serviria só como referência do que NÃO fazer: nosso custo deve ser previsível e as notificações devem entrar no custo fixo (e-mail grátis/limite de SMS)."
+  },
+  {
+   "item": "Multi-marca, multi-região, multi-hub e Enterprise SSO",
+   "motivo": "Operação única em San Francisco, uma van, uma marca. SSO/gestão de identidade corporativa é overhead sem usuários para justificar."
+  },
+  {
+   "item": "Dashboards customizáveis por papel (despachante/gerente/liderança) e pacote 'leadership analytics'",
+   "motivo": "Somos poucos usuários; um único painel de resumo resolve. Configurabilidade por papel é complexidade de UI sem demanda."
+  },
+  {
+   "item": "Chat mascarado motorista↔cliente com telefonia por minuto",
+   "motivo": "Privacidade de número é irrelevante aqui (relação tutor↔creche já é pessoal) e a telefonia é cobrada por minuto/segmento — geraria custo variável e mais suporte."
+  },
+  {
+   "item": "Integrações e-commerce (Shopify, WooCommerce, Zapier, OMS, BI)",
+   "motivo": "Não vendemos produto online; a reserva/vaga do cão vem do nosso próprio app e do gestor. Só faria sentido uma integração de pagamento (Stripe/Square) para mensalidade — e isso é outro escopo."
+  },
+  {
+   "item": "Campos customizados extensíveis, regras de 'failed delivery' com re-tentativa automática e roteirização por veículo (walking/bike/moto/truck)",
+   "motivo": "Multi-veículo e multi-modalidade não existem no nosso cenário; campos customizados genéricos = abstração prematura (YAGNI) num app de 1 van."
+  },
+  {
+   "item": "Operational Command Center com reatribuição em tempo real entre vários despachantes",
+   "motivo": "Versão 'enterprise' do rastreio. O que precisamos é a versão mínima (ponto no mapa + ETA); o console completo é caro de manter e ninguém usaria."
+  }
+ ],
+ "fontes": [
+  "https://onfleet.com/pricing",
+  "https://onfleet.com/last-mile-delivery",
+  "https://onfleet.com/assignment-and-dispatching",
+  "https://onfleet.com/visibility-and-tracking",
+  "https://onfleet.com/data-and-analytics",
+  "https://onfleet.com/route-optimization",
+  "https://onfleet.com/proof-of-delivery",
+  "https://onfleet.com/driver-app",
+  "https://onfleet.com/chat-and-sms",
+  "https://onfleet.com/devhub",
+  "https://onfleet.com/blog/proof-of-delivery/",
+  "https://onfleet.com/blog/onfleets-2023-year-in-review",
+  "https://onfleet.com/blog/frequently-asked-questions-about-onfleet",
+  "https://onfleet.com/blog/onfleets-zapier-2-0-integration",
+  "https://onfleet.com/blog/best-medical-courier-software/",
+  "https://support.onfleet.com/hc/en-us/articles/360023669252-Billing",
+  "https://support.onfleet.com/hc/en-us/articles/360023910371-Route-Optimization-Setup",
+  "https://support.onfleet.com/hc/en-us/articles/34992260496532-Route-Optimization-Operation",
+  "https://support.onfleet.com/hc/en-us/articles/10228814951060-Driver-App-Settings",
+  "https://support.onfleet.com/hc/en-us/articles/14687215099412-Shopify-Onfleet-Workflow",
+  "https://support.onfleet.com/hc/en-us/articles/25193583592340-Zapier-Integration",
+  "https://docs.onfleet.com/reference/setup-tutorial",
+  "https://docs.onfleet.com/reference/initialize-vehicle-based-route-optimization",
+  "https://docs.onfleet.com/reference/proof-of-delivery-retrieval",
+  "https://apps.shopify.com/onfleet",
+  "https://www.g2.com/products/onfleet/reviews",
+  "https://www.capterra.com/p/142633/Onfleet",
+  "https://www.capterra.com/p/142633/Onfleet/reviews",
+  "https://www.capterra.com/p/142633/Onfleet/pricing",
+  "https://play.google.com/store/apps/details?hl=en_US&id=com.onfleet.driver.app",
+  "https://apps.apple.com/us/app/onfleet-driver/id1084013403",
+  "https://zapier.com/apps/onfleet/integrations",
+  "https://www.routific.com/blog/routific-vs-onfleet",
+  "https://fareye.com/resources/blogs/onfleet-pricing",
+  "https://checkthat.ai/brands/onfleet/pricing",
+  "https://xpay.sh/saas-pricing/onfleet",
+  "https://logicatalog.com/vendors/onfleet"
+ ]
+}
