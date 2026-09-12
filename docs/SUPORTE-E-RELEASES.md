@@ -138,7 +138,26 @@ curl -s https://exp.host/--/api/v2/push/getReceipts \
 - `DeviceNotRegistered` → o aparelho desinstalou/negou permissão: a linha em `device_tokens` deve
   ser removida (o app já remove ao deslogar).
 
-## 5. Trânsito real (ligar quando houver conta Google)
+## 5. Trânsito real + pino no mapa (✅ LIGADO em 12/09/2026)
+
+Chave do Google instalada como segredo do Supabase — nenhuma mudança de app foi necessária para
+esta parte (o app já chamava o servidor e caía no haversine quando faltava a chave):
+
+- Segredos: `GOOGLE_ROUTES_KEY` e `GOOGLE_GEOCODING_KEY` na Edge Function (a chave do servidor
+  fica também em `/opt/data/.google-server-key`, permissão 600). Segredo entra na hora: **não
+  precisa republicar** as funções.
+- Prova: `node scripts/google-smoke.mjs` → duas linhas `[OK] fonte: google` (tempo com trânsito +
+  endereço→coordenada). Em 12/09/2026: 1435s (~24 min) e `rooftop`.
+- Pinos: `node scripts/geocode-clients.mjs` (simulação) e `--gravar` (grava). Resultado: 7 de 9
+  clientes com pino; os 2 sem pino **não têm endereço** cadastrado (por desenho, não geocodamos
+  endereço sem número — pino errado é pior que pino nenhum).
+- Cuidado: `77 Oak Ave, Daly City` voltou como "Oak Ave, **Colma**" (rua, sem número). Endereço
+  incompleto gera pino aproximado — **corrigir o endereço no app refaz o pino automaticamente**.
+- Falta (opcional): a chave do **app** (Maps SDK for iOS) para o mapa dentro do celular ser Google
+  em vez de Apple Maps — essa exige build novo. Sem ela, tudo o mais funciona.
+- Proteção: limite diário de cota por API (5.000) definido no console do Google.
+
+### Como era antes (referência)
 
 Hoje o otimizador usa **linha reta + velocidade média** (funciona, é estimativa). Para usar o
 tempo real de rua:
