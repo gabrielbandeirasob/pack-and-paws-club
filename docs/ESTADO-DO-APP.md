@@ -63,6 +63,6 @@
 | Concorrência (trava otimista em rotas) | nós | plano, Fase 4 |
 | Trânsito real (Google Directions) | nós + chave do cliente | plano, Fase 5 |
 | Polimento das telas do motorista | nós | plano, Fase 6 |
-| Logo em alta resolução | **cliente** | plano, Fase 7 (precisa do arquivo original) |
+| Logo do app | **resolvido em 12/09 sem o cliente** | logo do site do próprio cliente (1320×1710 = 13× mais pixels que o avatar de 100×100) → ícone reconstruído (marca só, fundo creme), nitidez **2,00 → 5,61**; falta só o vetor original para uso impresso (banner/van/cartão) |
 | Runbook de suporte/releases | nós | plano, Fase 8 |
 | Nomes de clientes com o cão colado (`Elisha Ma (Mocha)`) | dono decide | 1 comando para limpar |
