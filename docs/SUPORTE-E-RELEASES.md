@@ -85,6 +85,20 @@ funcionar — os dois caminhos convivem.
 são o MESMO arquivo. Dois arquivos que só diferem na maiúscula quebram o app no iPhone e **passam**
 nos testes no Linux. Por isso existe `scripts/check-case-collisions.mjs`, a primeira checagem do CI.
 
+### Armadilhas do CI (custaram 4 execuções em 12/09/2026)
+
+1. **`node` no PATH do Xcode** — o passo "Generate Specs" (ReactCodegen) roda um script Node
+   *dentro* do Xcode. Sem `node` no PATH que o Xcode enxerga, ele falha e o log **só diz**
+   `ARCHIVE FAILED`, sem mais nada. O workflow cria `sudo ln -sf "$(which node)" /usr/local/bin/node`.
+2. **O EAS apaga a pasta temporária ao falhar**, levando junto o log do xcodebuild — que é onde
+   está o erro de verdade. Com `EAS_LOCAL_BUILD_SKIP_CLEANUP=1` o log sobrevive para o passo de
+   diagnóstico do workflow.
+3. **Runner**: o build que passou usou `macos-26` (Xcode 26.6). O `macos-15` tem Xcode 16.0–26.0.1
+   e falhou na mesma tentativa. *Ainda não isolei se o que resolveu foi o runner ou o `node`* —
+   se alguém for remover um dos dois, teste os dois cenários.
+4. **O passo de diagnóstico é obrigatório**: sem ele, `ARCHIVE FAILED` não diz nada e você fica
+   tentando adivinhar (foi o que aconteceu nas duas primeiras tentativas).
+
 ## 4. Notificações push (implementado — ligado só depois da chave APNs)
 
 O banco, o disparo e o formato da mensagem estão prontos e testados. O app, no entanto, está com
