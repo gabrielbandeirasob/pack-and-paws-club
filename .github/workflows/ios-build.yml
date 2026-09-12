@@ -78,7 +78,19 @@ jobs:
         env:
           EXPO_STATE: ${{ secrets.EXPO_STATE }}
 
+      # O passo "Generate Specs" (ReactCodegen) roda um script Node DENTRO do Xcode. Se o node
+      # não estiver no PATH que o Xcode enxerga, esse passo falha e o log só diz "ARCHIVE FAILED".
+      - name: Garantir o node no PATH dos scripts do Xcode
+        run: |
+          echo "node: $(which node) ($(node -v))"
+          sudo ln -sf "$(which node)" /usr/local/bin/node
+          ls -l /usr/local/bin/node
+
       - name: Build iOS (EAS local — sem fila e sem cota)
+        env:
+          # Não apagar a pasta temporária quando falhar: é lá que fica o log do xcodebuild.
+          # Sem isto, o passo seguinte não tem o que mostrar e o erro real fica invisível.
+          EAS_LOCAL_BUILD_SKIP_CLEANUP: '1'
         run: |
           npx --yes eas-cli@latest build \
             --local \
@@ -93,15 +105,21 @@ jobs:
         if: failure()
         run: |
           set +e
-          echo "=== arquivos de log do xcodebuild encontrados ==="
-          LOGS=$(find /var/folders -name '*.log' -mmin -90 2>/dev/null | grep -v "actions-runner" | head -6)
+          echo "=== procurando a pasta do build local do EAS ==="
+          find /var/folders /tmp -maxdepth 6 -name 'eas-build-local*' 2>/dev/null | head -5
+          echo "=== logs do xcodebuild encontrados ==="
+          LOGS=$(find /var/folders /tmp -name '*.log' -mmin -90 2>/dev/null | grep -v actions-runner | head -8)
           echo "$LOGS"
+          if [ -z "$LOGS" ]; then
+            echo "(nenhum .log encontrado — procurando por qualquer xcresult/arquivo grande do build)"
+            find /var/folders /tmp -maxdepth 8 \( -name '*.xcresult' -o -name '*PackPawsClub*' \) 2>/dev/null | head -10
+          fi
           for f in $LOGS; do
             echo ""
             echo "========== $f =========="
-            grep -nE "error:|❌|fatal error|Undefined symbol|is not available|requires a newer" "$f" | head -40
-            echo "---- últimas 25 linhas ----"
-            tail -25 "$f"
+            grep -nE "error:|❌|fatal error|Undefined symbol|is not available|requires a newer|command not found|No such file" "$f" | head -40
+            echo "---- últimas 30 linhas ----"
+            tail -30 "$f"
           done
 
       - name: Conferir o IPA (existe? tem tamanho?)
