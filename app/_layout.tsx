@@ -6,6 +6,7 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 
 import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';
+import { PushRegistrar } from '@/features/notifications/PushRegistrar';
 import { colors } from '@/features/theme/tokens';
 
 export { ErrorBoundary } from 'expo-router';
@@ -19,7 +20,7 @@ export default function RootLayout(){
   useEffect(()=>{if(error)throw error;},[error]);
   useEffect(()=>{if(loaded)SplashScreen.hideAsync();},[loaded]);
   if(!loaded)return null;
-  return <ThemeProvider value={packPawsTheme}><AuthProvider><RootNavigator/></AuthProvider></ThemeProvider>;
+  return <ThemeProvider value={packPawsTheme}><AuthProvider><PushRegistrar/><RootNavigator/></AuthProvider></ThemeProvider>;
 }
 
 function RootNavigator(){
@@ -34,7 +35,6 @@ function RootNavigator(){
       <Stack.Screen name="client-edit" options={{ headerShown: false }} />
       <Stack.Screen name="reservation-edit" options={{ headerShown: false }} />
       <Stack.Screen name="route-history" options={{ headerShown: false }} />
-      <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
     </Stack.Protected>
     <Stack.Screen name="+not-found"/>
   </Stack>;
