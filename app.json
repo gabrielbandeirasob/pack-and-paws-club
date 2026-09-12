@@ -48,12 +48,6 @@
       ],
       "expo-secure-store",
       [
-        "expo-notifications",
-        {
-          "color": "#C8A24A"
-        }
-      ],
-      [
         "expo-contacts",
         {
           "contactsPermission": "Allow Pack & Paws Club to access contacts you choose to add as clients."
