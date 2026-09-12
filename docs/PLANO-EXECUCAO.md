@@ -19,10 +19,15 @@
 | 6 — Telas do motorista | ✅ concluída | `12bbefe` — Schedule/Assigned reformuladas |
 | 7 — Ícones/logo | ✅ concluída | `5dad02a` — gerador + marca do cliente (era o padrão do Expo) |
 | 8 — Suporte e releases | ✅ concluída | `docs/SUPORTE-E-RELEASES.md` |
-| 9 — Build e distribuição | 🚧 em andamento | build 16 no TestFlight |
+| 9 — Build e distribuição | ✅ concluída | build **19** publicado (VALID) e no TestFlight (ASC `8b5ed78f`) |
 
 **Números ao fim da fase 8:** 262 testes jest · 48 suítes · suíte de banco com 46 casos ·
 typecheck limpo · cobertura de linhas 93,9%.
+
+**Nota da fase 9:** o build saiu como **19** (não 16) porque as tentativas que falharam por
+causa da entitlement de push incrementam o contador no EAS. Nada de errado com o app.
+O push continua desligado até a credencial Apple (ver `docs/PUSH-DESTRAVAR.md`) — por isso
+`expo-notifications` está desinstalado; o corpo ligado está no git (`b003c86`).
 
 ---
 
