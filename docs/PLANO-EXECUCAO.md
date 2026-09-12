@@ -7,6 +7,25 @@
 
 ---
 
+## PLACAR (atualizado em 12/09/2026)
+
+| Fase | Estado | Evidência |
+|---|---|---|
+| 1 — Higiene | ✅ concluída | `43127b9` (buildNumber fora; nada apagado — os dados eram reais) |
+| 2 — Push | ✅ concluída | `767d3a9` + `b003c86` — POST real à Expo respondido 200 |
+| 3 — Erros | ✅ concluída | `87fd269` — `client_errors` + tela de erro |
+| 4 — Concorrência | ✅ concluída | `bae98f8` — versão velha recusada (`stale_route`) |
+| 5 — Trânsito real | ✅ concluída | `c1056c9` — função `travel-times` + fallback; prova de que a ordem muda |
+| 6 — Telas do motorista | ✅ concluída | `12bbefe` — Schedule/Assigned reformuladas |
+| 7 — Ícones/logo | ✅ concluída | `5dad02a` — gerador + marca do cliente (era o padrão do Expo) |
+| 8 — Suporte e releases | ✅ concluída | `docs/SUPORTE-E-RELEASES.md` |
+| 9 — Build e distribuição | 🚧 em andamento | build 16 no TestFlight |
+
+**Números ao fim da fase 8:** 262 testes jest · 48 suítes · suíte de banco com 46 casos ·
+typecheck limpo · cobertura de linhas 93,9%.
+
+---
+
 ## Situação de partida (medida, não estimada)
 
 | Item | Estado |
