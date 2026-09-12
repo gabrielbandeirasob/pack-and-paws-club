@@ -72,14 +72,32 @@ async function asUser (uid, role, body) {
 
 // ---------------------------------------------------------------- contexto
 const ctx = (await sql(`
-  select (select id from organizations order by created_at limit 1) as org,
-         (select user_id from organization_members where role='manager' and status='active' limit 1) as manager,
-         (select r.driver_id from routes r where r.status='published' limit 1) as driver,
-         (select id from routes where status='published' limit 1) as route,
-         (select r.driver_id from routes r where r.driver_id <> (select driver_id from routes where status='published' limit 1) limit 1) as other_driver,
-         (select s.dog_id from route_stops s where s.route_id = (select id from routes where status='published' limit 1) limit 1) as stop_dog,
-         (select d.client_id from dogs d where d.id = (select s.dog_id from route_stops s where s.route_id = (select id from routes where status='published' limit 1) limit 1)) as stop_client,
-         (select d.id from dogs d where d.id <> (select s.dog_id from route_stops s where s.route_id = (select id from routes where status='published' limit 1) limit 1) limit 1) as free_dog,
+  -- TUDO da MESMA organizacao: escolhe uma org que tenha gestor ativo E rota publicada, e deriva
+  -- o resto dela. Antes pegava "a org mais antiga" + "um gestor qualquer" + "uma rota qualquer" -
+  -- com mais de uma org no banco isso misturava identidades e a suite acusava falha falsa
+  -- (aconteceu em 12/09/2026, quando o teste de push publicou uma rota na org do cliente).
+  with alvo as (
+    select o.id
+      from organizations o
+      join organization_members m on m.organization_id = o.id and m.role = 'manager' and m.status = 'active'
+     where exists (select 1 from routes r where r.organization_id = o.id and r.status = 'published')
+     order by o.created_at
+     limit 1
+  ), rota as (
+    select r.id, r.driver_id
+      from routes r
+     where r.organization_id = (select id from alvo) and r.status = 'published'
+     order by r.route_date
+     limit 1
+  )
+  select (select id from alvo) as org,
+         (select user_id from organization_members where organization_id = (select id from alvo) and role='manager' and status='active' limit 1) as manager,
+         (select driver_id from rota) as driver,
+         (select id from rota) as route,
+         (select r.driver_id from routes r where r.organization_id = (select id from alvo) and r.driver_id <> (select driver_id from rota) limit 1) as other_driver,
+         (select s.dog_id from route_stops s where s.route_id = (select id from rota) limit 1) as stop_dog,
+         (select d.client_id from dogs d where d.id = (select s.dog_id from route_stops s where s.route_id = (select id from rota) limit 1)) as stop_client,
+         (select d.id from dogs d where d.id <> (select s.dog_id from route_stops s where s.route_id = (select id from rota) limit 1) limit 1) as free_dog,
          (select count(*) from clients) as n_clients,
          (select count(*) from dogs) as n_dogs,
          (select count(*) from reservations) as n_res,
@@ -201,6 +219,24 @@ await caso('motorista NAO grava token em nome de outro', DRV,
   `insert into device_tokens (organization_id, user_id, token, platform) values ('${ORG}','${MANAGER}','ExponentPushToken[ROUBADO-${U().slice(0, 6)}]','ios'); select 1 as n;`, 'erro')
 await caso('NAO grava token em organizacao alheia', DRV,
   `insert into device_tokens (organization_id, user_id, token, platform) values ('00000000-0000-0000-0000-000000000000','${DRIVER}','ExponentPushToken[ALHEIA-${U().slice(0, 6)}]','ios'); select 1 as n;`, 'erro')
+
+// --- 019: a frase do aviso (data certa + ingles) ---
+// Antes dizia "1 parada hoje" para rota de outro dia, e em portugues para um motorista americano.
+console.log('\n== PUSH: frase do aviso (019) ==')
+await caso('aviso: 1 parada hoje, em ingles',
+  MGR, `select (public.push_route_body('route_published', current_date, 1) = '1 stop today. Tap to open.')::int as n;`, 'n>0')
+await caso('aviso: 3 paradas amanha',
+  MGR, `select (public.push_route_body('route_published', current_date + 1, 3) = '3 stops tomorrow. Tap to open.')::int as n;`, 'n>0')
+await caso('aviso: rota de outra data NAO pode dizer "hoje"',
+  MGR, `select (public.push_route_body('route_published', date '2026-09-09', 1) = '1 stop on Sep 9. Tap to open.')::int as n;`, 'n>0')
+await caso('aviso: rota sem paradas',
+  MGR, `select (public.push_route_body('route_published', current_date, 0) = 'Tap to open today''s route.')::int as n;`, 'n>0')
+await caso('aviso: cancelada hoje',
+  MGR, `select (public.push_route_body('route_cancelled', current_date, 1) = 'Your route for today was cancelled.')::int as n;`, 'n>0')
+await caso('aviso: cancelada em outra data',
+  MGR, `select (public.push_route_body('route_cancelled', date '2026-09-09', 1) = 'Your route for Sep 9 was cancelled.')::int as n;`, 'n>0')
+await caso('aviso: nada de portugues sobrando na mensagem',
+  MGR, `select (public.push_route_body('route_published', current_date, 2) !~* '(parada|hoje|cancelad|toque|rota )')::int as n;`, 'n>0')
 
 console.log('\n== MONITORAMENTO: erros do app (client_errors) ==')
 await caso('motorista registra erro e o gestor enxerga', DRV,
