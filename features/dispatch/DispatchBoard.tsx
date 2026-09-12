@@ -187,7 +187,10 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
               <View style={styles.driverHeader}>
                 <View style={styles.driverIdentity}>
                   <View style={styles.avatar}><Text style={styles.avatarText}>{driver.name[0]}</Text></View>
-                  <View>
+                  {/* Precisa de flex:1 (e minWidth:0): sem isso, numa tela estreita os QUATRO botoes
+                      de acao consomem a linha e sobram ~48pt para o texto - o nome do motorista
+                      quebra LETRA POR LETRA (relato do dono no iPhone, 12/09/2026). */}
+                  <View style={styles.driverText} testID="driver-info">
                     <Text style={styles.driverName}>{driver.name}</Text>
                     <Text style={styles.muted}>{stops.length} stop{stops.length === 1 ? '' : 's'}{route?.status === 'published' ? ' · Published' : route ? ' · Draft' : ''}</Text>
                     {route && stops.length > 0 ? (
@@ -200,7 +203,7 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
                   </View>
                 </View>
                 {route && stops.length > 0 ? (
-                  <View style={styles.driverActions}>
+                  <View style={styles.driverActions} testID="driver-actions">
                     {stops.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped').length >= 2 ? (
                       <Pressable accessibilityRole="button" accessibilityLabel={`Optimize ${driver.name} route`} disabled={working} onPress={() => void onOptimize(route.routeId)} style={styles.optimizeButton}>
                         <Text style={styles.optimizeText}>Optimize</Text>
@@ -383,8 +386,9 @@ const styles = StyleSheet.create({
   summary: { color: '#D7E1D4', fontSize: 12, marginTop: 2 },
   content: { padding: 14, paddingBottom: 30 },
   driverCard: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, overflow: 'hidden', marginBottom: 12 },
-  driverHeader: { padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FAFBF8', borderBottomWidth: 1, borderBottomColor: colors.line },
-  driverIdentity: { flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1 },
+  driverHeader: { padding: 12, flexDirection: 'row', flexWrap: 'wrap', rowGap: 10, alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FAFBF8', borderBottomWidth: 1, borderBottomColor: colors.line },
+  driverIdentity: { flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1, minWidth: 200 },
+  driverText: { flex: 1, minWidth: 0 },
   avatar: { width: 36, height: 36, borderRadius: 11, backgroundColor: colors.forest700, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: 'white', fontWeight: '900' },
   driverName: { fontWeight: '900', color: colors.ink },
@@ -398,7 +402,8 @@ const styles = StyleSheet.create({
   completeText: { color: 'white', fontWeight: '900', fontSize: 12 },
   cancelRouteButton: { borderWidth: 1, borderColor: '#E8BFBF', backgroundColor: '#FBEDED', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8 },
   cancelRouteText: { color: colors.urgency, fontWeight: '900', fontSize: 12 },
-  driverActions: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  // flexWrap: numa tela estreita os botoes descem para a propria linha em vez de espremer o nome.
+  driverActions: { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' },
   optimizeButton: { backgroundColor: colors.forest500, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
   optimizeText: { color: 'white', fontWeight: '900', fontSize: 12 },
   stop: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 11, borderBottomWidth: 1, borderBottomColor: '#F0F1ED' },

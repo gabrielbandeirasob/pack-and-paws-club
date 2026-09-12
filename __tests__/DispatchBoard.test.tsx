@@ -72,6 +72,23 @@ describe('DispatchBoard', () => {
     expect(onAssign).not.toHaveBeenCalled();
   });
 
+  it('nao deixa o nome do motorista ser espremido pelos botoes (relato no iPhone, 12/09/2026)', async () => {
+    // O print do dono mostrou "R / af / a / el" numa coluna de ~48pt: a coluna de texto nao tinha
+    // `flex`, entao os quatro botoes de acao (Republish/Unpublish/Done/x) comiam a linha inteira.
+    // Este teste trava a correcao: o texto tem de poder crescer e os botoes tem de poder descer.
+    const publicada: DispatchRoute[] = [{
+      routeId: 'route-pub',
+      driverId: 'driver-rafael',
+      status: 'published',
+      stops: [{ dogId: 'dog-luna', clientName: 'John', dogName: 'Luna', sequence: 1, status: 'completed', latitude: 37.79, longitude: -122.4, windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' }],
+    }];
+    const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={publicada} {...noops} />);
+    // dois motoristas na tela (Rafael com rota, Jordan sem): o cartao do Rafael e' o primeiro
+    expect(screen.getAllByTestId('driver-info')[0]).toHaveStyle({ flex: 1 });
+    expect(screen.getByTestId('driver-actions')).toHaveStyle({ flexWrap: 'wrap' });
+    expect(screen.getByRole('button', { name: 'Complete Rafael route' })).toBeTruthy();
+  });
+
   it('sends a time window and high priority when chosen', async () => {
     const onAssign = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
