@@ -6,7 +6,7 @@
  * por cliente, mostrando quantos estao cadastrados.
  */
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { agruparPorCliente, filtrarCaes, resumoDaBusca } from '@/features/calendar/dogPickerSearch';
 import type { DogRef } from '@/features/calendar/dayMath';
@@ -54,8 +54,11 @@ export function DogPicker({ dogs, selected, onSelect, hint }: Props) {
       {hint ? <Text style={styles.dica}>{hint}</Text> : null}
 
       <Modal visible={aberto} transparent animationType="slide" onRequestClose={fechar}>
-        <Pressable accessibilityLabel="Close dog picker" style={styles.fundo} onPress={fechar} />
-        <View style={styles.painel}>
+        {/* KeyboardAvoidingView: com o teclado aberto, o painel sobe em vez de ficar escondido
+            atras dele (era o problema ao digitar o nome do cao no formulario do cliente). */}
+        <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <Pressable accessibilityLabel="Close dog picker" style={styles.fundo} onPress={fechar} />
+          <View style={styles.painel}>
           <View style={styles.cabecalho}>
             <Text style={styles.titulo}>Select dog</Text>
             <Text style={styles.resumo}>{resumo}</Text>
@@ -73,7 +76,7 @@ export function DogPicker({ dogs, selected, onSelect, hint }: Props) {
             clearButtonMode="while-editing"
           />
 
-          <ScrollView style={styles.lista} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.listaConteudo}>
+          <ScrollView style={styles.lista} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" contentContainerStyle={styles.listaConteudo}>
             {grupos.length === 0 ? (
               <Text style={styles.vazio}>No dogs found for “{termo}”.</Text>
             ) : (
@@ -105,13 +108,15 @@ export function DogPicker({ dogs, selected, onSelect, hint }: Props) {
           <Pressable accessibilityRole="button" accessibilityLabel="Cancel dog selection" onPress={fechar} style={styles.cancelar}>
             <Text style={styles.cancelarTexto}>Cancel</Text>
           </Pressable>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   campo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.medium, paddingHorizontal: 14, paddingVertical: 13 },
   campoAberto: { borderColor: colors.forest700 },
   valor: { color: colors.ink, fontSize: 14, flexShrink: 1 },

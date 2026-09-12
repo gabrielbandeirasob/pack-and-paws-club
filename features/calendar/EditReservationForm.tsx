@@ -3,7 +3,7 @@
  * mudar a data ou o servico exigia apagar e recriar, perdendo o historico).
  */
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { DateField } from '@/features/calendar/DateField';
 import { endDateForService, type ReservationFormValues } from '@/features/calendar/reservationsService';
@@ -39,7 +39,9 @@ export function EditReservationForm({ dogLabel, initial, saving, error, onSave, 
   const cancelled = status === 'cancelled';
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never">
+    // Mesmo motivo do EditClientForm: sem isto o teclado cobre o campo de observacoes.
+    <KeyboardAvoidingView testID="teclado-form" style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView style={styles.screen} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never">
       <Text style={styles.dog}>{dogLabel}</Text>
       {cancelled ? <Text style={styles.cancelledBanner}>This reservation is cancelled. Change the date or reactivate it below.</Text> : null}
 
@@ -82,11 +84,13 @@ export function EditReservationForm({ dogLabel, initial, saving, error, onSave, 
       <Pressable accessibilityRole="button" accessibilityLabel="Back to calendar" onPress={onCancel} style={styles.cancel}>
         <Text style={styles.cancelText}>Back to calendar</Text>
       </Pressable>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   screen: { flex: 1, backgroundColor: colors.cream },
   body: { padding: 18, paddingBottom: 60 },
   dog: { fontFamily: 'serif', fontSize: 20, fontWeight: '800', color: colors.forest900 },

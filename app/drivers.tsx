@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 
 import { DriverInviteForm } from '@/features/drivers/DriverInviteForm';
 import { fullNameOrFallback, isActiveStatus, memberStatusFromActive, memberStatusLabel } from '@/features/drivers/driversService';
@@ -29,7 +29,9 @@ export default function DriversScreen() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // Recarrega ao voltar para a tela: a aba fica montada, entao um motorista convidado/editado
+  // em outro lugar nao apareceria (mesmo bug que a lista de clientes tinha).
+  useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   const [editing, setEditing] = useState<DriverRow | null>(null);
   const [editName, setEditName] = useState('');
@@ -70,6 +72,21 @@ export default function DriversScreen() {
     await load();
   };
 
+  /**
+   * Fechar de verdade, mesmo com o teclado aberto.
+   * No iPhone, com um campo focado, o primeiro toque em um botao pode ser consumido para
+   * dispensar o teclado — o usuario toca no ✕ e "nada acontece". Dispensando o teclado aqui,
+   * a acao sempre executa.
+   */
+  const fecharEdicao = () => {
+    Keyboard.dismiss();
+    setEditing(null);
+  };
+  const fecharConvite = () => {
+    Keyboard.dismiss();
+    setInviting(false);
+  };
+
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
@@ -99,10 +116,13 @@ export default function DriversScreen() {
       <Modal visible={editing !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setEditing(null)}>
         <SafeAreaView style={styles.screen} edges={['top']}>
           <View style={styles.modalTop}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setEditing(null)} style={styles.backButton}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={fecharEdicao} style={styles.backButton}>
               <Text style={styles.closeText}>✕ Close</Text>
             </Pressable>
           </View>
+          {/* O ✕ fica FORA do KeyboardAvoidingView: fica sempre alcançavel, mesmo com o teclado aberto */}
+          <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled" automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never">
           <Text style={styles.modalTitle}>Edit driver</Text>
           <Text style={styles.fieldLabel}>Name</Text>
           <TextInput accessibilityLabel="Driver name" value={editName} onChangeText={setEditName} autoCapitalize="words" placeholderTextColor={colors.muted} style={styles.input} />
@@ -116,13 +136,15 @@ export default function DriversScreen() {
           <Pressable accessibilityRole="button" accessibilityLabel="Save driver" disabled={saving} onPress={() => void saveDriver()} style={({ pressed }) => [styles.saveButton, pressed && styles.pressedCard, saving && styles.disabled]}>
             <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save driver'}</Text>
           </Pressable>
+            </ScrollView>
+          </KeyboardAvoidingView>
         </SafeAreaView>
       </Modal>
 
       <Modal visible={inviting} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setInviting(false)}>
         <SafeAreaView style={styles.screen}>
           <View style={styles.modalTop}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setInviting(false)} style={styles.backButton}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={fecharConvite} style={styles.backButton}>
               <Text style={styles.closeText}>✕ Close</Text>
             </Pressable>
           </View>
@@ -135,6 +157,8 @@ export default function DriversScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.cream },
+  flex: { flex: 1 },
+  modalBody: { paddingBottom: 40 },
   header: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.forest700, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14, gap: 8 },
   backButton: { paddingVertical: 4, paddingRight: 6 },
   backText: { color: colors.gold, fontSize: 32, fontWeight: '700', lineHeight: 34 },

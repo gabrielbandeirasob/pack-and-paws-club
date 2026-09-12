@@ -6,7 +6,7 @@
  * e sem endereco certo a rota/navegacao nao funciona. Esta tela resolve isso.
  */
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import type { ClientFormValues, DogFormValues, EditableClient } from '@/features/clients/clientsService';
 import { splitDogNames } from '@/features/clients/clientsService';
@@ -71,7 +71,10 @@ export function EditClientForm({ current, dogs, instructions, active, saving, er
     setDogRows((prev) => prev.map((dog) => (dog.id === id ? { ...dog, [key]: text } : dog)));
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never">
+    // Sem o KeyboardAvoidingView o teclado TAPA os campos de baixo (os dados do cao ficam no
+    // fim do formulario). Padrao ja usado no AddClientReview/LoginForm/DriverInviteForm.
+    <KeyboardAvoidingView testID="teclado-form" style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView style={styles.screen} contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled" automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never">
       <Field label="Name" value={form.name as unknown as string} onChangeText={set('name')} autoCapitalize="words" />
       <Field label="Phone" value={form.phone as unknown as string} onChangeText={set('phone')} keyboardType="phone-pad" />
       <Text style={styles.section}>Address (used by the driver route)</Text>
@@ -110,11 +113,13 @@ export function EditClientForm({ current, dogs, instructions, active, saving, er
       <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={onCancel} style={({ pressed }) => [styles.cancel, pressed && styles.pressed]}>
         <Text style={styles.cancelText}>Cancel</Text>
       </Pressable>
-    </ScrollView>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  flex: { flex: 1 },
   screen: { flex: 1, backgroundColor: colors.cream },
   body: { padding: 18, paddingBottom: 60 },
   section: { fontFamily: 'serif', fontSize: 15, fontWeight: '800', color: colors.forest900, marginTop: 18, marginBottom: 4 },
