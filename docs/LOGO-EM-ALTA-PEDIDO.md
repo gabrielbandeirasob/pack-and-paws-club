@@ -1,5 +1,11 @@
 # Pack & Paws Club app — we need the logo in higher resolution
 
+> ⚠️ **ATUALIZADO em 12/09/2026 (13:46):** já conseguimos uma versão boa do logo —
+> `assets/marca/logo-fonte-site-1320x1710.jpg` (pego do material do site do cliente) e os ícones
+> foram regerados a partir dela (definição ~20% melhor, medido).
+> **Este pedido deixou de ser urgente.** Só vale enviar se o designer tiver o **arquivo vetorial**
+> (`.svg`/`.ai`), que deixaria o ícone perfeito em qualquer tamanho — e mesmo isso é opcional.
+
 **To:** Pack & Paws Club (design/branding contact)
 **From:** Gabriel Bandeira — app development
 **Date:** September 12, 2026
