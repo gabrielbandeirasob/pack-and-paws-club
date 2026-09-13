@@ -13,6 +13,7 @@ import { Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, 
 
 import {
   clientDeletePlan,
+  dogRemovalMessage,
   splitContactName,
   splitDogNames,
   type ClientFormValues,
@@ -123,7 +124,7 @@ export function EditClientForm({ current, dogs, instructions, active, impact, sa
     }
     Alert.alert(
       `Remove ${dog.name || 'this dog'}?`,
-      'The dog is taken out of this client when you save. Bookings already made stay in the calendar until you delete them there.',
+      dogRemovalMessage(dog.name),
       [
         { text: 'Keep', style: 'cancel' },
         { text: 'Remove', style: 'destructive', onPress: () => setRemovedDogIds((prev) => [...prev, dog.id]) },

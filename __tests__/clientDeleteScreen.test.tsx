@@ -106,6 +106,28 @@ describe('excluir cliente', () => {
     spy.mockRestore();
   });
 
+  it('tirar um cachorro do cadastro: avisa, marca como removido e da para desfazer', async () => {
+    const { alertas, spy } = capturarAlertas();
+    const tela = await render(<ClientEditScreen />);
+
+    await waitFor(() => expect(tela.getByLabelText('Remove Mowgli')).toBeTruthy());
+    fireEvent.press(tela.getByLabelText('Remove Mowgli'));
+
+    const aviso = alertas[alertas.length - 1];
+    expect(aviso.title).toBe('Remove Mowgli?');
+    expect(aviso.message).toContain('Mowgli');
+    expect(aviso.message).toContain('calendar');
+
+    aviso.buttons?.find((b) => b.text === 'Remove')?.onPress?.();
+    await waitFor(() => expect(tela.getByLabelText('Keep Mowgli')).toBeTruthy());
+    expect(tela.getByText(/will be removed/)).toBeTruthy();
+
+    // desfazer antes de salvar
+    fireEvent.press(tela.getByLabelText('Keep Mowgli'));
+    await waitFor(() => expect(tela.getByLabelText('Remove Mowgli')).toBeTruthy());
+    spy.mockRestore();
+  });
+
   it('a saida reversivel so desliga o cliente (UPDATE), sem apagar nada', async () => {
     const { alertas, spy } = capturarAlertas();
     const tela = await render(<ClientEditScreen />);
