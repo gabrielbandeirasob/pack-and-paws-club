@@ -1,19 +1,24 @@
 /**
  * Tela de edicao do cliente (aberta ao tocar no card da lista).
  * Salva: dados do cliente, endereco, notas, instrucoes de acesso e cachorros.
+ * Exclui: cachorro individual (nesta edicao) e o cliente inteiro (com aviso do
+ * que vai junto — reservas e passagem pelas rotas somem em cascata no banco).
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { EditClientForm, type ClientSavePayload, type EditableDog } from '@/features/clients/EditClientForm';
 import {
+  clientDeletePlan,
   clientUpdatePayload,
+  dogRemovalPlan,
   dogUpdatePayload,
   firstInstruction,
   instructionWritePlan,
   normalizeText,
+  type ClientHistoryCounts,
   type EditableClient,
 } from '@/features/clients/clientsService';
 import { colors } from '@/features/theme/tokens';
@@ -26,7 +31,16 @@ type Loaded = {
   instructions: string | null;
   instructionId: string | null;
   active: boolean;
+  impact: ClientHistoryCounts;
 };
+
+/** Data de hoje no fuso do aparelho (o servidor compara com start_date, que e date puro). */
+function hojeLocal(): string {
+  const agora = new Date();
+  const mes = `${agora.getMonth() + 1}`.padStart(2, '0');
+  const dia = `${agora.getDate()}`.padStart(2, '0');
+  return `${agora.getFullYear()}-${mes}-${dia}`;
+}
 
 export default function ClientEditScreen() {
   const router = useRouter();
@@ -34,6 +48,7 @@ export default function ClientEditScreen() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -60,12 +75,29 @@ export default function ClientEditScreen() {
         | null;
     };
     const instruction = firstInstruction(row.client_instructions);
+    const dogs = (row.dogs ?? []).map((dog) => ({ id: dog.id, name: dog.name, breed: dog.breed, behavior_notes: dog.behavior_notes, medical_notes: dog.medical_notes }));
+
+    // Quanto existe ligado a este cliente: e o que o aviso de exclusao mostra.
+    // Reservas e paradas de rota sao contadas pelo vinculo do cao (dogs!inner) — filtrar
+    // por cliente dentro do embed e o que garante que so conta o que e dele.
+    const [reservas, proximas, paradas] = await Promise.all([
+      supabase.from('reservations').select('id, dogs!inner(client_id)', { count: 'exact', head: true }).eq('dogs.client_id', id),
+      supabase.from('reservations').select('id, dogs!inner(client_id)', { count: 'exact', head: true }).eq('dogs.client_id', id).gte('start_date', hojeLocal()),
+      supabase.from('route_stops').select('id, dogs!inner(client_id)', { count: 'exact', head: true }).eq('dogs.client_id', id),
+    ]);
+
     setLoaded({
       current: row,
-      dogs: (row.dogs ?? []).map((dog) => ({ id: dog.id, name: dog.name, breed: dog.breed, behavior_notes: dog.behavior_notes, medical_notes: dog.medical_notes })),
+      dogs,
       instructions: instruction?.pickup_access_instructions ?? null,
       instructionId: instruction?.id ?? null,
       active: row.active,
+      impact: {
+        dogs: dogs.length,
+        reservations: reservas.count ?? 0,
+        upcomingReservations: proximas.count ?? 0,
+        routeStops: paradas.count ?? 0,
+      },
     });
     setLoading(false);
   }, [id]);
@@ -88,9 +120,15 @@ export default function ClientEditScreen() {
         void fillClientCoordinates(id, { ...payload.client, latitude: null, longitude: null });
       }
 
-      for (const dog of payload.dogs) {
+      const { idsToDelete } = dogRemovalPlan(loaded.dogs, payload.removedDogIds);
+      const mantidos = payload.dogs.filter((dog) => !idsToDelete.includes(dog.id));
+      for (const dog of mantidos) {
         const { error: dogError } = await supabase.from('dogs').update(dogUpdatePayload(dog)).eq('id', dog.id);
         if (dogError) throw new Error(dogError.message);
+      }
+      if (idsToDelete.length > 0) {
+        const { error: removeError } = await supabase.from('dogs').delete().eq('client_id', id).in('id', idsToDelete);
+        if (removeError) throw new Error(removeError.message);
       }
 
       if (payload.newDogs.length > 0) {
@@ -125,6 +163,57 @@ export default function ClientEditScreen() {
     }
   };
 
+  /** Desliga o cliente (mantem historico) — a saida recomendada quando ha reservas/rotas. */
+  const arquivarCliente = async () => {
+    setDeleting(true);
+    setError(null);
+    const { error: archiveError } = await supabase.from('clients').update({ active: false }).eq('id', id);
+    setDeleting(false);
+    if (archiveError) { setError(archiveError.message); return; }
+    router.back();
+  };
+
+  /**
+   * Exclusao de verdade. Duas etapas quando existe historico: o primeiro alerta explica
+   * o que vai junto e o segundo confirma, para nao apagar meses de reservas num toque.
+   */
+  const excluirCliente = async () => {
+    if (!loaded || !id) return;
+    const plan = clientDeletePlan(loaded.impact);
+
+    const apagarDeVerdade = async () => {
+      setDeleting(true);
+      setError(null);
+      const { error: deleteError } = await supabase.from('clients').delete().eq('id', id);
+      setDeleting(false);
+      if (deleteError) { setError(deleteError.message); return; }
+      router.back();
+    };
+
+    const botoes: Parameters<typeof Alert.alert>[2] = [{ text: 'Cancel', style: 'cancel' }];
+    if (plan.offerArchive) {
+      botoes.push({ text: 'Keep history (inactive)', onPress: () => void arquivarCliente() });
+    }
+    botoes.push({
+      text: 'Delete',
+      style: 'destructive',
+      onPress: () => {
+        if (!plan.hasHistory) { void apagarDeVerdade(); return; }
+        Alert.alert(
+          'Last check',
+          `Permanently delete “${loaded.current.name}” and the history of ${loaded.impact.reservations} booking(s) and ${loaded.impact.routeStops} route stop(s)?`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Keep history (inactive)', onPress: () => void arquivarCliente() },
+            { text: 'Delete for good', style: 'destructive', onPress: () => void apagarDeVerdade() },
+          ],
+        );
+      },
+    });
+
+    Alert.alert(plan.title, plan.message, botoes);
+  };
+
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
@@ -139,9 +228,12 @@ export default function ClientEditScreen() {
           dogs={loaded.dogs}
           instructions={loaded.instructions}
           active={loaded.active}
+          impact={loaded.impact}
           saving={saving}
+          deleting={deleting}
           error={error}
           onSave={(payload) => { void save(payload); }}
+          onDelete={() => { void excluirCliente(); }}
           onCancel={() => router.back()}
         />
       ) : (

@@ -2,9 +2,15 @@ import { useState } from 'react';
 import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { colors, radii } from '@/features/theme/tokens';
 
-type Props = { onChangePassword: (password: string) => Promise<void> };
+type Props = {
+  onChangePassword: (password: string) => Promise<void>;
+  /** Texto do topo (a tela de primeiro acesso e a de troca voluntaria explicam diferente). */
+  eyebrow?: string;
+  title?: string;
+  subtitle?: string;
+};
 
-export function ChangePasswordForm({ onChangePassword }: Props) {
+export function ChangePasswordForm({ onChangePassword, eyebrow, title, subtitle }: Props) {
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -29,9 +35,9 @@ export function ChangePasswordForm({ onChangePassword }: Props) {
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" keyboardDismissMode={Platform.OS === 'ios' ? 'interactive' : 'on-drag'}>
         <View style={styles.heading}>
-          <Text style={styles.eyebrow}>SECURE YOUR ACCOUNT</Text>
-          <Text style={styles.title}>Choose a new password</Text>
-          <Text style={styles.subtitle}>Your password must be replaced before accessing client information.</Text>
+          <Text style={styles.eyebrow}>{eyebrow ?? 'SECURE YOUR ACCOUNT'}</Text>
+          <Text style={styles.title}>{title ?? 'Choose a new password'}</Text>
+          <Text style={styles.subtitle}>{subtitle ?? 'Your password must be replaced before accessing client information.'}</Text>
         </View>
         <View style={styles.card}>
           <Text style={styles.label}>New password</Text>

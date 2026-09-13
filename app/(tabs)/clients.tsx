@@ -21,6 +21,7 @@ export default function ClientsScreen() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [clients, setClients] = useState<ClientWithDogs[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [query, setQuery] = useState('');
@@ -73,6 +74,13 @@ export default function ClientsScreen() {
       void load({ silent: jaCarregou.current });
     }, [load]),
   );
+
+  /** Puxar para atualizar: mesma carga, sem piscar o indicador grande no meio da tela. */
+  const puxarParaAtualizar = async () => {
+    setRefreshing(true);
+    await load({ silent: true });
+    setRefreshing(false);
+  };
 
   const openPicker = async () => {
     setPickerVisible(true);
@@ -216,6 +224,8 @@ export default function ClientsScreen() {
         loading={loading}
         onAddClient={openPicker}
         onOpenClient={(clientId) => router.push({ pathname: '/client-edit', params: { id: clientId } })}
+        refreshing={refreshing}
+        onRefresh={() => { void puxarParaAtualizar(); }}
       />
       {error ? <Text style={styles.banner}>{error}</Text> : null}
       {notice ? <Text style={styles.noticeBanner}>{notice}</Text> : null}

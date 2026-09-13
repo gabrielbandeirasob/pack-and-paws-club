@@ -57,6 +57,26 @@ contabilidade (QuickBooks)
 | 28 | toque na parada abre a navegação · botão "Navigate" não some em parada concluída · mensagem de push com a **data certa** e em **inglês** |
 | 29 | **Dispatch**: nome do motorista não quebra letra por letra · botões de ação descem de linha quando não cabem |
 
+## Exclusões e qualidade de vida — 13/09/2026
+
+Pedido do dono: *"não tem como excluir clientes e nem motorista — faça essa correção e vasculhe no app por mais melhorias"*.
+
+| O que entrou | Detalhe |
+|---|---|
+| **Excluir cliente** | botão no fim da tela de edição. Antes de apagar, mostra o que vai junto (cães, reservas, passagem pelas rotas) e oferece **"Keep history (inactive)"**; com histórico, exige **duas confirmações** (o banco apaga reservas e paradas de rota em cascata) |
+| **Excluir cachorro** | cada cão do cadastro pode ser tirado (marcado como "will be removed" e efetivado no salvar, com desfazer antes de salvar). Só apaga id que é daquele cliente |
+| **Excluir motorista** | botão "Remove driver" no modal: apaga o vínculo (`organization_members`) + os tokens de push. Avisa quantas rotas de **hoje em diante** ficam sem motorista e oferece **"Disable instead"**. Não apaga a conta do usuário (exige chave de admin) nem o histórico de rotas |
+| **Nova política de banco** | `device_tokens_manager_delete` (migration 022, **aplicada e conferida** em `pg_policies`): gestor consegue limpar o token de quem saiu, e o push para na hora |
+| **Ligar / mandar mensagem** | botão **Call** e **Text** no card do cliente e na edição (número limpo do formato do iPhone; número curto demais **não** vira botão) |
+| **Rota para o endereço** | botão "Directions to this address" na edição do cliente, abrindo o mapa preferido do gestor |
+| **Puxar para atualizar** | lista de clientes e de motoristas |
+| **Buscar motorista** | campo de busca (aparece quando há mais de um) |
+| **Nome sujo do contato** | botão que move o cachorro que veio colado no nome (`Leigh Ann(Mowgli)`) para a lista de cães — resolve o caso `Elisha Ma (Mocha)` sem apagar nada |
+| **Trocar a senha** | a tela só existia no primeiro acesso; agora há **Change password** no More (gestor) e no Profile (motorista) |
+| **Ajuda & suporte** | linha no More que abre o e-mail de suporte com **versão, build, aparelho e conta** já preenchidos, mais a versão do app no rodapé |
+
+**Evidência:** `tsc --noEmit` limpo · **348 testes em 59 suítes** passando (eram 300/53; +5 arquivos de teste: exclusão de cliente, exclusão na tela, remoção de motorista, ações de contato, suporte) · `expo export --platform ios` empacotou o bundle sem erro.
+
 ## O que falta (com dono)
 
 | Item | Dono | Situação |

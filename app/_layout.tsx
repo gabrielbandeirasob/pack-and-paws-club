@@ -39,6 +39,7 @@ function RootNavigator(){
       <Stack.Screen name="client-edit" options={{ headerShown: false }} />
       <Stack.Screen name="reservation-edit" options={{ headerShown: false }} />
       <Stack.Screen name="route-history" options={{ headerShown: false }} />
+      <Stack.Screen name="password" options={{ headerShown: false }} />
     </Stack.Protected>
     <Stack.Screen name="+not-found"/>
   </Stack>;

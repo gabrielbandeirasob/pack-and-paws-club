@@ -271,3 +271,100 @@ export function splitContactName(raw: string): { clientName: string; dogHint: st
   const dogHint = uniqueDogNames(hints.flatMap((hint) => hint.split(','))).join(', ');
   return { clientName: rest || original, dogHint };
 }
+
+/* ------------------------------------------------------------------ *
+ * EXCLUSAO DE CLIENTE E DE CAO
+ *
+ * O app nao tinha como excluir cliente nem motorista: cadastro errado (import de
+ * contato duplicado, cliente de teste) ficava para sempre, e a lista so crescia.
+ *
+ * Regra de seguranca (a parte que importa): apagar cliente NAO e a mesma coisa que
+ * tirar da lista. `clients` apaga em cascata -> dogs -> reservations -> route_stops.
+ * Ou seja: no banco, apagar o cliente apaga junto o historico de reservas e a passagem
+ * dele pelas rotas ja feitas. Entao a tela precisa AVISAR o que vai junto — e oferecer
+ * o caminho reversivel (o toggle "Active client", que ja existe) quando ha historico.
+ * ------------------------------------------------------------------ */
+
+export type ClientHistoryCounts = {
+  /** cachorros ligados a este cliente */
+  dogs: number;
+  /** reservas registradas para os cachorros dele (todo o historico) */
+  reservations: number;
+  /** reservas de hoje em diante (o que ainda vai acontecer) */
+  upcomingReservations: number;
+  /** paradas de rota em que ele aparece */
+  routeStops: number;
+};
+
+export type ClientDeletePlan = {
+  title: string;
+  message: string;
+  /** true = existe historico; apagar leva o historico junto */
+  hasHistory: boolean;
+  /** true = oferecer "Archive instead" (desligar o Active) antes de apagar */
+  offerArchive: boolean;
+};
+
+function count(n: number, singular: string, plural: string): string {
+  return `${n} ${n === 1 ? singular : plural}`;
+}
+
+/**
+ * Texto do alerta de exclusao do cliente, montado a partir do que existe ligado a ele.
+ * Puro de proposito: o texto e a decisao de oferecer "arquivar" sao testaveis sem tela.
+ */
+export function clientDeletePlan(counts: ClientHistoryCounts): ClientDeletePlan {
+  const dogs = Math.max(0, counts.dogs);
+  const reservations = Math.max(0, counts.reservations);
+  const upcoming = Math.max(0, counts.upcomingReservations);
+  const routeStops = Math.max(0, counts.routeStops);
+  const hasHistory = reservations > 0 || routeStops > 0;
+
+  const parts: string[] = [];
+  if (dogs > 0) parts.push(count(dogs, 'dog', 'dogs'));
+  if (reservations > 0) parts.push(count(reservations, 'booking', 'bookings'));
+  if (routeStops > 0) parts.push(`their ${count(routeStops, 'route stop', 'route stops')}`);
+
+  if (!hasHistory) {
+    return {
+      title: 'Delete this client?',
+      message:
+        parts.length > 0
+          ? `This permanently deletes the client and ${parts.join(', ')}. This cannot be undone.`
+          : 'This permanently deletes the client. This cannot be undone.',
+      hasHistory: false,
+      offerArchive: false,
+    };
+  }
+
+  const upcomingNote =
+    upcoming > 0
+      ? ` ${count(upcoming, 'booking', 'bookings')} of them ${upcoming === 1 ? 'is' : 'are'} still to come.`
+      : '';
+
+  return {
+    title: 'Delete client with history?',
+    message:
+      `This client has ${parts.join(', ')}.${upcomingNote} ` +
+      'Deleting removes all of that history — the records of past bookings and routes will be gone for good. ' +
+      'If you just want them out of the list, choose “Keep history (inactive)” instead: the client stops appearing as active and everything stays saved.',
+    hasHistory: true,
+    offerArchive: true,
+  };
+}
+
+/**
+ * Quais cachorros podem ser realmente apagados: so os que pertencem a ESTE cliente.
+ * Guarda de seguranca contra apagar o id de um cao de outra familia por engano.
+ */
+export function dogRemovalPlan(dogs: { id: string }[], removedIds: string[]): { idsToDelete: string[] } {
+  const owned = new Set(dogs.map((dog) => dog.id));
+  const unique = Array.from(new Set(removedIds));
+  return { idsToDelete: unique.filter((id) => owned.has(id)) };
+}
+
+/** Confirmacao antes de remover um cao do cadastro. */
+export function dogRemovalMessage(dogName: string): string {
+  const name = normalizeText(dogName) ?? 'This dog';
+  return `${name} is removed when you save the client. Bookings already made for ${name} stay in the calendar until you delete them there.`;
+}

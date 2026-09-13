@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radii } from '@/features/theme/tokens';
 import { filterClients } from '@/features/clients/clientsService';
+import { clientMessageTemplate, phoneUrl, smsUrl } from '@/features/clients/contactActions';
 import type { ClientWithDogs } from '@/features/clients/types';
 
 type Props = {
@@ -10,9 +11,12 @@ type Props = {
   loading: boolean;
   onAddClient: () => void;
   onOpenClient: (clientId: string) => void;
+  /** puxar para atualizar (opcional: a lista funciona sem isso) */
+  refreshing?: boolean;
+  onRefresh?: () => void;
 };
 
-export function ClientsList({ clients, loading, onAddClient, onOpenClient }: Props) {
+export function ClientsList({ clients, loading, onAddClient, onOpenClient, refreshing, onRefresh }: Props) {
   const [query, setQuery] = useState('');
   const visible = filterClients(clients, query);
   return (
@@ -49,9 +53,22 @@ export function ClientsList({ clients, loading, onAddClient, onOpenClient }: Pro
             <Text style={styles.emptyText}>Add your first client from the iPhone contacts.</Text>
           </View>
         ) : (
-          <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" showsVerticalScrollIndicator={false} contentContainerStyle={styles.list}>
+          <ScrollView
+            automaticallyAdjustContentInsets={false}
+            contentInsetAdjustmentBehavior="never"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.list}
+            refreshControl={
+              onRefresh ? <RefreshControl refreshing={refreshing ?? false} onRefresh={onRefresh} tintColor={colors.gold} /> : undefined
+            }
+          >
             {visible.length === 0 ? <Text style={styles.noResults}>No clients match “{query}”.</Text> : null}
-            {visible.map((client) => (
+            {visible.map((client) => {
+              // Acoes rapidas do dia a dia: ligar e mandar mensagem direto do card, sem abrir o
+              // cadastro. Sem numero valido (ou numero curto demais), o botao nem aparece.
+              const callUrl = phoneUrl(client.phone);
+              const textUrl = smsUrl(client.phone, clientMessageTemplate(client.name));
+              return (
               <Pressable key={client.id} accessibilityRole="button" accessibilityLabel={`Edit ${client.name}`} onPress={() => onOpenClient(client.id)} style={({ pressed }) => [styles.card, pressed && styles.pressedCard]}>
                 <View style={styles.cardTop}>
                   <Text style={styles.clientName}>{client.name}</Text>
@@ -64,8 +81,23 @@ export function ClientsList({ clients, loading, onAddClient, onOpenClient }: Pro
                     <View key={dog} style={styles.dogChip}><Text style={styles.dogChipText}>{dog}</Text></View>
                   ))}
                 </View>
+                {callUrl || textUrl ? (
+                  <View style={styles.quickRow}>
+                    {callUrl ? (
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Call ${client.name}`} onPress={() => void Linking.openURL(callUrl)} style={({ pressed }) => [styles.quickButton, pressed && styles.pressedCard]}>
+                        <Text style={styles.quickText}>Call</Text>
+                      </Pressable>
+                    ) : null}
+                    {textUrl ? (
+                      <Pressable accessibilityRole="button" accessibilityLabel={`Text ${client.name}`} onPress={() => void Linking.openURL(textUrl)} style={({ pressed }) => [styles.quickButton, pressed && styles.pressedCard]}>
+                        <Text style={styles.quickText}>Text</Text>
+                      </Pressable>
+                    ) : null}
+                  </View>
+                ) : null}
               </Pressable>
-            ))}
+              );
+            })}
           </ScrollView>
         )}
       </View>
@@ -100,6 +132,9 @@ const styles = StyleSheet.create({
   clientName: { fontFamily: 'serif', fontSize: 17, fontWeight: '800', color: colors.forest900 },
   muted: { color: colors.muted, fontSize: 12, marginTop: 3 },
   dogRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
+  quickRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  quickButton: { flex: 1, backgroundColor: colors.sage, borderRadius: 11, paddingVertical: 9, alignItems: 'center' },
+  quickText: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
   dogChip: { backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 5 },
   dogChipText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
 });

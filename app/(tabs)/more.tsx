@@ -1,13 +1,19 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
 
 import { colors, radii } from '@/features/theme/tokens';
+import { appVersionLabel, supportMailUrl } from '@/features/common/support';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/features/auth/AuthProvider';
 
 export default function MoreScreen() {
   const { session } = useAuth();
+  const version = appVersionLabel({
+    version: Constants.expoConfig?.version,
+    build: Constants.expoConfig?.ios?.buildNumber,
+  });
   const signOut = async () => {
     await supabase.auth.signOut();
   };
@@ -27,6 +33,19 @@ export default function MoreScreen() {
           <View><Text style={styles.rowTitle}>Route history</Text><Text style={styles.rowHint}>Past routes, what was done and what was missed</Text></View>
           <Text style={styles.chevron}>›</Text>
         </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Change password" onPress={() => router.push('/password')} style={styles.row}>
+          <View><Text style={styles.rowTitle}>Change password</Text><Text style={styles.rowHint}>Set a new password for your account</Text></View>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Help and support"
+          onPress={() => void Linking.openURL(supportMailUrl({ version: Constants.expoConfig?.version, build: Constants.expoConfig?.ios?.buildNumber, platform: Platform.OS, email: session?.user.email }))}
+          style={styles.row}
+        >
+          <View><Text style={styles.rowTitle}>Help & support</Text><Text style={styles.rowHint}>Send us a message — the app version and your account go along</Text></View>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
         <View style={styles.accountBox}>
           <Text style={styles.rowHint}>Signed in as</Text>
           <Text style={styles.accountEmail}>{session?.user.email}</Text>
@@ -34,6 +53,7 @@ export default function MoreScreen() {
         <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={signOut} style={styles.signOut}>
           <Text style={styles.signOutText}>Sign out</Text>
         </Pressable>
+        <Text style={styles.version}>Pack & Paws Club · version {version}</Text>
       </View>
     </SafeAreaView>
   );
@@ -53,4 +73,5 @@ const styles = StyleSheet.create({
   accountEmail: { color: colors.ink, fontWeight: '800', fontSize: 14, marginTop: 2 },
   signOut: { backgroundColor: '#FBEAE6', borderRadius: radii.medium, padding: 15, alignItems: 'center' },
   signOutText: { color: colors.urgency, fontWeight: '900', fontSize: 14 },
+  version: { color: colors.muted, fontSize: 11, textAlign: 'center', marginTop: 16 },
 });

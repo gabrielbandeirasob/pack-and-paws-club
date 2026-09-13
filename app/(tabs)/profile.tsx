@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
@@ -34,6 +35,9 @@ export default function DriverProfileScreen() {
               <View style={styles.avatar}><Text style={styles.avatarText}>{(fullName ?? 'D')[0]}</Text></View>
               <View style={styles.info}><Text style={styles.name}>{fullName}</Text><Text style={styles.email}>{session?.user.email}</Text><Text style={styles.role}>Driver</Text></View>
             </View>
+            <Pressable accessibilityRole="button" accessibilityLabel="Change password" onPress={() => router.push('/password')} style={styles.changePassword}>
+              <Text style={styles.changePasswordText}>Change password</Text>
+            </Pressable>
             <Pressable accessibilityRole="button" accessibilityLabel="Sign out" onPress={signOut} style={styles.signOut}>
               <Text style={styles.signOutText}>Sign out</Text>
             </Pressable>
@@ -60,5 +64,7 @@ const styles = StyleSheet.create({
   email: { color: colors.muted, fontSize: 13, marginTop: 3 },
   role: { color: colors.forest700, fontSize: 12, fontWeight: '800', marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   signOut: { backgroundColor: '#FBEAE6', borderRadius: radii.medium, padding: 15, alignItems: 'center', marginTop: 18 },
+  changePassword: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.medium, padding: 15, alignItems: 'center', marginTop: 18 },
+  changePasswordText: { color: colors.forest700, fontWeight: '900', fontSize: 14 },
   signOutText: { color: colors.urgency, fontWeight: '900', fontSize: 14 },
 });

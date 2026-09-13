@@ -7,6 +7,10 @@
  */
 import { render } from '@testing-library/react-native';
 
+// O formulario de cliente agora abre o mapa preferido do gestor (AsyncStorage); no jest o
+// modulo nativo nao existe, entao usa o mock oficial da lib.
+jest.mock('@react-native-async-storage/async-storage', () => require('@react-native-async-storage/async-storage/jest/async-storage-mock'));
+
 import { EditClientForm, type EditableDog } from '@/features/clients/EditClientForm';
 import { EditReservationForm } from '@/features/calendar/EditReservationForm';
 import type { EditableClient } from '@/features/clients/clientsService';
