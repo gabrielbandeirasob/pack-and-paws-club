@@ -11,7 +11,8 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Alert, Keyboard } from 'react-native';
 
 const membros = [
-  { user_id: 'u-1', status: 'active', profiles: { full_name: 'Sam Costa' } },
+  { user_id: 'u-1', status: 'active', role: 'driver', profiles: { full_name: 'Sam Costa' } },
+  { user_id: 'u-2', status: 'active', role: 'manager', profiles: { full_name: 'Rita Melo' } },
 ];
 
 const mockRemovals: { table: string; user?: string }[] = [];
@@ -74,9 +75,12 @@ import DriversScreen from '@/app/drivers';
 describe('tela dos motoristas', () => {
   beforeEach(() => { mockRemovals.length = 0; });
 
-  it('lista os motoristas da organizacao', async () => {
+  it('lista a equipe (motorista e gestor) com o papel de cada um', async () => {
     const tela = await render(<DriversScreen />);
     expect(tela.getByText('Sam Costa')).toBeTruthy();
+    expect(tela.getByText('Rita Melo')).toBeTruthy();
+    expect(tela.getByText(/Driver · Active/)).toBeTruthy();
+    expect(tela.getByText(/Manager · Active/)).toBeTruthy();
   });
 
   it('o ✕ do modal de edicao fecha E dispensa o teclado', async () => {
@@ -84,11 +88,11 @@ describe('tela dos motoristas', () => {
     const tela = await render(<DriversScreen />);
 
     fireEvent.press(tela.getByLabelText('Edit Sam Costa'));
-    await waitFor(() => expect(tela.getByText('Edit driver')).toBeTruthy());
+    await waitFor(() => expect(tela.getByText('Edit team member')).toBeTruthy());
 
     fireEvent.press(tela.getByLabelText('Close'));
 
-    await waitFor(() => expect(tela.queryByText('Edit driver')).toBeNull());
+    await waitFor(() => expect(tela.queryByText('Edit team member')).toBeNull());
     expect(dispensar).toHaveBeenCalled();
     dispensar.mockRestore();
   });
@@ -101,7 +105,7 @@ describe('tela dos motoristas', () => {
 
     const tela = await render(<DriversScreen />);
     fireEvent.press(tela.getByLabelText('Edit Sam Costa'));
-    await waitFor(() => expect(tela.getByText('Edit driver')).toBeTruthy());
+    await waitFor(() => expect(tela.getByText('Edit team member')).toBeTruthy());
 
     // O impacto e carregado em segundo plano; o botao abre o alerta com o aviso certo.
     await waitFor(() => expect(tela.getByLabelText('Remove driver')).toBeTruthy());

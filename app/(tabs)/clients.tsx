@@ -5,7 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 import { AddClientReview } from '@/features/clients/AddClientReview';
 import { ClientsList } from '@/features/clients/ClientsList';
-import { clientHasInstructions, planContactAdd, splitContactName, type ExistingContactClient } from '@/features/clients/clientsService';
+import { clientHasInstructions, duplicateHint as duplicateHintText, findDuplicateClients, planContactAdd, splitContactName, splitDogNames, type ExistingContactClient } from '@/features/clients/clientsService';
 import { createContactsService, type ContactsService } from '@/features/clients/contactsService';
 import { mapContactToClientInput } from '@/features/clients/mapContact';
 import type { ClientWithDogs, NewClientInput, PhoneContactCandidate } from '@/features/clients/types';
@@ -243,6 +243,7 @@ export default function ClientsScreen() {
                 initial={selected.input}
                 existingClient={selected.existing}
                 initialDogNames={selected.dogHint}
+                duplicateHint={duplicateHintText(findDuplicateClients(clients, { name: selected.input.name, dogs: splitDogNames(selected.dogHint) }))}
                 onSave={finishAdd}
                 onCancel={() => { setSelected(null); setContactError(null); }}
               />

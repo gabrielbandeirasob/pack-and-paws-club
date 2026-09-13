@@ -7,13 +7,17 @@
  * 2. escolher "Delete" abre a SEGUNDA confirmacao antes de apagar de verdade;
  * 3. apagar de verdade chama o DELETE em clients (o banco cascateia dogs/reservas/paradas) e
  *    volta para a lista;
- * 4. a saida reversivel (manter historico) so faz UPDATE de active = false.
+ * 4. cliente SEM historico -> oferece DESFAZER, que reinsere cliente e caes com os mesmos ids;
+ * 5. a saida reversivel (manter historico) so faz UPDATE de active = false;
+ * 6. tirar um cachorro do cadastro avisa, marca e permite desfazer antes de salvar.
  */
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 
 const mockChamadas: string[] = [];
 const mockVoltar = jest.fn();
+/** Contagens que a tela le para montar o aviso; cada teste ajusta o cenario. */
+const mockCounts = { reservations: 7, routeStops: 12 };
 
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ id: 'c-1' }),
@@ -26,6 +30,8 @@ jest.mock('@react-native-async-storage/async-storage', () => require('@react-nat
 jest.mock('@/lib/supabase', () => {
   const cliente = {
     id: 'c-1',
+    organization_id: 'org-1',
+    source_contact_identifier: 'contato-9',
     name: 'Ana Souza',
     phone: '4155551234',
     address_line_1: '100 Market St',
@@ -50,14 +56,15 @@ jest.mock('@/lib/supabase', () => {
     b.single = () => b;
     b.update = () => { b._op = 'update'; return b; };
     b.delete = () => { b._op = 'delete'; return b; };
+    b.insert = () => { b._op = 'insert'; return b; };
     b.then = (resolve: (v: unknown) => unknown) => {
+      if (b._op !== 'select') mockChamadas.push(`${tabela}.${b._op}`);
       if (tabela === 'clients') {
-        if (b._op === 'delete') { mockChamadas.push('clients.delete'); return Promise.resolve({ data: null, error: null }).then(resolve); }
-        if (b._op === 'update') { mockChamadas.push('clients.update'); return Promise.resolve({ data: null, error: null }).then(resolve); }
-        return Promise.resolve({ data: cliente, error: null }).then(resolve);
+        if (b._op === 'select') return Promise.resolve({ data: cliente, error: null }).then(resolve);
+        return Promise.resolve({ data: null, error: null }).then(resolve);
       }
-      if (tabela === 'reservations') return Promise.resolve({ data: null, error: null, count: 7 }).then(resolve);
-      if (tabela === 'route_stops') return Promise.resolve({ data: null, error: null, count: 12 }).then(resolve);
+      if (tabela === 'reservations') return Promise.resolve({ data: null, error: null, count: mockCounts.reservations }).then(resolve);
+      if (tabela === 'route_stops') return Promise.resolve({ data: null, error: null, count: mockCounts.routeStops }).then(resolve);
       return Promise.resolve({ data: null, error: null, count: 0 }).then(resolve);
     };
     return b;
@@ -78,7 +85,12 @@ function capturarAlertas() {
 }
 
 describe('excluir cliente', () => {
-  beforeEach(() => { mockChamadas.length = 0; mockVoltar.mockClear(); });
+  beforeEach(() => {
+    mockChamadas.length = 0;
+    mockVoltar.mockClear();
+    mockCounts.reservations = 7;
+    mockCounts.routeStops = 12;
+  });
 
   it('avisa o historico (reservas e rotas) antes de apagar e exige a segunda confirmacao', async () => {
     const { alertas, spy } = capturarAlertas();
@@ -102,6 +114,37 @@ describe('excluir cliente', () => {
 
     segundo.buttons?.find((b) => b.text === 'Delete for good')?.onPress?.();
     await waitFor(() => expect(mockChamadas).toContain('clients.delete'));
+    await waitFor(() => expect(mockVoltar).toHaveBeenCalled());
+    // com historico perdido, desfazer NAO e oferecido
+    expect(alertas.some((a) => a.title === 'Client deleted')).toBe(false);
+    spy.mockRestore();
+  });
+
+  it('cliente sem historico: apaga e oferece DESFAZER, que reinsere com os mesmos ids', async () => {
+    mockCounts.reservations = 0;
+    mockCounts.routeStops = 0;
+    const { alertas, spy } = capturarAlertas();
+    const tela = await render(<ClientEditScreen />);
+
+    await waitFor(() => expect(tela.getByLabelText('Delete client')).toBeTruthy());
+    expect(tela.getByText(/no booking history/)).toBeTruthy();
+
+    fireEvent.press(tela.getByLabelText('Delete client'));
+    const confirmacao = alertas[alertas.length - 1];
+    expect(confirmacao.title).toBe('Delete this client?');
+    expect(confirmacao.buttons?.some((b) => b.text === 'Keep history (inactive)')).toBe(false);
+
+    confirmacao.buttons?.find((b) => b.text === 'Delete')?.onPress?.();
+    await waitFor(() => expect(mockChamadas).toContain('clients.delete'));
+
+    const aviso = alertas[alertas.length - 1];
+    expect(aviso.title).toBe('Client deleted');
+    expect(aviso.message).toContain('Ana Souza');
+    expect(mockVoltar).not.toHaveBeenCalled();
+
+    aviso.buttons?.find((b) => b.text === 'Undo')?.onPress?.();
+    await waitFor(() => expect(mockChamadas).toContain('clients.insert'));
+    await waitFor(() => expect(mockChamadas).toContain('dogs.insert'));
     await waitFor(() => expect(mockVoltar).toHaveBeenCalled());
     spy.mockRestore();
   });

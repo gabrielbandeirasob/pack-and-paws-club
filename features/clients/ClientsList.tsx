@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radii } from '@/features/theme/tokens';
-import { filterClients } from '@/features/clients/clientsService';
+import { filterClients, inactiveCount, sortClientsForList } from '@/features/clients/clientsService';
 import { clientMessageTemplate, phoneUrl, smsUrl } from '@/features/clients/contactActions';
 import type { ClientWithDogs } from '@/features/clients/types';
 
@@ -18,7 +18,16 @@ type Props = {
 
 export function ClientsList({ clients, loading, onAddClient, onOpenClient, refreshing, onRefresh }: Props) {
   const [query, setQuery] = useState('');
-  const visible = filterClients(clients, query);
+  /**
+   * Inativos ficam escondidos so quando o gestor pede: cliente arquivado continua sendo
+   * dado do negocio (historico, contato), e sumir da tela sem aviso faria parecer que
+   * o cadastro foi perdido. Ativos vem primeiro de qualquer forma.
+   */
+  const [showInactive, setShowInactive] = useState(true);
+  const inativos = inactiveCount(clients);
+  const ordenados = sortClientsForList(clients, { showInactive });
+  const visible = filterClients(ordenados, query);
+  const filtroEscondeTudo = visible.length === 0 && inativos > 0 && !showInactive && query.trim().length === 0;
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
@@ -43,6 +52,18 @@ export function ClientsList({ clients, loading, onAddClient, onOpenClient, refre
               style={styles.search}
             />
           ) : null}
+          {inativos > 0 ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={showInactive ? 'Hide inactive clients' : 'Show inactive clients'}
+              onPress={() => setShowInactive((atual) => !atual)}
+              style={({ pressed }) => [styles.filterChip, pressed && styles.pressedCard]}
+            >
+              <Text style={styles.filterChipText}>
+                {showInactive ? `Hide ${inativos} inactive` : `Show ${inativos} inactive`}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
         {loading ? (
           <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
@@ -62,7 +83,8 @@ export function ClientsList({ clients, loading, onAddClient, onOpenClient, refre
               onRefresh ? <RefreshControl refreshing={refreshing ?? false} onRefresh={onRefresh} tintColor={colors.gold} /> : undefined
             }
           >
-            {visible.length === 0 ? <Text style={styles.noResults}>No clients match “{query}”.</Text> : null}
+            {visible.length === 0 && !filtroEscondeTudo ? <Text style={styles.noResults}>No clients match “{query}”.</Text> : null}
+            {filtroEscondeTudo ? <Text style={styles.noResults}>All clients are inactive — tap “Show {inativos} inactive” to see them.</Text> : null}
             {visible.map((client) => {
               // Acoes rapidas do dia a dia: ligar e mandar mensagem direto do card, sem abrir o
               // cadastro. Sem numero valido (ou numero curto demais), o botao nem aparece.
@@ -135,6 +157,8 @@ const styles = StyleSheet.create({
   quickRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
   quickButton: { flex: 1, backgroundColor: colors.sage, borderRadius: 11, paddingVertical: 9, alignItems: 'center' },
   quickText: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
+  filterChip: { alignSelf: 'flex-start', backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 7, marginTop: 10 },
+  filterChipText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
   dogChip: { backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 5 },
   dogChipText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
 });

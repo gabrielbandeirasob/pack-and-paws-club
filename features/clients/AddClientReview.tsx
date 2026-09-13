@@ -17,11 +17,17 @@ type Props = {
    * Entra preenchida e o usuario pode editar antes de salvar.
    */
   initialDogNames?: string;
+  /**
+   * Aviso de possivel duplicado: outro cadastro com o mesmo nome de cliente ou o mesmo
+   * nome de cao ja existe. Nao bloqueia (pode ser coincidencia), mas evita a familia
+   * partida em dois cadastros — que e o pior caso para a rota.
+   */
+  duplicateHint?: string | null;
   onSave: (payload: { client: NewClientInput; dogs: string[] }) => Promise<void>;
   onCancel: () => void;
 };
 
-export function AddClientReview({ initial, existingClient = null, initialDogNames = '', onSave, onCancel }: Props) {
+export function AddClientReview({ initial, existingClient = null, initialDogNames = '', duplicateHint = null, onSave, onCancel }: Props) {
   const [dogNames, setDogNames] = useState(initialDogNames);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -64,6 +70,12 @@ export function AddClientReview({ initial, existingClient = null, initialDogName
                 {existingClient.dogs.length > 0 ? ` (dogs: ${existingClient.dogs.join(', ')})` : ''}. The name you type below is
                 added to that existing record — no duplicate client is created.
               </Text>
+            </View>
+          ) : null}
+          {duplicateHint && !existingClient ? (
+            <View style={styles.duplicate}>
+              <Text style={styles.duplicateLabel}>CHECK BEFORE ADDING</Text>
+              <Text style={styles.duplicateText}>{duplicateHint}</Text>
             </View>
           ) : null}
           <Text style={styles.label}>Dog name</Text>
@@ -112,6 +124,9 @@ const styles = StyleSheet.create({
   existing: { backgroundColor: '#EDF3EC', borderRadius: 12, borderWidth: 1, borderColor: '#CFE0CC', padding: 12, marginTop: 14 },
   existingLabel: { color: colors.forest700, fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
   existingText: { color: colors.ink, fontSize: 13, lineHeight: 19, marginTop: 4 },
+  duplicate: { backgroundColor: '#FBF6E8', borderRadius: 12, borderWidth: 1, borderColor: '#EADFB8', padding: 12, marginTop: 14 },
+  duplicateLabel: { color: '#8A6D1F', fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
+  duplicateText: { color: colors.ink, fontSize: 13, lineHeight: 19, marginTop: 4 },
   label: { color: colors.ink, fontWeight: '800', fontSize: 12, marginTop: 18, marginBottom: 7 },
   input: { backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, color: colors.ink, fontSize: 15 },
   hint: { color: colors.muted, fontSize: 12, marginTop: 7, lineHeight: 17 },

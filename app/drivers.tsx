@@ -4,12 +4,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useFocusEffect } from 'expo-router';
 
 import { DriverInviteForm } from '@/features/drivers/DriverInviteForm';
-import { driverRemovalPlan, fullNameOrFallback, isActiveStatus, memberStatusFromActive, memberStatusLabel } from '@/features/drivers/driversService';
+import { driverRemovalPlan, fullNameOrFallback, isActiveStatus, memberRoleLabel, memberStatusFromActive, memberStatusLabel, type MemberRole } from '@/features/drivers/driversService';
 import { normalizeForSearch } from '@/features/clients/clientsService';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
-type DriverRow = { user_id: string; status: string; profiles: { full_name: string | null } | null };
+type DriverRow = { user_id: string; status: string; role?: string | null; profiles: { full_name: string | null } | null };
 
 /** Rotas atribuidas a este motorista: o que o aviso de remocao precisa dizer. */
 type DriverImpact = { futureRoutes: number; pastRoutes: number };
@@ -40,7 +40,9 @@ export default function DriversScreen() {
     const orgId = (memberships as { organization_id: string }[] | null)?.[0]?.organization_id ?? null;
     setOrganizationId(orgId);
     if (!orgId) { setDrivers([]); setLoading(false); return; }
-    const { data } = await supabase.from('organization_members').select('user_id, status, profiles(full_name)').eq('organization_id', orgId).eq('role', 'driver').order('status');
+    // A lista traz a EQUIPE (motoristas e gestores): o convite cria os dois papeis, e um
+    // gestor novo precisa aparecer em algum lugar para poder ser editado ou removido.
+    const { data } = await supabase.from('organization_members').select('user_id, status, role, profiles(full_name)').eq('organization_id', orgId).order('role');
     setDrivers((data as unknown as DriverRow[]) ?? []);
     setLoading(false);
   }, []);
@@ -148,8 +150,8 @@ export default function DriversScreen() {
     Alert.alert(plan.title, plan.message, botoes);
   };
 
-  const invite = async (name: string, email: string) => {
-    const { data, error } = await supabase.functions.invoke('add-driver', { body: { name, email } });
+  const invite = async (name: string, email: string, role: MemberRole) => {
+    const { data, error } = await supabase.functions.invoke('add-driver', { body: { name, email, role } });
     if (error) throw new Error(error.message);
     return { temporaryPassword: (data as { temporary_password: string }).temporary_password };
   };
@@ -185,7 +187,7 @@ export default function DriversScreen() {
         <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} hitSlop={8} style={styles.backButton}>
           <Text style={styles.backText}>‹</Text>
         </Pressable>
-        <Text style={styles.title}>Drivers</Text>
+        <Text style={styles.title}>Team</Text>
         <Pressable accessibilityRole="button" accessibilityLabel="Invite driver" onPress={() => setInviting(true)} style={styles.plusButton}>
           <Text style={styles.plusText}>＋</Text>
         </Pressable>
@@ -202,7 +204,7 @@ export default function DriversScreen() {
           {drivers.length > 1 ? (
             <TextInput
               accessibilityLabel="Search drivers"
-              placeholder="Search drivers…"
+              placeholder="Search team…"
               placeholderTextColor={colors.muted}
               value={query}
               onChangeText={setQuery}
@@ -211,14 +213,16 @@ export default function DriversScreen() {
               style={styles.search}
             />
           ) : null}
-          {drivers.length === 0 ? <Text style={styles.empty}>No drivers yet. Invite your first driver.</Text> : null}
-          {visiveis.length === 0 && drivers.length > 0 ? <Text style={styles.empty}>No driver matches “{query}”.</Text> : null}
+          {drivers.length === 0 ? <Text style={styles.empty}>No team members yet. Invite your first driver.</Text> : null}
+          {visiveis.length === 0 && drivers.length > 0 ? <Text style={styles.empty}>No one matches “{query}”.</Text> : null}
           {visiveis.map((driver) => (
             <Pressable key={driver.user_id} accessibilityRole="button" accessibilityLabel={`Edit ${fullNameOrFallback(driver.profiles?.full_name)}`} onPress={() => openDriver(driver)} style={({ pressed }) => [styles.card, pressed && styles.pressedCard]}>
               <View style={styles.avatar}><Text style={styles.avatarText}>{(driver.profiles?.full_name ?? 'D')[0]}</Text></View>
               <View style={styles.info}>
                 <Text style={styles.name}>{fullNameOrFallback(driver.profiles?.full_name)}</Text>
-                <Text style={[styles.role, driver.status !== 'active' && styles.roleOff]}>{memberStatusLabel(driver.status)}</Text>
+                <Text style={[styles.role, driver.status !== 'active' && styles.roleOff]}>
+                  {memberRoleLabel(driver.role)} · {memberStatusLabel(driver.status)}
+                </Text>
               </View>
               <Text style={styles.chev}>Edit ›</Text>
             </Pressable>
@@ -235,7 +239,7 @@ export default function DriversScreen() {
           {/* O ✕ fica FORA do KeyboardAvoidingView: fica sempre alcançavel, mesmo com o teclado aberto */}
           <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled" automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never">
-          <Text style={styles.modalTitle}>Edit driver</Text>
+          <Text style={styles.modalTitle}>Edit team member</Text>
           <Text style={styles.fieldLabel}>Name</Text>
           <TextInput accessibilityLabel="Driver name" value={editName} onChangeText={setEditName} autoCapitalize="words" placeholderTextColor={colors.muted} style={styles.input} />
           <View style={styles.switchRow}>

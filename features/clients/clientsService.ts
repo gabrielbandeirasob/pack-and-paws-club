@@ -368,3 +368,138 @@ export function dogRemovalMessage(dogName: string): string {
   const name = normalizeText(dogName) ?? 'This dog';
   return `${name} is removed when you save the client. Bookings already made for ${name} stay in the calendar until you delete them there.`;
 }
+
+/* ------------------------------------------------------------------ *
+ * LISTA DE CLIENTES: ordem, filtro de inativos e aviso de duplicado
+ * ------------------------------------------------------------------ */
+
+/** Ativos primeiro, depois por nome (ignorando maiusculas e acentos). */
+export function sortClientsForList<T extends { active: boolean; name: string }>(
+  clients: T[],
+  options?: { showInactive?: boolean },
+): T[] {
+  const visiveis = options?.showInactive === false ? clients.filter((client) => client.active) : clients;
+  return [...visiveis].sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    return normalizeForSearch(a.name).localeCompare(normalizeForSearch(b.name));
+  });
+}
+
+/** Quantos clientes estao inativos (rotula o filtro da lista). */
+export function inactiveCount(clients: { active: boolean }[]): number {
+  return clients.filter((client) => !client.active).length;
+}
+
+export type DuplicateCandidate = { id: string; name: string; dogs: string[] };
+
+/**
+ * Possiveis duplicados ao cadastrar: MESMO nome de cliente ou MESMO nome de cao.
+ * O banco impede dois cadastros para o mesmo contato do telefone, mas dois contatos
+ * diferentes da mesma familia passariam batido — e a familia ficaria partida em dois
+ * cadastros, com a rota buscando em um endereco e o historico no outro.
+ */
+export function findDuplicateClients(
+  existing: DuplicateCandidate[],
+  input: { name: string; dogs: string[] },
+): DuplicateCandidate[] {
+  const nome = normalizeForSearch(input.name);
+  const caes = new Set(input.dogs.map((dog) => normalizeForSearch(dog)).filter((dog) => dog.length > 0));
+  return existing.filter((client) => {
+    if (nome.length > 0 && normalizeForSearch(client.name) === nome) return true;
+    if (caes.size === 0) return false;
+    return client.dogs.some((dog) => caes.has(normalizeForSearch(dog)));
+  });
+}
+
+/** Texto do aviso (null = nada a avisar). */
+export function duplicateHint(candidates: DuplicateCandidate[]): string | null {
+  if (candidates.length === 0) return null;
+  const lista = candidates
+    .slice(0, 2)
+    .map((client) => (client.dogs.length > 0 ? `${client.name} (dogs: ${client.dogs.join(', ')})` : client.name))
+    .join(' · ');
+  const extra = candidates.length > 2 ? ` and ${candidates.length - 2} more` : '';
+  return `Possible duplicate: ${lista}${extra}. If it is the same family, open that client and add this dog there instead of creating a new record.`;
+}
+
+/* ------------------------------------------------------------------ *
+ * DESFAZER A EXCLUSAO (so quando nao havia historico)
+ * ------------------------------------------------------------------ */
+
+/**
+ * Desfazer so e honesto quando NADA foi perdido: sem reservas e sem paradas de rota, o
+ * que existia era o cliente, os caes e as instrucoes — tudo isso cabe num INSERT.
+ * Com historico, desfazer nao traria as reservas e as rotas de volta, entao nao se oferece.
+ */
+export function canUndoClientDelete(counts: ClientHistoryCounts): boolean {
+  return Math.max(0, counts.reservations) === 0 && Math.max(0, counts.routeStops) === 0;
+}
+
+export type ClientSnapshot = {
+  organizationId: string;
+  client: {
+    id: string;
+    name: string;
+    phone?: string | null;
+    address_line_1?: string | null;
+    address_line_2?: string | null;
+    city?: string | null;
+    state?: string | null;
+    postal_code?: string | null;
+    notes?: string | null;
+    special_scheduling_instructions?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    active?: boolean;
+    source_contact_identifier?: string | null;
+  };
+  dogs: { id: string; name: string; breed?: string | null; behavior_notes?: string | null; medical_notes?: string | null }[];
+  instructions: { id: string; text: string | null } | null;
+};
+
+export type ClientRestoreRows = {
+  client: Record<string, unknown>;
+  dogs: Record<string, unknown>[];
+  instruction: Record<string, unknown> | null;
+};
+
+/**
+ * Linhas para reinserir o cliente exatamente como estava — **com os mesmos ids**.
+ * Reaproveitar os ids e o que mantem qualquer referencia viva (link de mapa, cache do
+ * aparelho do motorista) apontando para o mesmo registro, em vez de criar um cliente
+ * "novo" que na pratica e o mesmo.
+ */
+export function clientRestoreRows(snapshot: ClientSnapshot): ClientRestoreRows {
+  const { client, organizationId } = snapshot;
+  return {
+    client: {
+      id: client.id,
+      organization_id: organizationId,
+      name: client.name,
+      phone: client.phone ?? null,
+      address_line_1: client.address_line_1 ?? null,
+      address_line_2: client.address_line_2 ?? null,
+      city: client.city ?? null,
+      state: client.state ?? null,
+      postal_code: client.postal_code ?? null,
+      notes: client.notes ?? null,
+      special_scheduling_instructions: client.special_scheduling_instructions ?? null,
+      latitude: client.latitude ?? null,
+      longitude: client.longitude ?? null,
+      active: client.active ?? true,
+      source_contact_identifier: client.source_contact_identifier ?? null,
+    },
+    dogs: snapshot.dogs.map((dog) => ({
+      id: dog.id,
+      organization_id: organizationId,
+      client_id: client.id,
+      name: dog.name,
+      breed: dog.breed ?? null,
+      behavior_notes: dog.behavior_notes ?? null,
+      medical_notes: dog.medical_notes ?? null,
+    })),
+    instruction: snapshot.instructions
+      ? { id: snapshot.instructions.id, organization_id: organizationId, client_id: client.id, pickup_access_instructions: snapshot.instructions.text }
+      : null,
+  };
+}

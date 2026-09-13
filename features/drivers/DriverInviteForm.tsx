@@ -2,9 +2,10 @@ import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radii } from '@/features/theme/tokens';
+import type { MemberRole } from '@/features/drivers/driversService';
 
 type Props = {
-  onInvite: (name: string, email: string) => Promise<{ temporaryPassword: string }>;
+  onInvite: (name: string, email: string, role: MemberRole) => Promise<{ temporaryPassword: string }>;
   onDone: () => void;
 };
 
@@ -13,6 +14,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export function DriverInviteForm({ onInvite, onDone }: Props) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [role, setRole] = useState<MemberRole>('driver');
   const [inviting, setInviting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null);
@@ -21,13 +23,13 @@ export function DriverInviteForm({ onInvite, onDone }: Props) {
     const normalizedName = name.trim();
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedName || !EMAIL_PATTERN.test(normalizedEmail)) {
-      setError('Enter the driver name and a valid email.');
+      setError(role === 'manager' ? 'Enter the manager name and a valid email.' : 'Enter the driver name and a valid email.');
       return;
     }
     setInviting(true);
     setError(null);
     try {
-      const result = await onInvite(normalizedName, normalizedEmail);
+      const result = await onInvite(normalizedName, normalizedEmail, role);
       setTemporaryPassword(result.temporaryPassword);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to invite the driver.');
@@ -39,9 +41,12 @@ export function DriverInviteForm({ onInvite, onDone }: Props) {
   if (temporaryPassword !== null) {
     return (
       <View style={styles.container}>
-        <Text style={styles.eyebrow}>DRIVER INVITED</Text>
+        <Text style={styles.eyebrow}>{role === 'manager' ? 'MANAGER INVITED' : 'DRIVER INVITED'}</Text>
         <Text style={styles.title}>Share the access</Text>
-        <Text style={styles.subtitle}>The driver signs in with this email and the temporary password below. They will choose their own password on first login.</Text>
+        <Text style={styles.subtitle}>
+          {role === 'manager' ? 'The manager' : 'The driver'} signs in with this email and the temporary password below. They will
+          choose their own password on first login.
+        </Text>
         <View style={styles.card}>
           <Text style={styles.credentialLabel}>Email</Text>
           <Text style={styles.credentialValue}>{email}</Text>
@@ -58,17 +63,40 @@ export function DriverInviteForm({ onInvite, onDone }: Props) {
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text style={styles.eyebrow}>NEW DRIVER</Text>
-        <Text style={styles.title}>Invite a driver</Text>
-        <Text style={styles.subtitle}>The driver will access only the routes published to them.</Text>
+        <Text style={styles.eyebrow}>NEW TEAM MEMBER</Text>
+        <Text style={styles.title}>Invite to the team</Text>
+        <Text style={styles.subtitle}>
+          A driver sees only the routes published to them. A manager sees the whole operation: clients, calendar, dispatch and the team.
+        </Text>
         <View style={styles.card}>
           <Text style={styles.label}>Name</Text>
           <TextInput accessibilityLabel="Name" autoCapitalize="words" value={name} onChangeText={setName} style={styles.input} />
           <Text style={styles.label}>Email</Text>
           <TextInput accessibilityLabel="Email" autoCapitalize="none" autoComplete="email" keyboardType="email-address" value={email} onChangeText={setEmail} style={styles.input} placeholder="driver@example.com" />
+          <Text style={styles.label}>Role</Text>
+          <View style={styles.roleRow}>
+            <Pressable
+              accessibilityRole="radio"
+              accessibilityState={{ selected: role === 'driver' }}
+              accessibilityLabel="Driver role"
+              onPress={() => setRole('driver')}
+              style={[styles.roleButton, role === 'driver' && styles.roleButtonOn]}
+            >
+              <Text style={[styles.roleText, role === 'driver' && styles.roleTextOn]}>Driver</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="radio"
+              accessibilityState={{ selected: role === 'manager' }}
+              accessibilityLabel="Manager role"
+              onPress={() => setRole('manager')}
+              style={[styles.roleButton, role === 'manager' && styles.roleButtonOn]}
+            >
+              <Text style={[styles.roleText, role === 'manager' && styles.roleTextOn]}>Manager</Text>
+            </Pressable>
+          </View>
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Pressable accessibilityRole="button" accessibilityLabel="Invite driver" disabled={inviting} onPress={submit} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
-            {inviting ? <ActivityIndicator color={colors.forest900} /> : <Text style={styles.primaryText}>Invite driver</Text>}
+          <Pressable accessibilityRole="button" accessibilityLabel={role === 'manager' ? 'Invite manager' : 'Invite driver'} disabled={inviting} onPress={submit} style={({ pressed }) => [styles.primary, pressed && styles.pressed]}>
+            {inviting ? <ActivityIndicator color={colors.forest900} /> : <Text style={styles.primaryText}>{role === 'manager' ? 'Invite manager' : 'Invite driver'}</Text>}
           </Pressable>
         </View>
       </ScrollView>
@@ -93,4 +121,9 @@ const styles = StyleSheet.create({
   credentialValue: { color: colors.ink, fontWeight: '800', fontSize: 15 },
   passwordBox: { backgroundColor: '#FBF6E8', borderWidth: 1, borderColor: '#EADFB8', borderRadius: 10, padding: 12 },
   passwordText: { color: colors.forest900, fontFamily: 'monospace', fontWeight: '800', fontSize: 15 },
+  roleRow: { flexDirection: 'row', gap: 10 },
+  roleButton: { flex: 1, borderWidth: 1.5, borderColor: colors.line, borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
+  roleButtonOn: { borderColor: colors.forest700, backgroundColor: '#EDF3EC' },
+  roleText: { color: colors.muted, fontWeight: '900', fontSize: 14 },
+  roleTextOn: { color: colors.forest700 },
 });

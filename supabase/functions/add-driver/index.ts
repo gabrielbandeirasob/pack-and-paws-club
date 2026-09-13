@@ -51,7 +51,7 @@ Deno.serve(async (request: Request) => {
   const organizationId = await findOrganizationForManager(admin, user.id);
   if (!organizationId) return json({ error: 'Only a manager can invite drivers' }, 403);
 
-  let body: { name?: unknown; email?: unknown };
+  let body: { name?: unknown; email?: unknown; role?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -60,6 +60,9 @@ Deno.serve(async (request: Request) => {
   const name = typeof body.name === 'string' ? body.name.trim() : '';
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
   if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'Name and a valid email are required' }, 400);
+  // Papel do convidado: motorista (padrao) ou outro gestor. Qualquer outro valor cai em 'driver'
+  // — o enum do banco recusaria valor invalido, mas melhor nunca chegar la.
+  const role = body.role === 'manager' ? 'manager' : 'driver';
 
   const temporaryPassword = makeTemporaryPassword();
   const { data: created, error: createError } = await admin.auth.admin.createUser({
@@ -77,11 +80,11 @@ Deno.serve(async (request: Request) => {
 
   const { error: memberError } = await admin
     .from('organization_members')
-    .insert({ organization_id: organizationId, user_id: created.user.id, role: 'driver', status: 'active', created_by: user.id });
+    .insert({ organization_id: organizationId, user_id: created.user.id, role, status: 'active', created_by: user.id });
   if (memberError) {
     await admin.auth.admin.deleteUser(created.user.id);
     return json({ error: memberError.message }, 500);
   }
 
-  return json({ ok: true, email, temporary_password: temporaryPassword, driver_id: created.user.id });
+  return json({ ok: true, email, role, temporary_password: temporaryPassword, driver_id: created.user.id });
 });

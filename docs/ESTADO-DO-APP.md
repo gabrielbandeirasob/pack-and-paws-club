@@ -75,6 +75,17 @@ Pedido do dono: *"não tem como excluir clientes e nem motorista — faça essa 
 | **Trocar a senha** | a tela só existia no primeiro acesso; agora há **Change password** no More (gestor) e no Profile (motorista) |
 | **Ajuda & suporte** | linha no More que abre o e-mail de suporte com **versão, build, aparelho e conta** já preenchidos, mais a versão do app no rodapé |
 
+### Segunda leva — 13/09/2026 (as 4 pendências do relatório anterior)
+
+| O que entrou | Detalhe |
+|---|---|
+| **Filtrar inativos** | botão "Hide N inactive / Show N inactive" na lista de clientes (inativo **não** some sozinho: arquivado continua sendo dado do negócio) e **ativos primeiro** na ordem |
+| **Aviso de duplicado** | ao revisar o cadastro vindo dos contatos, avisa quando já existe cliente com o **mesmo nome** ou o **mesmo cachorro** — o banco só bloqueia duplicata do *mesmo contato*, então a família podia ficar partida em dois cadastros |
+| **Desfazer a exclusão** | cliente **sem** reserva nem histórico de rota: depois de excluir, oferece **Undo**, que reinsere cliente, cães e instruções **com os mesmos ids**. Com histórico, nada é oferecido (não haveria como devolver as reservas) |
+| **Convidar gestor** | o convite agora tem papel **Driver / Manager** (função de borda `add-driver` aceita `role`, publicada). A tela virou **Team**: lista motoristas **e** gestores, com o papel ao lado do status |
+
+**Evidência (2ª leva):** `tsc --noEmit` limpo · **365 testes em 61 suítes** passando · função `add-driver` republicada no Supabase (`Deployed Functions`) · política da migration 022 conferida em `pg_policies`.
+
 **Evidência:** `tsc --noEmit` limpo · **348 testes em 59 suítes** passando (eram 300/53; +5 arquivos de teste: exclusão de cliente, exclusão na tela, remoção de motorista, ações de contato, suporte) · `expo export --platform ios` empacotou o bundle sem erro.
 
 ## O que falta (com dono)

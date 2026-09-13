@@ -24,6 +24,17 @@ export function fullNameOrFallback(name: string | null | undefined): string {
   return trimmed.length > 0 ? trimmed : 'Driver';
 }
 
+/** Papel do membro: o convite cria motorista, mas o gestor tambem pode trazer outro gestor. */
+export type MemberRole = 'manager' | 'driver';
+
+export function normalizeRole(role: string | null | undefined): MemberRole {
+  return role === 'manager' ? 'manager' : 'driver';
+}
+
+export function memberRoleLabel(role: string | null | undefined): string {
+  return normalizeRole(role) === 'manager' ? 'Manager' : 'Driver';
+}
+
 /* ------------------------------------------------------------------ *
  * REMOCAO DE MOTORISTA DA EQUIPE
  *

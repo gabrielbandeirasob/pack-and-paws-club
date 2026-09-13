@@ -25,8 +25,8 @@ export default function MoreScreen() {
         <Text style={styles.title}>More</Text>
       </View>
       <View style={styles.list}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Drivers" onPress={() => router.push('/drivers')} style={styles.row}>
-          <View><Text style={styles.rowTitle}>Drivers</Text><Text style={styles.rowHint}>Invite and manage delivery drivers</Text></View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Team" onPress={() => router.push('/drivers')} style={styles.row}>
+          <View><Text style={styles.rowTitle}>Team</Text><Text style={styles.rowHint}>Invite drivers and managers, and remove whoever left</Text></View>
           <Text style={styles.chevron}>›</Text>
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Route history" onPress={() => router.push('/route-history')} style={styles.row}>

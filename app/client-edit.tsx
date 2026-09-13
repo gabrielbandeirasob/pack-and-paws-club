@@ -11,7 +11,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { EditClientForm, type ClientSavePayload, type EditableDog } from '@/features/clients/EditClientForm';
 import {
+  canUndoClientDelete,
   clientDeletePlan,
+  clientRestoreRows,
   clientUpdatePayload,
   dogRemovalPlan,
   dogUpdatePayload,
@@ -19,6 +21,7 @@ import {
   instructionWritePlan,
   normalizeText,
   type ClientHistoryCounts,
+  type ClientSnapshot,
   type EditableClient,
 } from '@/features/clients/clientsService';
 import { colors } from '@/features/theme/tokens';
@@ -32,6 +35,8 @@ type Loaded = {
   instructionId: string | null;
   active: boolean;
   impact: ClientHistoryCounts;
+  /** guardado para o desfazer: reinserir precisa da organizacao e dos ids originais */
+  snapshot: ClientSnapshot;
 };
 
 /** Data de hoje no fuso do aparelho (o servidor compara com start_date, que e date puro). */
@@ -57,7 +62,7 @@ export default function ClientEditScreen() {
     setError(null);
     const { data, error: loadError } = await supabase
       .from('clients')
-      .select('id, name, phone, address_line_1, address_line_2, city, state, postal_code, notes, special_scheduling_instructions, latitude, longitude, active, dogs(id, name, breed, behavior_notes, medical_notes), client_instructions(id, pickup_access_instructions)')
+      .select('id, organization_id, source_contact_identifier, name, phone, address_line_1, address_line_2, city, state, postal_code, notes, special_scheduling_instructions, latitude, longitude, active, dogs(id, name, breed, behavior_notes, medical_notes), client_instructions(id, pickup_access_instructions)')
       .eq('id', id)
       .single();
     if (loadError || !data) {
@@ -66,6 +71,9 @@ export default function ClientEditScreen() {
       return;
     }
     const row = data as unknown as EditableClient & {
+      id: string;
+      organization_id: string;
+      source_contact_identifier: string | null;
       active: boolean;
       dogs: { id: string; name: string; breed: string | null; behavior_notes: string | null; medical_notes: string | null }[] | null;
       // a API devolve OBJETO (UNIQUE em client_id), nao lista
@@ -97,6 +105,14 @@ export default function ClientEditScreen() {
         reservations: reservas.count ?? 0,
         upcomingReservations: proximas.count ?? 0,
         routeStops: paradas.count ?? 0,
+      },
+      // Snapshot tirado ANTES de qualquer exclusao: e o que permite desfazer (com os
+      // mesmos ids) quando o cliente nao tinha reserva nem historico de rota.
+      snapshot: {
+        organizationId: row.organization_id,
+        client: row,
+        dogs,
+        instructions: instruction ? { id: instruction.id, text: instruction.pickup_access_instructions } : null,
       },
     });
     setLoading(false);
@@ -176,10 +192,14 @@ export default function ClientEditScreen() {
   /**
    * Exclusao de verdade. Duas etapas quando existe historico: o primeiro alerta explica
    * o que vai junto e o segundo confirma, para nao apagar meses de reservas num toque.
+   * Sem historico, oferece DESFAZER logo depois — porque nesse caso nada foi perdido de
+   * verdade e reinserir o cliente com os mesmos ids devolve tudo como estava.
    */
   const excluirCliente = async () => {
     if (!loaded || !id) return;
     const plan = clientDeletePlan(loaded.impact);
+    const snapshot = loaded.snapshot;
+    const podeDesfazer = canUndoClientDelete(loaded.impact);
 
     const apagarDeVerdade = async () => {
       setDeleting(true);
@@ -187,7 +207,15 @@ export default function ClientEditScreen() {
       const { error: deleteError } = await supabase.from('clients').delete().eq('id', id);
       setDeleting(false);
       if (deleteError) { setError(deleteError.message); return; }
-      router.back();
+      if (!podeDesfazer) { router.back(); return; }
+      Alert.alert(
+        'Client deleted',
+        `${loaded.current.name} was removed. Nothing else was linked to this client, so it can still be put back exactly as it was.`,
+        [
+          { text: 'Done', onPress: () => router.back() },
+          { text: 'Undo', onPress: () => void desfazerExclusao(snapshot) },
+        ],
+      );
     };
 
     const botoes: Parameters<typeof Alert.alert>[2] = [{ text: 'Cancel', style: 'cancel' }];
@@ -212,6 +240,26 @@ export default function ClientEditScreen() {
     });
 
     Alert.alert(plan.title, plan.message, botoes);
+  };
+
+  /** Reinsere cliente, caes e instrucoes com os MESMOS ids. */
+  const desfazerExclusao = async (snapshot: ClientSnapshot) => {
+    setDeleting(true);
+    setError(null);
+    const rows = clientRestoreRows(snapshot);
+    const { error: clientError } = await supabase.from('clients').insert(rows.client);
+    let falha = clientError;
+    if (!falha && rows.dogs.length > 0) {
+      const { error: dogError } = await supabase.from('dogs').insert(rows.dogs);
+      falha = dogError;
+    }
+    if (!falha && rows.instruction) {
+      const { error: instructionError } = await supabase.from('client_instructions').insert(rows.instruction);
+      falha = instructionError;
+    }
+    setDeleting(false);
+    if (falha) { setError(`Could not undo the deletion: ${falha.message}`); return; }
+    router.back();
   };
 
   return (
