@@ -269,7 +269,11 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
         })}
         <View style={styles.unassigned}>
           <Text style={styles.unassignedTitle}>{unassigned.length} unassigned</Text>
-          {unassigned.length === 0 ? <Text style={styles.muted}>Every transport dog is assigned. 🎉</Text> : null}
+          {dayItems.length === 0 ? (
+            <Text style={styles.muted}>No transport dogs need a ride today.</Text>
+          ) : unassigned.length === 0 ? (
+            <Text style={styles.muted}>Every transport dog is assigned. 🎉</Text>
+          ) : null}
           {unassigned.map((item) => (
             <Pressable key={item.dogId} accessibilityRole="button" accessibilityLabel={`Assign ${item.clientName} · ${item.dogName}`} onPress={() => setSheet({ mode: 'assign', item })} style={styles.chip}>
               <Text style={styles.chipText}>{item.clientName} · {item.dogName}</Text>

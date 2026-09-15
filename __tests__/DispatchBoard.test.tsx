@@ -54,6 +54,36 @@ describe('DispatchBoard', () => {
     expect(screen.getByText('3 unassigned')).toBeTruthy();
   });
 
+  it('nao comemora quando nao ha cao de transporte no dia (estado vazio coerente)', async () => {
+    const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={[]} routes={[]} {...noops} />);
+    expect(screen.queryByText('Every transport dog is assigned. 🎉')).toBeNull();
+    expect(screen.getByText('No transport dogs need a ride today.')).toBeTruthy();
+  });
+
+  it('comemora quando todos os caes de transporte ja estao atribuidos', async () => {
+    const todos: DispatchRoute[] = [
+      {
+        routeId: 'route-all',
+        driverId: 'driver-rafael',
+        status: 'draft',
+        stops: dayItems.map((item, i) => ({
+          ...item,
+          sequence: i + 1,
+          status: 'pending' as const,
+          latitude: null,
+          longitude: null,
+          windowStart: null,
+          windowEnd: null,
+          exactTime: null,
+          priority: 'normal' as const,
+        })),
+      },
+    ];
+    const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={todos} {...noops} />);
+    expect(screen.getByText('Every transport dog is assigned. 🎉')).toBeTruthy();
+    expect(screen.queryByText('No transport dogs need a ride today.')).toBeNull();
+  });
+
   it('assigns a dog to a driver through the sheet', async () => {
     const onAssign = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
