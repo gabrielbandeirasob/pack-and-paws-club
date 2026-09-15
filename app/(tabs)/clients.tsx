@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ModalScreen } from '@/features/ui/ModalScreen';
 import { useFocusEffect, useRouter } from 'expo-router';
 
 import { AddClientReview } from '@/features/clients/AddClientReview';
@@ -230,7 +231,7 @@ export default function ClientsScreen() {
       {error ? <Text style={styles.banner}>{error}</Text> : null}
       {notice ? <Text style={styles.noticeBanner}>{notice}</Text> : null}
       <Modal visible={pickerVisible} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setPickerVisible(false)}>
-        <SafeAreaView style={styles.modal}>
+        <ModalScreen style={styles.modal}>
           <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             <View style={styles.modalHeader}>
               <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setPickerVisible(false)} style={styles.closeButton}>
@@ -275,7 +276,7 @@ export default function ClientsScreen() {
               </View>
             )}
           </KeyboardAvoidingView>
-        </SafeAreaView>
+        </ModalScreen>
       </Modal>
     </SafeAreaView>
   );
@@ -288,7 +289,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   modal: { flex: 1, backgroundColor: colors.cream },
   modalHeader: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 8, gap: 14 },
-  closeButton: { paddingVertical: 10, paddingRight: 8 },
+  closeButton: { minHeight: 44, justifyContent: 'center', paddingVertical: 10, paddingRight: 8 },
   closeText: { color: colors.forest700, fontWeight: '800' },
   modalTitle: { fontFamily: 'serif', fontSize: 20, fontWeight: '800', color: colors.forest900, flex: 1 },
   searchBody: { flex: 1, padding: 16 },

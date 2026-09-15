@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ModalScreen } from '@/features/ui/ModalScreen';
 import { router, useFocusEffect } from 'expo-router';
 
 import { DriverInviteForm } from '@/features/drivers/DriverInviteForm';
@@ -230,9 +231,9 @@ export default function DriversScreen() {
         </ScrollView>
       )}
       <Modal visible={editing !== null} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setEditing(null)}>
-        <SafeAreaView style={styles.screen} edges={['top']}>
+        <ModalScreen>
           <View style={styles.modalTop}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={fecharEdicao} style={styles.backButton}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={fecharEdicao} hitSlop={12} style={styles.backButton}>
               <Text style={styles.closeText}>✕ Close</Text>
             </Pressable>
           </View>
@@ -272,18 +273,18 @@ export default function DriversScreen() {
           </View>
             </ScrollView>
           </KeyboardAvoidingView>
-        </SafeAreaView>
+        </ModalScreen>
       </Modal>
 
       <Modal visible={inviting} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setInviting(false)}>
-        <SafeAreaView style={styles.screen}>
+        <ModalScreen>
           <View style={styles.modalTop}>
-            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={fecharConvite} style={styles.backButton}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={fecharConvite} hitSlop={12} style={styles.backButton}>
               <Text style={styles.closeText}>✕ Close</Text>
             </Pressable>
           </View>
           <DriverInviteForm onInvite={invite} onDone={finishInvite} />
-        </SafeAreaView>
+        </ModalScreen>
       </Modal>
     </SafeAreaView>
   );
@@ -294,7 +295,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   modalBody: { paddingBottom: 40 },
   header: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.forest700, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14, gap: 8 },
-  backButton: { paddingVertical: 4, paddingRight: 6 },
+  backButton: { minHeight: 44, minWidth: 44, justifyContent: 'center', paddingVertical: 4, paddingRight: 6 },
   backText: { color: colors.gold, fontSize: 32, fontWeight: '700', lineHeight: 34 },
   title: { color: 'white', fontFamily: 'serif', fontSize: 24, fontWeight: '800', flex: 1 },
   plusButton: { backgroundColor: colors.gold, width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },

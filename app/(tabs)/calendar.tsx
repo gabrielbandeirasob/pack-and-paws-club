@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ModalScreen } from '@/features/ui/ModalScreen';
 import { useFocusEffect, useRouter } from 'expo-router';
 
 import { CalendarGrid, BOARDING_DOT, DAYCARE_DOT } from '@/features/calendar/CalendarGrid';
@@ -341,9 +342,9 @@ export default function CalendarScreen() {
       </View>
 
       <Modal visible={adding} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setAdding(false)}>
-        <SafeAreaView style={styles.screen}>
+        <ModalScreen>
           <NewReservationForm dogs={dogs} onSave={finishAdd} onCancel={() => setAdding(false)} />
-        </SafeAreaView>
+        </ModalScreen>
       </Modal>
     </SafeAreaView>
   );

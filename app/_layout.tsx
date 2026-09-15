@@ -1,5 +1,6 @@
 import { useFonts } from 'expo-font';
 import { DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
@@ -24,7 +25,7 @@ export default function RootLayout(){
   useEffect(()=>{if(error)throw error;},[error]);
   useEffect(()=>{if(loaded)SplashScreen.hideAsync();},[loaded]);
   if(!loaded)return null;
-  return <ThemeProvider value={packPawsTheme}><AuthProvider><PushRegistrar/><RootNavigator/></AuthProvider></ThemeProvider>;
+  return <SafeAreaProvider><ThemeProvider value={packPawsTheme}><AuthProvider><PushRegistrar/><RootNavigator/></AuthProvider></ThemeProvider></SafeAreaProvider>;
 }
 
 function RootNavigator(){
