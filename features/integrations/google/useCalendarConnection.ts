@@ -35,7 +35,14 @@ export function useCalendarConnection(): CalendarConnection {
   const clientId = useMemo(() => googleIosClientId(), []);
   const redirectUri = useMemo(() => {
     const scheme = googleRedirectScheme();
-    return scheme ? `${scheme}:/oauthredirect` : AuthSession.makeRedirectUri({ scheme: 'packandpaws', path: 'oauthredirect' });
+    if (scheme) return `${scheme}:/oauthredirect`;
+    // Sem manifest (ambiente de teste) `makeRedirectUri` LANÇA erro — e isso derrubaria a tela
+    // inteira que renderiza o card. Aqui cai no esquema do app em vez de explodir.
+    try {
+      return AuthSession.makeRedirectUri({ scheme: 'packandpaws', path: 'oauthredirect' });
+    } catch {
+      return 'packandpaws://oauthredirect';
+    }
   }, []);
 
   const [tokens, setTokens] = useState<StoredTokens | null>(null);

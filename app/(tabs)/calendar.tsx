@@ -9,6 +9,8 @@ import { addDaysISO, formatDayLabel, todayLocalISO } from '@/features/calendar/d
 import { buildDay, isSkipped, type DayItem, type DogRef, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { addMonthsISO, monthLabel, monthMatrixISO, summarizeRange, weekDatesISO } from '@/features/calendar/gridMath';
 import { NewReservationForm, type NewReservationPayload } from '@/features/calendar/NewReservationForm';
+import { CalendarConnectionCard } from '@/features/integrations/google/CalendarConnectionCard';
+import { toLocalReservations } from '@/features/integrations/google/localReservations';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -93,6 +95,13 @@ export default function CalendarScreen() {
   );
 
   const summary = useMemo(() => buildDay(selectedDay, reservations, recurring, exceptions), [selectedDay, reservations, recurring, exceptions]);
+
+  // Lista que o espelhamento do Google consome (módulo puro): reservas avulsas + escalas
+  // recorrentes, com as pausas do app já resolvidas em EXDATE.
+  const reservasParaEspelhar = useMemo(
+    () => toLocalReservations(reservations, recurring, exceptions, { horizonteISO: addDaysISO(todayLocalISO(), 180) }),
+    [reservations, recurring, exceptions],
+  );
 
   const grid = useMemo(() => {
     if (view === 'day') return null;
@@ -337,6 +346,8 @@ export default function CalendarScreen() {
                 ))}
               </View>
             ) : null}
+
+            <CalendarConnectionCard reservations={reservasParaEspelhar} />
           </ScrollView>
         )}
       </View>

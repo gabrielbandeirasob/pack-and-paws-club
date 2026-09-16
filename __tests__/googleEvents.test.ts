@@ -25,4 +25,25 @@ describe('buildGoogleEvent', () => {
     const event = buildGoogleEvent({ dogName: 'Luna', clientName: 'John', serviceType: 'daycare', startDate: '2026-09-09', weekdays: [1, 3, 5], endDate: '2026-12-18' });
     expect(event.recurrence).toEqual(['RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR;UNTIL=20261218']);
   });
+
+  it('turns paused dates into EXDATE lines so Google skips them', () => {
+    const event = buildGoogleEvent({
+      dogName: 'Luna',
+      clientName: 'John',
+      serviceType: 'daycare',
+      startDate: '2026-09-09',
+      weekdays: [1, 3, 5],
+      skipDates: ['2026-09-18', '2026-09-21'],
+    });
+    expect(event.recurrence).toEqual([
+      'RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR',
+      'EXDATE;VALUE=DATE:20260918',
+      'EXDATE;VALUE=DATE:20260921',
+    ]);
+  });
+
+  it('ignores skipDates on a one-off reservation (nothing to exclude)', () => {
+    const event = buildGoogleEvent({ dogName: 'Bob', clientName: 'Maria', serviceType: 'daycare', startDate: '2026-09-08', endDate: '2026-09-08', skipDates: ['2026-09-08'] });
+    expect(event.recurrence).toBeUndefined();
+  });
 });

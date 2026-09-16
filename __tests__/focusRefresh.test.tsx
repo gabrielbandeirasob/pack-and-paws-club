@@ -33,6 +33,18 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
+// A aba de agenda agora renderiza o card do Google Calendar: esta suite nao testa OAuth/Keychain,
+// entao a borda do Google fica isolada aqui (o hook real fala com o Keychain e com o manifest).
+jest.mock('@/features/integrations/google/useCalendarConnection', () => ({
+  useCalendarConnection: () => ({
+    status: 'not_configured',
+    email: null,
+    connect: jest.fn(),
+    disconnect: jest.fn(),
+    getAccessToken: jest.fn(),
+  }),
+}));
+
 import ClientListScreen from '@/app/(tabs)/clients';
 import CalendarScreen from '@/app/(tabs)/calendar';
 

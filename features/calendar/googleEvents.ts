@@ -17,6 +17,8 @@ export type ReservationForSync = {
   startDate: string;
   endDate?: string;
   weekdays?: number[];
+  /** Datas (ISO) em que a serie NAO acontece (pausa/ausencia). Viram EXDATE no evento. */
+  skipDates?: string[];
 };
 
 const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
@@ -36,6 +38,11 @@ export function buildGoogleEvent(reservation: ReservationForSync): GoogleEventIn
   if (reservation.weekdays?.length) {
     const openEnded = !reservation.endDate || reservation.endDate === reservation.startDate;
     event.recurrence = [recurrenceRule(reservation.weekdays, openEnded ? undefined : reservation.endDate)];
+    // Pausas (ferias/ausencia) viram EXDATE: o Google pula esses dias em vez de mostrar o dia
+    // como se o cao fosse — a mesma regra que a tela do app usa (`isSkipped`).
+    for (const dia of reservation.skipDates ?? []) {
+      event.recurrence.push(`EXDATE;VALUE=DATE:${dia.replaceAll('-', '')}`);
+    }
   }
   return event;
 }
