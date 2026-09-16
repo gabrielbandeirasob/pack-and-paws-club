@@ -55,6 +55,8 @@ describe('planCalendarSync', () => {
   it('embute a chave de idempotencia no evento enviado', () => {
     const event = eventFor(daycare);
     expect(event.extendedProperties?.private.appKey).toBe('res-1');
+    // Marca fixa: sem ela o filtro da listagem não tem como reconhecer os nossos eventos.
+    expect(event.extendedProperties?.private.packpawsMirror).toBe('v1');
     expect(event.start.date).toBe('2026-09-10');
     expect(event.end.date).toBe('2026-09-11');
   });

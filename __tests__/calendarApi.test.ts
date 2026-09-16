@@ -1,4 +1,4 @@
-import { parseEvent, toEventBody, type CalendarFetch } from '@/features/integrations/google/calendarApi';
+import { listEvents, parseEvent, toEventBody, type CalendarFetch } from '@/features/integrations/google/calendarApi';
 import { describeSummary, runCalendarSync } from '@/features/integrations/google/sync';
 import type { LocalReservation } from '@/features/integrations/google/calendarSync';
 
@@ -91,6 +91,18 @@ describe('cliente do Google Calendar', () => {
     expect(parsed.appKey).toBeNull();
     expect(parsed.startDate).toBe('2026-09-10');
   });
+
+  it('filtra a listagem no formato que o Google exige (nome=valor)', async () => {
+    const urls: string[] = [];
+    const doFetch: CalendarFetch = async (url) => {
+      urls.push(url);
+      return { ok: true, status: 200, json: async () => ({ items: [] }) };
+    };
+    await listEvents('t', range, doFetch);
+    // HTTP 400 "A key or value missing in the extended_properties_match" é o que o gestor recebeu
+    // quando o filtro ia só com a chave. Este teste trava o formato exigido pela API (nome%3Dvalor).
+    expect(urls[0]).toContain('privateExtendedProperty=packpawsMirror%3Dv1');
+  });
 });
 
 describe('runCalendarSync', () => {
@@ -104,6 +116,13 @@ describe('runCalendarSync', () => {
     expect(second).toMatchObject({ created: 0, updated: 0, deleted: 0 });
     expect(google.events).toHaveLength(1);
     expect(describeSummary(second)).toBe('Nada a sincronizar — já está igual');
+  });
+
+  it('grava a marca fixa em todo evento criado (é ela que a listagem filtra)', async () => {
+    const google = fakeGoogle();
+    await runCalendarSync({ accessToken: 't', reservations: [reserva], range, doFetch: google.doFetch });
+    const corpo = google.events[0].body as { extendedProperties?: { private?: Record<string, string> } };
+    expect(corpo.extendedProperties?.private).toEqual({ appKey: 'res-1', packpawsMirror: 'v1' });
   });
 
   it('atualiza quando a reserva muda e apaga quando deixa de existir', async () => {

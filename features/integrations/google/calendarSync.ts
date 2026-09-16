@@ -12,6 +12,18 @@ import { buildGoogleEvent, type GoogleEventInput, type ReservationForSync } from
 
 export const APP_KEY_PROPERTY = 'appKey';
 
+/**
+ * Marca fixa que TODO evento do espelho carrega, além do appKey.
+ *
+ * Por que existe: `events.list` só filtra propriedade no formato `nome=valor` — mandar a chave
+ * sozinha devolve HTTP 400 "A key or value missing in the extended_properties_match" (erro
+ * aconteceu de verdade em 16/09/2026, no primeiro sync do gestor). Como o appKey muda a cada
+ * reserva, ele não serve para filtrar a listagem: é esta marca constante que separa os nossos
+ * eventos dos eventos do dono do calendário.
+ */
+export const MIRROR_MARKER_PROPERTY = 'packpawsMirror';
+export const MIRROR_MARKER_VALUE = 'v1';
+
 export type LocalReservation = ReservationForSync & { id: string };
 
 export type RemoteEvent = {
@@ -35,7 +47,15 @@ export function appKeyOf(reservation: LocalReservation): string {
 
 /** Evento do Google pronto para envio, com a chave de idempotencia embutida. */
 export function eventFor(reservation: LocalReservation): GoogleEventInput {
-  return { ...buildGoogleEvent(reservation), extendedProperties: { private: { [APP_KEY_PROPERTY]: appKeyOf(reservation) } } };
+  return {
+    ...buildGoogleEvent(reservation),
+    extendedProperties: {
+      private: {
+        [APP_KEY_PROPERTY]: appKeyOf(reservation),
+        [MIRROR_MARKER_PROPERTY]: MIRROR_MARKER_VALUE,
+      },
+    },
+  };
 }
 
 function sameRecurrence(a?: string[] | null, b?: string[] | null): boolean {

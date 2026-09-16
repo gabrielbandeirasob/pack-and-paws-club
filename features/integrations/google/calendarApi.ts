@@ -4,7 +4,7 @@
  * `useCalendarConnection` e a persistência do token no secure store.
  */
 import type { GoogleEventInput } from '@/features/calendar/googleEvents';
-import { APP_KEY_PROPERTY, type RemoteEvent } from './calendarSync';
+import { APP_KEY_PROPERTY, MIRROR_MARKER_PROPERTY, MIRROR_MARKER_VALUE, type RemoteEvent } from './calendarSync';
 
 export const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 export const PRIMARY_CALENDAR = 'primary';
@@ -80,7 +80,8 @@ export async function listEvents(
     `${CALENDAR_API}/calendars/${PRIMARY_CALENDAR}/events` +
     `?singleEvents=false&maxResults=2500&showDeleted=false` +
     `&timeMin=${encodeURIComponent(range.timeMin)}&timeMax=${encodeURIComponent(range.timeMax)}` +
-    `&privateExtendedProperty=${encodeURIComponent(`${APP_KEY_PROPERTY}`)}`;
+    // O Google exige `nome=valor` (a chave sozinha devolve HTTP 400): por isso a marca fixa.
+    `&privateExtendedProperty=${encodeURIComponent(`${MIRROR_MARKER_PROPERTY}=${MIRROR_MARKER_VALUE}`)}`;
   const response = await doFetch(url, { method: 'GET', headers: authHeaders(accessToken) });
   const payload = await handle<{ items?: GoogleEventResource[] }>(response, 'listar eventos');
   return (payload.items ?? []).map(parseEvent);
