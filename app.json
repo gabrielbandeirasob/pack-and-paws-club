@@ -14,7 +14,15 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSLocationWhenInUseUsageDescription": "Pack & Paws Club shares your location with dispatch only while a route is active.",
-        "NSContactsUsageDescription": "Allow Pack & Paws Club to access contacts you choose to add as clients."
+        "NSContactsUsageDescription": "Allow Pack & Paws Club to access contacts you choose to add as clients.",
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "google-oauth",
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.527658375447-q7c4aiki26p9juevrcd7lu1p7qkkie7u"
+            ]
+          }
+        ]
       }
     },
     "android": {
@@ -73,7 +81,8 @@
       "router": {},
       "eas": {
         "projectId": "784897ee-2e4f-47e0-bb1c-1eacc39d412b"
-      }
+      },
+      "googleIosClientId": "527658375447-q7c4aiki26p9juevrcd7lu1p7qkkie7u.apps.googleusercontent.com"
     },
     "owner": "jarbasdev"
   }
