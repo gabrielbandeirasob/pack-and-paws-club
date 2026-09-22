@@ -11,6 +11,7 @@ import {
   type ReservationRecord,
 } from '@/features/calendar/dayMath';
 import { ManagerDashboard, type DashboardRoute } from '@/features/dashboard/ManagerDashboard';
+import { packProgress, totalPack as contarPack, type PackRoute } from '@/features/dashboard/packProgress';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { landingRouteForRole } from '@/features/navigation/roleTabs';
 import { haversineKm } from '@/features/dispatch/routeOptimizer';
@@ -45,6 +46,7 @@ type StopRow = {
   status: 'pending' | 'arrived' | 'picked_up' | 'completed' | 'skipped';
   window_end: string | null;
   exact_time: string | null;
+  updated_at: string | null;
   dog: { name: string; client: { latitude: number | null; longitude: number | null } };
 };
 type RouteRow = { id: string; driver_id: string; status: 'draft' | 'published'; route_stops: StopRow[] };
@@ -150,6 +152,8 @@ export default function HomeScreen() {
   const [managerName, setManagerName] = useState('');
   const [counts, setCounts] = useState({ daycare: 0, boarding: 0 });
   const [routes, setRoutes] = useState<DashboardRoute[]>([]);
+  const [totalPack, setTotalPack] = useState(0);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -183,7 +187,7 @@ export default function HomeScreen() {
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', organizationId),
       supabase
         .from('routes')
-        .select('id, driver_id, status, route_stops(id, sequence, status, window_end, exact_time, dog:dogs(name, client:clients(latitude, longitude)))')
+        .select('id, driver_id, status, route_stops(id, sequence, status, window_end, exact_time, updated_at, dog:dogs(name, client:clients(latitude, longitude)))')
         .eq('organization_id', organizationId)
         .eq('route_date', today),
       supabase.from('driver_locations').select('driver_id, latitude, longitude, updated_at').eq('organization_id', organizationId),
@@ -235,6 +239,17 @@ export default function HomeScreen() {
     );
     const routeRows = ((routeResult.data as unknown as RouteRow[]) ?? []).sort((a, b) => a.id.localeCompare(b.id));
     setRoutes(routeRows.map((row) => toDashboardRoute(row, driversById, locations[row.driver_id] ?? null)));
+
+    // Total Pack e progresso do dia: um ponto = um cão, somando todas as rotas de hoje.
+    const packRoutes: PackRoute[] = routeRows.map((row) => ({
+      driverName: driversById[row.driver_id] ?? 'Driver',
+      status: row.status,
+      stops: [...row.route_stops]
+        .sort((a, b) => a.sequence - b.sequence)
+        .map((stop) => ({ status: stop.status, dogName: stop.dog.name, at: stop.updated_at })),
+    }));
+    setTotalPack(contarPack(packRoutes));
+    setProgress(packProgress(packRoutes));
     setLoading(false);
   }, []);
 
@@ -279,7 +294,10 @@ export default function HomeScreen() {
           initials={header.initials}
           daycare={counts.daycare}
           boarding={counts.boarding}
+          totalPack={totalPack}
+          progress={progress}
           routes={routes}
+          onOpenProgress={() => router.push('/day-progress')}
           onOpenDispatch={() => router.push('/dispatch')}
           onOpenClients={() => router.push('/clients')}
           onNewReservation={() => router.push('/calendar')}

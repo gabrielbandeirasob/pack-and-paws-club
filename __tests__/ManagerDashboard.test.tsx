@@ -10,6 +10,7 @@ async function setup(overrides: Partial<React.ComponentProps<typeof ManagerDashb
   const onOpenDispatch = jest.fn();
   const onOpenClients = jest.fn();
   const onNewReservation = jest.fn();
+  const onOpenProgress = jest.fn();
   const screen = await render(
     <ManagerDashboard
       dateLabel="MONDAY · SEPTEMBER 8"
@@ -17,14 +18,17 @@ async function setup(overrides: Partial<React.ComponentProps<typeof ManagerDashb
       initials="AM"
       daycare={18}
       boarding={5}
+      totalPack={12}
+      progress={{ done: 7, total: 12 }}
       routes={routes}
+      onOpenProgress={onOpenProgress}
       onOpenDispatch={onOpenDispatch}
       onOpenClients={onOpenClients}
       onNewReservation={onNewReservation}
       {...overrides}
     />,
   );
-  return { screen, onOpenDispatch, onOpenClients, onNewReservation };
+  return { screen, onOpenDispatch, onOpenClients, onNewReservation, onOpenProgress };
 }
 
 describe('ManagerDashboard', () => {
@@ -45,6 +49,23 @@ describe('ManagerDashboard', () => {
     expect(screen.getByText('Bolt · ~9 min')).toBeTruthy();
   });
 
+  it('mostra o Total Pack e o progresso do dia (pedido do cliente)', async () => {
+    const { screen } = await setup();
+
+    expect(screen.getByText('Total Pack')).toBeTruthy();
+    expect(screen.getByText('12')).toBeTruthy();
+    expect(screen.getByText("Today's progress")).toBeTruthy();
+    expect(screen.getByText('7 of 12 dogs done')).toBeTruthy();
+  });
+
+  it('leva para a tela do progresso do dia', async () => {
+    const { screen, onOpenProgress } = await setup();
+
+    await fireEvent.press(screen.getByRole('button', { name: "See today's progress" }));
+
+    expect(onOpenProgress).toHaveBeenCalledTimes(1);
+  });
+
   it('opens dispatch, clients and the calendar from the shortcuts', async () => {
     const { screen, onOpenDispatch, onOpenClients, onNewReservation } = await setup();
 
@@ -58,11 +79,12 @@ describe('ManagerDashboard', () => {
   });
 
   it('explains how to get started when there are no routes yet', async () => {
-    const { screen } = await setup({ routes: [], daycare: 0, boarding: 0 });
+    const { screen } = await setup({ routes: [], daycare: 0, boarding: 0, totalPack: 0, progress: { done: 0, total: 0 } });
 
     expect(screen.getByText('No routes yet today')).toBeTruthy();
     expect(screen.getByText(/Assign the dogs that need transport in Dispatch/)).toBeTruthy();
-    expect(screen.getAllByText('0')).toHaveLength(3); // daycare, boarding, routes
+    expect(screen.getByText('Nothing scheduled for today')).toBeTruthy();
+    expect(screen.getAllByText('0')).toHaveLength(4); // total pack, daycare, boarding, routes
   });
 
   it('summarises a single stop route without pluralising', async () => {
