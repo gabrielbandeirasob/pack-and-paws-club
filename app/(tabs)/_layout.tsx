@@ -3,6 +3,8 @@ import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, Text } from 'react-native';
 import { View } from 'react-native';
 
+import { NoAccess } from '@/features/auth/NoAccess';
+import { useAuth } from '@/features/auth/AuthProvider';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { colors } from '@/features/theme/tokens';
 
@@ -26,10 +28,17 @@ const DRIVER_TABS: TabSpec[] = [
 const ALL_TABS = [...MANAGER_TABS, ...DRIVER_TABS];
 
 export default function TabLayout() {
-  const { role, isLoading } = useOrganizationRole();
+  const { role, isLoading, reload } = useOrganizationRole();
+  const { session } = useAuth();
 
-  if (isLoading || !role) {
+  // Carregando é uma coisa; NÃO ter vínculo ativo é outra. Antes os dois casos mostravam a
+  // mesma rodinha — quem entrava sem vínculo ficava travado para sempre (reclamação do motorista).
+  if (isLoading) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.forest700 }}><ActivityIndicator size="large" color={colors.gold} /></View>;
+  }
+
+  if (!role) {
+    return <NoAccess email={session?.user?.email ?? null} onRetry={reload} />;
   }
 
   const activeNames = new Set((role === 'manager' ? MANAGER_TABS : DRIVER_TABS).map((tab) => tab.name));
