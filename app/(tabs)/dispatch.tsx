@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { buildDay, transportPool, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
+import { buildDay, transportPool, vanPool, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
 import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
@@ -80,9 +80,14 @@ export default function DispatchScreen() {
     }));
 
     const day = buildDay(date, reservations, recurring, exceptions);
-    // `transportPool` já tira o cão que está em boarding E faz daycare no mesmo dia (ele começa o dia
-    // na van, não precisa de pickup) e já deduplica por cão — pedido do cliente (23/09/2026).
-    setDayItems(transportPool(day).map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind })));
+    // Fila principal: quem precisa de transporte e NÃO está já na van (deduplicado por cão).
+    // Seção separada: cão em boarding que também faz daycare no dia — ele acorda dentro da van (sem
+    // pickup), mas o gestor pode incluir à mão quando precisar dele de volta em casa. Pedido do
+    // cliente em áudio (23/09/2026).
+    setDayItems([
+      ...transportPool(day).map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind, inVan: false })),
+      ...vanPool(day).map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind, inVan: true })),
+    ]);
 
     const routeRows = (routeResult.data as unknown as RouteRow[]) ?? [];
     setVersoes(Object.fromEntries(routeRows.map((row) => [row.id, row.lock_version ?? 1])));

@@ -93,6 +93,32 @@ describe('DispatchBoard', () => {
     expect(onAssign).toHaveBeenCalledWith('dog-bob', 'driver-rafael', { windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' });
   });
 
+  /**
+   * Cão em boarding que também faz daycare no dia: já acorda dentro da van, então NÃO pode aparecer
+   * na fila de pickup (pedido do cliente, áudio de 23/09/2026) — mas continua à mão do gestor numa
+   * seção separada, para o caso de ele precisar voltar para casa.
+   */
+  it('cão que já está na van sai da fila e aparece na seção separada, podendo ser incluído à mão', async () => {
+    const onAssign = jest.fn().mockResolvedValue(undefined);
+    const comVan: DispatchStopItem[] = [
+      ...dayItems,
+      { dogId: 'dog-filo', clientName: 'Amor', dogName: 'Filó', reservationKind: 'boarding', inVan: true },
+    ];
+    const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={comVan} routes={[]} {...noops} onAssign={onAssign} />);
+
+    // Fila principal: 3 (o da van não está ali) + a seção dele existe.
+    expect(screen.getByText('3 unassigned')).toBeTruthy();
+    expect(screen.getByTestId('dispatch-ja-na-van')).toBeTruthy();
+    expect(screen.getByText('Boarding — already in the van')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Assign Amor · Filó' })).toBeNull();
+
+    // E dá para incluir na rota à mão (a volta para casa).
+    await fireEvent.press(screen.getByRole('button', { name: 'Add boarding Amor · Filó' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Driver Jordan' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
+    expect(onAssign).toHaveBeenCalledWith('dog-filo', 'driver-jordan', { windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' });
+  });
+
   it('requires a driver before assigning', async () => {
     const onAssign = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);

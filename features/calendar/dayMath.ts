@@ -84,6 +84,26 @@ export function transportPool(day: DaySummary): DayItem[] {
   });
 }
 
+/**
+ * Cães que JÁ ESTÃO NA VAN (boarding + daycare no mesmo dia), para a seção separada do Dispatch.
+ *
+ * Por que existem mesmo sem precisar de pickup (áudio do cliente, 23/09/2026): "pode ser que algum
+ * que vai pro daycare precise voltar para a casa... então é melhor que o administrador possa dizer
+ * quais cachorros estão para aquele dia, ou pelo menos confirmar manualmente". Ou seja: saem da fila
+ * principal, mas continuam à mão do gestor para incluir na rota quando precisarem voltar.
+ */
+export function vanPool(day: DaySummary): DayItem[] {
+  const jaNaVan = dogsJaNaVan(day);
+  const vistos = new Set<string>();
+  return [...day.boarding, ...day.daycare].filter((item) => {
+    if (!item.transportRequired) return false;
+    if (!jaNaVan.has(item.dogId)) return false;
+    if (vistos.has(item.dogId)) return false;
+    vistos.add(item.dogId);
+    return true;
+  });
+}
+
 function dateToWeekday(isoDate: string): number {
   return new Date(`${isoDate}T00:00:00Z`).getUTCDay();
 }

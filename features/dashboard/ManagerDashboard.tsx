@@ -49,7 +49,12 @@ export function ManagerDashboard({ dateLabel, greeting, initials, daycare, board
         </View>
 
         <View style={styles.statsRow}>
-          <Stat value={String(totalPack)} label="Total Pack" destaque />
+          {/*
+            "Total Pack" é o termo DELES (matilha / pack walk — o passeio com todos os cães do
+            quintal). O cliente perguntou o que era o número (áudio de 23/09/2026), então a legenda
+            fica aqui em vez de trocar o nome que eles usam.
+          */}
+          <Stat value={String(totalPack)} label="Total Pack" hint="going to daycare today" destaque />
           <Stat value={String(daycare)} label="Daycare" />
           <Stat value={String(boarding)} label="Boarding" />
         </View>
@@ -127,11 +132,12 @@ export function ManagerDashboard({ dateLabel, greeting, initials, daycare, board
   );
 }
 
-function Stat({ value, label, destaque = false }: { value: string; label: string; destaque?: boolean }) {
+function Stat({ value, label, hint, destaque = false }: { value: string; label: string; hint?: string; destaque?: boolean }) {
   return (
     <View style={[styles.stat, destaque && styles.statDestaque]}>
       <Text style={[styles.statValue, destaque && styles.statValueDestaque]}>{value}</Text>
       <Text style={destaque ? styles.statLabelDestaque : styles.muted}>{label}</Text>
+      {hint ? <Text style={styles.statHint}>{hint}</Text> : null}
     </View>
   );
 }
@@ -143,6 +149,8 @@ const styles = StyleSheet.create({
   statDestaque:{backgroundColor:colors.gold},
   statValueDestaque:{color:colors.forest900},
   statLabelDestaque:{color:colors.forest900,fontSize:11,fontWeight:'700'},
+  /** Legenda do indicador (ex.: o que o "Total Pack" conta). */
+  statHint:{color:colors.forest900,fontSize:9,opacity:.75,marginTop:2},
   progressCard:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:colors.paper,borderWidth:1,borderColor:colors.line,borderRadius:radii.large,padding:16,marginHorizontal:18,marginTop:20},
   progressLeft:{flex:1},
   progressTitle:{fontFamily:'serif',fontWeight:'800',fontSize:16,color:colors.ink,marginBottom:3},

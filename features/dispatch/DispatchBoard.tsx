@@ -18,7 +18,18 @@ export type DispatchConstraint = {
 export const EMPTY_CONSTRAINT: DispatchConstraint = { windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' };
 
 export type DispatchDriver = { id: string; name: string };
-export type DispatchStopItem = { dogId: string; clientName: string; dogName: string; reservationKind?: string };
+export type DispatchStopItem = {
+  dogId: string;
+  clientName: string;
+  dogName: string;
+  reservationKind?: string;
+  /**
+   * Cão em boarding que também faz daycare no dia: já começa o dia DENTRO da van, então não pede
+   * pickup. Aparece numa seção separada para o gestor incluir à mão quando ele tiver de voltar para
+   * casa (áudio do cliente, 23/09/2026).
+   */
+  inVan?: boolean;
+};
 export type DispatchRouteStop = DispatchStopItem & {
   sequence: number;
   status: 'pending' | 'arrived' | 'picked_up' | 'completed' | 'skipped';
@@ -99,7 +110,11 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
   }, [sheet]);
 
   const assignedDogIds = new Set(routes.flatMap((route) => route.stops.map((stop) => stop.dogId)));
-  const unassigned = dayItems.filter((item) => !assignedDogIds.has(item.dogId));
+  /** Fila principal: precisa de transporte e não está já na van. */
+  const paraTransporte = dayItems.filter((item) => !item.inVan);
+  const unassigned = paraTransporte.filter((item) => !assignedDogIds.has(item.dogId));
+  /** Seção separada: já estão na van (sem pickup), mas o gestor pode incluir na rota à mão. */
+  const naVan = dayItems.filter((item) => item.inVan && !assignedDogIds.has(item.dogId));
   const routesByDriver = new Map(routes.map((route) => [route.driverId, route]));
 
   const constraintFromFields = (): DispatchConstraint => {
@@ -269,7 +284,7 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
         })}
         <View style={styles.unassigned}>
           <Text style={styles.unassignedTitle}>{unassigned.length} unassigned</Text>
-          {dayItems.length === 0 ? (
+          {paraTransporte.length === 0 ? (
             <Text style={styles.muted}>No transport dogs need a ride today.</Text>
           ) : unassigned.length === 0 ? (
             <Text style={styles.muted}>Every transport dog is assigned. 🎉</Text>
@@ -280,6 +295,32 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
             </Pressable>
           ))}
         </View>
+
+        {/*
+          Cão em boarding que também faz daycare no dia: já acorda dentro da van, então não pede
+          pickup (pedido do cliente, 23/09/2026). Fica AQUI, e não na fila de cima, porque o gestor
+          ainda pode precisar incluí-lo na rota — quando ele tiver de voltar para casa.
+        */}
+        {naVan.length > 0 ? (
+          <View style={styles.unassigned} testID="dispatch-ja-na-van">
+            <Text style={styles.unassignedTitle}>Boarding — already in the van</Text>
+            <Text style={styles.muted}>
+              They start the day in the van, so they don&apos;t need a pickup. Add one only if it has to go back
+              home today.
+            </Text>
+            {naVan.map((item) => (
+              <Pressable
+                key={item.dogId}
+                accessibilityRole="button"
+                accessibilityLabel={`Add boarding ${item.clientName} · ${item.dogName}`}
+                onPress={() => setSheet({ mode: 'assign', item })}
+                style={[styles.chip, styles.chipVan]}
+              >
+                <Text style={styles.chipText}>{item.clientName} · {item.dogName}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
       </ScrollView>
 
       <Modal visible={sheet !== null} transparent animationType="fade" onRequestClose={() => setSheet(null)}>
@@ -432,6 +473,8 @@ const styles = StyleSheet.create({
   unassignedTitle: { color: colors.muted, textTransform: 'uppercase', fontWeight: '900', fontSize: 11, marginBottom: 10 },
   chip: { backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 7, borderWidth: 1, borderColor: colors.line },
   chipText: { color: colors.ink, fontWeight: '800', fontSize: 13 },
+  /** Chip dos cães que já estão na van: fundo mais claro para não confundir com a fila principal. */
+  chipVan: { backgroundColor: colors.sage, borderColor: colors.sage },
   backdrop: { flex: 1, backgroundColor: '#0D1B12AA', justifyContent: 'flex-end' },
   sheet: { backgroundColor: colors.paper, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 18, paddingBottom: 34 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },

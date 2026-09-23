@@ -60,6 +60,14 @@ describe('ManagerDashboard', () => {
     expect(screen.getByText('7 of 12 dogs done')).toBeTruthy();
   });
 
+  // O cliente perguntou "o que que é o Total Pack?" (áudio de 23/09/2026). O nome é o vocabulário
+  // DELES (pack walk), então o nome fica e a legenda explica o número.
+  it('explica embaixo do número o que o Total Pack conta', async () => {
+    const { screen } = await setup();
+
+    expect(screen.getByText('going to daycare today')).toBeTruthy();
+  });
+
   /**
    * 23/09/2026: o cliente pediu para tirar o QUADRADO "Routes" (áudio: "tira o botão, esse aqui
    * mostrando as rotas que tem no dia") — no print, a seta verde encosta na borda de baixo do
