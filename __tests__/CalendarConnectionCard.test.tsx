@@ -120,7 +120,8 @@ describe('CalendarConnectionCard', () => {
     // A reserva de 400 dias atras fica fora da janela (30 atras -> 180 a frente).
     expect(chamada.reservations.map((r: LocalReservation) => r.id)).toEqual(['res:futura']);
     await waitFor(() => expect(screen.getByTestId('google-calendar-resumo')).toBeTruthy());
-    expect(screen.getByText(/2 criada\(s\)/)).toBeTruthy();
+    // Texto do resumo no idioma da interface (inglês) — o cliente viu a mistura de idiomas.
+    expect(screen.getByText(/2 created/)).toBeTruthy();
   });
 
   it('desconecta quando o gestor pede', async () => {
@@ -150,7 +151,7 @@ describe('CalendarConnectionCard', () => {
     await fireEvent.press(screen.getByTestId('google-calendar-sync'));
 
     await waitFor(() => expect(screen.getByTestId('google-calendar-resumo')).toBeTruthy());
-    expect(screen.getByText(/2 do Google/)).toBeTruthy();
+    expect(screen.getByText(/2 from Google/)).toBeTruthy();
     // A agenda recarrega para o gestor ja ver as reservas que chegaram.
     expect(onImported).toHaveBeenCalled();
   });

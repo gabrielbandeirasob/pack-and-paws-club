@@ -10,7 +10,7 @@ async function setup(overrides: Partial<React.ComponentProps<typeof ManagerDashb
   const onOpenDispatch = jest.fn();
   const onOpenClients = jest.fn();
   const onNewReservation = jest.fn();
-  const onOpenProgress = jest.fn();
+
   const onOpenDriverHours = jest.fn();
   const screen = await render(
     <ManagerDashboard
@@ -20,9 +20,9 @@ async function setup(overrides: Partial<React.ComponentProps<typeof ManagerDashb
       daycare={18}
       boarding={5}
       totalPack={12}
-      progress={{ done: 7, total: 12 }}
+
       routes={routes}
-      onOpenProgress={onOpenProgress}
+
       onOpenDispatch={onOpenDispatch}
       onOpenClients={onOpenClients}
       onNewReservation={onNewReservation}
@@ -30,7 +30,7 @@ async function setup(overrides: Partial<React.ComponentProps<typeof ManagerDashb
       {...overrides}
     />,
   );
-  return { screen, onOpenDispatch, onOpenClients, onNewReservation, onOpenProgress, onOpenDriverHours };
+  return { screen, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours };
 }
 
 describe('ManagerDashboard', () => {
@@ -51,21 +51,21 @@ describe('ManagerDashboard', () => {
     expect(screen.getByText('Bolt · ~9 min')).toBeTruthy();
   });
 
-  it('mostra o Total Pack e o progresso do dia (pedido do cliente)', async () => {
+  it('mostra o Total Pack na fileira de indicadores', async () => {
     const { screen } = await setup();
 
     expect(screen.getByText('Total Pack')).toBeTruthy();
     expect(screen.getByText('12')).toBeTruthy();
-    expect(screen.getByText("Today's progress")).toBeTruthy();
-    expect(screen.getByText('7 of 12 dogs done')).toBeTruthy();
   });
 
-  it('leva para a tela do progresso do dia', async () => {
-    const { screen, onOpenProgress } = await setup();
+  // O cliente pediu para TIRAR o cartão "Today's progress" (áudio + print com as setas verdes,
+  // 23/09/2026). Este teste trava a remoção: se o cartão voltar, ele quebra.
+  it('não tem mais o cartão "Today\'s progress" (pedido do cliente)', async () => {
+    const { screen } = await setup();
 
-    await fireEvent.press(screen.getByRole('button', { name: "See today's progress" }));
-
-    expect(onOpenProgress).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Today's progress")).toBeNull();
+    expect(screen.queryByText('See all ›')).toBeNull();
+    expect(screen.queryByRole('button', { name: "See today's progress" })).toBeNull();
   });
 
   it('opens dispatch, clients and the calendar from the shortcuts', async () => {
@@ -81,11 +81,10 @@ describe('ManagerDashboard', () => {
   });
 
   it('explains how to get started when there are no routes yet', async () => {
-    const { screen } = await setup({ routes: [], daycare: 0, boarding: 0, totalPack: 0, progress: { done: 0, total: 0 } });
+    const { screen } = await setup({ routes: [], daycare: 0, boarding: 0, totalPack: 0 });
 
     expect(screen.getByText('No routes yet today')).toBeTruthy();
     expect(screen.getByText(/Assign the dogs that need transport in Dispatch/)).toBeTruthy();
-    expect(screen.getByText('Nothing scheduled for today')).toBeTruthy();
     expect(screen.getAllByText('0')).toHaveLength(4); // total pack, daycare, boarding, routes
   });
 

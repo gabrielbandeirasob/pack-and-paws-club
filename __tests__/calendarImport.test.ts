@@ -262,8 +262,8 @@ describe('plano da importação', () => {
 });
 
 describe('resumo para a tela', () => {
-  it('descreve o que veio do Google', () => {
-    expect(describeImport({ created: 2, updated: 1, cancelled: 1, review: 3 })).toBe('2 do Google · 1 atualizada(s) · 1 cancelada(s) · 3 para revisar');
+  it('descreve o que veio do Google (texto da interface: inglês)', () => {
+    expect(describeImport({ created: 2, updated: 1, cancelled: 1, review: 3 })).toBe('2 from Google · 1 updated · 1 cancelled · 3 to review');
     expect(describeImport({ created: 0, updated: 0, cancelled: 0, review: 0 })).toBe('');
   });
 });

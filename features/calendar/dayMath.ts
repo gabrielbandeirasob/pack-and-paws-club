@@ -53,6 +53,37 @@ export type DayItem = {
 
 export type DaySummary = { daycare: DayItem[]; boarding: DayItem[] };
 
+/**
+ * Cães que já começam o dia DENTRO da van: estão em boarding e também fazem daycare no mesmo dia.
+ *
+ * Pedido do cliente em áudio (23/09/2026): "se o cachorro está boarding, o administrador é capaz de
+ * escolher se ele vai ou não para o daycare; e normalmente se ele for para o daycare, ele já vai
+ * começar dentro da van aquele dia. Então ele não tem necessidade de aparecer para fazer rota de
+ * pickup, porque ele está boarding."
+ */
+export function dogsJaNaVan(day: DaySummary): Set<string> {
+  const emDaycare = new Set(day.daycare.filter((item) => !item.paused).map((item) => item.dogId));
+  return new Set(day.boarding.filter((item) => emDaycare.has(item.dogId)).map((item) => item.dogId));
+}
+
+/**
+ * Fila de transporte do dia: precisa de transporte E não é cão que já está na van (boarding+daycare).
+ *
+ * É ESTA lista que o Dispatch oferece para montar rota. Antes dela o cão em boarding aparecia para
+ * pickup mesmo já estando no daycare — era o que o cliente apontou.
+ */
+export function transportPool(day: DaySummary): DayItem[] {
+  const jaNaVan = dogsJaNaVan(day);
+  const vistos = new Set<string>();
+  return [...day.daycare, ...day.boarding].filter((item) => {
+    if (!item.transportRequired) return false;
+    if (jaNaVan.has(item.dogId)) return false;
+    if (vistos.has(item.dogId)) return false;
+    vistos.add(item.dogId);
+    return true;
+  });
+}
+
 function dateToWeekday(isoDate: string): number {
   return new Date(`${isoDate}T00:00:00Z`).getUTCDay();
 }

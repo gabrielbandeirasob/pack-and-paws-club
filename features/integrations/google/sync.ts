@@ -57,9 +57,11 @@ export function hasChanges(summary: SyncSummary): boolean {
 
 export function describeSummary(summary: SyncSummary): string {
   const parts: string[] = [];
-  if (summary.created) parts.push(`${summary.created} criada(s)`);
-  if (summary.updated) parts.push(`${summary.updated} atualizada(s)`);
-  if (summary.deleted) parts.push(`${summary.deleted} removida(s)`);
-  if (summary.failures.length) parts.push(`${summary.failures.length} com erro`);
-  return parts.length ? parts.join(' · ') : 'Nada a sincronizar — já está igual';
+  // Texto em inglês: é o idioma da interface do app (o cliente viu "Nada a sincronizar" no meio de
+  // uma tela em inglês — corrigido em 23/09/2026).
+  if (summary.created) parts.push(`${summary.created} created`);
+  if (summary.updated) parts.push(`${summary.updated} updated`);
+  if (summary.deleted) parts.push(`${summary.deleted} removed`);
+  if (summary.failures.length) parts.push(`${summary.failures.length} failed`);
+  return parts.length ? parts.join(' · ') : 'Nothing to sync — already up to date';
 }

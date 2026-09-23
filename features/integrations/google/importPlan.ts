@@ -331,12 +331,12 @@ export function planCalendarImport(
   return resultados;
 }
 
-/** Resumo curto para a tela (mesmo tom do resumo do espelho). */
+/** Resumo curto para a tela (mesmo tom do resumo do espelho e no idioma da interface: inglês). */
 export function describeImport(resumo: { created: number; updated: number; cancelled: number; review: number }): string {
   const partes: string[] = [];
-  if (resumo.created) partes.push(`${resumo.created} do Google`);
-  if (resumo.updated) partes.push(`${resumo.updated} atualizada(s)`);
-  if (resumo.cancelled) partes.push(`${resumo.cancelled} cancelada(s)`);
-  if (resumo.review) partes.push(`${resumo.review} para revisar`);
+  if (resumo.created) partes.push(`${resumo.created} from Google`);
+  if (resumo.updated) partes.push(`${resumo.updated} updated`);
+  if (resumo.cancelled) partes.push(`${resumo.cancelled} cancelled`);
+  if (resumo.review) partes.push(`${resumo.review} to review`);
   return partes.length ? partes.join(' · ') : '';
 }

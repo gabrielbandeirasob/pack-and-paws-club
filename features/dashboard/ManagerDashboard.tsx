@@ -21,10 +21,7 @@ type Props = {
   boarding: number;
   /** Total Pack: quantos cães saem hoje (escolhidos pelo gestor no Dispatch). */
   totalPack: number;
-  /** Progresso do dia somando TODAS as rotas (pedido do cliente). */
-  progress: { done: number; total: number };
   routes: DashboardRoute[];
-  onOpenProgress: () => void;
   onOpenDispatch: () => void;
   onOpenClients: () => void;
   onNewReservation: () => void;
@@ -32,7 +29,7 @@ type Props = {
   onOpenDriverHours: () => void;
 };
 
-export function ManagerDashboard({ dateLabel, greeting, initials, daycare, boarding, totalPack, progress, routes, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours }: Props) {
+export function ManagerDashboard({ dateLabel, greeting, initials, daycare, boarding, totalPack, routes, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours }: Props) {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -55,17 +52,11 @@ export function ManagerDashboard({ dateLabel, greeting, initials, daycare, board
           <Stat value={String(routes.length)} label="Routes" />
         </View>
 
-        <Pressable accessibilityRole="button" accessibilityLabel="See today's progress" style={styles.progressCard} onPress={onOpenProgress}>
-          <View style={styles.progressLeft}>
-            <Text style={styles.progressTitle}>Today&apos;s progress</Text>
-            <Text style={styles.muted}>
-              {progress.total === 0
-                ? 'Nothing scheduled for today'
-                : `${progress.done} of ${progress.total} dogs done`}
-            </Text>
-          </View>
-          <Text style={styles.link}>See all ›</Text>
-        </Pressable>
+        {/*
+          O cartão "Today's progress" (e o link "See all") foi REMOVIDO daqui a pedido do cliente
+          (áudio + print com as setas verdes, 23/09/2026): "tira o botão, esse aqui mostrando as
+          rotas que tem no dia, pode tirar". A tela `app/day-progress.tsx` continua existindo.
+        */}
 
         <View style={styles.sectionTitleRow}>
           <Text style={styles.sectionTitleInline}>Today&apos;s routes</Text>

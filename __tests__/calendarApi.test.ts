@@ -115,7 +115,7 @@ describe('runCalendarSync', () => {
     const second = await runCalendarSync({ accessToken: 't', reservations: [reserva], range, doFetch: google.doFetch });
     expect(second).toMatchObject({ created: 0, updated: 0, deleted: 0 });
     expect(google.events).toHaveLength(1);
-    expect(describeSummary(second)).toBe('Nada a sincronizar — já está igual');
+    expect(describeSummary(second)).toBe('Nothing to sync — already up to date');
   });
 
   it('grava a marca fixa em todo evento criado (é ela que a listagem filtra)', async () => {
@@ -149,6 +149,7 @@ describe('runCalendarSync', () => {
     expect(summary.created).toBe(1);
     expect(summary.failures).toHaveLength(1);
     expect(summary.failures[0].error).toContain('criar evento falhou');
-    expect(describeSummary(summary)).toContain('com erro');
+    // Texto do resumo no idioma da interface (inglês) — corrigido em 23/09/2026.
+    expect(describeSummary(summary)).toContain('failed');
   });
 });

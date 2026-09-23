@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { buildDay, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
+import { buildDay, transportPool, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
 import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
@@ -80,9 +80,9 @@ export default function DispatchScreen() {
     }));
 
     const day = buildDay(date, reservations, recurring, exceptions);
-    const items = [...day.daycare, ...day.boarding].filter((item) => item.transportRequired);
-    const seen = new Set<string>();
-    setDayItems(items.filter((item) => (seen.has(item.dogId) ? false : (seen.add(item.dogId), true))).map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind })));
+    // `transportPool` já tira o cão que está em boarding E faz daycare no mesmo dia (ele começa o dia
+    // na van, não precisa de pickup) e já deduplica por cão — pedido do cliente (23/09/2026).
+    setDayItems(transportPool(day).map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind })));
 
     const routeRows = (routeResult.data as unknown as RouteRow[]) ?? [];
     setVersoes(Object.fromEntries(routeRows.map((row) => [row.id, row.lock_version ?? 1])));
