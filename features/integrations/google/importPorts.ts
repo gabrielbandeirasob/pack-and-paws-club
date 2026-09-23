@@ -64,6 +64,15 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
     if (error) throw new Error(error.message);
   };
 
+  /**
+   * A reserva que NASCE do Google entra com transporte marcado.
+   *
+   * Motivo (achado em 23/09/2026, com o print do dono): `transport_required` tem default **false**
+   * no banco, então uma reserva importada não aparecia no Dispatch — o gestor escrevia a data no
+   * calendário e o cão não entrava na fila da van. Num negócio de creche COM transporte, a van é a
+   * regra; se aquele cão não precisar, o gestor desmarca na própria reserva (e a importação não
+   * mexe mais nesse campo depois — a escolha dele fica).
+   */
   return {
     createBooking: async ({ eventId, dogId, kind, parsed }) => {
       if (kind === 'recurring') {
@@ -76,6 +85,7 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
             start_date: parsed.startDate,
             end_date: fimDaSerie(parsed),
             active: true,
+            transport_required: true,
             google_event_id: eventId,
             source: 'google',
           })
@@ -93,6 +103,7 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
         service_type: parsed.serviceType,
         start_date: parsed.startDate,
         end_date: parsed.endDate,
+        transport_required: true,
         google_event_id: eventId,
         source: 'google',
       });

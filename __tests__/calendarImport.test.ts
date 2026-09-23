@@ -11,7 +11,7 @@
  *  - nada de duplicar reserva que ja existe no app.
  */
 import { buildGoogleEvent } from '@/features/calendar/googleEvents';
-import { parseBookingEvent, parseBookingTitle, parseRecurrence, looksLikeBooking, planCalendarImport, kindOf, describeImport } from '@/features/integrations/google/importPlan';
+import { parseBookingEvent, parseBookingTitle, parseRecurrence, looksLikeBooking, looksLikeTransport, parseTransportTitle, planCalendarImport, kindOf, describeImport } from '@/features/integrations/google/importPlan';
 import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
 
 const JANELA = { from: '2026-09-01', to: '2026-12-31' };
@@ -44,6 +44,58 @@ describe('leitura do titulo', () => {
 
   it('não aceita título sem nome de cão', () => {
     expect(parseBookingTitle('Boarding ·')).toBeNull();
+  });
+});
+
+/**
+ * "Pick filó" (print do dono, 23/09/2026, evento com HORA das 11h às 12h).
+ *
+ * Antes: sem palavra de serviço no título, o evento era descartado como compromisso pessoal — o dono
+ * sincronizou e o app não trouxe a data. Agora título de operação (pick/drop/van) entra, com o cão
+ * lido do resto do título. O que continua de fora: dentista, almoço, aniversário.
+ */
+describe('título de operação (Pick/Drop) — o caso do print', () => {
+  it('le "Pick filó" e cria a reserva do dia (evento com hora, não de dia inteiro)', () => {
+    const lido = parseBookingEvent(evento({ id: 'ev-filo', summary: 'Pick filó', startDate: '2026-09-25', endDate: '2026-09-25' }));
+
+    expect(lido).toMatchObject({ serviceType: 'daycare', dogName: 'filó', clientName: null, startDate: '2026-09-25' });
+  });
+
+  it('aceita as variações que o escritório escreve', () => {
+    expect(looksLikeTransport('Pick filó')).toBe(true);
+    expect(parseTransportTitle('Pick up Mowgli')).toEqual({ dogName: 'Mowgli', clientName: null });
+    expect(parseTransportTitle('Drop off Bella (Amor)')).toEqual({ dogName: 'Bella', clientName: 'Amor' });
+    expect(parseTransportTitle('Van: Thor')).toEqual({ dogName: 'Thor', clientName: null });
+  });
+
+  it('não confunde compromisso pessoal com operação', () => {
+    expect(looksLikeTransport('Dentist 3pm')).toBe(false);
+    expect(looksLikeTransport('Almoço com o Carlos')).toBe(false);
+    expect(parseBookingEvent(evento({ id: 'ev-dentista', summary: 'Dentist 3pm' }))).toBeNull();
+    expect(parseBookingEvent(evento({ id: 'ev-almoco', summary: 'Almoço com o Carlos' }))).toBeNull();
+  });
+
+  it('o "Pick filó" entra no plano como reserva do cão Filó', () => {
+    const plano = planCalendarImport(
+      [evento({ id: 'ev-filo', summary: 'Pick filó', startDate: '2026-09-25', endDate: '2026-09-25' })],
+      [{ id: 'dog-filo', name: 'Filó', clientName: 'Amor' }],
+      [],
+      JANELA,
+    );
+
+    expect(plano).toHaveLength(1);
+    expect(plano[0]).toMatchObject({ kind: 'create', dogId: 'dog-filo', eventId: 'ev-filo' });
+  });
+
+  it('nome que não casa com o cadastro vai para revisão (não inventa cão)', () => {
+    const plano = planCalendarImport(
+      [evento({ id: 'ev-x', summary: 'Pick Zeus' })],
+      [{ id: 'dog-filo', name: 'Filó', clientName: 'Amor' }],
+      [],
+      JANELA,
+    );
+
+    expect(plano[0]).toMatchObject({ kind: 'review', eventId: 'ev-x', reason: 'unknown dog' });
   });
 });
 

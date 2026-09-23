@@ -67,6 +67,39 @@ export function serviceOf(title: string): BookingServiceType | null {
   return null;
 }
 
+/**
+ * Palavras de OPERAÇÃO do dia a dia: "Pick filó", "Drop Bella", "Pickup Mowgli (Amor)".
+ * É assim que o escritório escreve na pressa — e essas datas TÊM de vir para o app. A reclamação do
+ * dono (23/09/2026) foi exatamente um "Pick filó" que ficou de fora: sem palavra de serviço no
+ * título, o evento era tratado como compromisso pessoal e ignorado.
+ */
+const ACTION_PATTERN = /\b(pick\s*up|pickup|drop\s*off|dropoff|pick|drop|buscar|pegar|levar|van|walk)\b/i;
+
+/** Título que manda buscar/entregar o cão (com ou sem palavra de serviço). */
+export function looksLikeTransport(title: string): boolean {
+  return ACTION_PATTERN.test(title);
+}
+
+/**
+ * Lê um título de operação: "Pick filó" → filó; "Drop off Bella (Amor)" → Bella, Amor.
+ * O serviço não vem no título, então fica daycare (o caso comum de quem pede van no dia).
+ */
+export function parseTransportTitle(title: string): { dogName: string; clientName: string | null } | null {
+  // A palavra de operação é OBRIGATÓRIA: sem ela isto não é um título de van, é um compromisso
+  // pessoal qualquer ("Dentist 3pm") — e tratá-lo como reserva criaria um cão fantasma na revisão.
+  if (!looksLikeTransport(title)) return null;
+  let resto = limpar(title.replace(ACTION_PATTERN, ' '));
+  let clientName: string | null = null;
+  const parenteses = resto.match(/^(.*?)[\s]*\(([^)]+)\)\s*$/);
+  if (parenteses) {
+    resto = parenteses[1] ?? '';
+    clientName = limpar(parenteses[2] ?? '') || null;
+  }
+  const dogName = limpar(resto);
+  if (!dogName) return null;
+  return { dogName, clientName };
+}
+
 /** Limpa separadores que sobram depois de tirar a palavra de servico. */
 function limpar(valor: string): string {
   return valor.replace(/^[\s·\-–—:,;|]+/, '').replace(/[\s·\-–—:,;|]+$/, '').trim();
@@ -132,14 +165,16 @@ export function parseRecurrence(
 
 /** Evento do Google -> reserva (ou null quando não parece reserva). */
 export function parseBookingEvent(event: RemoteEvent): ParsedBooking | null {
-  if (!looksLikeBooking(event.summary)) return null;
+  // Duas portas de entrada: (1) título com palavra de serviço (`Daycare · Bella`); (2) título de
+  // operação (`Pick filó`, `Drop Bella`) — o escritório escreve assim e essa data tem de entrar.
   const titulo = parseBookingTitle(event.summary);
-  if (!titulo) return null;
+  const lido = titulo ?? parseTransportTitle(event.summary);
+  if (!lido) return null;
   const recorrencia = parseRecurrence(event.recurrence, event.startDate, event.endDate);
   return {
-    serviceType: titulo.serviceType,
-    dogName: titulo.dogName,
-    clientName: titulo.clientName,
+    serviceType: titulo?.serviceType ?? 'daycare',
+    dogName: lido.dogName,
+    clientName: lido.clientName,
     startDate: event.startDate,
     ...recorrencia,
   };
