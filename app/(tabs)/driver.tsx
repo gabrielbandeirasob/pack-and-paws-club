@@ -1,11 +1,23 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, View, type AlertButton } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DriverRouteView, type DriverAction, type DriverStop } from '@/features/driver/DriverRouteView';
-import { nextStopEta, type EtaResult } from '@/features/driver/eta';
+import { lateMinutesForStop, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
+import { etaMessageText, etaNoticeError, messengerLink, phaseForStop, type Messenger } from '@/features/driver/etaMessage';
+import { NotifyOwnerSheet } from '@/features/driver/NotifyOwnerSheet';
+import { savePendingWrites, enqueuePending, flushPendingWrites, loadPendingWrites, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
+import { ShiftCard } from '@/features/driver/ShiftCard';
+import { shiftErrorMessage, shiftState, type ManualShift } from '@/features/driver/shift';
+import {
+  createClosedShift,
+  endManualShift,
+  loadDriverShifts,
+  markEtaNotice,
+  startManualShift,
+} from '@/features/driver/shiftService';
 import { startLocationSharing, type LocationHandle, type LocationUpdate } from '@/features/driver/locationService';
 import {
   captureProofPhoto,
@@ -40,6 +52,18 @@ import { supabase } from '@/lib/supabase';
 
 type StopRow = DriverStopRow;
 type RouteResult = DriverRouteRow;
+
+/** Momento do dia em ISO, usado para recortar as jornadas de hoje. */
+function startOfToday(): string {
+  const agora = new Date();
+  return new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).toISOString();
+}
+
+/** Começo do dia seguinte (recorte exclusivo). */
+function startOfTomorrow(): string {
+  const agora = new Date();
+  return new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + 1).toISOString();
+}
 
 /**
  * Pergunta ao motorista de onde vem a foto. Obrigatório não oferece pular; opcional oferece;
@@ -77,10 +101,69 @@ export default function DriverTodayScreen() {
   const [eta, setEta] = useState<EtaResult | null>(null);
   /** Configuração da creche (migration 020): o comprovante é obrigatório em cada etapa? */
   const [proofSettings, setProofSettings] = useState<ProofSettings | null>(null);
+  /** Jornadas manuais de hoje (a deduzida sai dos eventos da rota). */
+  const [shifts, setShifts] = useState<ManualShift[]>([]);
+  /** Escritas que ficaram na fila local (jornada manual / registro de aviso de ETA). */
+  const [pendingWrites, setPendingWrites] = useState<PendingWrite[]>([]);
+  const [shiftBusy, setShiftBusy] = useState(false);
+  const [shiftError, setShiftError] = useState<string | null>(null);
+  /** Parada escolhida para avisar o tutor (abre a folha do mensageiro). */
+  const [notifyStop, setNotifyStop] = useState<DriverStop | null>(null);
+  const [driverId, setDriverId] = useState<string | null>(null);
   const locationHandle = useRef<LocationHandle | null>(null);
   const realtimeRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Organização/motorista/rota em ref: a fila local (jornada/aviso) precisa deles no momento do
+   * envio, sem recriar o syncOutbox a cada mudança de estado.
+   */
+  const envioRef = useRef<{ organizationId: string | null; driverId: string | null; routeId: string | null }>({
+    organizationId: null,
+    driverId: null,
+    routeId: null,
+  });
+
+  useEffect(() => {
+    envioRef.current = { organizationId, driverId, routeId };
+  }, [organizationId, driverId, routeId]);
 
   const syncOutbox = useCallback(async (): Promise<boolean> => {
+    // Escritas da jornada/aviso que ficaram na fila local (sem sinal) sobem antes do resto: são
+    // registros do dia de trabalho e não podem ficar esquecidos no aparelho.
+    const filaLocal = await loadPendingWrites();
+    if (filaLocal.length > 0) {
+      const alvo = envioRef.current;
+      const resultado = await flushPendingWrites(filaLocal, async (entrada) => {
+        if (entrada.kind === 'eta_notice') {
+          await markEtaNotice(supabase, entrada.stopId, entrada.phase);
+          return;
+        }
+        if (!alvo.organizationId || !alvo.driverId) throw new Error('Organization not found for this account.');
+        if (entrada.endedAt) {
+          await createClosedShift(supabase, {
+            organizationId: alvo.organizationId,
+            driverId: alvo.driverId,
+            routeId: alvo.routeId,
+            startedAt: entrada.startedAt,
+            endedAt: entrada.endedAt,
+            startReason: entrada.startReason,
+            endReason: entrada.endReason,
+          });
+          return;
+        }
+        const aberta = await startManualShift(supabase, {
+          organizationId: alvo.organizationId,
+          driverId: alvo.driverId,
+          routeId: alvo.routeId,
+          reason: entrada.startReason,
+          startedAt: entrada.startedAt,
+        });
+        // Já existe jornada aberta no servidor = o registro da fila é o mesmo: nada a fazer.
+        if (aberta.mode === 'already-open') throw new Error('driver_shifts_uma_aberta');
+      });
+      await savePendingWrites(resultado.remaining);
+      setPendingWrites(resultado.remaining);
+    }
+
     const events = await loadOutbox();
     if (events.length === 0) {
       setPendingSync(0);
@@ -136,13 +219,14 @@ export default function DriverTodayScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       const { data: routes, error } = await supabase
         .from('routes')
-        .select('id, organization_id, published_at, organization:organizations(proof_pickup_required, proof_dropoff_required), route_stops(id, sequence, status, window_end, exact_time, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
+        .select('id, organization_id, published_at, organization:organizations(proof_pickup_required, proof_dropoff_required), route_stops(id, sequence, status, window_end, exact_time, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, status_updated_at, eta_notice_at, eta_notice_kind, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
         .eq('driver_id', user?.id ?? '')
         .eq('route_date', todayLocalISO())
         .eq('status', 'published')
         .order('published_at', { ascending: false })
         .limit(1);
       if (error) throw error;
+      setDriverId(user?.id ?? null);
       const route = (routes as unknown as RouteResult[] | null)?.[0];
       if (route) {
         const mapped = ((route.route_stops ?? []) as StopRow[]).map(rowToStop);
@@ -160,6 +244,16 @@ export default function DriverTodayScreen() {
       }
       // Retention: prune stale positions opportunistically.
       void supabase.rpc('cleanup_driver_locations');
+
+      // Jornada: registros manuais de hoje + o que está na fila local (sem sinal).
+      if (user?.id) {
+        try {
+          setShifts(await loadDriverShifts(supabase, { driverId: user.id, dayStart: startOfToday(), dayEnd: startOfTomorrow() }));
+        } catch {
+          // Sem jornada carregada a tela ainda mostra a dedução dos eventos da rota.
+        }
+      }
+      setPendingWrites(await loadPendingWrites());
     } catch (reason) {
       if (!isNetworkError(reason)) {
         setMessage(reason instanceof Error ? reason.message : 'Unable to load your route.');
@@ -359,6 +453,163 @@ export default function DriverTodayScreen() {
     }
   };
 
+  /* ------------------------------------------------------------------ *
+   * JORNADA (clock in / clock out) — pedido do cliente em áudio (16/09/2026)
+   * ------------------------------------------------------------------ */
+
+  /** Jornadas que estão só no aparelho (fila local) entram no mesmo estado da tela. */
+  const jornadasLocais = useMemo<ManualShift[]>(
+    () =>
+      pendingWrites
+        .filter((entrada): entrada is PendingShift => entrada.kind === 'shift')
+        .map((entrada) => ({
+          id: `local-${entrada.queuedAt}`,
+          startedAt: entrada.startedAt,
+          endedAt: entrada.endedAt,
+          startReason: entrada.startReason,
+          endReason: entrada.endReason,
+        })),
+    [pendingWrites],
+  );
+
+  /** Jornada mostrada na tela: manual (exceção) quando existe, senão deduzida dos eventos. */
+  const journey = useMemo(() => shiftState(stops, [...shifts, ...jornadasLocais]), [stops, shifts, jornadasLocais]);
+
+  const recarregarJornadas = async (motorista: string) => {
+    setShifts(await loadDriverShifts(supabase, { driverId: motorista, dayStart: startOfToday(), dayEnd: startOfTomorrow() }));
+  };
+
+  const guardarNaFila = async (entrada: PendingWrite) => {
+    const fila = enqueuePending(pendingWrites, entrada);
+    setPendingWrites(fila);
+    await savePendingWrites(fila);
+    return fila;
+  };
+
+  /** Clock in MANUAL: exceção (esqueceu), por isso o motivo é obrigatório no banco. */
+  const clockIn = async (motivo: string) => {
+    setShiftBusy(true);
+    setShiftError(null);
+    const startedAt = new Date().toISOString();
+    try {
+      if (!organizationId || !driverId) throw new Error('Organization not found for this account.');
+      const resultado = await startManualShift(supabase, { organizationId, driverId, routeId, reason: motivo, startedAt });
+      if (resultado.mode === 'already-open') {
+        setShiftError('You already have a journey open.');
+        return;
+      }
+      await recarregarJornadas(driverId);
+      setMessage('Journey started — manual record.');
+    } catch (causa) {
+      if (isNetworkError(causa)) {
+        await guardarNaFila({ kind: 'shift', startedAt, endedAt: null, startReason: motivo, endReason: null, routeId, queuedAt: startedAt });
+        setMessage('No connection: the journey is saved on your phone and will sync automatically.');
+      } else {
+        setShiftError(shiftErrorMessage(causa));
+      }
+    } finally {
+      setShiftBusy(false);
+    }
+  };
+
+  /**
+   * Clock out. Três casos: fecha a jornada manual aberta; fecha uma jornada que estava só na fila
+   * local; ou fecha (à mão) a jornada que vinha sendo deduzida dos eventos da rota — o intervalo
+   * gravado vai da primeira chegada até agora, e o resumo do gestor não conta duas vezes.
+   */
+  const clockOut = async (motivo: string) => {
+    setShiftBusy(true);
+    setShiftError(null);
+    const agora = new Date().toISOString();
+    const aberta = shifts.find((registro) => registro.endedAt === null) ?? null;
+    const inicio = aberta?.startedAt ?? journey.startedAt ?? agora;
+    const motivoEntrada = aberta?.startReason ?? 'Journey closed manually';
+    try {
+      if (!organizationId || !driverId) throw new Error('Organization not found for this account.');
+      if (aberta) {
+        await endManualShift(supabase, { shiftId: aberta.id, reason: motivo, endedAt: agora });
+      } else {
+        await createClosedShift(supabase, {
+          organizationId,
+          driverId,
+          routeId,
+          startedAt: inicio,
+          endedAt: agora,
+          startReason: motivoEntrada,
+          endReason: motivo,
+        });
+      }
+      await recarregarJornadas(driverId);
+      setMessage('Journey closed.');
+    } catch (causa) {
+      if (isNetworkError(causa)) {
+        // Uma linha só com entrada e saída: nada de meio registro no aparelho.
+        await guardarNaFila({ kind: 'shift', startedAt: inicio, endedAt: agora, startReason: motivoEntrada, endReason: motivo, routeId, queuedAt: agora });
+        setMessage('No connection: the journey is saved on your phone and will sync automatically.');
+      } else {
+        setShiftError(shiftErrorMessage(causa));
+      }
+    } finally {
+      setShiftBusy(false);
+    }
+  };
+
+  /* ------------------------------------------------------------------ *
+   * AVISO DE ETA AO TUTOR — mensagem pronta no mensageiro do motorista
+   * ------------------------------------------------------------------ */
+
+  const avisoDe = (stop: DriverStop) => {
+    const phase = phaseForStop(stop.status);
+    return etaMessageText({
+      clientName: stop.clientName,
+      dogName: stop.dogName,
+      phase,
+      minutes: stop.etaMinutes ?? 0,
+      lateMinutes: stop.lateMinutes ?? 0,
+    });
+  };
+
+  /** Abre o mensageiro do motorista com o texto pronto e registra o aviso no histórico da parada. */
+  const enviarAviso = async (messenger: Messenger) => {
+    const stop = notifyStop;
+    setNotifyStop(null);
+    if (!stop) return;
+    const texto = avisoDe(stop);
+    const link = messengerLink(messenger, stop.clientPhone ?? null, texto);
+    if (!link) {
+      setMessage('This client has no usable phone number to send the ETA.');
+      return;
+    }
+    try {
+      await Linking.openURL(link);
+    } catch {
+      // Se o mensageiro não abrir, o registro do aviso ainda vale (o motorista avisa por telefone).
+    }
+    const phase = phaseForStop(stop.status);
+    try {
+      await markEtaNotice(supabase, stop.id, phase);
+      await load();
+      setMessage('Notice recorded — the office can see you warned the owner.');
+    } catch (causa) {
+      if (isNetworkError(causa)) {
+        await guardarNaFila({ kind: 'eta_notice', stopId: stop.id, phase, queuedAt: new Date().toISOString() });
+        setMessage('Message opened. No connection: the notice is recorded when you are back online.');
+      } else {
+        setMessage(etaNoticeError(causa));
+      }
+    }
+  };
+
+  /** Paradas com o ETA de cada uma (o botão de avisar mostra "~12 min" e fica âmbar se atrasar). */
+  const stopsComEta = useMemo(
+    () =>
+      stops.map((stop) => {
+        const minutos = minutesToStop(position, stop);
+        return { ...stop, etaMinutes: minutos, lateMinutes: minutos == null ? 0 : lateMinutesForStop(stop, minutos) };
+      }),
+    [stops, position],
+  );
+
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
@@ -366,11 +617,13 @@ export default function DriverTodayScreen() {
         <Text style={styles.title}>Today&apos;s Route</Text>
         {publishedAt || stops.length > 0 ? <Text style={styles.date}>{todayLocalISO()}</Text> : null}
       </View>
-      {offline || pendingSync > 0 ? (
+      {offline || pendingSync + pendingWrites.length > 0 ? (
         <View style={styles.offlineBanner} accessibilityRole="alert">
           <Text style={styles.offlineText}>
             {offline ? '📡 Offline — showing the saved route. ' : ''}
-            {pendingSync > 0 ? `${pendingSync} change${pendingSync === 1 ? '' : 's'} waiting to sync.` : 'Changes will sync when you are back online.'}
+            {pendingSync + pendingWrites.length > 0
+              ? `${pendingSync + pendingWrites.length} change${pendingSync + pendingWrites.length === 1 ? '' : 's'} waiting to sync.`
+              : 'Changes will sync when you are back online.'}
           </Text>
         </View>
       ) : null}
@@ -391,7 +644,20 @@ export default function DriverTodayScreen() {
             <Text style={styles.emptyText}>When the manager publishes your route, it will appear here with every stop and instruction.</Text>
           </View>
         ) : (
-          <DriverRouteView stops={stops} onAction={act} />
+          <>
+            {/* Jornada do dia (deduzida da rota; manual só na exceção) */}
+            <View style={styles.jornada}>
+              <ShiftCard
+                state={journey}
+                pendingCount={pendingWrites.length}
+                busy={shiftBusy}
+                error={shiftError}
+                onClockIn={(motivo) => void clockIn(motivo)}
+                onClockOut={(motivo) => void clockOut(motivo)}
+              />
+            </View>
+            <DriverRouteView stops={stopsComEta} onAction={act} onNotifyOwner={(stop) => setNotifyStop(stop)} />
+          </>
         )}
         {message ? (
           <Pressable accessibilityRole="button" onPress={() => setMessage(null)} style={styles.message}>
@@ -411,6 +677,14 @@ export default function DriverTodayScreen() {
           await Linking.openURL(navigationUrlFor(app, target));
         }}
       />
+      {/* Aviso de ETA ao tutor: o texto vai pronto, quem envia é o motorista (pedido do cliente) */}
+      <NotifyOwnerSheet
+        visible={notifyStop !== null}
+        phone={notifyStop?.clientPhone ?? null}
+        message={notifyStop ? avisoDe(notifyStop) : ''}
+        onChoose={(messenger) => void enviarAviso(messenger)}
+        onClose={() => setNotifyStop(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -428,6 +702,7 @@ const styles = StyleSheet.create({
   etaText: { color: colors.forest900, fontSize: 12, fontWeight: '800', textAlign: 'center' },
   etaTextLate: { color: colors.urgency },
   body: { flex: 1, backgroundColor: colors.cream },
+  jornada: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 2 },
   center: { marginTop: 80 },
   empty: { alignItems: 'center', paddingHorizontal: 34, marginTop: 90 },
   emptyEmoji: { fontSize: 44 },

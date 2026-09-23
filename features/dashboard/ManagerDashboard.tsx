@@ -28,9 +28,11 @@ type Props = {
   onOpenDispatch: () => void;
   onOpenClients: () => void;
   onNewReservation: () => void;
+  /** Jornada/horas dos motoristas (pedido do cliente, 16/09/2026). */
+  onOpenDriverHours: () => void;
 };
 
-export function ManagerDashboard({ dateLabel, greeting, initials, daycare, boarding, totalPack, progress, routes, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation }: Props) {
+export function ManagerDashboard({ dateLabel, greeting, initials, daycare, boarding, totalPack, progress, routes, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours }: Props) {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -109,6 +111,9 @@ export function ManagerDashboard({ dateLabel, greeting, initials, daycare, board
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="New reservation" style={styles.quickCard} onPress={onNewReservation}>
             <Text style={styles.quickIcon}>▦</Text><Text style={styles.quickText}>New reservation</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Driver hours" style={styles.quickCard} onPress={onOpenDriverHours}>
+            <Text style={styles.quickIcon}>⏱</Text><Text style={styles.quickText}>Driver hours</Text>
           </Pressable>
         </View>
       </ScrollView>

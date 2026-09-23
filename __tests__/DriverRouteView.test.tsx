@@ -7,6 +7,46 @@ const stops: DriverStop[] = [
 ];
 
 describe('DriverRouteView', () => {
+  // AVISO DE ETA AO TUTOR (pedido do cliente em áudio, 16/09/2026): o motorista avisa com o
+  // texto pronto. O botão só existe quando o cliente tem telefone e a parada ainda está viva.
+  it('avisa o tutor com o ETA da parada', async () => {
+    const onNotifyOwner = jest.fn();
+    const comTelefone: DriverStop[] = [{ ...stops[0], clientPhone: '+1 415 555 0134', etaMinutes: 12 }];
+    const tela = await render(<DriverRouteView stops={comTelefone} onAction={jest.fn()} onNotifyOwner={onNotifyOwner} />);
+
+    expect(tela.getByText('~12 min away')).toBeTruthy();
+    await fireEvent.press(tela.getByLabelText('Notify owner Bob'));
+    expect(onNotifyOwner).toHaveBeenCalledWith(expect.objectContaining({ id: 'stop-1' }));
+  });
+
+  it('marca o aviso em âmbar quando a chegada atrasa', async () => {
+    const atrasada: DriverStop[] = [{ ...stops[0], clientPhone: '+1 415 555 0134', etaMinutes: 20, lateMinutes: 10 }];
+    const tela = await render(<DriverRouteView stops={atrasada} onAction={jest.fn()} onNotifyOwner={jest.fn()} />);
+
+    expect(tela.getByText('Notify owner · late')).toBeTruthy();
+    expect(tela.getByText('~20 min away · 10 min late')).toBeTruthy();
+  });
+
+  it('sem telefone do cliente não oferece o aviso', async () => {
+    const semTelefone: DriverStop[] = [{ ...stops[0], etaMinutes: 12 }];
+    const tela = await render(<DriverRouteView stops={semTelefone} onAction={jest.fn()} onNotifyOwner={jest.fn()} />);
+
+    expect(tela.queryByLabelText('Notify owner Bob')).toBeNull();
+  });
+
+  it('parada concluída não oferece aviso de ETA', async () => {
+    const concluida: DriverStop[] = [{ ...stops[0], status: 'completed', clientPhone: '+1 415 555 0134', etaMinutes: 5 }];
+    const tela = await render(<DriverRouteView stops={concluida} onAction={jest.fn()} onNotifyOwner={jest.fn()} />);
+
+    expect(tela.queryByLabelText('Notify owner Bob')).toBeNull();
+  });
+
+  it('mostra que o tutor já foi avisado, com a hora', async () => {
+    const avisado: DriverStop[] = [{ ...stops[0], clientPhone: '+1 415 555 0134', etaNoticeAt: '2026-09-23T11:35:00.000Z' }];
+    const tela = await render(<DriverRouteView stops={avisado} onAction={jest.fn()} />);
+
+    expect(tela.getByText(/Owner notified at \d{2}:\d{2}/)).toBeTruthy();
+  });
   it('lists ordered stops with client, dog, address and instructions', async () => {
     const screen = await render(<DriverRouteView stops={stops} onAction={jest.fn()} />);
     expect(screen.getByText('1. Maria · Bob')).toBeTruthy();

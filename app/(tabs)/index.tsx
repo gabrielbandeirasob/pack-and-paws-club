@@ -301,6 +301,7 @@ export default function HomeScreen() {
           onOpenDispatch={() => router.push('/dispatch')}
           onOpenClients={() => router.push('/clients')}
           onNewReservation={() => router.push('/calendar')}
+          onOpenDriverHours={() => router.push('/driver-hours')}
         />
       )}
     </>

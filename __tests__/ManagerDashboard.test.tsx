@@ -11,6 +11,7 @@ async function setup(overrides: Partial<React.ComponentProps<typeof ManagerDashb
   const onOpenClients = jest.fn();
   const onNewReservation = jest.fn();
   const onOpenProgress = jest.fn();
+  const onOpenDriverHours = jest.fn();
   const screen = await render(
     <ManagerDashboard
       dateLabel="MONDAY · SEPTEMBER 8"
@@ -25,10 +26,11 @@ async function setup(overrides: Partial<React.ComponentProps<typeof ManagerDashb
       onOpenDispatch={onOpenDispatch}
       onOpenClients={onOpenClients}
       onNewReservation={onNewReservation}
+      onOpenDriverHours={onOpenDriverHours}
       {...overrides}
     />,
   );
-  return { screen, onOpenDispatch, onOpenClients, onNewReservation, onOpenProgress };
+  return { screen, onOpenDispatch, onOpenClients, onNewReservation, onOpenProgress, onOpenDriverHours };
 }
 
 describe('ManagerDashboard', () => {
@@ -91,5 +93,12 @@ describe('ManagerDashboard', () => {
     const { screen } = await setup({ routes: [routes[1]] });
 
     expect(screen.getByText('1 stop · 4 mi')).toBeTruthy();
+  });
+
+  it('abre a tela de horas dos motoristas pelo atalho (pedido do cliente)', async () => {
+    const { screen, onOpenDriverHours } = await setup();
+
+    await fireEvent.press(screen.getByLabelText('Driver hours'));
+    expect(onOpenDriverHours).toHaveBeenCalledTimes(1);
   });
 });

@@ -13,6 +13,15 @@ export type DriverStopRow = {
   exact_time: string | null;
   pickup_proof_path?: string | null;
   dropoff_proof_path?: string | null;
+  /** marcos carimbados no SERVIDOR (migration 024): a jornada do motorista é deduzida daqui */
+  arrived_at?: string | null;
+  picked_up_at?: string | null;
+  completed_at?: string | null;
+  skipped_at?: string | null;
+  status_updated_at?: string | null;
+  /** aviso de ETA já registrado nesta parada (hora do servidor) */
+  eta_notice_at?: string | null;
+  eta_notice_kind?: string | null;
   dog:
     | {
         id: string;
@@ -26,6 +35,7 @@ export type DriverStopRow = {
               name: string | null;
               address_line_1: string | null;
               city: string | null;
+              phone?: string | null;
               latitude: number | null;
               longitude: number | null;
               client_instructions: { pickup_access_instructions: string | null } | null;
@@ -63,6 +73,12 @@ export function rowToStop(row: DriverStopRow): DriverStop {
     behaviorNotes: dog?.behavior_notes ?? null,
     medicalNotes: dog?.medical_notes ?? null,
     dogPhotoUrl: dog?.photo_url ?? null,
+    clientPhone: client?.phone ?? null,
+    etaNoticeAt: row.eta_notice_at ?? null,
+    arrivedAt: row.arrived_at ?? null,
+    pickedUpAt: row.picked_up_at ?? null,
+    completedAt: row.completed_at ?? null,
+    skippedAt: row.skipped_at ?? null,
     latitude: client?.latitude ?? null,
     longitude: client?.longitude ?? null,
     windowEnd: row.window_end ? row.window_end.slice(0, 5) : null,

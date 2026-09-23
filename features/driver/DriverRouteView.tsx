@@ -1,5 +1,7 @@
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { notifyButtonState } from '@/features/driver/etaMessage';
+import { clockText } from '@/features/driver/shift';
 import { RouteMap } from '@/features/maps/RouteMap';
 import { colors, radii } from '@/features/theme/tokens';
 
@@ -17,6 +19,19 @@ export type DriverStop = {
   medicalNotes?: string | null;
   /** Foto do cão no cadastro (bucket público dog-photos): confirma o cão na porta do cliente. */
   dogPhotoUrl?: string | null;
+  /** Telefone do tutor: sem ele o botão de avisar não aparece (nada de mandar mensagem no vácuo). */
+  clientPhone?: string | null;
+  /** Minutos até esta parada (o mesmo ETA que a tela mostra); null quando não há posição. */
+  etaMinutes?: number | null;
+  /** Minutos de atraso em relação à janela (0 = no prazo). */
+  lateMinutes?: number;
+  /** Quando o motorista avisou o tutor desta parada (histórico gravado no servidor). */
+  etaNoticeAt?: string | null;
+  /** Marcos carimbados no servidor (migration 024): a jornada é deduzida daqui. */
+  arrivedAt?: string | null;
+  pickedUpAt?: string | null;
+  completedAt?: string | null;
+  skippedAt?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   windowEnd?: string | null;
@@ -28,6 +43,8 @@ export type DriverAction = 'navigate' | 'arrived' | 'picked_up' | 'completed' | 
 type Props = {
   stops: DriverStop[];
   onAction: (stopId: string, action: DriverAction) => Promise<void>;
+  /** Abre o mensageiro com o aviso de ETA pronto para o tutor (pedido do cliente, 16/09/2026). */
+  onNotifyOwner?: (stop: DriverStop) => void;
 };
 
 function addressLine(stop: DriverStop): string | null {
@@ -35,7 +52,7 @@ function addressLine(stop: DriverStop): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-export function DriverRouteView({ stops, onAction }: Props) {
+export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
   const fire = (stop: DriverStop, action: DriverAction) => onAction(stop.id, action);
   const ordered = [...stops].sort((a, b) => a.sequence - b.sequence);
 
@@ -57,6 +74,8 @@ export function DriverRouteView({ stops, onAction }: Props) {
       {ordered.map((stop, index) => {
         const done = stop.status === 'completed' || stop.status === 'skipped';
         const address = addressLine(stop);
+        // Aviso de ETA: só faz sentido enquanto a parada está viva e o cliente tem telefone.
+        const aviso = notifyButtonState({ phone: stop.clientPhone, lateMinutes: stop.lateMinutes, done });
         // O cartao inteiro abre a navegacao. Relato do dono (12/09/2026): "ao clicar nao direciona a
         // aplicativo algum" - antes so o botao Navigate fazia isso, e ele SUMIA quando a parada
         // estava concluida (o bloco de acoes ficava atras de `!done`). Perder a navegacao numa parada
@@ -86,6 +105,12 @@ export function DriverRouteView({ stops, onAction }: Props) {
             </View>
             {address ? <Text style={styles.address}>{address}</Text> : null}
             {stop.exactTime ? <Text style={styles.deadline}>⏱ Must arrive by {stop.exactTime}</Text> : stop.windowEnd ? <Text style={styles.deadline}>⏱ Window until {stop.windowEnd}</Text> : null}
+            {!done && stop.etaMinutes != null ? (
+              <Text style={[styles.eta, (stop.lateMinutes ?? 0) > 0 && styles.etaLate]}>
+                ~{stop.etaMinutes} min away{(stop.lateMinutes ?? 0) > 0 ? ` · ${stop.lateMinutes} min late` : ''}
+              </Text>
+            ) : null}
+            {stop.etaNoticeAt ? <Text style={styles.notified}>Owner notified at {clockText(stop.etaNoticeAt)}</Text> : null}
             {stop.instructions ? <View style={styles.instructions}><Text style={styles.instructionsLabel}>ACCESS INSTRUCTIONS</Text><Text style={styles.instructionsText}>{stop.instructions}</Text></View> : null}
             {stop.medicalNotes ? <View style={[styles.care, styles.careMedical]}><Text style={[styles.careLabel, styles.careLabelMedical]}>⚠ MEDICAL</Text><Text style={styles.careText}>{stop.medicalNotes}</Text></View> : null}
             {stop.behaviorNotes ? <View style={[styles.care, styles.careBehavior]}><Text style={styles.careLabel}>BEHAVIOR</Text><Text style={styles.careText}>{stop.behaviorNotes}</Text></View> : null}
@@ -94,6 +119,18 @@ export function DriverRouteView({ stops, onAction }: Props) {
               <Pressable accessibilityRole="button" accessibilityLabel={`Navigate to ${stop.dogName}`} onPress={() => fire(stop, 'navigate')} style={[styles.action, styles.actionDark]}>
                 <Text style={styles.actionDarkText}>Navigate</Text>
               </Pressable>
+              {onNotifyOwner && aviso.enabled ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Notify owner ${stop.dogName}`}
+                  onPress={() => onNotifyOwner(stop)}
+                  style={[styles.action, aviso.tone === 'late' ? styles.actionLate : styles.actionNotify]}
+                >
+                  <Text style={aviso.tone === 'late' ? styles.actionLateText : styles.actionNotifyText}>
+                    {aviso.tone === 'late' ? 'Notify owner · late' : 'Notify owner'}
+                  </Text>
+                </Pressable>
+              ) : null}
               {!done && stop.status === 'pending' ? (
                 <Pressable accessibilityRole="button" accessibilityLabel={`Mark arrived ${stop.id}`} onPress={() => fire(stop, 'arrived')} style={[styles.action, styles.actionGold]}>
                   <Text style={styles.actionGoldText}>Arrived</Text>
@@ -143,6 +180,9 @@ const styles = StyleSheet.create({
   badge: { fontSize: 11, fontWeight: '900', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, overflow: 'hidden' },
   address: { color: colors.ink, fontSize: 13, marginTop: 6 },
   deadline: { color: '#8A6D1F', fontSize: 12, fontWeight: '800', marginTop: 5 },
+  eta: { color: colors.forest700, fontSize: 12, fontWeight: '800', marginTop: 4 },
+  etaLate: { color: colors.urgency },
+  notified: { color: colors.muted, fontSize: 11, marginTop: 4 },
   instructions: { backgroundColor: '#FBF6E8', borderWidth: 1, borderColor: '#EADFB8', borderRadius: 12, padding: 11, marginTop: 10 },
   instructionsLabel: { color: '#8A6D1F', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 },
   instructionsText: { color: colors.ink, fontSize: 13, lineHeight: 19, marginTop: 4 },
@@ -160,4 +200,8 @@ const styles = StyleSheet.create({
   actionGoldText: { color: colors.forest900, fontWeight: '900', fontSize: 13 },
   actionProblem: { backgroundColor: '#FBEAE6' },
   actionProblemText: { color: colors.urgency, fontWeight: '900', fontSize: 13 },
+  actionNotify: { backgroundColor: colors.sage },
+  actionNotifyText: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
+  actionLate: { backgroundColor: '#F3D9A4' },
+  actionLateText: { color: '#7A5B12', fontWeight: '900', fontSize: 13 },
 });

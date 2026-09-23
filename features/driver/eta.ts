@@ -55,6 +55,34 @@ export function minutesAgo(isoTimestamp: string, now: Date = new Date()): number
 }
 
 /**
+ * Atraso projetado para UMA parada: quanto a chegada passaria da janela/horário exato.
+ * Mesma conta do banner da próxima parada, usada no botão "avisar o tutor" (âmbar quando atrasa).
+ */
+export function lateMinutesForStop(
+  stop: { exactTime?: string | null; windowEnd?: string | null },
+  minutes: number,
+  now: Date = new Date(),
+): number {
+  const deadline = hhmmToMinutes(stop.exactTime ?? stop.windowEnd);
+  if (deadline == null) return 0;
+  const projected = minutesOfDay(now) + Math.max(0, minutes);
+  return projected > deadline ? Math.round(projected - deadline) : 0;
+}
+
+/**
+ * Minutos até UMA parada (mesma conta do ETA da próxima parada). Usado no botão "avisar o tutor"
+ * de qualquer parada, não só da próxima: o motorista avisa a entrega depois de embarcar.
+ */
+export function minutesToStop(
+  position: EtaPosition | null,
+  stop: { latitude?: number | null; longitude?: number | null },
+  speedKph = DEFAULT_SPEED_KPH,
+): number | null {
+  if (!position || stop.latitude == null || stop.longitude == null) return null;
+  return Math.round(minutesBetweenKm(haversineKm(position.latitude, position.longitude, stop.latitude, stop.longitude), speedKph));
+}
+
+/**
  * ETA for the next pending stop from the driver's current position.
  * Also reports how many minutes past its window/deadline the arrival would be.
  */
