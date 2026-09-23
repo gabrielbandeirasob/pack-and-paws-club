@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { buildDay, transportPool, vanPool, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
+import { buildDay, transportPool, vanPool, type DogRef, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
 import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
@@ -28,6 +28,7 @@ type StopRow = {
   dog: { id: string; name: string; client: { name: string; latitude: number | null; longitude: number | null } };
 };
 type RouteRow = { id: string; driver_id: string; status: DispatchRoute['status']; lock_version: number | null; route_stops: StopRow[] | null };
+type DogRow = { id: string; name: string; client: { name: string } };
 
 function toDogRef(dog: { id: string; name: string; client: { name: string } }) {
   return { id: dog.id, dogName: dog.name, clientName: dog.client.name };
@@ -38,6 +39,14 @@ export default function DispatchScreen() {
   const [date, setDate] = useState(todayLocalISO());
   const [drivers, setDrivers] = useState<DispatchDriver[]>([]);
   const [dayItems, setDayItems] = useState<DispatchStopItem[]>([]);
+  /** Cães do cadastro (para o gestor adicionar um que não está no calendário do dia). */
+  const [caesCadastro, setCaesCadastro] = useState<DogRef[]>([]);
+  /**
+   * Cães adicionados À MÃO pelo gestor. Guardados num ref (e não no estado) para sobreviverem ao
+   * recarregamento: o `load` reconstrói a fila a partir do calendário, e sem isso o cão manual
+   * sumiria da tela a cada atualização. Pedido do dono (23/09/2026).
+   */
+  const extrasRef = useRef<DogRef[]>([]);
   const [routes, setRoutes] = useState<DispatchRoute[]>([]);
   // Versao de cada rota (lock otimista): o aparelho guarda o que leu; se outro gestor
   // escrever antes, o banco recusa a escrita velha com 'stale_route' em vez de sobrescrever.
@@ -46,6 +55,19 @@ export default function DispatchScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const realtimeRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * "Add any dog": o gestor puxa um cão do cadastro para a fila do dia mesmo sem reserva no dia
+   * (chegou de última hora, ou o transporte não foi marcado). Pedido do dono, 23/09/2026.
+   */
+  const adicionarCaoForaDoCalendario = useCallback((dog: DogRef) => {
+    if (!extrasRef.current.some((item) => item.id === dog.id)) extrasRef.current = [...extrasRef.current, dog];
+    setDayItems((prev) => (
+      prev.some((item) => item.dogId === dog.id)
+        ? prev
+        : [...prev, { dogId: dog.id, clientName: dog.clientName, dogName: dog.dogName, inVan: false, extra: true }]
+    ));
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -56,14 +78,16 @@ export default function DispatchScreen() {
     const orgId = (memberships as { organization_id: string }[] | null)?.[0]?.organization_id ?? null;
     setOrganizationId(orgId);
     if (!orgId) { setLoading(false); return; }
-    const [driverResult, reservationResult, recurringResult, exceptionResult, routeResult] = await Promise.all([
+    const [driverResult, reservationResult, recurringResult, exceptionResult, routeResult, dogResult] = await Promise.all([
       supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', orgId).eq('role', 'driver').eq('status', 'active'),
       supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'confirmed'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId),
       supabase.from('routes').select('id, driver_id, status, lock_version, route_stops(dog_id, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, client:clients(name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date),
+      // Cadastro completo (cão ativo): alimenta o "Add any dog" do Dispatch.
+      supabase.from('dogs').select('id, name, client:clients(name)').eq('organization_id', orgId).eq('active', true),
     ]);
-    const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? routeResult.error;
+    const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? routeResult.error ?? dogResult.error;
     if (firstError) { setError(firstError.message); setLoading(false); return; }
 
     const driverRows = (driverResult.data as unknown as DriverRow[]) ?? [];
@@ -79,14 +103,21 @@ export default function DispatchScreen() {
       id: row.id, scheduleId: row.recurring_schedule_id, action: row.action, startDate: row.start_date, endDate: row.end_date,
     }));
 
+    setCaesCadastro(((dogResult.data as unknown as DogRow[]) ?? []).map((row) => toDogRef(row)));
+
     const day = buildDay(date, reservations, recurring, exceptions);
+    const fila = transportPool(day);
+    const naVan = vanPool(day);
+    const jaNoDia = new Set([...fila, ...naVan].map((item) => item.dogId));
     // Fila principal: quem precisa de transporte e NÃO está já na van (deduplicado por cão).
     // Seção separada: cão em boarding que também faz daycare no dia — ele acorda dentro da van (sem
     // pickup), mas o gestor pode incluir à mão quando precisar dele de volta em casa. Pedido do
     // cliente em áudio (23/09/2026).
     setDayItems([
-      ...transportPool(day).map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind, inVan: false })),
-      ...vanPool(day).map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind, inVan: true })),
+      ...fila.map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind, inVan: false })),
+      ...naVan.map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind, inVan: true })),
+      // Cães que o gestor adicionou à mão (fora do calendário do dia) — pedido do dono, 23/09/2026.
+      ...extrasRef.current.filter((extra) => !jaNoDia.has(extra.id)).map((extra) => ({ dogId: extra.id, clientName: extra.clientName, dogName: extra.dogName, inVan: false, extra: true })),
     ]);
 
     const routeRows = (routeResult.data as unknown as RouteRow[]) ?? [];
@@ -336,7 +367,7 @@ export default function DispatchScreen() {
     ]);
   }, [routes, versaoDe, load]);
 
-  const summary = useMemo(() => ({ date, drivers, dayItems, routes }), [date, drivers, dayItems, routes]);
+  const summary = useMemo(() => ({ date, drivers, dayItems, routes, dogs: caesCadastro, onAddExtraDog: adicionarCaoForaDoCalendario }), [date, drivers, dayItems, routes, caesCadastro, adicionarCaoForaDoCalendario]);
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -357,6 +388,8 @@ export default function DispatchScreen() {
           onCancelRoute={cancelRoute}
           onCompleteRoute={completeRoute}
           onDateChange={setDate}
+          dogs={summary.dogs}
+          onAddExtraDog={summary.onAddExtraDog}
         />
       )}
     </SafeAreaView>

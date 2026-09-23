@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
+import { DogPicker } from '@/features/calendar/DogPicker';
+import type { DogRef } from '@/features/calendar/dayMath';
 import { isPastDeadline, minutesAgo, nextStopEta } from '@/features/driver/eta';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
 import { colors, radii } from '@/features/theme/tokens';
@@ -29,6 +31,12 @@ export type DispatchStopItem = {
    * casa (áudio do cliente, 23/09/2026).
    */
   inVan?: boolean;
+  /**
+   * Cão que o gestor adicionou À MÃO, fora do calendário do dia ("Add any dog"). O app não inventa
+   * reserva — a parada existe só na rota. Pedido do dono (23/09/2026): o admin tem de conseguir
+   * puxar qualquer cão do cadastro para o Total Pack, mesmo sem reserva no dia.
+   */
+  extra?: boolean;
 };
 export type DispatchRouteStop = DispatchStopItem & {
   sequence: number;
@@ -64,6 +72,9 @@ type Props = {
   onCancelRoute: (routeId: string) => Promise<void>;
   onCompleteRoute: (routeId: string) => Promise<void>;
   onDateChange: (date: string) => void;
+  /** Cães do cadastro, para o gestor adicionar um que não está no calendário do dia. */
+  dogs?: DogRef[];
+  onAddExtraDog?: (dog: DogRef) => void;
 };
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -72,8 +83,9 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange }: Props) {
+export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog }: Props) {
   const [sheet, setSheet] = useState<SheetState>(null);
+  const [buscaCao, setBuscaCao] = useState(false);
   const [driverId, setDriverId] = useState<string | null>(null);
   const [kind, setKind] = useState<ConstraintKind>('none');
   const [windowStart, setWindowStart] = useState('');
@@ -291,9 +303,14 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
           ) : null}
           {unassigned.map((item) => (
             <Pressable key={item.dogId} accessibilityRole="button" accessibilityLabel={`Assign ${item.clientName} · ${item.dogName}`} onPress={() => setSheet({ mode: 'assign', item })} style={styles.chip}>
-              <Text style={styles.chipText}>{item.clientName} · {item.dogName}</Text>
+              <Text style={styles.chipText}>{item.clientName} · {item.dogName}{item.extra ? ' · manual' : ''}</Text>
             </Pressable>
           ))}
+          {onAddExtraDog ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Add any dog" onPress={() => setBuscaCao(true)} style={styles.chipAdd}>
+              <Text style={styles.chipAddText}>＋ Add any dog (not in the calendar)</Text>
+            </Pressable>
+          ) : null}
         </View>
 
         {/*
@@ -322,6 +339,33 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
           </View>
         ) : null}
       </ScrollView>
+
+      {/*
+        "Add any dog": o gestor puxa um cão do cadastro que NÃO está no calendário do dia (chegou de
+        última hora, ou o transporte não foi marcado na reserva). Não inventa reserva: a parada vive
+        só na rota. Pedido do dono (23/09/2026) — controle do Total Pack sem depender do calendário.
+      */}
+      <Modal visible={buscaCao} transparent animationType="fade" onRequestClose={() => setBuscaCao(false)}>
+        <View style={styles.backdrop}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Add any dog</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setBuscaCao(false)} hitSlop={10}>
+                <Text style={styles.sheetClose}>✕</Text>
+              </Pressable>
+            </View>
+            <Text style={styles.muted}>
+              Straight from the registry — no reservation needed today. The stop is created only on the route.
+            </Text>
+            <DogPicker
+              dogs={dogs}
+              selected={null}
+              hint="Search by dog or client"
+              onSelect={(dog) => { onAddExtraDog?.(dog); setBuscaCao(false); }}
+            />
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={sheet !== null} transparent animationType="fade" onRequestClose={() => setSheet(null)}>
         <View style={styles.backdrop}>
@@ -473,6 +517,9 @@ const styles = StyleSheet.create({
   unassignedTitle: { color: colors.muted, textTransform: 'uppercase', fontWeight: '900', fontSize: 11, marginBottom: 10 },
   chip: { backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 7, borderWidth: 1, borderColor: colors.line },
   chipText: { color: colors.ink, fontWeight: '800', fontSize: 13 },
+  /** Botão "Add any dog": pontilhado como a moldura da fila, para não parecer um cão já listado. */
+  chipAdd: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#B9C4B9', borderRadius: radii.medium, paddingVertical: 9, paddingHorizontal: 12, marginTop: 6, alignSelf: 'flex-start', backgroundColor: '#FFFFFF' },
+  chipAddText: { color: colors.muted, fontWeight: '800', fontSize: 12 },
   /** Chip dos cães que já estão na van: fundo mais claro para não confundir com a fila principal. */
   chipVan: { backgroundColor: colors.sage, borderColor: colors.sage },
   backdrop: { flex: 1, backgroundColor: '#0D1B12AA', justifyContent: 'flex-end' },
