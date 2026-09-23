@@ -7,9 +7,10 @@
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import { ClientsList } from '@/features/clients/ClientsList';
+import type { ClientWithDogs } from '@/features/clients/types';
 
-const clientes = [
-  { id: 'c-1', name: 'Ana Souza', phone: '4155551234', address_line_1: '100 Market St', city: 'San Francisco', state: 'CA', active: true, dogs: ['Mowgli'] },
+const clientes: ClientWithDogs[] = [
+  { id: 'c-1', name: 'Ana Souza', phone: '4155551234', address_line_1: '100 Market St', city: 'San Francisco', state: 'CA', active: true, dogs: [{ name: 'Mowgli' }] },
   { id: 'c-2', name: 'Zeca Antigo', phone: null, address_line_1: null, city: null, state: null, active: false, dogs: [] },
 ];
 

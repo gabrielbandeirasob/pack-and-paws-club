@@ -32,4 +32,12 @@ describe('busca de clientes', () => {
     expect(normalizeForSearch(null)).toBe('');
     expect(filterClients(clients, 'raphael').length).toBe(1);
   });
+
+  it('funciona com o cao na forma da LISTA (nome + foto), sem virar [object Object]', () => {
+    // A lista de clientes passou a carregar a foto do cao junto do nome (pedido do Gabriel,
+    // 23/09/2026). A busca nao pode quebrar nem deixar de achar por nome de cao.
+    const comFoto = [{ name: 'Leigh Ann', phone: null, address_line_1: null, city: null, dogs: [{ name: 'Mowgli', photo_url: 'https://x/dog-photos/org/dog/mowgli.jpg' }] }];
+    expect(filterClients(comFoto, 'mowgli').map((c) => c.name)).toEqual(['Leigh Ann']);
+    expect(filterClients(comFoto, 'photo_url')).toEqual([]);
+  });
 });

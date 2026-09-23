@@ -207,8 +207,19 @@ export type SearchableClient = {
   phone: string | null;
   address_line_1: string | null;
   city: string | null;
-  dogs: string[];
+  dogs: DogLike[];
 };
+
+/**
+ * Cao em qualquer das duas formas que o app usa: so o nome (string) ou nome + foto
+ * (como a LISTA de clientes carrega, para mostrar a foto no card). Nunca quebra com nulo.
+ */
+export type DogLike = string | { name?: string | null };
+
+export function dogName(value: DogLike): string {
+  if (typeof value === 'string') return value;
+  return value?.name ?? '';
+}
 
 /**
  * Filtra a lista de clientes por nome, telefone, endereco, cidade ou nome do cao.
@@ -218,7 +229,7 @@ export function filterClients<T extends SearchableClient>(clients: T[], query: s
   const term = normalizeForSearch(query);
   if (!term) return clients;
   return clients.filter((client) => {
-    const haystack = [client.name, client.phone, client.address_line_1, client.city, ...client.dogs]
+    const haystack = [client.name, client.phone, client.address_line_1, client.city, ...client.dogs.map(dogName)]
       .map((value) => normalizeForSearch(value as string | null))
       .join(' | ');
     return haystack.includes(term);
@@ -460,7 +471,7 @@ export function inactiveCount(clients: { active: boolean }[]): number {
   return clients.filter((client) => !client.active).length;
 }
 
-export type DuplicateCandidate = { id: string; name: string; dogs: string[] };
+export type DuplicateCandidate = { id: string; name: string; dogs: DogLike[] };
 
 /**
  * Possiveis duplicados ao cadastrar: MESMO nome de cliente ou MESMO nome de cao.
@@ -477,7 +488,8 @@ export function findDuplicateClients(
   return existing.filter((client) => {
     if (nome.length > 0 && normalizeForSearch(client.name) === nome) return true;
     if (caes.size === 0) return false;
-    return client.dogs.some((dog) => caes.has(normalizeForSearch(dog)));
+    // A lista pode trazer o cao como string ou como { name, photo_url } (ver dogName).
+    return client.dogs.some((dog) => caes.has(normalizeForSearch(dogName(dog))));
   });
 }
 
@@ -486,7 +498,10 @@ export function duplicateHint(candidates: DuplicateCandidate[]): string | null {
   if (candidates.length === 0) return null;
   const lista = candidates
     .slice(0, 2)
-    .map((client) => (client.dogs.length > 0 ? `${client.name} (dogs: ${client.dogs.join(', ')})` : client.name))
+    .map((client) => {
+      const nomes = client.dogs.map(dogName).filter((nome) => nome.length > 0);
+      return nomes.length > 0 ? `${client.name} (dogs: ${nomes.join(', ')})` : client.name;
+    })
     .join(' · ');
   const extra = candidates.length > 2 ? ` and ${candidates.length - 2} more` : '';
   return `Possible duplicate: ${lista}${extra}. If it is the same family, open that client and add this dog there instead of creating a new record.`;

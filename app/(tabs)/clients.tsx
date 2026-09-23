@@ -15,7 +15,7 @@ import { fillClientCoordinates } from '@/features/maps/geocodeService';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
-type ClientRow = { id: string; name: string; phone: string | null; address_line_1: string | null; city: string | null; state: string | null; active: boolean; dogs: { name: string }[] };
+type ClientRow = { id: string; name: string; phone: string | null; address_line_1: string | null; city: string | null; state: string | null; active: boolean; dogs: { name: string; photo_url: string | null }[] };
 type MembershipRow = { organization_id: string };
 
 export default function ClientsScreen() {
@@ -62,11 +62,17 @@ export default function ClientsScreen() {
     if (!organization_id) { setClients([]); setLoading(false); return; }
     const { data: rows, error: clientsError } = await supabase
       .from('clients')
-      .select('id, name, phone, address_line_1, city, state, active, dogs(name)')
+      .select('id, name, phone, address_line_1, city, state, active, dogs(name, photo_url)')
       .eq('organization_id', organization_id)
       .order('name');
     if (clientsError) { setError(clientsError.message); setLoading(false); return; }
-    setClients(((rows as ClientRow[]) ?? []).map((row) => ({ ...row, dogs: (row.dogs ?? []).map((dog) => dog.name) })));
+    // A foto do cao vem junto: a LISTA mostra a foto no card, sem precisar abrir o cliente.
+    setClients(
+      ((rows as ClientRow[]) ?? []).map((row) => ({
+        ...row,
+        dogs: (row.dogs ?? []).map((dog) => ({ name: dog.name, photo_url: dog.photo_url ?? null })),
+      })),
+    );
     jaCarregou.current = true;
     setLoading(false);
   }, []);

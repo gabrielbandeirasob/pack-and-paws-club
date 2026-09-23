@@ -59,6 +59,17 @@ describe('aviso de duplicado', () => {
     expect(duplicateHint(achados)).toContain('same family');
   });
 
+  it('aviso de duplicado nao vira [object Object] com o cao na forma da lista (nome + foto)', () => {
+    // A lista de clientes carrega o cao com foto (23/09/2026). O aviso de duplicado monta o
+    // texto a partir dos nomes — se alguem voltar a usar o objeto direto, vira lixo na tela.
+    const comFoto = [{ id: 'c-3', name: 'Leigh Ann', dogs: [{ name: 'Kona', photo_url: 'https://x/dog-photos/org/dog/kona.jpg' }] }];
+    const achados = findDuplicateClients(comFoto, { name: 'Outro nome', dogs: ['kona'] });
+    expect(achados.map((c) => c.id)).toEqual(['c-3']);
+    const aviso = duplicateHint(achados);
+    expect(aviso).toContain('Kona');
+    expect(aviso).not.toContain('object');
+  });
+
   it('nao avisa sem motivo, nem com entrada vazia', () => {
     expect(duplicateHint(findDuplicateClients(existentes, { name: 'Bruno Lima', dogs: ['Thor'] }))).toBeNull();
     expect(findDuplicateClients(existentes, { name: '', dogs: [] })).toEqual([]);

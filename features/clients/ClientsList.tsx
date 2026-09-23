@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radii } from '@/features/theme/tokens';
 import { filterClients, inactiveCount, sortClientsForList } from '@/features/clients/clientsService';
@@ -100,7 +100,13 @@ export function ClientsList({ clients, loading, onAddClient, onOpenClient, refre
                 <Text style={styles.muted}>{client.address_line_1 ?? ''}{client.address_line_1 && client.city ? ' · ' : ''}{client.city ?? ''}</Text>
                 <View style={styles.dogRow}>
                   {client.dogs.map((dog) => (
-                    <View key={dog} style={styles.dogChip}><Text style={styles.dogChipText}>{dog}</Text></View>
+                    <View key={dog.name} style={styles.dogChip}>
+                      {/* Foto do cao JÁ NA LISTA: e o que o gestor usa para reconhecer a familia
+                          sem abrir o cadastro (pedido do Gabriel, 23/09/2026). Sem foto, o chip
+                          fica so com o nome — nunca um espaco vazio. */}
+                      {dog.photo_url ? <Image source={{ uri: dog.photo_url }} style={styles.dogChipPhoto} accessibilityLabel={`Photo of ${dog.name}`} /> : null}
+                      <Text style={styles.dogChipText}>{dog.name}</Text>
+                    </View>
                   ))}
                 </View>
                 {callUrl || textUrl ? (
@@ -159,6 +165,7 @@ const styles = StyleSheet.create({
   quickText: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
   filterChip: { alignSelf: 'flex-start', backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 7, marginTop: 10 },
   filterChipText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
-  dogChip: { backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 9, paddingVertical: 5 },
+  dogChip: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 4 },
+  dogChipPhoto: { width: 30, height: 30, borderRadius: 8, backgroundColor: colors.cream },
   dogChipText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
 });

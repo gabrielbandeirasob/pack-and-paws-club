@@ -1,3 +1,11 @@
+/**
+ * Cao como a LISTA de clientes carrega: nome + foto.
+ *
+ * Antes a lista trazia so os nomes e a foto so aparecia abrindo o cliente (relato do Gabriel,
+ * 23/09/2026: "quero que na parte dos clientes tenha foto dos cachorros na primeira tela").
+ */
+export type ClientDog = { name: string; photo_url?: string | null };
+
 export type ClientWithDogs = {
   id: string;
   name: string;
@@ -6,7 +14,7 @@ export type ClientWithDogs = {
   city: string | null;
   state: string | null;
   active: boolean;
-  dogs: string[];
+  dogs: ClientDog[];
 };
 
 export type ContactAddress = {
