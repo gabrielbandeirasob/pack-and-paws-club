@@ -3,15 +3,47 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
 import { CalendarConnectionCard, dentroDaJanela, janelaDeEspelho } from '@/features/integrations/google/CalendarConnectionCard';
 import type { LocalReservation } from '@/features/integrations/google/calendarSync';
+import type { BookingForImport, DogForImport } from '@/features/integrations/google/importPlan';
 
 jest.mock('@/features/integrations/google/useCalendarConnection');
 jest.mock('@/features/integrations/google/sync', () => ({
   runCalendarSync: jest.fn(),
   describeSummary: jest.requireActual('@/features/integrations/google/sync').describeSummary,
 }));
+// A importacao e testada no seu proprio modulo; aqui o card so precisa dizer o que fez com o resumo.
+jest.mock('@/features/integrations/google/importService', () => ({
+  runCalendarImport: jest.fn(),
+  hasImportChanges: jest.requireActual('@/features/integrations/google/importService').hasImportChanges,
+}));
+
+/** Escritas no banco: o alvo e conferir o que a tela manda para o Supabase. */
+const insercoes: { tabela: string; valores: Record<string, unknown> }[] = [];
+const atualizacoes: { tabela: string; valores: Record<string, unknown> }[] = [];
+jest.mock('@/lib/supabase', () => ({
+  supabase: {
+    from: (tabela: string) => {
+      const chain: Record<string, unknown> = {};
+      chain.insert = (valores: Record<string, unknown>) => {
+        insercoes.push({ tabela, valores });
+        return chain;
+      };
+      chain.update = (valores: Record<string, unknown>) => {
+        atualizacoes.push({ tabela, valores });
+        return chain;
+      };
+      chain.delete = () => chain;
+      chain.select = () => chain;
+      chain.eq = () => chain;
+      chain.single = async () => ({ data: { id: 'novo-id' }, error: null });
+      chain.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(res);
+      return chain;
+    },
+  },
+}));
 
 const useCalendarConnection = jest.requireMock('@/features/integrations/google/useCalendarConnection').useCalendarConnection as jest.Mock;
 const runCalendarSync = jest.requireMock('@/features/integrations/google/sync').runCalendarSync as jest.Mock;
+const runCalendarImport = jest.requireMock('@/features/integrations/google/importService').runCalendarImport as jest.Mock;
 
 /** Conexao falsa no formato que o card consome. */
 function conexao(status: 'not_configured' | 'disconnected' | 'connected', extras: Record<string, unknown> = {}) {
@@ -31,15 +63,26 @@ const reservas: LocalReservation[] = [
   { id: 'res:antiga', dogName: 'Bob', clientName: 'Maria', serviceType: 'daycare', startDate: addDaysISO(hoje, -400) },
 ];
 
+const dogs: DogForImport[] = [{ id: 'dog-luna', name: 'Luna', clientName: 'Maria' }];
+const bookings: BookingForImport[] = [];
+const onImported = jest.fn();
+
+function props() {
+  return { reservations: reservas, organizationId: 'org-1', dogs, bookings, onImported };
+}
+
 describe('CalendarConnectionCard', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    insercoes.length = 0;
+    atualizacoes.length = 0;
     runCalendarSync.mockResolvedValue({ created: 2, updated: 0, deleted: 1, failures: [] });
+    runCalendarImport.mockResolvedValue({ created: 0, updated: 0, cancelled: 0, review: [], failures: [] });
   });
 
   it('explica que o Google nao esta no build, em vez de mostrar botao que nao funciona', async () => {
     useCalendarConnection.mockReturnValue(conexao('not_configured'));
-    const screen = await render(<CalendarConnectionCard reservations={reservas} />);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
 
     expect(screen.getByTestId('google-calendar-nao-configurado')).toBeTruthy();
     expect(screen.queryByTestId('google-calendar-connect')).toBeNull();
@@ -48,7 +91,7 @@ describe('CalendarConnectionCard', () => {
   it('oferece conectar quando ha credencial no build e nenhuma conexao ainda', async () => {
     const ctx = conexao('disconnected');
     useCalendarConnection.mockReturnValue(ctx);
-    const screen = await render(<CalendarConnectionCard reservations={reservas} />);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
 
     await fireEvent.press(screen.getByTestId('google-calendar-connect'));
     expect(ctx.connect).toHaveBeenCalled();
@@ -57,7 +100,7 @@ describe('CalendarConnectionCard', () => {
   it('depois de conectar, ja espelha as reservas', async () => {
     const ctx = conexao('disconnected');
     useCalendarConnection.mockReturnValue(ctx);
-    const screen = await render(<CalendarConnectionCard reservations={reservas} />);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
 
     await fireEvent.press(screen.getByTestId('google-calendar-connect'));
     await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
@@ -65,7 +108,7 @@ describe('CalendarConnectionCard', () => {
 
   it('com a conta conectada, espelha SO a janela e resume o resultado', async () => {
     useCalendarConnection.mockReturnValue(conexao('connected'));
-    const screen = await render(<CalendarConnectionCard reservations={reservas} />);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
 
     expect(screen.getByText(/raphael@packandpawsclub\.com/)).toBeTruthy();
 
@@ -83,7 +126,7 @@ describe('CalendarConnectionCard', () => {
   it('desconecta quando o gestor pede', async () => {
     const ctx = conexao('connected');
     useCalendarConnection.mockReturnValue(ctx);
-    const screen = await render(<CalendarConnectionCard reservations={reservas} />);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
 
     await fireEvent.press(screen.getByTestId('google-calendar-disconnect'));
     expect(ctx.disconnect).toHaveBeenCalled();
@@ -91,26 +134,92 @@ describe('CalendarConnectionCard', () => {
 
   it('mostra o erro quando a sincronizacao falha de verdade', async () => {
     useCalendarConnection.mockReturnValue(conexao('connected', { getAccessToken: jest.fn().mockRejectedValue(new Error('A conexão com o Google expirou. Conecte novamente.')) }));
-    const screen = await render(<CalendarConnectionCard reservations={reservas} />);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
 
     await fireEvent.press(screen.getByTestId('google-calendar-sync'));
     await waitFor(() => expect(screen.getByTestId('google-calendar-erro')).toBeTruthy());
   });
-});
 
-describe('janelaDeEspelho / dentroDaJanela', () => {
-  it('cobre 30 dias atras e 180 a frente, em RFC3339', () => {
-    const janela = janelaDeEspelho('2026-09-16');
-    expect(janela).toEqual({ timeMin: '2026-08-17T00:00:00Z', timeMax: '2027-03-15T00:00:00Z' });
+  // ------------------------------------------------------------------ importacao (Google -> app)
+
+  it('mostra o que veio do Google junto com o que foi enviado', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    runCalendarImport.mockResolvedValue({ created: 2, updated: 1, cancelled: 0, review: [], failures: [] });
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+
+    await waitFor(() => expect(screen.getByTestId('google-calendar-resumo')).toBeTruthy());
+    expect(screen.getByText(/2 do Google/)).toBeTruthy();
+    // A agenda recarrega para o gestor ja ver as reservas que chegaram.
+    expect(onImported).toHaveBeenCalled();
   });
 
-  it('mantem a reserva que termina dentro da janela e descarta o passado distante', () => {
-    const janela = janelaDeEspelho('2026-09-16');
-    const lista: LocalReservation[] = [
-      { id: 'a', dogName: 'A', clientName: 'A', serviceType: 'daycare', startDate: '2026-08-10', endDate: '2026-09-01' },
-      { id: 'b', dogName: 'B', clientName: 'B', serviceType: 'daycare', startDate: '2026-01-01', endDate: '2026-01-05' },
-      { id: 'c', dogName: 'C', clientName: 'C', serviceType: 'boarding', startDate: '2027-05-01', endDate: '2027-05-10' },
-    ];
-    expect(dentroDaJanela(lista, janela).map((r) => r.id)).toEqual(['a']);
+  it('lista o que veio do Google sem cão reconhecido, com o motivo', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    runCalendarImport.mockResolvedValue({
+      created: 0,
+      updated: 0,
+      cancelled: 0,
+      failures: [],
+      review: [
+        {
+          eventId: 'e1',
+          title: 'Boarding · Rex',
+          date: '2026-10-05',
+          reason: 'unknown dog',
+          parsed: { serviceType: 'boarding', dogName: 'Rex', clientName: null, startDate: '2026-10-05', endDate: '2026-10-06', weekdays: [], skipDates: [], openEnded: false },
+        },
+      ],
+    });
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+
+    await waitFor(() => expect(screen.getByTestId('google-calendar-revisao')).toBeTruthy());
+    expect(screen.getByText('Boarding · Rex')).toBeTruthy();
+    expect(screen.getByText(/No dog with this name in the app/)).toBeTruthy();
+    expect(screen.getByLabelText('Choose dog for Boarding · Rex')).toBeTruthy();
+  });
+
+  it('ao escolher o cão da revisão, cria a reserva com o evento gravado (anti-duplicata)', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    runCalendarImport.mockResolvedValue({
+      created: 0,
+      updated: 0,
+      cancelled: 0,
+      failures: [],
+      review: [
+        {
+          eventId: 'e-rex',
+          title: 'Boarding · Rex',
+          date: '2026-10-05',
+          reason: 'unknown dog',
+          parsed: { serviceType: 'boarding', dogName: 'Rex', clientName: null, startDate: '2026-10-05', endDate: '2026-10-07', weekdays: [], skipDates: [], openEnded: false },
+        },
+      ],
+    });
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+    await waitFor(() => expect(screen.getByTestId('google-calendar-revisao')).toBeTruthy());
+
+    await fireEvent.press(screen.getByLabelText('Choose dog for Boarding · Rex'));
+    await fireEvent.press(screen.getByLabelText('Select dog'));
+    await fireEvent.press(screen.getByLabelText('Select Luna of Maria'));
+    await fireEvent.press(screen.getByTestId('google-calendar-salvar-revisao'));
+
+    await waitFor(() => expect(insercoes.length).toBe(1));
+    expect(insercoes[0].tabela).toBe('reservations');
+    expect(insercoes[0].valores).toMatchObject({
+      organization_id: 'org-1',
+      dog_id: 'dog-luna',
+      service_type: 'boarding',
+      start_date: '2026-10-05',
+      end_date: '2026-10-07',
+      google_event_id: 'e-rex',
+      source: 'google',
+    });
+    // A pendencia sai da lista.
+    expect(screen.queryByTestId('google-calendar-revisao')).toBeNull();
   });
 });

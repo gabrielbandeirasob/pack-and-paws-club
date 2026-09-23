@@ -10,14 +10,15 @@ import { buildDay, isSkipped, type DayItem, type DogRef, type RecurringException
 import { addMonthsISO, monthLabel, monthMatrixISO, summarizeRange, weekDatesISO } from '@/features/calendar/gridMath';
 import { NewReservationForm, type NewReservationPayload } from '@/features/calendar/NewReservationForm';
 import { CalendarConnectionCard } from '@/features/integrations/google/CalendarConnectionCard';
+import type { BookingForImport } from '@/features/integrations/google/importPlan';
 import { toLocalReservations } from '@/features/integrations/google/localReservations';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
 type ViewMode = 'day' | 'week' | 'month';
 
-type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; dog: { id: string; name: string; client: { name: string } } };
-type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; transport_required: boolean; dog: { id: string; name: string; client: { name: string } } };
+type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; google_event_id: string | null; source: 'app' | 'google' | null; dog: { id: string; name: string; client: { name: string } } };
+type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; transport_required: boolean; google_event_id: string | null; source: 'app' | 'google' | null; dog: { id: string; name: string; client: { name: string } } };
 type ExceptionRow = { id: string; recurring_schedule_id: string; action: 'skip' | 'transport_on' | 'transport_off'; start_date: string; end_date: string; reason: string | null };
 type DogRow = { id: string; name: string; client: { name: string } };
 
@@ -51,8 +52,8 @@ export default function CalendarScreen() {
     setOrganizationId(orgId);
     if (!orgId) { setLoading(false); return; }
     const [reservationResult, recurringResult, exceptionResult, dogResult] = await Promise.all([
-      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'confirmed'),
-      supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
+      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'confirmed'),
+      supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', orgId),
       supabase.from('dogs').select('id, name, client:clients(name)').eq('organization_id', orgId).eq('active', true),
     ]);
@@ -65,6 +66,9 @@ export default function CalendarScreen() {
       startDate: row.start_date,
       endDate: row.end_date,
       transportRequired: row.transport_required,
+      // Vínculo com o Google (importação): a agenda precisa saber que esta reserva já tem evento lá.
+      googleEventId: row.google_event_id ?? null,
+      source: row.source ?? 'app',
     })));
     setRecurring(((recurringResult.data as unknown as RecurringRow[]) ?? []).map((row) => ({
       id: row.id,
@@ -74,6 +78,8 @@ export default function CalendarScreen() {
       endDate: row.end_date,
       active: row.active,
       transportRequired: row.transport_required,
+      googleEventId: row.google_event_id ?? null,
+      source: row.source ?? 'app',
     })));
     setExceptions(((exceptionResult.data as unknown as ExceptionRow[]) ?? []).map((row) => ({
       id: row.id,
@@ -101,6 +107,44 @@ export default function CalendarScreen() {
   const reservasParaEspelhar = useMemo(
     () => toLocalReservations(reservations, recurring, exceptions, { horizonteISO: addDaysISO(todayLocalISO(), 180) }),
     [reservations, recurring, exceptions],
+  );
+
+  /**
+   * O que a IMPORTACAO (Google → app) precisa saber: os cães do cadastro (para casar o nome do
+   * título) e o que já existe com quem já está ligado a um evento (para não duplicar).
+   */
+  const casosDaImportacao = useMemo<BookingForImport[]>(
+    () => [
+      ...reservations.map((reserva) => ({
+        id: reserva.id,
+        kind: 'reservation' as const,
+        dogId: reserva.dog.id,
+        googleEventId: reserva.googleEventId ?? null,
+        source: (reserva.source ?? 'app') as 'app' | 'google',
+        serviceType: reserva.serviceType,
+        startDate: reserva.startDate,
+        endDate: reserva.endDate,
+        weekdays: null,
+        skipDates: null,
+        status: 'confirmed',
+      })),
+      ...recurring
+        .filter((serie) => serie.active)
+        .map((serie) => ({
+          id: serie.id,
+          kind: 'recurring' as const,
+          dogId: serie.dog.id,
+          googleEventId: serie.googleEventId ?? null,
+          source: (serie.source ?? 'app') as 'app' | 'google',
+          serviceType: 'daycare' as const,
+          startDate: serie.startDate,
+          endDate: serie.endDate,
+          weekdays: serie.weekdays,
+          skipDates: null,
+          status: 'active',
+        })),
+    ],
+    [reservations, recurring],
   );
 
   const grid = useMemo(() => {
@@ -347,7 +391,13 @@ export default function CalendarScreen() {
               </View>
             ) : null}
 
-            <CalendarConnectionCard reservations={reservasParaEspelhar} />
+            <CalendarConnectionCard
+              reservations={reservasParaEspelhar}
+              organizationId={organizationId ?? ''}
+              dogs={dogs.map((cao) => ({ id: cao.id, name: cao.dogName, clientName: cao.clientName }))}
+              bookings={casosDaImportacao}
+              onImported={() => void load({ silent: true })}
+            />
           </ScrollView>
         )}
       </View>

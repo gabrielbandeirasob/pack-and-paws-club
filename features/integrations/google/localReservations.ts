@@ -72,6 +72,10 @@ export function toLocalReservations(
     serviceType: reserva.serviceType,
     startDate: reserva.startDate,
     endDate: reserva.endDate,
+    // Vínculo com o Google (reserva importada): sem isso o espelho criaria um evento NOVO para uma
+    // reserva que já tem evento — evento duplicado no calendário do cliente.
+    googleEventId: reserva.googleEventId ?? null,
+    source: reserva.source ?? 'app',
   }));
 
   const series: LocalReservation[] = recurring
@@ -85,6 +89,8 @@ export function toLocalReservations(
       endDate: schedule.endDate ?? undefined,
       weekdays: [...schedule.weekdays].sort((a, b) => a - b),
       skipDates: diasPausados(schedule, exceptions, horizonte),
+      googleEventId: schedule.googleEventId ?? null,
+      source: schedule.source ?? 'app',
     }));
 
   return [...avulsas, ...series];

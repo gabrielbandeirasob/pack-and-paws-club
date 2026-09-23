@@ -7,6 +7,10 @@ export type ReservationRecord = {
   startDate: string;
   endDate: string;
   transportRequired: boolean;
+  /** Evento do Google que originou a reserva (reserva importada) — ver migration 025. */
+  googleEventId?: string | null;
+  /** 'google' = nasceu no Google Calendar (lá manda); 'app' = nasceu no aplicativo. */
+  source?: 'app' | 'google' | null;
 };
 
 export type RecurringScheduleRecord = {
@@ -17,6 +21,10 @@ export type RecurringScheduleRecord = {
   endDate: string | null;
   active: boolean;
   transportRequired: boolean;
+  /** Evento do Google que originou a série (importada) — ver migration 025. */
+  googleEventId?: string | null;
+  /** 'google' = nasceu no Google Calendar (lá manda); 'app' = nasceu no aplicativo. */
+  source?: 'app' | 'google' | null;
 };
 
 export type RecurringExceptionAction = 'skip' | 'transport_on' | 'transport_off';

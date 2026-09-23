@@ -87,6 +87,31 @@ export async function listEvents(
   return (payload.items ?? []).map(parseEvent);
 }
 
+/**
+ * TODOS os eventos da janela — inclusive os que o escritório digitou à mão no Google Calendar.
+ *
+ * Por que existe separado de `listEvents`: aquela filtra pela marca do app
+ * (`privateExtendedProperty=packpawsMirror=v1`), ou seja, só enxerga o nosso espelho. Para trazer
+ * para o app as datas marcadas direto no Google (pedido do dono, 23/09/2026) é preciso listar sem
+ * esse filtro. Quem separa "nosso" de "do cliente" é a importação, pelo campo `appKey`.
+ *
+ * `singleEvents=false` mantém as séries como UM evento (com RRULE), que é o formato que o app
+ * entende; expandir a série viraria dezenas de eventos soltos.
+ */
+export async function listAllEvents(
+  accessToken: string,
+  range: { timeMin: string; timeMax: string },
+  doFetch: CalendarFetch,
+): Promise<RemoteEvent[]> {
+  const url =
+    `${CALENDAR_API}/calendars/${PRIMARY_CALENDAR}/events` +
+    `?singleEvents=false&maxResults=2500&showDeleted=false` +
+    `&timeMin=${encodeURIComponent(range.timeMin)}&timeMax=${encodeURIComponent(range.timeMax)}`;
+  const response = await doFetch(url, { method: 'GET', headers: authHeaders(accessToken) });
+  const payload = await handle<{ items?: GoogleEventResource[] }>(response, 'listar todos os eventos');
+  return (payload.items ?? []).map(parseEvent);
+}
+
 export async function createEvent(accessToken: string, event: GoogleEventInput, doFetch: CalendarFetch): Promise<string> {
   const response = await doFetch(`${CALENDAR_API}/calendars/${PRIMARY_CALENDAR}/events`, {
     method: 'POST',

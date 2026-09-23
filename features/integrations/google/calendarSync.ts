@@ -24,7 +24,16 @@ export const APP_KEY_PROPERTY = 'appKey';
 export const MIRROR_MARKER_PROPERTY = 'packpawsMirror';
 export const MIRROR_MARKER_VALUE = 'v1';
 
-export type LocalReservation = ReservationForSync & { id: string };
+export type LocalReservation = ReservationForSync & {
+  id: string;
+  /**
+   * Evento do Google que originou esta reserva (reserva importada do Google ou ligada à mão pelo
+   * gestor). Presente = NÃO criar evento novo; o espelho atualiza ESTE (e adota com a marca do app).
+   */
+  googleEventId?: string | null;
+  /** 'google' = nasceu no Google Calendar (lá manda); 'app' = nasceu no aplicativo. */
+  source?: 'app' | 'google' | null;
+};
 
 export type RemoteEvent = {
   id: string;
@@ -80,7 +89,9 @@ export function eventsEqual(desired: GoogleEventInput, remote: RemoteEvent): boo
  */
 export function planCalendarSync(local: LocalReservation[], remote: RemoteEvent[]): SyncAction[] {
   const byKey = new Map<string, RemoteEvent>();
+  const byId = new Map<string, RemoteEvent>();
   for (const event of remote) {
+    byId.set(event.id, event);
     if (event.appKey) byKey.set(event.appKey, event);
   }
 
@@ -91,8 +102,13 @@ export function planCalendarSync(local: LocalReservation[], remote: RemoteEvent[
     const key = appKeyOf(reservation);
     seen.add(key);
     const desired = eventFor(reservation);
-    const existing = byKey.get(key);
+    // Reserva ligada a um evento do Google: o espelho cuida DESSE evento (nada de criar um segundo).
+    const existing = byKey.get(key) ?? (reservation.googleEventId ? byId.get(reservation.googleEventId) ?? null : null);
     if (!existing) {
+      if (reservation.googleEventId && reservation.source === 'google') {
+        // Evento do Google apagado (o cliente desmarcou): quem cancela a reserva é a importação.
+        continue;
+      }
       actions.push({ type: 'create', reservationId: reservation.id, event: desired });
     } else if (!eventsEqual(desired, existing)) {
       actions.push({ type: 'update', reservationId: reservation.id, eventId: existing.id, event: desired });
