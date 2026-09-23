@@ -70,9 +70,16 @@ describe('edição de cliente', () => {
   });
 
   it('monta o payload do cachorro com campos vazios em null', () => {
-    const payload = dogUpdatePayload({ name: 'Luna', breed: ' ', behavior_notes: 'Medroso', medical_notes: null });
-    expect(payload).toEqual({ name: 'Luna', breed: null, behavior_notes: 'Medroso', medical_notes: null });
-    expect(() => dogUpdatePayload({ name: '', breed: null, behavior_notes: null, medical_notes: null })).toThrow();
+    const payload = dogUpdatePayload({ name: 'Luna', breed: ' ', behavior_notes: 'Medroso', medical_notes: null, photo_url: null });
+    expect(payload).toEqual({ name: 'Luna', breed: null, behavior_notes: 'Medroso', medical_notes: null, photo_url: null });
+    expect(() => dogUpdatePayload({ name: '', breed: null, behavior_notes: null, medical_notes: null, photo_url: null })).toThrow();
+  });
+
+  it('guarda a foto do cao escolhida no aparelho (e limpa com o campo vazio)', () => {
+    const comFoto = dogUpdatePayload({ name: 'Luna', breed: null, behavior_notes: null, medical_notes: null, photo_url: 'file:///var/mobile/foto.jpg' });
+    expect(comFoto.photo_url).toBe('file:///var/mobile/foto.jpg');
+    const semFoto = dogUpdatePayload({ name: 'Luna', breed: null, behavior_notes: null, medical_notes: null, photo_url: '  ' });
+    expect(semFoto.photo_url).toBeNull();
   });
 
   it('quebra a lista de nomes de cachorros e ignora vazios', () => {

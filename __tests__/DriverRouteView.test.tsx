@@ -30,6 +30,19 @@ describe('DriverRouteView', () => {
     expect(screen.getByText('Dog picked up')).toBeTruthy();
   });
 
+  it('mostra a foto do cao do cadastro na parada (e nada quando o cao nao tem foto)', async () => {
+    // A foto do cadastro e o que confirma na porta que e o cachorro certo. Sem foto, nao
+    // pode aparecer imagem quebrada.
+    const comFoto: DriverStop[] = [
+      { ...stops[0], dogPhotoUrl: 'https://bhuexxjcrjdhkmsvagdw.supabase.co/storage/v1/object/public/dog-photos/org-1/dog-1/bob.jpg' },
+    ];
+    const comImagem = await render(<DriverRouteView stops={comFoto} onAction={jest.fn()} />);
+    expect(comImagem.getByLabelText('Photo of Bob')).toBeTruthy();
+
+    const semImagem = await render(<DriverRouteView stops={[stops[1]]} onAction={jest.fn()} />);
+    expect(semImagem.queryByLabelText('Photo of Luna')).toBeNull();
+  });
+
   it('numera as paradas pela posicao, mesmo se o banco trouxer sequence 0', async () => {
     // Visto no teste na web: a tela mostrava "0. Maria Silva" porque o sequence vinha 0
     // (o painel do Dispatch numerava 1, 2 — a tela do motorista usava o campo cru).

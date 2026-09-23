@@ -37,6 +37,12 @@ export type DogFormValues = {
   breed: string | null;
   behavior_notes: string | null;
   medical_notes: string | null;
+  /**
+   * Foto do cao. Enquanto o gestor nao salva, pode ser o caminho LOCAL do aparelho
+   * (file://...); no banco, e sempre a URL publica do bucket dog-photos
+   * (ver features/dogs/dogPhoto.ts).
+   */
+  photo_url: string | null;
 };
 
 export type ClientUpdatePayload = ClientFormValues & {
@@ -100,7 +106,60 @@ export function dogUpdatePayload(values: DogFormValues): DogFormValues {
     breed: normalizeText(values.breed),
     behavior_notes: normalizeText(values.behavior_notes),
     medical_notes: normalizeText(values.medical_notes),
+    photo_url: normalizeText(values.photo_url),
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * FOTO DO CAO E SALVAMENTO DOS CAES
+ *
+ * O cadastro do cao nao tinha foto em lugar nenhum do app (o campo
+ * `dogs.photo_url` existia no banco desde o schema inicial e nenhuma tela
+ * escrevia nele). O plano abaixo e puro de proposito: decidir o que
+ * atualizar, o que inserir e o que apagar e o que o teste trava.
+ * ------------------------------------------------------------------ */
+
+export type DogSavePlan = {
+  /** ids de caes deste cliente que saem do cadastro (e cuja foto sai junto) */
+  idsToDelete: string[];
+  /** caes mantidos: o que gravar em cada um (inclusive foto nova / foto removida) */
+  updates: { id: string; values: DogFormValues }[];
+  /** caes novos de verdade: sem repetir nome dos que ja existem nem entre si */
+  inserts: DogFormValues[];
+};
+
+/**
+ * Plano do salvamento dos caes de um cliente.
+ *
+ * Regras:
+ *  - so apaga cao que e DESTE cliente (dogRemovalPlan);
+ *  - cao mantido sem nome valido continua sendo erro (nao se apaga cadastro por engano);
+ *  - cao novo sem nome e ignorado (o gestor pode ter adicionado o cartao e desistido);
+ *  - cao novo com nome que o cliente ja tem NAO e inserido de novo (era assim que o
+ *    cadastro ganhava "Luna" duas vezes).
+ */
+export function dogSavePlan(
+  existing: { id: string; name: string }[],
+  rows: ({ id: string } & DogFormValues)[],
+  removedIds: string[],
+  newDogs: DogFormValues[],
+): DogSavePlan {
+  const { idsToDelete } = dogRemovalPlan(existing, removedIds);
+  const mantidos = rows.filter((dog) => !idsToDelete.includes(dog.id));
+  const updates = mantidos.map((dog) => ({ id: dog.id, values: dogUpdatePayload(dog) }));
+
+  const conhecidos = new Set(updates.map((item) => normalizeForSearch(item.values.name)));
+  const inserts: DogFormValues[] = [];
+  for (const novo of newDogs) {
+    if (!normalizeText(novo.name)) continue;
+    const values = dogUpdatePayload(novo);
+    const chave = normalizeForSearch(values.name);
+    if (conhecidos.has(chave)) continue;
+    conhecidos.add(chave);
+    inserts.push(values);
+  }
+
+  return { idsToDelete, updates, inserts };
 }
 
 /** Nomes de cao limpos: sem vazios e sem repeticao (ignora maiusculas e acentos). */
@@ -453,7 +512,7 @@ export type ClientSnapshot = {
     active?: boolean;
     source_contact_identifier?: string | null;
   };
-  dogs: { id: string; name: string; breed?: string | null; behavior_notes?: string | null; medical_notes?: string | null }[];
+  dogs: { id: string; name: string; breed?: string | null; behavior_notes?: string | null; medical_notes?: string | null; photo_url?: string | null }[];
   instructions: { id: string; text: string | null } | null;
 };
 
@@ -497,6 +556,7 @@ export function clientRestoreRows(snapshot: ClientSnapshot): ClientRestoreRows {
       breed: dog.breed ?? null,
       behavior_notes: dog.behavior_notes ?? null,
       medical_notes: dog.medical_notes ?? null,
+      photo_url: dog.photo_url ?? null,
     })),
     instruction: snapshot.instructions
       ? { id: snapshot.instructions.id, organization_id: organizationId, client_id: client.id, pickup_access_instructions: snapshot.instructions.text }

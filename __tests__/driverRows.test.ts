@@ -11,6 +11,7 @@ const fullRow: DriverStopRow = {
     name: 'Marcejamba',
     behavior_notes: 'Foge com barulho de caminhão',
     medical_notes: 'Alergia a frango',
+    photo_url: 'https://bhuexxjcrjdhkmsvagdw.supabase.co/storage/v1/object/public/dog-photos/org-1/dog-1/marcejamba.jpg',
     client: {
       name: 'Raphael Stefan',
       address_line_1: 'Pier 39',
@@ -33,6 +34,7 @@ describe('rowToStop', () => {
     // Notas de seguranca do cao: o motorista PRECISA ver (antes nao chegavam na tela).
     expect(stop.behaviorNotes).toBe('Foge com barulho de caminhão');
     expect(stop.medicalNotes).toBe('Alergia a frango');
+    expect(stop.dogPhotoUrl).toContain('/dog-photos/org-1/dog-1/marcejamba.jpg');
     expect(stop.instructions).toBe('Gate code 4321');
     expect(stop.latitude).toBe(37.8087);
     expect(stop.windowEnd).toBe('08:15'); // seconds trimmed for display
@@ -47,6 +49,8 @@ describe('rowToStop', () => {
     expect(stop.address).toBeNull();
     expect(stop.latitude).toBeNull();
     expect(stop.instructions).toBeNull();
+    // sem o embed do cao (RLS) nao ha foto — a tela nao pode quebrar por isso
+    expect(stop.dogPhotoUrl).toBeNull();
   });
 
   it('does not crash when the client embed is hidden', () => {

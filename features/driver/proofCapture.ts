@@ -1,6 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { EncodingType, readAsStringAsync } from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
+
+import { contentTypeFor, extensionFor, readImageBytes } from '@/features/media/imageFile';
+
+/**
+ * As regras de ARQUIVO de imagem (extensao, MIME, base64 -> bytes) moram em
+ * features/media/imageFile.ts: a foto do cao no cadastro usa exatamente as mesmas.
+ * Reexportadas aqui para nao quebrar quem ja importava deste modulo.
+ */
+export { base64ToBytes, contentTypeFor, extensionFor, isUsablePhoto } from '@/features/media/imageFile';
 
 /**
  * Comprovante de entrega (foto no embarque e na entrega).
@@ -44,21 +52,6 @@ export function proofColumn(kind: ProofKind, what: 'path' | 'at'): string {
   return `${kind}_proof_${what}`;
 }
 
-export function extensionFor(uri: string): string {
-  const match = /\.(jpe?g|png|heic|webp)$/i.exec(uri.split('?')[0] ?? '');
-  if (!match) return 'jpg';
-  const ext = match[1].toLowerCase();
-  return ext === 'jpeg' ? 'jpg' : ext;
-}
-
-export function contentTypeFor(extension: string): string {
-  const ext = extension.toLowerCase();
-  if (ext === 'png') return 'image/png';
-  if (ext === 'heic') return 'image/heic';
-  if (ext === 'webp') return 'image/webp';
-  return 'image/jpeg';
-}
-
 /** Caminho no bucket. Primeira pasta = organização (é o que a política de storage lê). */
 export function proofPath(
   organizationId: string,
@@ -71,40 +64,9 @@ export function proofPath(
   return `${organizationId}/${stopId}/${kind}-${stamp}.${extensionFor(uri)}`;
 }
 
-/**
- * Decodifica base64 para bytes. Escrito à mão (não usa atob) para funcionar igual no aparelho
- * e no teste, e para o erro de foto corrompida ser tratado em vez de estourar.
- */
-export function base64ToBytes(base64: string): Uint8Array {
-  const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  const limpo = base64.replace(/^data:[^;]+;base64,/, '').replace(/[\r\n\s]/g, '');
-  const bytes: number[] = [];
-  let buffer = 0;
-  let bits = 0;
-  for (const character of limpo) {
-    if (character === '=') break;
-    const value = ALPHABET.indexOf(character);
-    if (value === -1) throw new Error('Invalid base64 image data.');
-    buffer = (buffer << 6) | value;
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      bytes.push((buffer >> bits) & 0xff);
-    }
-  }
-  return Uint8Array.from(bytes);
-}
-
-export function isUsablePhoto(bytes: Uint8Array): boolean {
-  return bytes.length > 1024; // abaixo disso é arquivo vazio/truncado
-}
-
-/** Lê o arquivo local e devolve os bytes da imagem. */
+/** Le o arquivo local e devolve os bytes da imagem (mesma regra da foto do cao). */
 export async function readProofBytes(localUri: string): Promise<Uint8Array> {
-  const base64 = await readAsStringAsync(localUri, { encoding: EncodingType.Base64 });
-  const bytes = base64ToBytes(base64);
-  if (!isUsablePhoto(bytes)) throw new Error('The photo came out empty. Please take it again.');
-  return bytes;
+  return readImageBytes(localUri);
 }
 
 /** Sobe a foto e devolve o caminho gravado. Lança em caso de falha (quem chama decide). */

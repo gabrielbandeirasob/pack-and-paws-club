@@ -19,6 +19,8 @@ export type DriverStopRow = {
         name: string | null;
         behavior_notes: string | null;
         medical_notes: string | null;
+        /** Foto do cão (bucket público dog-photos, migration 023) — é como o motorista reconhece o cão na porta. */
+        photo_url?: string | null;
         client:
           | {
               name: string | null;
@@ -60,6 +62,7 @@ export function rowToStop(row: DriverStopRow): DriverStop {
     instructions: client?.client_instructions?.pickup_access_instructions ?? null,
     behaviorNotes: dog?.behavior_notes ?? null,
     medicalNotes: dog?.medical_notes ?? null,
+    dogPhotoUrl: dog?.photo_url ?? null,
     latitude: client?.latitude ?? null,
     longitude: client?.longitude ?? null,
     windowEnd: row.window_end ? row.window_end.slice(0, 5) : null,

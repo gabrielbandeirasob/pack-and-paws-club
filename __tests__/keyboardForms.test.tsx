@@ -30,8 +30,8 @@ const cliente: EditableClient = {
 };
 
 const caes: EditableDog[] = [
-  { id: 'dog-1', name: 'Filó', breed: 'Poodle', behavior_notes: '', medical_notes: '' },
-  { id: 'dog-2', name: 'Melanie', breed: '', behavior_notes: '', medical_notes: '' },
+  { id: 'dog-1', name: 'Filó', breed: 'Poodle', behavior_notes: '', medical_notes: '', photo_url: null },
+  { id: 'dog-2', name: 'Melanie', breed: '', behavior_notes: '', medical_notes: '', photo_url: null },
 ];
 
 describe('teclado nos formularios', () => {

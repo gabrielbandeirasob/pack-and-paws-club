@@ -1,19 +1,24 @@
 /**
  * Formulario de EDICAO do cliente (nome, telefone, endereco completo, notas,
- * instrucoes de acesso) e dos cachorros (nome, raca, comportamento, saude).
+ * instrucoes de acesso) e dos cachorros (FOTO, nome, raca, comportamento, saude).
  *
  * O app so tinha "Add from Contacts": um endereco errado ficava errado para sempre,
  * e sem endereco certo a rota/navegacao nao funciona. Esta tela resolve isso.
  *
  * Agora tambem: acoes rapidas (ligar / mensagem / rota), tirar um cao do cadastro
  * e EXCLUIR o cliente — com o aviso do que vai junto (ver clientDeletePlan).
+ *
+ * FOTO DO CAO (23/09/2026): a creche identifica o cao pela foto na porta do cliente.
+ * Cada cao tem foto (tirar agora ou escolher da galeria); "Add dogs" agora cria um
+ * CARTAO por nome digitado, para o gestor poder anexar a foto antes mesmo de salvar.
  */
-import { useState } from 'react';
-import { Alert, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { useRef, useState } from 'react';
+import { Alert, Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import {
   clientDeletePlan,
   dogRemovalMessage,
+  normalizeForSearch,
   splitContactName,
   splitDogNames,
   type ClientFormValues,
@@ -27,6 +32,7 @@ import {
   phoneUrl,
   smsUrl,
 } from '@/features/clients/contactActions';
+import { dogPhotoError, isLocalPhoto, pickDogPhoto, type DogPhotoChoice } from '@/features/dogs/dogPhoto';
 import { navigationOptions } from '@/features/maps/links';
 import { loadPreferredNavApp } from '@/features/maps/preferences';
 import { navigationUrlFor } from '@/features/maps/navigation';
@@ -34,11 +40,14 @@ import { colors, radii } from '@/features/theme/tokens';
 
 export type EditableDog = DogFormValues & { id: string };
 
+/** Cao recem-adicionado na tela: ainda nao existe no banco (key = identidade local). */
+type NovoDog = DogFormValues & { key: string };
+
 export type ClientSavePayload = {
   client: ClientFormValues;
   instructions: string | null;
   dogs: EditableDog[];
-  newDogs: string[];
+  newDogs: DogFormValues[];
   /** ids de cachorros tirados do cadastro nesta edicao (apagados ao salvar) */
   removedDogIds: string[];
   active: boolean;
@@ -95,6 +104,91 @@ function Field({ label, value, onChangeText, ...rest }: { label: string; value: 
   );
 }
 
+/** Erro de foto na tela: o gestor precisa saber o que fazer, nao o texto cru do sistema. */
+async function escolherFotoDaGaleria(choice: DogPhotoChoice): Promise<string | null> {
+  try {
+    return await pickDogPhoto(choice);
+  } catch (reason) {
+    Alert.alert('Photo not attached', dogPhotoError(reason));
+    return null;
+  }
+}
+
+type DogCardProps = {
+  name: string;
+  photo: string | null;
+  values: DogFormValues;
+  /** cao marcado para sair do cadastro (mas ainda pode voltar antes de salvar) */
+  removed?: boolean;
+  /** cao novo, ainda nao salvo: sai da lista sem aviso */
+  isNew?: boolean;
+  editable?: boolean;
+  onChange: (key: keyof DogFormValues, text: string) => void;
+  onPhoto: (uri: string | null) => void;
+  onRemove: () => void;
+};
+
+function DogCard({ name, photo, values, removed, isNew, editable = true, onChange, onPhoto, onRemove }: DogCardProps) {
+  const apelido = name || 'dog';
+  const podeEditar = editable && !removed;
+
+  const escolher = () => {
+    Alert.alert(
+      photo ? `Change ${apelido}'s photo` : `Add ${apelido}'s photo`,
+      'The photo is how the driver recognizes the dog at the door.',
+      [
+        { text: 'Take photo', onPress: () => void escolherFotoDaGaleria('camera').then((uri) => uri && onPhoto(uri)) },
+        { text: 'Choose from library', onPress: () => void escolherFotoDaGaleria('library').then((uri) => uri && onPhoto(uri)) },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    );
+  };
+
+  return (
+    <View style={[styles.dogCard, removed && styles.dogCardRemoved]}>
+      <View style={styles.dogHeader}>
+        <Text style={styles.dogTitle}>
+          {name || 'Dog'}
+          {isNew ? '  · NEW' : ''}
+          {removed ? ' — will be removed' : ''}
+        </Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={removed ? `Keep ${name}` : `Remove ${name}`} onPress={onRemove} hitSlop={8} style={styles.dogAction}>
+          <Text style={removed ? styles.dogUndo : styles.dogRemove}>{removed ? 'Keep' : isNew ? '✕ Discard' : '✕ Remove'}</Text>
+        </Pressable>
+      </View>
+
+      {/* Foto: miniatura + botao. Sem foto, um espaco com o icone do cao (nao some a opcao). */}
+      <View style={styles.photoRow}>
+        {photo ? (
+          <Image source={{ uri: photo }} style={styles.photo} accessibilityLabel={`Photo of ${apelido}`} />
+        ) : (
+          <View style={[styles.photo, styles.photoEmpty]}>
+            <Text style={styles.photoEmptyIcon}>🐕</Text>
+          </View>
+        )}
+        <View style={styles.photoActions}>
+          <Pressable accessibilityRole="button" accessibilityLabel={photo ? `Change photo for ${name}` : `Add photo for ${name}`} onPress={escolher} style={({ pressed }) => [styles.photoButton, pressed && styles.pressed]}>
+            <Text style={styles.photoButtonText}>{photo ? 'Change photo' : 'Add photo'}</Text>
+          </Pressable>
+          {photo ? (
+            <Pressable accessibilityRole="button" accessibilityLabel={`Remove photo of ${name}`} onPress={() => onPhoto(null)} hitSlop={6}>
+              <Text style={styles.photoRemoveText}>Remove photo</Text>
+            </Pressable>
+          ) : null}
+          {photo && isLocalPhoto(photo) ? (
+            <Text style={styles.photoHint}>New photo — uploaded when you save the client.</Text>
+          ) : null}
+        </View>
+      </View>
+
+      <Field label="Dog name" value={values.name} onChangeText={(t) => onChange('name', t)} autoCapitalize="words" editable={podeEditar} />
+      <Field label="Breed" value={(values.breed ?? '') as string} onChangeText={(t) => onChange('breed', t)} autoCapitalize="words" editable={podeEditar} />
+      <Field label="Behavior notes" value={(values.behavior_notes ?? '') as string} onChangeText={(t) => onChange('behavior_notes', t)} multiline editable={podeEditar} />
+      <Field label="Medical notes" value={(values.medical_notes ?? '') as string} onChangeText={(t) => onChange('medical_notes', t)} multiline editable={podeEditar} />
+    </View>
+  );
+}
+
 export function EditClientForm({ current, dogs, instructions, active, impact, saving, deleting, error, onSave, onDelete, onCancel }: Props) {
   const [form, setForm] = useState<ClientFormValues>({
     name: current.name ?? '',
@@ -108,14 +202,22 @@ export function EditClientForm({ current, dogs, instructions, active, impact, sa
     special_scheduling_instructions: current.special_scheduling_instructions ?? '',
   } as unknown as ClientFormValues);
   const [access, setAccess] = useState(instructions ?? '');
-  const [dogRows, setDogRows] = useState<EditableDog[]>(dogs);
+  const [dogRows, setDogRows] = useState<EditableDog[]>(
+    dogs.map((dog) => ({ ...dog, photo_url: dog.photo_url ?? null })),
+  );
+  const [novoRows, setNovoRows] = useState<NovoDog[]>([]);
+  const [novoNome, setNovoNome] = useState('');
   const [removedDogIds, setRemovedDogIds] = useState<string[]>([]);
-  const [newDogs, setNewDogs] = useState('');
   const [isActive, setIsActive] = useState(active);
+  /** contador de identidade local dos cartoes novos (nao vai para o banco) */
+  const proximoNovo = useRef(1);
 
   const set = (key: keyof ClientFormValues) => (text: string) => setForm((prev) => ({ ...prev, [key]: text }));
+
   const setDog = (id: string, key: keyof DogFormValues) => (text: string) =>
     setDogRows((prev) => prev.map((dog) => (dog.id === id ? { ...dog, [key]: text } : dog)));
+  const setNovo = (key: string, campo: keyof DogFormValues) => (text: string) =>
+    setNovoRows((prev) => prev.map((dog) => (dog.key === key ? { ...dog, [campo]: text } : dog)));
 
   const toggleDogRemoval = (dog: EditableDog) => {
     if (removedDogIds.includes(dog.id)) {
@@ -132,16 +234,37 @@ export function EditClientForm({ current, dogs, instructions, active, impact, sa
     );
   };
 
+  /**
+   * Nomes digitados num campo so ("Luna, Thor") viram CARTOES na lista — assim cada cao
+   * novo ja pode receber foto, raca e notas ANTES de salvar (antes o nome ia direto para
+   * o banco e a foto so seria possivel abrindo o cliente de novo).
+   */
+  const adicionarNovos = () => {
+    const nomes = splitDogNames(novoNome);
+    if (nomes.length === 0) return;
+    const jaConhecidos = new Set(
+      [...dogRows, ...novoRows].map((dog) => normalizeForSearch(dog.name)).filter((nome) => nome.length > 0),
+    );
+    const cartoes: NovoDog[] = [];
+    for (const nome of nomes) {
+      const chave = normalizeForSearch(nome);
+      if (jaConhecidos.has(chave)) continue;
+      jaConhecidos.add(chave);
+      cartoes.push({ key: `novo-${proximoNovo.current++}`, name: nome, breed: '', behavior_notes: '', medical_notes: '', photo_url: null });
+    }
+    if (cartoes.length > 0) setNovoRows((prev) => [...prev, ...cartoes]);
+    setNovoNome('');
+  };
+
   // Nome que veio do contato com o cachorro colado: "Leigh Ann(Mowgli)".
   // O nome errado fica gravado, e a lista mistura pessoa e cao. Aqui o gestor
-  // conserta em um toque — sem apagar nada (o nome do cao vai para a lista de novos).
+  // conserta em um toque — sem apagar nada (o nome do cao vira um cartao novo).
   const nameHint = typeof form.name === 'string' ? splitContactName(form.name as unknown as string) : { clientName: '', dogHint: '' };
   const canCleanName = nameHint.dogHint.length > 0 && nameHint.clientName !== (form.name as unknown as string);
 
   const applyNameHint = () => {
     setForm((prev) => ({ ...prev, name: nameHint.clientName }));
-    const merged = splitDogNames(`${newDogs}, ${nameHint.dogHint}`);
-    setNewDogs(merged.join(', '));
+    setNovoNome((prev) => splitDogNames(`${prev}, ${nameHint.dogHint}`).join(', '));
   };
 
   const phone = form.phone as unknown as string;
@@ -149,6 +272,18 @@ export function EditClientForm({ current, dogs, instructions, active, impact, sa
   const textUrl = smsUrl(phone, clientMessageTemplate(form.name as unknown as string));
   const hasAddress = directionsTarget(current) !== null;
   const deletePlan = impact ? clientDeletePlan(impact) : null;
+
+  const salvar = () => {
+    // O cartao novo e "raso" (só o que o gestor digitou) e perde a identidade local do React.
+    const newDogs: DogFormValues[] = novoRows.map((row) => ({
+      name: row.name,
+      breed: row.breed,
+      behavior_notes: row.behavior_notes,
+      medical_notes: row.medical_notes,
+      photo_url: row.photo_url,
+    }));
+    onSave({ client: form, instructions: access, dogs: dogRows, newDogs, removedDogIds, active: isActive });
+  };
 
   return (
     // Sem o KeyboardAvoidingView o teclado TAPA os campos de baixo (os dados do cao ficam no
@@ -196,21 +331,45 @@ export function EditClientForm({ current, dogs, instructions, active, impact, sa
       {dogRows.map((dog) => {
         const removed = removedDogIds.includes(dog.id);
         return (
-          <View key={dog.id} style={[styles.dogCard, removed && styles.dogCardRemoved]}>
-            <View style={styles.dogHeader}>
-              <Text style={styles.dogTitle}>{dog.name || 'Dog'}{removed ? ' — will be removed' : ''}</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel={removed ? `Keep ${dog.name}` : `Remove ${dog.name}`} onPress={() => toggleDogRemoval(dog)} hitSlop={8} style={styles.dogAction}>
-                <Text style={removed ? styles.dogUndo : styles.dogRemove}>{removed ? 'Keep' : '✕ Remove'}</Text>
-              </Pressable>
-            </View>
-            <Field label="Dog name" value={dog.name} onChangeText={setDog(dog.id, 'name')} autoCapitalize="words" editable={!removed} />
-            <Field label="Breed" value={(dog.breed ?? '') as string} onChangeText={setDog(dog.id, 'breed')} autoCapitalize="words" editable={!removed} />
-            <Field label="Behavior notes" value={(dog.behavior_notes ?? '') as string} onChangeText={setDog(dog.id, 'behavior_notes')} multiline editable={!removed} />
-            <Field label="Medical notes" value={(dog.medical_notes ?? '') as string} onChangeText={setDog(dog.id, 'medical_notes')} multiline editable={!removed} />
-          </View>
+          <DogCard
+            key={dog.id}
+            name={dog.name}
+            photo={dog.photo_url}
+            values={dog}
+            removed={removed}
+            editable
+            onChange={(key, text) => setDog(dog.id, key)(text)}
+            onPhoto={(uri) => setDog(dog.id, 'photo_url')(uri ?? '')}
+            onRemove={() => toggleDogRemoval(dog)}
+          />
         );
       })}
-      <Field label="Add dogs (comma separated)" value={newDogs} onChangeText={setNewDogs} />
+
+      {novoRows.map((dog) => (
+        <DogCard
+          key={dog.key}
+          name={dog.name}
+          photo={dog.photo_url}
+          values={dog}
+          isNew
+          onChange={(key, text) => setNovo(dog.key, key)(text)}
+          onPhoto={(uri) => setNovo(dog.key, 'photo_url')(uri ?? '')}
+          onRemove={() => setNovoRows((prev) => prev.filter((item) => item.key !== dog.key))}
+        />
+      ))}
+
+      <Field
+        label="Add dogs (comma separated)"
+        value={novoNome}
+        onChangeText={setNovoNome}
+        autoCapitalize="words"
+        onSubmitEditing={adicionarNovos}
+        returnKeyType="done"
+      />
+      <Pressable accessibilityRole="button" accessibilityLabel="Add dogs to the list" onPress={adicionarNovos} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+        <Text style={styles.secondaryText}>Add to the list (photo, breed and notes)</Text>
+      </Pressable>
+      <Text style={styles.photoHint}>Two dogs? Separate with a comma — then attach each photo above and save.</Text>
 
       <View style={styles.switchRow}>
         <View style={styles.switchText}>
@@ -221,7 +380,7 @@ export function EditClientForm({ current, dogs, instructions, active, impact, sa
       </View>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Pressable accessibilityRole="button" accessibilityLabel="Save client" disabled={saving || deleting} onPress={() => onSave({ client: form, instructions: access, dogs: dogRows, newDogs: splitDogNames(newDogs), removedDogIds, active: isActive })} style={({ pressed }) => [styles.save, pressed && styles.pressed, (saving || deleting) && styles.disabled]}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Save client" disabled={saving || deleting} onPress={salvar} style={({ pressed }) => [styles.save, pressed && styles.pressed, (saving || deleting) && styles.disabled]}>
         <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save client'}</Text>
       </Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={onCancel} style={({ pressed }) => [styles.cancel, pressed && styles.pressed]}>
@@ -270,6 +429,15 @@ const styles = StyleSheet.create({
   dogAction: { paddingVertical: 2, paddingHorizontal: 2 },
   dogRemove: { color: colors.urgency, fontWeight: '900', fontSize: 12 },
   dogUndo: { color: colors.gold, fontWeight: '900', fontSize: 12 },
+  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
+  photo: { width: 68, height: 68, borderRadius: 14, backgroundColor: colors.sage },
+  photoEmpty: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.line, backgroundColor: colors.cream },
+  photoEmptyIcon: { fontSize: 26 },
+  photoActions: { flex: 1, gap: 6 },
+  photoButton: { backgroundColor: colors.forest700, borderRadius: 12, paddingVertical: 9, paddingHorizontal: 12, alignItems: 'center' },
+  photoButtonText: { color: 'white', fontWeight: '900', fontSize: 12 },
+  photoRemoveText: { color: colors.urgency, fontWeight: '800', fontSize: 12 },
+  photoHint: { color: colors.muted, fontSize: 11, lineHeight: 15, marginTop: 6 },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, gap: 14 },
   switchText: { flex: 1 },
   switchLabel: { color: colors.ink, fontWeight: '700', fontSize: 14 },

@@ -15,8 +15,7 @@ import {
   clientDeletePlan,
   clientRestoreRows,
   clientUpdatePayload,
-  dogRemovalPlan,
-  dogUpdatePayload,
+  dogSavePlan,
   firstInstruction,
   instructionWritePlan,
   normalizeText,
@@ -24,6 +23,14 @@ import {
   type ClientSnapshot,
   type EditableClient,
 } from '@/features/clients/clientsService';
+import {
+  deleteDogPhoto,
+  dogPhotoError,
+  dogPhotoPath,
+  dogPhotoPublicUrl,
+  isLocalPhoto,
+  uploadDogPhoto,
+} from '@/features/dogs/dogPhoto';
 import { colors } from '@/features/theme/tokens';
 import { fillClientCoordinates } from '@/features/maps/geocodeService';
 import { supabase } from '@/lib/supabase';
@@ -47,6 +54,23 @@ function hojeLocal(): string {
   return `${agora.getFullYear()}-${mes}-${dia}`;
 }
 
+/**
+ * Sobe a foto do cao quando o valor e um arquivo do APARELHO e devolve o que gravar na
+ * coluna `photo_url` (URL publica do bucket). Foto que ja esta no bucket passa direto, e
+ * `null` continua `null` — quem apaga o arquivo antigo e quem chama.
+ */
+async function resolverFotoDoCao(organizationId: string, dogId: string, valor: string | null | undefined): Promise<string | null> {
+  if (!isLocalPhoto(valor)) return valor ?? null;
+  const local = valor as string;
+  try {
+    const caminho = dogPhotoPath(organizationId, dogId, local);
+    await uploadDogPhoto(supabase, local, caminho);
+    return dogPhotoPublicUrl(supabase, caminho);
+  } catch (reason) {
+    throw new Error(dogPhotoError(reason));
+  }
+}
+
 export default function ClientEditScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -62,7 +86,7 @@ export default function ClientEditScreen() {
     setError(null);
     const { data, error: loadError } = await supabase
       .from('clients')
-      .select('id, organization_id, source_contact_identifier, name, phone, address_line_1, address_line_2, city, state, postal_code, notes, special_scheduling_instructions, latitude, longitude, active, dogs(id, name, breed, behavior_notes, medical_notes), client_instructions(id, pickup_access_instructions)')
+      .select('id, organization_id, source_contact_identifier, name, phone, address_line_1, address_line_2, city, state, postal_code, notes, special_scheduling_instructions, latitude, longitude, active, dogs(id, name, breed, behavior_notes, medical_notes, photo_url), client_instructions(id, pickup_access_instructions)')
       .eq('id', id)
       .single();
     if (loadError || !data) {
@@ -75,7 +99,7 @@ export default function ClientEditScreen() {
       organization_id: string;
       source_contact_identifier: string | null;
       active: boolean;
-      dogs: { id: string; name: string; breed: string | null; behavior_notes: string | null; medical_notes: string | null }[] | null;
+      dogs: { id: string; name: string; breed: string | null; behavior_notes: string | null; medical_notes: string | null; photo_url: string | null }[] | null;
       // a API devolve OBJETO (UNIQUE em client_id), nao lista
       client_instructions:
         | { id: string; pickup_access_instructions: string | null }
@@ -83,7 +107,7 @@ export default function ClientEditScreen() {
         | null;
     };
     const instruction = firstInstruction(row.client_instructions);
-    const dogs = (row.dogs ?? []).map((dog) => ({ id: dog.id, name: dog.name, breed: dog.breed, behavior_notes: dog.behavior_notes, medical_notes: dog.medical_notes }));
+    const dogs = (row.dogs ?? []).map((dog) => ({ id: dog.id, name: dog.name, breed: dog.breed, behavior_notes: dog.behavior_notes, medical_notes: dog.medical_notes, photo_url: dog.photo_url ?? null }));
 
     // Quanto existe ligado a este cliente: e o que o aviso de exclusao mostra.
     // Reservas e paradas de rota sao contadas pelo vinculo do cao (dogs!inner) — filtrar
@@ -136,25 +160,43 @@ export default function ClientEditScreen() {
         void fillClientCoordinates(id, { ...payload.client, latitude: null, longitude: null });
       }
 
-      const { idsToDelete } = dogRemovalPlan(loaded.dogs, payload.removedDogIds);
-      const mantidos = payload.dogs.filter((dog) => !idsToDelete.includes(dog.id));
-      for (const dog of mantidos) {
-        const { error: dogError } = await supabase.from('dogs').update(dogUpdatePayload(dog)).eq('id', dog.id);
+      // Foto do cão: o caminho do arquivo carrega o id da ORGANIZAÇÃO (é o que a política do
+      // storage lê) — a organização vem do snapshot, sem consulta extra ao banco.
+      const organizationId = loaded.snapshot.organizationId;
+      const plano = dogSavePlan(loaded.dogs, payload.dogs, payload.removedDogIds, payload.newDogs);
+
+      for (const { id: dogId, values } of plano.updates) {
+        const fotoAnterior = loaded.dogs.find((dog) => dog.id === dogId)?.photo_url ?? null;
+        const foto = await resolverFotoDoCao(organizationId, dogId, values.photo_url);
+        const { error: dogError } = await supabase.from('dogs').update({ ...values, photo_url: foto }).eq('id', dogId);
         if (dogError) throw new Error(dogError.message);
-      }
-      if (idsToDelete.length > 0) {
-        const { error: removeError } = await supabase.from('dogs').delete().eq('client_id', id).in('id', idsToDelete);
-        if (removeError) throw new Error(removeError.message);
+        // Trocou ou tirou a foto: o arquivo antigo sai do bucket (senão vira lixo para sempre).
+        if (foto !== fotoAnterior) await deleteDogPhoto(supabase, fotoAnterior);
       }
 
-      if (payload.newDogs.length > 0) {
-        const { data: client } = await supabase.from('clients').select('organization_id').eq('id', id).single();
-        const organizationId = (client as { organization_id: string } | null)?.organization_id ?? null;
-        if (!organizationId) throw new Error('Organization not found for this client.');
-        const { error: newDogError } = await supabase.from('dogs').insert(
-          payload.newDogs.map((name) => ({ organization_id: organizationId, client_id: id, name })),
-        );
-        if (newDogError) throw new Error(newDogError.message);
+      // Cão novo: insere PRIMEIRO (o id do banco é que nomeia o arquivo da foto) e sobe a foto
+      // depois. Nome repetido não entra de novo — quem decide é o dogSavePlan.
+      for (const novo of plano.inserts) {
+        const { data: criado, error: novoError } = await supabase
+          .from('dogs')
+          .insert({ organization_id: organizationId, client_id: id, ...novo, photo_url: null })
+          .select('id')
+          .single();
+        if (novoError) throw new Error(novoError.message);
+        const novoId = (criado as { id: string } | null)?.id;
+        if (!novoId) continue;
+        const foto = await resolverFotoDoCao(organizationId, novoId, novo.photo_url);
+        if (foto) {
+          const { error: fotoError } = await supabase.from('dogs').update({ photo_url: foto }).eq('id', novoId);
+          if (fotoError) throw new Error(fotoError.message);
+        }
+      }
+
+      if (plano.idsToDelete.length > 0) {
+        const fotos = plano.idsToDelete.map((dogId) => loaded.dogs.find((dog) => dog.id === dogId)?.photo_url ?? null);
+        const { error: removeError } = await supabase.from('dogs').delete().eq('client_id', id).in('id', plano.idsToDelete);
+        if (removeError) throw new Error(removeError.message);
+        for (const foto of fotos) await deleteDogPhoto(supabase, foto);
       }
 
       const instructions = normalizeText(payload.instructions);

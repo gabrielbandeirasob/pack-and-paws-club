@@ -1,4 +1,4 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { RouteMap } from '@/features/maps/RouteMap';
 import { colors, radii } from '@/features/theme/tokens';
@@ -15,6 +15,8 @@ export type DriverStop = {
   /** Notas do cão que o motorista PRECISA ver (segurança): comportamento e saúde. */
   behaviorNotes?: string | null;
   medicalNotes?: string | null;
+  /** Foto do cão no cadastro (bucket público dog-photos): confirma o cão na porta do cliente. */
+  dogPhotoUrl?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   windowEnd?: string | null;
@@ -68,6 +70,15 @@ export function DriverRouteView({ stops, onAction }: Props) {
             style={({ pressed }) => [styles.card, done && styles.cardDone, pressed && styles.cardPressed]}
           >
             <View style={styles.rowTop}>
+              {/* Foto do cão (cadastro): é o que confirma que é o cachorro certo na porta — sem
+                  ela o motorista só tem o nome. */}
+              {stop.dogPhotoUrl ? (
+                <Image
+                  source={{ uri: stop.dogPhotoUrl }}
+                  style={styles.dogPhoto}
+                  accessibilityLabel={`Photo of ${stop.dogName}`}
+                />
+              ) : null}
               {/* Numera pela posicao na rota (1, 2, 3...). O painel do Dispatch ja fazia assim;
                   aqui saia o campo cru do banco, que pode vir 0 ("0. Maria Silva"). */}
               <Text style={styles.title}>{index + 1}. {stop.clientName} · {stop.dogName}</Text>
@@ -127,6 +138,7 @@ const styles = StyleSheet.create({
   cardDone: { opacity: 0.55 },
   cardPressed: { opacity: 0.9 },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  dogPhoto: { width: 46, height: 46, borderRadius: 12, backgroundColor: colors.sage },
   title: { fontFamily: 'serif', fontSize: 17, fontWeight: '800', color: colors.forest900, flex: 1 },
   badge: { fontSize: 11, fontWeight: '900', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, overflow: 'hidden' },
   address: { color: colors.ink, fontSize: 13, marginTop: 6 },

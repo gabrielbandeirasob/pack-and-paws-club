@@ -47,11 +47,14 @@ def main() -> None:
     print("SQL aplicado:", arquivo)
     print("  retorno:", resultado)
 
-    conferencia = run_sql(
+    # Conferencia: por padrao as politicas de device_tokens; com o 2o argumento, a query
+    # que voce mandar (e o que permite provar o efeito da migracao que acabou de rodar).
+    conferencia_sql = sys.argv[2] if len(sys.argv) > 2 else (
         "select policyname, cmd, qual from pg_policies "
         "where schemaname = 'public' and tablename = 'device_tokens' order by policyname;"
     )
-    print("politicas em device_tokens (conferencia):")
+    conferencia = run_sql(conferencia_sql)
+    print("conferencia:")
     for linha in conferencia:
         print("  -", linha)
 
