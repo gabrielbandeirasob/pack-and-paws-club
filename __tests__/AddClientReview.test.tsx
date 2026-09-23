@@ -1,7 +1,36 @@
 import { fireEvent, render } from '@testing-library/react-native';
+import { Alert } from 'react-native';
+
+jest.mock('expo-file-system/legacy', () => ({
+  EncodingType: { Base64: 'base64' },
+  readAsStringAsync: jest.fn(),
+}));
+
+jest.mock('expo-image-picker', () => ({
+  requestCameraPermissionsAsync: jest.fn(),
+  requestMediaLibraryPermissionsAsync: jest.fn(),
+  launchCameraAsync: jest.fn(),
+  launchImageLibraryAsync: jest.fn(),
+}));
+
 import { AddClientReview } from '@/features/clients/AddClientReview';
 import type { ExistingContactClient } from '@/features/clients/clientsService';
 import type { NewClientInput } from '@/features/clients/types';
+
+const picker = jest.requireMock('expo-image-picker') as {
+  requestMediaLibraryPermissionsAsync: jest.Mock;
+  launchImageLibraryAsync: jest.Mock;
+};
+
+type Botao = { text?: string; onPress?: () => void };
+
+function capturarAlertas() {
+  const alertas: { title?: string; buttons?: Botao[] }[] = [];
+  jest.spyOn(Alert, 'alert').mockImplementation(((title: string, _message?: string, buttons?: Botao[]) => {
+    alertas.push({ title, buttons });
+  }) as never);
+  return alertas;
+}
 
 const input: NewClientInput = {
   name: 'Maria Silva',
@@ -71,5 +100,87 @@ describe('AddClientReview', () => {
     await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Kona');
     await fireEvent.press(screen.getByRole('button', { name: 'Add to existing client' }));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ dogs: ['Kona'] }));
+  });
+});
+
+/**
+ * FOTO DO CAO no "Add from Contacts" (23/09/2026).
+ *
+ * Aqui o cao ainda NAO existe no banco quando o gestor escolhe a foto: o nome e digitado num
+ * campo so. Por isso a foto viaja num mapa nome -> arquivo local (chave sem caixa/acento) e a
+ * tela de clientes sobe o arquivo depois do insert. Estes testes travam justamente isso.
+ */
+describe('foto do cao no cadastro por contato', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('aparece um cartao de foto por nome digitado', async () => {
+    const screen = await render(<AddClientReview initial={input} onSave={jest.fn()} onCancel={jest.fn()} />);
+    expect(screen.queryByLabelText('Add photo for Bob')).toBeNull();
+
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Mowgli, Kona');
+    expect(screen.getByLabelText('Add photo for Mowgli')).toBeTruthy();
+    expect(screen.getByLabelText('Add photo for Kona')).toBeTruthy();
+  });
+
+  it('escolher da galeria leva a foto no payload, ligada ao nome do cao', async () => {
+    const alertas = capturarAlertas();
+    picker.requestMediaLibraryPermissionsAsync.mockResolvedValue({ granted: true });
+    picker.launchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///var/mobile/kona.jpg' }] });
+
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<AddClientReview initial={input} onSave={onSave} onCancel={jest.fn()} />);
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Mowgli, Kona');
+
+    await fireEvent.press(screen.getByLabelText('Add photo for Kona'));
+    expect(alertas[0].title).toBe("Add Kona's photo");
+    alertas[0].buttons?.find((b) => b.text === 'Choose from library')?.onPress?.();
+
+    await screen.findByLabelText('Photo of Kona');
+    expect(screen.getByLabelText('Remove photo of Kona')).toBeTruthy();
+    // Mowgli continua sem foto (nao herda a foto do outro)
+    expect(screen.getByLabelText('Add photo for Mowgli')).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Add as client' }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ dogs: ['Mowgli', 'Kona'], dogPhotos: { kona: 'file:///var/mobile/kona.jpg' } }),
+    );
+  });
+
+  it('a foto segue o nome mesmo com caixa diferente digitada depois', async () => {
+    const alertas = capturarAlertas();
+    picker.requestMediaLibraryPermissionsAsync.mockResolvedValue({ granted: true });
+    picker.launchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///var/mobile/filo.jpg' }] });
+
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<AddClientReview initial={input} onSave={onSave} onCancel={jest.fn()} />);
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Filó');
+    await fireEvent.press(screen.getByLabelText('Add photo for Filó'));
+    alertas[0].buttons?.find((b) => b.text === 'Choose from library')?.onPress?.();
+    await screen.findByLabelText('Photo of Filó');
+
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'FILO');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add as client' }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ dogs: ['FILO'], dogPhotos: { filo: 'file:///var/mobile/filo.jpg' } }),
+    );
+  });
+
+  it('tirar a foto antes de salvar tira o arquivo do payload', async () => {
+    const alertas = capturarAlertas();
+    picker.requestMediaLibraryPermissionsAsync.mockResolvedValue({ granted: true });
+    picker.launchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///var/mobile/bob.jpg' }] });
+
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<AddClientReview initial={input} onSave={onSave} onCancel={jest.fn()} />);
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Bob');
+    await fireEvent.press(screen.getByLabelText('Add photo for Bob'));
+    alertas[0].buttons?.find((b) => b.text === 'Choose from library')?.onPress?.();
+    await screen.findByLabelText('Photo of Bob');
+
+    await fireEvent.press(screen.getByLabelText('Remove photo of Bob'));
+    expect(screen.queryByLabelText('Photo of Bob')).toBeNull();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Add as client' }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ dogs: ['Bob'], dogPhotos: {} }));
   });
 });

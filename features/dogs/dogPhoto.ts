@@ -103,6 +103,69 @@ export async function uploadDogPhoto(client: SupabaseClient, localUri: string, p
 }
 
 /**
+ * Sobe a foto quando o valor e um arquivo do APARELHO e devolve o que gravar em
+ * `dogs.photo_url` (URL publica do bucket). Foto que ja esta no bucket passa direto e `null`
+ * continua `null` — quem apaga o arquivo antigo e quem chama (deleteDogPhoto).
+ *
+ * Usado pelas duas telas que cadastram cao: a ficha do cliente e o "Add from Contacts".
+ */
+export async function storeDogPhoto(
+  client: SupabaseClient,
+  organizationId: string,
+  dogId: string,
+  valor: string | null | undefined,
+): Promise<string | null> {
+  if (!isLocalPhoto(valor)) return valor ?? null;
+  const local = valor as string;
+  try {
+    const caminho = dogPhotoPath(organizationId, dogId, local);
+    await uploadDogPhoto(client, local, caminho);
+    return dogPhotoPublicUrl(client, caminho);
+  } catch (reason) {
+    throw new Error(dogPhotoError(reason));
+  }
+}
+
+/**
+ * Cria os caes de um cliente e sobe a foto de cada um.
+ *
+ * Usado pelo "Add from Contacts" (o cao nasce ali, junto com o cliente). O cao e inserido
+ * PRIMEIRO porque o caminho da foto no bucket carrega o id dele; depois o arquivo sobe e a linha
+ * e atualizada com a URL publica.
+ *
+ * Falha de FOTO nao derruba o cadastro: ela volta em `pendentes` (com a frase que o gestor
+ * entende) e o cliente/cao continuam salvos — perder o cadastro inteiro por causa de uma foto
+ * seria pior. Falha de INSERT, sim, estoura (nao ha cadastro nenhum para salvar).
+ */
+export async function createDogsWithPhotos(
+  client: SupabaseClient,
+  params: { organizationId: string; clientId: string; dogs: { name: string; photo: string | null }[] },
+): Promise<{ criados: number; pendentes: string[] }> {
+  const pendentes: string[] = [];
+  let criados = 0;
+  for (const dog of params.dogs) {
+    const { data, error } = await client
+      .from('dogs')
+      .insert({ organization_id: params.organizationId, client_id: params.clientId, name: dog.name })
+      .select('id')
+      .single();
+    if (error) throw new Error(error.message);
+    criados += 1;
+    const dogId = (data as { id: string } | null)?.id;
+    if (!dogId || !dog.photo) continue;
+    try {
+      const foto = await storeDogPhoto(client, params.organizationId, dogId, dog.photo);
+      if (!foto) continue;
+      const { error: fotoError } = await client.from('dogs').update({ photo_url: foto }).eq('id', dogId);
+      if (fotoError) throw new Error(fotoError.message);
+    } catch (reason) {
+      pendentes.push(`${dog.name} (${reason instanceof Error ? reason.message : 'photo failed'})`);
+    }
+  }
+  return { criados, pendentes };
+}
+
+/**
  * Apaga o arquivo da foto (troca de foto ou cao removido do cadastro).
  * Best-effort de proposito: arquivo orfao no bucket nao pode impedir o usuario de salvar.
  */

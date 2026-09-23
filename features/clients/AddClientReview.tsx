@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radii } from '@/features/theme/tokens';
-import { splitDogNames, type ExistingContactClient } from '@/features/clients/clientsService';
+import { dogPhotoKey, splitDogNames, type ExistingContactClient } from '@/features/clients/clientsService';
+import { dogPhotoError, pickDogPhoto, type DogPhotoChoice } from '@/features/dogs/dogPhoto';
 import type { NewClientInput } from '@/features/clients/types';
 
 type Props = {
@@ -23,24 +24,51 @@ type Props = {
    * partida em dois cadastros — que e o pior caso para a rota.
    */
   duplicateHint?: string | null;
-  onSave: (payload: { client: NewClientInput; dogs: string[] }) => Promise<void>;
+  /**
+   * `dogPhotos` leva a foto escolhida por nome de cao (chave = dogPhotoKey). O cao ainda nao
+   * existe no banco neste passo, entao a foto viaja pelo nome e sobe depois do insert.
+   */
+  onSave: (payload: { client: NewClientInput; dogs: string[]; dogPhotos: Record<string, string> }) => Promise<void>;
   onCancel: () => void;
 };
 
 export function AddClientReview({ initial, existingClient = null, initialDogNames = '', duplicateHint = null, onSave, onCancel }: Props) {
   const [dogNames, setDogNames] = useState(initialDogNames);
+  const [dogPhotos, setDogPhotos] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const addressLine = [initial.address_line_1, initial.city].filter(Boolean).join(' · ');
+  const nomes = splitDogNames(dogNames);
+
+  const escolherFoto = (nome: string, atual: string | null) => {
+    const escolher = async (choice: DogPhotoChoice) => {
+      try {
+        const uri = await pickDogPhoto(choice);
+        if (uri) setDogPhotos((prev) => ({ ...prev, [dogPhotoKey(nome)]: uri }));
+      } catch (reason) {
+        Alert.alert('Photo not attached', dogPhotoError(reason));
+      }
+    };
+    Alert.alert(
+      atual ? `Change ${nome}'s photo` : `Add ${nome}'s photo`,
+      'The photo is how the driver recognizes the dog at the door.',
+      [
+        { text: 'Take photo', onPress: () => void escolher('camera') },
+        { text: 'Choose from library', onPress: () => void escolher('library') },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+    );
+  };
+
   const submit = async () => {
     // Cachorro e opcional: da para cadastrar o cliente agora e cadastrar os caes
     // depois na ficha do cliente.
-    const dogs = splitDogNames(dogNames);
+    const dogs = nomes;
     setSaving(true);
     setError(null);
     try {
-      await onSave({ client: initial, dogs });
+      await onSave({ client: initial, dogs, dogPhotos });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to save the client.');
       setSaving(false);
@@ -91,6 +119,49 @@ export function AddClientReview({ initial, existingClient = null, initialDogName
           <Text style={styles.hint}>
             Optional — you can add the dog later in the client card. Two dogs now? Separate the names with a comma — e.g. Mowgli, Kona.
           </Text>
+          {nomes.length > 0 ? (
+            <View style={styles.photos}>
+              <Text style={styles.label}>Dog photo (the driver sees it on the route)</Text>
+              {nomes.map((nome) => {
+                const foto = dogPhotos[dogPhotoKey(nome)] ?? null;
+                return (
+                  <View key={nome} style={styles.dogRow}>
+                    {foto ? (
+                      <Image source={{ uri: foto }} style={styles.dogPhoto} accessibilityLabel={`Photo of ${nome}`} />
+                    ) : (
+                      <View style={[styles.dogPhoto, styles.dogPhotoEmpty]}>
+                        <Text style={styles.dogPhotoIcon}>🐕</Text>
+                      </View>
+                    )}
+                    <View style={styles.dogRowText}>
+                      <Text style={styles.dogRowName}>{nome}</Text>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={foto ? `Change photo for ${nome}` : `Add photo for ${nome}`}
+                        onPress={() => escolherFoto(nome, foto)}
+                      >
+                        <Text style={styles.dogPhotoAction}>{foto ? 'Change photo' : 'Add photo'}</Text>
+                      </Pressable>
+                      {foto ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove photo of ${nome}`}
+                          onPress={() => setDogPhotos((prev) => {
+                            const copia = { ...prev };
+                            delete copia[dogPhotoKey(nome)];
+                            return copia;
+                          })}
+                        >
+                          <Text style={styles.dogPhotoRemove}>Remove photo</Text>
+                        </Pressable>
+                      ) : null}
+                      {foto ? <Text style={styles.photoHint}>New photo — uploaded when you save the client.</Text> : null}
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Pressable
             accessibilityRole="button"
@@ -130,6 +201,16 @@ const styles = StyleSheet.create({
   label: { color: colors.ink, fontWeight: '800', fontSize: 12, marginTop: 18, marginBottom: 7 },
   input: { backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, color: colors.ink, fontSize: 15 },
   hint: { color: colors.muted, fontSize: 12, marginTop: 7, lineHeight: 17 },
+  photos: { marginTop: 4 },
+  dogRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#F4F2EA', borderRadius: 12, borderWidth: 1, borderColor: colors.line, padding: 10, marginTop: 9 },
+  dogPhoto: { width: 58, height: 58, borderRadius: 12, backgroundColor: colors.sage },
+  dogPhotoEmpty: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.cream },
+  dogPhotoIcon: { fontSize: 22 },
+  dogRowText: { flex: 1, gap: 4 },
+  dogRowName: { color: colors.forest900, fontWeight: '800', fontSize: 14 },
+  dogPhotoAction: { color: colors.forest700, fontWeight: '900', fontSize: 12 },
+  dogPhotoRemove: { color: colors.urgency, fontWeight: '800', fontSize: 12 },
+  photoHint: { color: colors.muted, fontSize: 11, lineHeight: 15 },
   error: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginTop: 12 },
   primary: { backgroundColor: colors.gold, borderRadius: 14, padding: 15, alignItems: 'center', marginTop: 18 },
   pressed: { opacity: 0.85 },

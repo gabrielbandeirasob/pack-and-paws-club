@@ -22,6 +22,7 @@ jest.mock('expo-image-picker', () => ({
 
 import {
   DOG_PHOTO_BUCKET,
+  createDogsWithPhotos,
   deleteDogPhoto,
   dogPhotoError,
   dogPhotoPath,
@@ -31,6 +32,7 @@ import {
   isLocalPhoto,
   isStoredPhoto,
   pickDogPhoto,
+  storeDogPhoto,
   uploadDogPhoto,
 } from '@/features/dogs/dogPhoto';
 
@@ -168,11 +170,113 @@ describe('subir e apagar o arquivo', () => {
     await expect(deleteDogPhoto(client, URL_PUBLICA)).resolves.toBe(false);
   });
 
+  it('storeDogPhoto: foto nova sobe e volta como URL publica; foto ja guardada passa direto', async () => {
+    fileSystem.readAsStringAsync.mockResolvedValue(fotoGrande);
+    const { client, upload, getPublicUrl } = clienteFake();
+
+    const gravado = await storeDogPhoto(client, ORG, DOG, 'file:///var/mobile/nova.jpg');
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(getPublicUrl).toHaveBeenCalledTimes(1);
+    expect(gravado).toContain(`/object/public/${DOG_PHOTO_BUCKET}/${ORG}/${DOG}/`);
+
+    upload.mockClear();
+    await expect(storeDogPhoto(client, ORG, DOG, gravado as string)).resolves.toBe(gravado);
+    expect(upload).not.toHaveBeenCalled();
+    await expect(storeDogPhoto(client, ORG, DOG, null)).resolves.toBeNull();
+  });
+
+  it('storeDogPhoto: falha de upload vira frase para o gestor (nao o erro cru)', async () => {
+    fileSystem.readAsStringAsync.mockRejectedValue(new Error('Network request failed'));
+    const { client } = clienteFake();
+    await expect(storeDogPhoto(client, ORG, DOG, 'file:///var/mobile/nova.jpg')).rejects.toThrow(
+      'No connection: the dog photo was not uploaded. Try saving again when you have signal.',
+    );
+  });
+
   it('erro de rede explica que a foto nao subiu e o que fazer', () => {
     expect(dogPhotoError(new Error('Network request failed'))).toBe(
       'No connection: the dog photo was not uploaded. Try saving again when you have signal.',
     );
     expect(dogPhotoError(new Error('algo estranho'))).toBe('algo estranho');
     expect(dogPhotoError(undefined)).toBe('Could not attach the dog photo.');
+  });
+});
+
+/**
+ * Cadastro por contato ("Add from Contacts"): o cliente e os caes nascem juntos e o cao so
+ * existe no banco DEPOIS do insert — por isso a foto sobe depois, com o id que o banco devolve.
+ * Falha de foto NAO pode derrubar o cadastro (o gestor perde o cliente por causa de uma imagem).
+ */
+describe('createDogsWithPhotos', () => {
+  const ids = ['dog-id-1', 'dog-id-2'];
+
+  function clienteDeTabela(erroNoInsert = false) {
+    const atualizacoes: { id: string; values: { photo_url?: string | null } }[] = [];
+    let indice = 0;
+    const insert = jest.fn((_values: Record<string, unknown>) => ({
+      select: () => ({
+        single: () =>
+          Promise.resolve(
+            erroNoInsert
+              ? { data: null, error: { message: 'insert falhou' } }
+              : { data: { id: ids[indice++] }, error: null },
+          ),
+      }),
+    }));
+    const update = jest.fn((values: { photo_url?: string | null }) => ({
+      eq: (_coluna: string, id: string) => {
+        atualizacoes.push({ id, values });
+        return Promise.resolve({ error: null });
+      },
+    }));
+    const base = clienteFake();
+    const client = { storage: (base.client as { storage: unknown }).storage, from: jest.fn(() => ({ insert, update })) };
+    return { client: client as never, insert, atualizacoes };
+  }
+
+  it('cria os caes e grava a URL publica so em quem tem foto', async () => {
+    fileSystem.readAsStringAsync.mockResolvedValue(fotoGrande);
+    const { client, insert, atualizacoes } = clienteDeTabela();
+    const resultado = await createDogsWithPhotos(client, {
+      organizationId: ORG,
+      clientId: 'client-1',
+      dogs: [
+        { name: 'Kona', photo: 'file:///var/mobile/kona.jpg' },
+        { name: 'Luna', photo: null },
+      ],
+    });
+
+    expect(insert).toHaveBeenCalledTimes(2);
+    expect(insert.mock.calls[0][0]).toMatchObject({ organization_id: ORG, client_id: 'client-1', name: 'Kona' });
+    expect(resultado).toEqual({ criados: 2, pendentes: [] });
+    expect(atualizacoes).toHaveLength(1);
+    expect(atualizacoes[0].id).toBe('dog-id-1');
+    expect(atualizacoes[0].values.photo_url).toContain(`/object/public/${DOG_PHOTO_BUCKET}/${ORG}/dog-id-1/`);
+  });
+
+  it('foto que nao sobe entra em pendentes e NAO derruba o cadastro', async () => {
+    fileSystem.readAsStringAsync.mockRejectedValue(new Error('Network request failed'));
+    const { client, insert } = clienteDeTabela();
+    const resultado = await createDogsWithPhotos(client, {
+      organizationId: ORG,
+      clientId: 'client-1',
+      dogs: [
+        { name: 'Kona', photo: 'file:///var/mobile/kona.jpg' },
+        { name: 'Luna', photo: 'file:///var/mobile/luna.jpg' },
+      ],
+    });
+
+    expect(resultado.criados).toBe(2); // os dois caes ficaram salvos
+    expect(resultado.pendentes).toHaveLength(2);
+    expect(resultado.pendentes[0]).toContain('Kona');
+    expect(resultado.pendentes[0]).toContain('No connection');
+    expect(insert).toHaveBeenCalledTimes(2);
+  });
+
+  it('falha no INSERT sim estoura (nao ha cadastro para salvar)', async () => {
+    const { client } = clienteDeTabela(true);
+    await expect(
+      createDogsWithPhotos(client, { organizationId: ORG, clientId: 'client-1', dogs: [{ name: 'Kona', photo: null }] }),
+    ).rejects.toThrow('insert falhou');
   });
 });

@@ -182,6 +182,17 @@ export function splitDogNames(raw: string): string[] {
   return uniqueDogNames(raw.split(/[,;\n]/));
 }
 
+/**
+ * Chave para casar a FOTO escolhida com o nome do cao (ignora caixa e acento).
+ *
+ * No "Add from Contacts" o cao ainda NAO existe no banco quando o gestor escolhe a foto (o
+ * nome e digitado num campo so), entao a foto viaja num mapa nome -> arquivo local e esta
+ * chave e o que liga a foto ao cao certo depois do insert.
+ */
+export function dogPhotoKey(name: string): string {
+  return normalizeForSearch(name);
+}
+
 /** Compara ignorando maiusculas e acentos (buscar "joao" acha "João"). */
 export function normalizeForSearch(value: string | null | undefined): string {
   return (value ?? '')

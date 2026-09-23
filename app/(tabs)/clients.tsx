@@ -6,10 +6,11 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 import { AddClientReview } from '@/features/clients/AddClientReview';
 import { ClientsList } from '@/features/clients/ClientsList';
-import { clientHasInstructions, duplicateHint as duplicateHintText, findDuplicateClients, planContactAdd, splitContactName, splitDogNames, type ExistingContactClient } from '@/features/clients/clientsService';
+import { clientHasInstructions, dogPhotoKey, duplicateHint as duplicateHintText, findDuplicateClients, planContactAdd, splitContactName, splitDogNames, type ExistingContactClient } from '@/features/clients/clientsService';
 import { createContactsService, type ContactsService } from '@/features/clients/contactsService';
 import { mapContactToClientInput } from '@/features/clients/mapContact';
 import type { ClientWithDogs, NewClientInput, PhoneContactCandidate } from '@/features/clients/types';
+import { createDogsWithPhotos } from '@/features/dogs/dogPhoto';
 import { fillClientCoordinates } from '@/features/maps/geocodeService';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
@@ -156,15 +157,22 @@ export default function ClientsScreen() {
     }
   };
 
-  const addDogsToClient = async (clientId: string, dogNames: string[]) => {
-    if (dogNames.length === 0) return;
-    const { error: dogsError } = await supabase.from('dogs').insert(
-      dogNames.map((name) => ({ organization_id: organizationId, client_id: clientId, name })),
-    );
-    if (dogsError) throw new Error(dogsError.message);
+  /**
+   * Cria os caes (e sobe as fotos) pelo modulo das fotos: e o MESMO caminho usado na ficha do
+   * cliente, com o cao inserido antes do arquivo porque o caminho no bucket carrega o id dele.
+   */
+  const addDogsToClient = async (clientId: string, dogNames: string[], dogPhotos: Record<string, string>) => {
+    if (dogNames.length === 0) return { pendentes: [] as string[] };
+    if (!organizationId) throw new Error('Organization not found for this account.');
+    const { pendentes } = await createDogsWithPhotos(supabase, {
+      organizationId,
+      clientId,
+      dogs: dogNames.map((name) => ({ name, photo: dogPhotos[dogPhotoKey(name)] ?? null })),
+    });
+    return { pendentes };
   };
 
-  const saveClient = async (payload: { client: NewClientInput; dogs: string[] }) => {
+  const saveClient = async (payload: { client: NewClientInput; dogs: string[]; dogPhotos: Record<string, string> }) => {
     if (!organizationId) throw new Error('Organization not found for this account.');
     let plan = planContactAdd(selected?.existing ?? null, payload.client, payload.dogs);
     let clientId = plan.clientId;
@@ -195,7 +203,7 @@ export default function ClientsScreen() {
       void fillClientCoordinates(clientId, { ...payload.client, latitude: null, longitude: null });
     }
 
-    await addDogsToClient(clientId, plan.dogsToAdd);
+    const { pendentes } = await addDogsToClient(clientId, plan.dogsToAdd, payload.dogPhotos);
     if (plan.instructionsToAdd) {
       const { error: instructionError } = await supabase.from('client_instructions').insert({
         organization_id: organizationId,
@@ -204,10 +212,16 @@ export default function ClientsScreen() {
       });
       if (instructionError) throw new Error(instructionError.message);
     }
-    return { mode: plan.mode, name: selected?.existing?.name ?? payload.client.name, dogsAdded: plan.dogsToAdd };
+    return {
+      mode: plan.mode,
+      name: selected?.existing?.name ?? payload.client.name,
+      dogsAdded: plan.dogsToAdd,
+      /** caes que entraram mas ficaram sem foto (o gestor precisa saber) */
+      fotosPendentes: pendentes,
+    };
   };
 
-  const finishAdd = async (payload: { client: NewClientInput; dogs: string[] }) => {
+  const finishAdd = async (payload: { client: NewClientInput; dogs: string[]; dogPhotos: Record<string, string> }) => {
     const result = await saveClient(payload);
     setPickerVisible(false);
     setSelected(null);
@@ -215,6 +229,10 @@ export default function ClientsScreen() {
     if (result.dogsAdded.length === 0) setNotice(`${result.name} is already a client — no new dog was added.`);
     else if (result.mode === 'reuse') setNotice(`Added ${result.dogsAdded.join(', ')} to ${result.name} (existing client).`);
     else setNotice(null);
+    if (result.fotosPendentes.length > 0) {
+      const aviso = `The photo did not upload for: ${result.fotosPendentes.join('; ')}. Open the client card and try again (the dog is already saved).`;
+      setNotice((atual) => (atual ? `${atual} ${aviso}` : aviso));
+    }
     await load();
   };
 

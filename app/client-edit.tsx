@@ -25,11 +25,7 @@ import {
 } from '@/features/clients/clientsService';
 import {
   deleteDogPhoto,
-  dogPhotoError,
-  dogPhotoPath,
-  dogPhotoPublicUrl,
-  isLocalPhoto,
-  uploadDogPhoto,
+  storeDogPhoto,
 } from '@/features/dogs/dogPhoto';
 import { colors } from '@/features/theme/tokens';
 import { fillClientCoordinates } from '@/features/maps/geocodeService';
@@ -52,23 +48,6 @@ function hojeLocal(): string {
   const mes = `${agora.getMonth() + 1}`.padStart(2, '0');
   const dia = `${agora.getDate()}`.padStart(2, '0');
   return `${agora.getFullYear()}-${mes}-${dia}`;
-}
-
-/**
- * Sobe a foto do cao quando o valor e um arquivo do APARELHO e devolve o que gravar na
- * coluna `photo_url` (URL publica do bucket). Foto que ja esta no bucket passa direto, e
- * `null` continua `null` — quem apaga o arquivo antigo e quem chama.
- */
-async function resolverFotoDoCao(organizationId: string, dogId: string, valor: string | null | undefined): Promise<string | null> {
-  if (!isLocalPhoto(valor)) return valor ?? null;
-  const local = valor as string;
-  try {
-    const caminho = dogPhotoPath(organizationId, dogId, local);
-    await uploadDogPhoto(supabase, local, caminho);
-    return dogPhotoPublicUrl(supabase, caminho);
-  } catch (reason) {
-    throw new Error(dogPhotoError(reason));
-  }
 }
 
 export default function ClientEditScreen() {
@@ -167,7 +146,7 @@ export default function ClientEditScreen() {
 
       for (const { id: dogId, values } of plano.updates) {
         const fotoAnterior = loaded.dogs.find((dog) => dog.id === dogId)?.photo_url ?? null;
-        const foto = await resolverFotoDoCao(organizationId, dogId, values.photo_url);
+        const foto = await storeDogPhoto(supabase, organizationId, dogId, values.photo_url);
         const { error: dogError } = await supabase.from('dogs').update({ ...values, photo_url: foto }).eq('id', dogId);
         if (dogError) throw new Error(dogError.message);
         // Trocou ou tirou a foto: o arquivo antigo sai do bucket (senão vira lixo para sempre).
@@ -185,7 +164,7 @@ export default function ClientEditScreen() {
         if (novoError) throw new Error(novoError.message);
         const novoId = (criado as { id: string } | null)?.id;
         if (!novoId) continue;
-        const foto = await resolverFotoDoCao(organizationId, novoId, novo.photo_url);
+        const foto = await storeDogPhoto(supabase, organizationId, novoId, novo.photo_url);
         if (foto) {
           const { error: fotoError } = await supabase.from('dogs').update({ photo_url: foto }).eq('id', novoId);
           if (fotoError) throw new Error(fotoError.message);
