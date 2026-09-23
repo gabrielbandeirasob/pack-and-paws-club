@@ -11,7 +11,7 @@ import {
   type ReservationRecord,
 } from '@/features/calendar/dayMath';
 import { ManagerDashboard, type DashboardRoute } from '@/features/dashboard/ManagerDashboard';
-import { totalPack as contarPack, type PackRoute } from '@/features/dashboard/packProgress';
+import { packProgress, totalPack as contarPack, type PackRoute } from '@/features/dashboard/packProgress';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { landingRouteForRole } from '@/features/navigation/roleTabs';
 import { haversineKm } from '@/features/dispatch/routeOptimizer';
@@ -153,6 +153,7 @@ export default function HomeScreen() {
   const [counts, setCounts] = useState({ daycare: 0, boarding: 0 });
   const [routes, setRoutes] = useState<DashboardRoute[]>([]);
   const [totalPack, setTotalPack] = useState(0);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -248,8 +249,8 @@ export default function HomeScreen() {
         .sort((a, b) => a.sequence - b.sequence)
         .map((stop) => ({ status: stop.status, dogName: stop.dog.name, at: stop.updated_at })),
     }));
-    // O progresso do dia saiu do painel a pedido do cliente (23/09/2026); o Total Pack continua.
     setTotalPack(contarPack(packRoutes));
+    setProgress(packProgress(packRoutes));
     setLoading(false);
   }, []);
 
@@ -295,7 +296,9 @@ export default function HomeScreen() {
           daycare={counts.daycare}
           boarding={counts.boarding}
           totalPack={totalPack}
+          progress={progress}
           routes={routes}
+          onOpenProgress={() => router.push('/day-progress')}
           onOpenDispatch={() => router.push('/dispatch')}
           onOpenClients={() => router.push('/clients')}
           onNewReservation={() => router.push('/calendar')}
