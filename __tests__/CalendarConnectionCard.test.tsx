@@ -1,7 +1,7 @@
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
-import { CalendarConnectionCard, dentroDaJanela, janelaDeEspelho } from '@/features/integrations/google/CalendarConnectionCard';
+import { CalendarConnectionCard, dentroDaJanela, janelaDeEspelho, janelaDeImportacao } from '@/features/integrations/google/CalendarConnectionCard';
 import type { LocalReservation } from '@/features/integrations/google/calendarSync';
 import type { BookingForImport, DogForImport } from '@/features/integrations/google/importPlan';
 
@@ -156,7 +156,27 @@ describe('CalendarConnectionCard', () => {
     expect(onImported).toHaveBeenCalled();
   });
 
-  it('lista o que veio do Google sem cão reconhecido, com o motivo', async () => {
+  it('a importação consulta de HOJE para frente — a janela do espelho não vale para ela', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+
+    // O espelho continua recuando 30 dias (o recuo evita evento duplicado no Google)...
+    expect(runCalendarSync.mock.calls[0][0].range).toEqual(janelaDeEspelho());
+
+    // ...a importação não: nada do passado entra, e a janela é o que também impede cancelar uma
+    // reserva de ontem que veio do Google.
+    const esperada = janelaDeImportacao();
+    const chamada = runCalendarImport.mock.calls[0][0];
+    expect(chamada.range).toEqual({ timeMin: esperada.timeMin, timeMax: esperada.timeMax });
+    expect(chamada.window).toEqual({ from: esperada.from, to: esperada.to });
+    expect(chamada.window.from).toBe(hoje);
+    expect(chamada.window.to).toBe(addDaysISO(hoje, 180));
+  });
+
+  it('lista o que veio do Google sem nome utilizável, com o motivo', async () => {
     useCalendarConnection.mockReturnValue(conexao('connected'));
     runCalendarImport.mockResolvedValue({
       created: 0,
@@ -166,10 +186,10 @@ describe('CalendarConnectionCard', () => {
       review: [
         {
           eventId: 'e1',
-          title: 'Boarding · Rex',
+          title: '',
           date: '2026-10-05',
-          reason: 'unknown dog',
-          parsed: { serviceType: 'boarding', dogName: 'Rex', clientName: null, startDate: '2026-10-05', endDate: '2026-10-06', weekdays: [], skipDates: [], openEnded: false },
+          reason: 'unreadable',
+          parsed: { serviceType: 'daycare', dogName: '(no title)', clientName: null, startDate: '2026-10-05', endDate: '2026-10-06', weekdays: [], skipDates: [], openEnded: false },
         },
       ],
     });
@@ -178,9 +198,9 @@ describe('CalendarConnectionCard', () => {
     await fireEvent.press(screen.getByTestId('google-calendar-sync'));
 
     await waitFor(() => expect(screen.getByTestId('google-calendar-revisao')).toBeTruthy());
-    expect(screen.getByText('Boarding · Rex')).toBeTruthy();
-    expect(screen.getByText(/No dog with this name in the app/)).toBeTruthy();
-    expect(screen.getByLabelText('Choose dog for Boarding · Rex')).toBeTruthy();
+    expect(screen.getByText('(no title)')).toBeTruthy();
+    expect(screen.getByText(/This event has no title — pick the dog and we save it/)).toBeTruthy();
+    expect(screen.getByLabelText('Choose dog for ')).toBeTruthy();
   });
 
   it('ao escolher o cão da revisão, cria a reserva com o evento gravado (anti-duplicata)', async () => {
@@ -195,7 +215,7 @@ describe('CalendarConnectionCard', () => {
           eventId: 'e-rex',
           title: 'Boarding · Rex',
           date: '2026-10-05',
-          reason: 'unknown dog',
+          reason: 'duplicate',
           parsed: { serviceType: 'boarding', dogName: 'Rex', clientName: null, startDate: '2026-10-05', endDate: '2026-10-07', weekdays: [], skipDates: [], openEnded: false },
         },
       ],

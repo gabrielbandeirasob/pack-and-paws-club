@@ -4,6 +4,11 @@
  *
  * As escritas no banco entram por "portas" (`ports`), o que mantém este módulo testável sem Supabase
  * e deixa o SQL/RLS na tela que chama (é a sessão do gestor que grava).
+ *
+ * Pedido do dono (24/09/2026): "quando clicar para sincronizar, puxe TODOS os agendamentos do Google
+ * do cliente". Por isso o evento cujo título não casa com nenhum cão do app também entra: a porta
+ * `createClient` + `createDog` cadastra o cão (e o cliente) com o nome do título e a reserva nasce em
+ * seguida, já ligada ao evento.
  */
 import type { CalendarFetch } from './calendarApi';
 import { listAllEvents } from './calendarApi';
@@ -15,6 +20,7 @@ import {
   type ExistingBookingKind,
   type ImportOutcome,
   type ImportWindow,
+  type NewDogForCreate,
   type ParsedBooking,
   type ReviewReason,
 } from './importPlan';
@@ -36,6 +42,13 @@ export type ImportSummary = {
 };
 
 export type ImportPorts = {
+  /**
+   * Cliente da reserva que nasceu de um título sem cão no cadastro (o cliente nasce com o nome do
+   * tutor, ou com o próprio nome do cão quando o título traz um nome só).
+   */
+  createClient: (input: { name: string }) => Promise<{ clientId: string }>;
+  /** Cão do mesmo caso: entra sob o cliente informado. */
+  createDog: (input: { clientId: string; name: string }) => Promise<{ dogId: string }>;
   /** Cria a reserva (data avulsa) ou a série (dias da semana) conforme o formato do evento. */
   createBooking: (input: { eventId: string; dogId: string; kind: ExistingBookingKind; parsed: ParsedBooking }) => Promise<void>;
   updateBooking: (input: { bookingId: string; kind: ExistingBookingKind; eventId: string; dogId: string; parsed: ParsedBooking }) => Promise<void>;
@@ -92,7 +105,10 @@ export async function runCalendarImport({
 
 async function aplicar(item: Exclude<ImportOutcome, { kind: 'review' }>, ports: ImportPorts): Promise<void> {
   if (item.kind === 'create') {
-    await ports.createBooking({ eventId: item.eventId, dogId: item.dogId, kind: kindOf(item.parsed), parsed: item.parsed });
+    // Cão que ainda não existe no app: cadastra cliente e cão ANTES da reserva (a reserva precisa do
+    // id do cão). O vínculo continua sendo o evento (`eventId`), então um segundo Sync não repete.
+    const dogId = item.dogId ?? (await criarCadastro(item.newDog, ports));
+    await ports.createBooking({ eventId: item.eventId, dogId, kind: kindOf(item.parsed), parsed: item.parsed });
     return;
   }
   if (item.kind === 'update') {
@@ -106,6 +122,16 @@ async function aplicar(item: Exclude<ImportOutcome, { kind: 'review' }>, ports: 
     return;
   }
   await ports.cancelBooking({ bookingId: item.bookingId, kind: item.bookingKind, eventId: item.eventId });
+}
+
+/**
+ * Cliente + cão que o título pede e que ainda não existem. O cliente só é criado quando o título não
+ * trouxe um tutor que já está no cadastro (aí a porta devolve o cliente existente).
+ */
+async function criarCadastro(novo: NewDogForCreate, ports: ImportPorts): Promise<string> {
+  const clientId = novo.clientId ?? (await ports.createClient({ name: novo.clientName })).clientId;
+  const { dogId } = await ports.createDog({ clientId, name: novo.name });
+  return dogId;
 }
 
 export function hasImportChanges(resumo: ImportSummary): boolean {

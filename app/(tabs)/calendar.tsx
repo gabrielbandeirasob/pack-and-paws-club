@@ -21,7 +21,7 @@ type ViewMode = 'day' | 'week' | 'month';
 type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; google_event_id: string | null; source: 'app' | 'google' | null; dog: { id: string; name: string; client: { name: string } } };
 type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; transport_required: boolean; google_event_id: string | null; source: 'app' | 'google' | null; dog: { id: string; name: string; client: { name: string } } };
 type ExceptionRow = { id: string; recurring_schedule_id: string; action: 'skip' | 'transport_on' | 'transport_off'; start_date: string; end_date: string; reason: string | null };
-type DogRow = { id: string; name: string; client: { name: string } };
+type DogRow = { id: string; name: string; client: { id: string; name: string } };
 
 const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -33,7 +33,7 @@ export default function CalendarScreen() {
   const [reservations, setReservations] = useState<ReservationRecord[]>([]);
   const [recurring, setRecurring] = useState<RecurringScheduleRecord[]>([]);
   const [exceptions, setExceptions] = useState<RecurringExceptionRecord[]>([]);
-  const [dogs, setDogs] = useState<DogRef[]>([]);
+  const [dogs, setDogs] = useState<(DogRef & { clientId?: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -56,7 +56,7 @@ export default function CalendarScreen() {
       supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'confirmed'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', orgId),
-      supabase.from('dogs').select('id, name, client:clients(name)').eq('organization_id', orgId).eq('active', true),
+      supabase.from('dogs').select('id, name, client:clients(id, name)').eq('organization_id', orgId).eq('active', true),
     ]);
     const queryError = reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? dogResult.error;
     if (queryError) { setError(queryError.message); setLoading(false); return; }
@@ -90,7 +90,7 @@ export default function CalendarScreen() {
       endDate: row.end_date,
       reason: row.reason,
     })));
-    setDogs(((dogResult.data as unknown as DogRow[]) ?? []).map((row) => ({ id: row.id, dogName: row.name, clientName: row.client.name })));
+    setDogs(((dogResult.data as unknown as DogRow[]) ?? []).map((row) => ({ id: row.id, dogName: row.name, clientName: row.client.name, clientId: row.client.id })));
     jaCarregou.current = true;
     setLoading(false);
   }, []);
@@ -395,7 +395,7 @@ export default function CalendarScreen() {
             <CalendarConnectionCard
               reservations={reservasParaEspelhar}
               organizationId={organizationId ?? ''}
-              dogs={dogs.map((cao) => ({ id: cao.id, name: cao.dogName, clientName: cao.clientName }))}
+              dogs={dogs.map((cao) => ({ id: cao.id, name: cao.dogName, clientName: cao.clientName, clientId: cao.clientId ?? null }))}
               bookings={casosDaImportacao}
               onImported={() => void load({ silent: true })}
             />

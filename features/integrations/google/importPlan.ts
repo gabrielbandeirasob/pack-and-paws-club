@@ -11,12 +11,20 @@
  *  1. Evento COM a marca do app (`appKey`) e o nosso espelho: nao se importa (evita ping-pong).
  *  2. O calendario conectado e exclusivo do negocio: todo evento entra. Palavra de servico define
  *     daycare/boarding; sem ela o evento assume daycare e o titulo inteiro e tratado como nome do cao.
- *  3. Nome do cao tem de casar com UM cao do cadastro. Zero ou dois = vai para REVISAO (o app nao
- *     cria cadastro fantasma por causa de um titulo mal escrito).
- *  4. Reserva que nasceu no Google: se o evento mudar, a reserva muda; se o evento sumir, a reserva
- *     e CANCELADA — mas so se a reserva for da janela consultada (evento fora da janela nao conta
- *     como "apagado").
- *  5. Evento igual a uma reserva que ja existe no app nao duplica: vai para revisao para o gestor
+ *  3. Nome do cao que NAO casa com o cadastro (zero OU mais de um) deixou de virar pendencia: o
+ *     evento entra igual, criando cliente + cao com o nome do titulo (decisao do dono, 24/09/2026:
+ *     "quero que o aplicativo, quando clicar para sincronizar, puxe TODOS os agendamentos"). Sem
+ *     palavra de servico o titulo inteiro e o nome do cao; "Leigh Ann · Kona" e "Kona — Leigh Ann"
+ *     trazem os DOIS nomes (cao + tutor). Titulo vazio (ou so espacos) e a unica coisa que nao vira
+ *     cadastro: sem nome nao se cria cliente nem cao.
+ *  4. O vinculo com o Google e por EVENTO (`googleEventId`), nunca por nome: o segundo Sync nao
+ *     cria de novo, e renomear o cao no app tambem nao faz o proximo Sync criar outro cadastro.
+ *  5. Reserva que nasceu no Google: se o evento mudar, a reserva muda; se o evento sumir, a reserva
+ *     e CANCELADA — mas so dentro da janela consultada (evento fora da janela nao conta como
+ *     "apagado").
+ *  6. NADA DO PASSADO: a janela da importacao comeca em HOJE (quem chama passa `from` = data local
+ *     de hoje), e nenhum evento/data anterior a `window.from` e criado, alterado ou cancelado.
+ *  7. Evento igual a uma reserva que ja existe no app nao duplica: vai para revisao para o gestor
  *     ligar o evento a reserva existente.
  */
 import { addDaysISO } from '@/features/calendar/dates';
@@ -47,7 +55,8 @@ const SERVICE_PATTERNS: { padrao: RegExp; tipo: BookingServiceType }[] = [
   { padrao: /\bday\s*care\b|\bdaycare\b|\bcreche\b|\bdi[aá]ria\b/i, tipo: 'daycare' },
 ];
 
-function normalizar(valor: string): string {
+/** Compara nomes de cão/cliente sem acento e sem caixa ("Filó" == "filo"). */
+export function normalizar(valor: string): string {
   return valor
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -97,12 +106,70 @@ export function parseTransportTitle(title: string): { dogName: string; clientNam
   }
   const dogName = limpar(resto);
   if (!dogName) return null;
-  return { dogName, clientName };
+  // "Pick up Kona — Leigh Ann": dois nomes no título de operação também são lidos.
+  return comDoisNomes({ dogName, clientName });
 }
 
 /** Limpa separadores que sobram depois de tirar a palavra de servico. */
 function limpar(valor: string): string {
   return valor.replace(/^[\s·\-–—:,;|]+/, '').replace(/[\s·\-–—:,;|]+$/, '').trim();
+}
+
+/**
+ * Dois nomes no mesmo título: "Leigh Ann · Kona" (tutor · cão) e "Kona — Leigh Ann" (cão — tutor).
+ *
+ * Na maioria das vezes o título traz UM nome só e esse nome é o cão (o cliente nasce com o mesmo
+ * nome, como placeholder que o gestor renomeia). Quando trazem DOIS, o dono pediu (24/09/2026) que
+ * os dois sejam usados como cão e tutor:
+ *   - ponto médio / barra: é a convenção do próprio app, que escreve os campos TERMINANDO no cão
+ *     ("Daycare · Bella") → o CÃO é a última parte;
+ *   - travessão com espaço em volta: o escritório escreve "Kona — Leigh Ann" → o CÃO é a primeira.
+ * Com mais de dois pedaços valem o primeiro e o último. Pedaço que é palavra de serviço ou de
+ * operação nunca vira tutor (senão "Pick · Bella" criaria um cliente chamado "Pick").
+ */
+const SEPARADOR_CONVENCAO_APP = /\s*[·|]\s*|\s+\/\s+/;
+const SEPARADOR_TRACO = /\s+[–—-]\s+/;
+
+function pedacos(valor: string, separador: RegExp): string[] {
+  return valor
+    .split(separador)
+    .map((pedaco) => limpar(pedaco))
+    .filter((pedaco) => pedaco.length > 0);
+}
+
+function ehQualificador(valor: string): boolean {
+  return serviceOf(valor) !== null || ACTION_PATTERN.test(valor);
+}
+
+/**
+ * Cão (e tutor, quando o título traz dois nomes) lidos de um título sem palavra-chave.
+ * Devolve null quando não há dois nomes para separar (aí o nome do cão é o texto inteiro).
+ */
+export function nomesDoTitulo(resto: string): { dogName: string; clientName: string | null } | null {
+  const grupos: { pedacos: string[]; caoPrimeiro: boolean }[] = [
+    { pedacos: pedacos(resto, SEPARADOR_CONVENCAO_APP), caoPrimeiro: false },
+    { pedacos: pedacos(resto, SEPARADOR_TRACO), caoPrimeiro: true },
+  ];
+
+  for (const grupo of grupos) {
+    if (grupo.pedacos.length < 2) continue;
+    const primeiro = grupo.pedacos[0];
+    const ultimo = grupo.pedacos[grupo.pedacos.length - 1];
+    // Um dos lados é serviço/operação ("Pick · Bella", "Bella · Daycare"): o outro é o cão.
+    if (ehQualificador(primeiro) && !ehQualificador(ultimo)) return { dogName: ultimo, clientName: null };
+    if (ehQualificador(ultimo) && !ehQualificador(primeiro)) return { dogName: primeiro, clientName: null };
+    if (ehQualificador(primeiro) && ehQualificador(ultimo)) return null;
+    return grupo.caoPrimeiro ? { dogName: primeiro, clientName: ultimo } : { dogName: ultimo, clientName: primeiro };
+  }
+
+  return null;
+}
+
+/** Aplica a leitura de dois nomes ao que o parser já leu (só quando não veio tutor entre parênteses). */
+function comDoisNomes(lido: { dogName: string; clientName: string | null }): { dogName: string; clientName: string | null } {
+  if (lido.clientName) return lido;
+  const par = nomesDoTitulo(lido.dogName);
+  return par ? { dogName: par.dogName, clientName: par.clientName } : lido;
 }
 
 /**
@@ -124,12 +191,15 @@ export function parseBookingTitle(title: string): { serviceType: BookingServiceT
 
   const dogName = limpar(resto);
   if (!dogName) return null;
-  return { serviceType, dogName, clientName };
+  // "Daycare · Leigh Ann · Kona" (sem parênteses): o segundo nome é o tutor.
+  const nomes = comDoisNomes({ dogName, clientName });
+  return { serviceType, dogName: nomes.dogName, clientName: nomes.clientName };
 }
 
 /**
  * Fallback do calendário dedicado: sem palavra-chave, o título é o nome do cão.
- * Mantém o tutor opcional entre parênteses para desempatar cães com nomes iguais.
+ * Mantém o tutor opcional entre parênteses para desempatar cães com nomes iguais e reconhece os
+ * dois nomes separados ("Leigh Ann · Kona" / "Kona — Leigh Ann").
  */
 function parseDedicatedCalendarTitle(title: string): { dogName: string; clientName: string | null } | null {
   let resto = limpar(title);
@@ -141,7 +211,7 @@ function parseDedicatedCalendarTitle(title: string): { dogName: string; clientNa
     clientName = limpar(parenteses[2] ?? '') || null;
   }
   if (!resto) return null;
-  return { dogName: resto, clientName };
+  return comDoisNomes({ dogName: resto, clientName });
 }
 
 /** Le a recorrencia (RRULE + EXDATE) de volta para o modelo do app. */
@@ -199,7 +269,13 @@ export function parseBookingEvent(event: RemoteEvent): ParsedBooking | null {
 
 /* ------------------------------- plano da importação ------------------------------- */
 
-export type DogForImport = { id: string; name: string; clientName?: string | null };
+export type DogForImport = {
+  id: string;
+  name: string;
+  clientName?: string | null;
+  /** Cliente do cão no cadastro — permite pendurar um cão novo em cliente que já existe. */
+  clientId?: string | null;
+};
 
 /** O que já existe no app e pode estar ligado a um evento do Google. */
 export type ExistingBookingKind = 'reservation' | 'recurring';
@@ -228,8 +304,26 @@ export type ImportWindow = { from: string; to: string };
 
 export type ReviewReason = 'unknown dog' | 'ambiguous dog' | 'unreadable' | 'duplicate';
 
+/**
+ * Cão que o título pede e que AINDA NÃO existe no cadastro (decisão do dono, 24/09/2026: o
+ * agendamento do Google entra e o app cadastra o cão).
+ *
+ * Regra dos nomes: o título com dois nomes ("Leigh Ann · Kona", "Kona — Leigh Ann") dá cão E tutor;
+ * com um nome só, esse nome é o cão e o cliente nasce com o MESMO nome (placeholder que o gestor
+ * renomeia depois). Nome vazio nunca vira cadastro — vira pendência de revisão.
+ */
+export type NewDogForCreate = {
+  /** Nome do cão — vem do título, nunca vazio. */
+  name: string;
+  /** Nome do cliente a cadastrar quando ele ainda não existe (tutor do título, ou o nome do cão). */
+  clientName: string;
+  /** Cliente que JÁ existe no cadastro (tutor casado pelo nome): não cria cliente repetido. */
+  clientId?: string | null;
+};
+
 export type ImportOutcome =
   | { kind: 'create'; eventId: string; dogId: string; parsed: ParsedBooking }
+  | { kind: 'create'; eventId: string; dogId: null; newDog: NewDogForCreate; parsed: ParsedBooking }
   | { kind: 'update'; eventId: string; bookingKind: ExistingBookingKind; bookingId: string; dogId: string; parsed: ParsedBooking }
   | { kind: 'cancel'; eventId: string; bookingKind: ExistingBookingKind; bookingId: string }
   | { kind: 'review'; eventId: string; title: string; date: string; parsed: ParsedBooking; reason: ReviewReason };
@@ -266,9 +360,40 @@ function precisaAtualizar(reserva: BookingForImport, parsed: ParsedBooking, dogI
 }
 
 /**
+ * Data (ISO) anterior ao começo da janela? A janela é o contrato da importação: quem chama passa
+ * `from` = HOJE (data local), então isto é o que garante "nada do passado" — nenhum evento com data
+ * anterior a hoje é criado, alterado ou cancelado (comparação de texto serve: `YYYY-MM-DD` ordena
+ * igual a data).
+ */
+function antesDaJanela(date: string | null | undefined, window: ImportWindow): boolean {
+  return !date || date < window.from;
+}
+
+/** Cliente que já existe no cadastro, casado pelo nome do tutor que veio no título. */
+function clienteConhecido(clientName: string | null, dogs: DogForImport[]): string | null {
+  if (!clientName) return null;
+  const alvo = normalizar(clientName);
+  const dono = dogs.find((cao) => cao.clientId && cao.clientName && normalizar(cao.clientName) === alvo);
+  return dono?.clientId ?? null;
+}
+
+/**
+ * Cadastro que o título pede: nome do cão + cliente (tutor do título; sem tutor, o próprio nome do
+ * cão como placeholder). Se o tutor já tem cão no cadastro, o cão novo entra NO cliente que existe —
+ * dois eventos do mesmo tutor não podem virar dois clientes iguais.
+ */
+export function novoCadastro(parsed: ParsedBooking, dogs: DogForImport[]): NewDogForCreate {
+  const name = parsed.dogName.trim();
+  const tutor = parsed.clientName?.trim() || null;
+  const clientId = clienteConhecido(tutor, dogs);
+  return clientId ? { name, clientName: tutor ?? name, clientId } : { name, clientName: tutor ?? name };
+}
+
+/**
  * O que fazer com o que está no Google. Determinístico e sem rede.
  *
- * `events` já vem recortado pela janela da consulta (timeMin/timeMax).
+ * `events` já vem recortado pela janela da consulta (timeMin/timeMax), e `window` é a mesma janela
+ * em datas — nada anterior a `window.from` (hoje) entra no plano, seja criar, alterar ou cancelar.
  */
 export function planCalendarImport(
   events: RemoteEvent[],
@@ -290,7 +415,10 @@ export function planCalendarImport(
 
     const parsed = parseBookingEvent(evento);
     // 2. Até evento sem título precisa aparecer para revisão; o calendário é exclusivo do negócio.
+    //    Exceção: evento que COMEÇOU antes de hoje não gera nada — nem reserva, nem pendência
+    //    (senão uma hospedagem em curso criaria/alteraria/cancelaria data passada).
     if (!parsed) {
+      if (antesDaJanela(evento.startDate, window)) continue;
       const recorrencia = parseRecurrence(evento.recurrence, evento.startDate, evento.endDate);
       resultados.push({
         kind: 'review',
@@ -309,7 +437,7 @@ export function planCalendarImport(
       continue;
     }
 
-    const ligada = porEvento.get(evento.id) ?? null;
+    if (antesDaJanela(parsed.startDate, window)) continue;
 
     // 3. Casa o cao pelo nome (e pelo tutor quando o titulo traz).
     const alvo = normalizar(parsed.dogName);
@@ -319,32 +447,39 @@ export function planCalendarImport(
       const filtrados = candidatos.filter((cao) => (cao.clientName ? normalizar(cao.clientName) === tutor : false));
       if (filtrados.length > 0) candidatos = filtrados;
     }
+    /** Cão do cadastro que o título aponta agora (null = o título não aponta para nenhum). */
+    const dogDoTitulo = candidatos.length === 1 ? candidatos[0].id : null;
 
-    if (candidatos.length === 0) {
-      resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'unknown dog' });
-      continue;
-    }
-    if (candidatos.length > 1) {
-      resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'ambiguous dog' });
-      continue;
-    }
-
-    const dogId = candidatos[0].id;
-    vistos.add(evento.id);
-
-    if (ligada && ligada.source === 'google') {
-      if (precisaAtualizar(ligada, parsed, dogId)) {
+    // 4. Vínculo por EVENTO (não por nome): se o evento já tem reserva no app, ela é a referência.
+    //    Título que não aponta para nenhum cão do cadastro (o caso do cão RENOMEADO no app depois da
+    //    importação) NÃO cria cadastro novo: a reserva segue com o cão dela, que é o mesmo evento.
+    const ligada = porEvento.get(evento.id) ?? null;
+    if (ligada) {
+      vistos.add(evento.id);
+      const dogId = dogDoTitulo ?? ligada.dogId;
+      if (ligada.source === 'google' && precisaAtualizar(ligada, parsed, dogId)) {
         resultados.push({ kind: 'update', eventId: evento.id, bookingKind: ligada.kind, bookingId: ligada.id, dogId, parsed });
       }
       continue;
     }
 
-    if (ligada) {
+    // 5. Cão que NÃO casa (nenhum ou mais de um): decisão do dono (24/09/2026) — o agendamento entra
+    //    igual, criando cliente + cão com o nome do título. Sem nome não se cria cadastro: vai para
+    //    a revisão, onde o gestor escolhe o cão.
+    if (!dogDoTitulo) {
+      if (!parsed.dogName.trim()) {
+        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'unreadable' });
+        continue;
+      }
       vistos.add(evento.id);
+      resultados.push({ kind: 'create', eventId: evento.id, dogId: null, newDog: novoCadastro(parsed, dogs), parsed });
       continue;
     }
 
-    // 4. Igual a uma reserva que o app ja tem = duplicata: o gestor decide (liga o evento a ela).
+    const dogId = dogDoTitulo;
+    vistos.add(evento.id);
+
+    // 6. Igual a uma reserva que o app ja tem = duplicata: o gestor decide (liga o evento a ela).
     const tipo = kindOf(parsed);
     const gemea = reservations.find(
       (reserva) =>
@@ -363,12 +498,12 @@ export function planCalendarImport(
     resultados.push({ kind: 'create', eventId: evento.id, dogId, parsed });
   }
 
-  // 5. Reserva vinda do Google cujo evento sumiu: cancelar — so dentro da janela consultada.
+  // 7. Reserva vinda do Google cujo evento sumiu: cancelar — so dentro da janela consultada.
   for (const reserva of reservations) {
     if (reserva.source !== 'google' || !reserva.googleEventId) continue;
     if (reserva.status !== 'confirmed') continue;
     if (vistos.has(reserva.googleEventId)) continue;
-    const dentroDaJanela = reserva.startDate >= window.from && reserva.startDate <= window.to;
+    const dentroDaJanela = !antesDaJanela(reserva.startDate, window) && reserva.startDate <= window.to;
     if (!dentroDaJanela) continue;
     const aindaExiste = events.some((evento) => evento.id === reserva.googleEventId);
     if (!aindaExiste) {
