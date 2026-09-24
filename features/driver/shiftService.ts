@@ -150,7 +150,6 @@ export type ManagerRouteRow = {
   id: string;
   route_date: string;
   driver_id: string | null;
-  profile?: { full_name?: string | null } | null;
   route_stops: Record<string, unknown>[] | null;
 };
 
@@ -174,14 +173,24 @@ export async function loadDriverNames(client: SupabaseClient, organizationId: st
   return Object.fromEntries(linhas.map((linha) => [linha.user_id, linha.profile?.full_name?.trim() || 'Driver']));
 }
 
-/** Rotas do período com as paradas (marcos) e o nome do motorista. */
+/**
+ * Rotas do período com as paradas (marcos) e o nome do motorista.
+ *
+ * O NOME NAO VEM DE EMBED: `routes.driver_id` aponta para `auth.users`, e o PostgREST so
+ * conhece o caminho `presenca → perfis` pela FK de `organization_members.user_id`
+ * (migration 202609090004). Pedir `profiles(full_name)` aqui devolve
+ * `400 PGRST200 (Could not find a relationship between 'routes' and 'profiles')` — e era
+ * assim que a tela "Driver hours" ficava SEM DADOS: o erro subia no `throw` e o resumo nunca
+ * era montado. Quem chama resolve o nome pelo mapa de `loadDriverNames()` — o mesmo padrao
+ * do resto do app — e cai em "Driver" quando o vinculo nao existir mais.
+ */
 export async function loadOrganizationRoutes(
   client: SupabaseClient,
   params: { organizationId: string; from: string; to: string },
 ): Promise<ManagerRouteRow[]> {
   const { data, error } = await client
     .from('routes')
-    .select(`id, route_date, driver_id, profile:profiles(full_name), route_stops(${STOP_MILESTONE_COLUMNS})`)
+    .select(`id, route_date, driver_id, route_stops(${STOP_MILESTONE_COLUMNS})`)
     .eq('organization_id', params.organizationId)
     .gte('route_date', params.from)
     .lte('route_date', params.to)

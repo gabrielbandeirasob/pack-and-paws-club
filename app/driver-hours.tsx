@@ -71,7 +71,7 @@ export default function DriverHoursScreen() {
           id: rota.id,
           day: rota.route_date,
           driverId: rota.driver_id,
-          driverName: (rota.driver_id ? nomes[rota.driver_id] : null) ?? (rota.profile?.full_name?.trim() || 'Driver'),
+          driverName: (rota.driver_id ? nomes[rota.driver_id] : null) ?? 'Driver',
           stops: (rota.route_stops ?? []).map(stopFromRow),
         })),
         jornadas.map((jornada) => ({

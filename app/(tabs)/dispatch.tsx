@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { buildDay, transportPool, vanPool, type DogRef, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
@@ -8,6 +8,7 @@ import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type Dispa
 import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
 import { STALE_ROUTE_TITLE, expectedVersion, isStaleRouteError, routeErrorMessage } from '@/features/dispatch/staleRoute';
 import { fetchTravelTimes } from '@/features/dispatch/trafficProvider';
+import { showAlert } from '@/features/ui/alert';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -184,7 +185,7 @@ export default function DispatchScreen() {
 
   // Dois gestores na mesma rota: avisa e recarrega, em vez de deixar a escrita velha passar.
   const avisarRotaMudou = useCallback(() => {
-    Alert.alert(STALE_ROUTE_TITLE, routeErrorMessage('stale_route'), [{ text: 'Reload', onPress: () => void load() }]);
+    showAlert(STALE_ROUTE_TITLE, routeErrorMessage('stale_route'), [{ text: 'Reload', onPress: () => void load() }]);
   }, [load]);
 
   /** Trata erro de escrita: avisa quando for concorrencia e sempre devolve mensagem legivel. */
@@ -347,19 +348,19 @@ export default function DispatchScreen() {
       { travel: traffic.travel },
     );
     if (!result.feasible) {
-      Alert.alert('Cannot optimize this route', result.reason ?? 'The schedule is infeasible.');
+      showAlert('Cannot optimize this route', result.reason ?? 'The schedule is infeasible.');
       return;
     }
     const lines = result.stops.map((stop) => `• ${stop.sequence}. ${stop.clientName} · ${stop.dogName} — arrive ${stop.plannedArrival}`);
     const origem = traffic.source === 'live' ? 'live traffic' : 'estimated times';
-    Alert.alert(`Optimized route (${origem})`, `Suggested order:\n${lines.join('\n')}`, [
+    showAlert(`Optimized route (${origem})`, `Suggested order:\n${lines.join('\n')}`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Apply',
         onPress: () => {
           const order = [...finished.map((stop) => stop.dogId), ...result.stops.map((stop) => stop.dogId)];
           void supabase.rpc('reorder_route_stops', { p_route_id: routeId, p_dog_ids: order, p_esperado: versaoDe(routeId) }).then(({ error }) => {
-            if (error) Alert.alert(isStaleRouteError(error) ? STALE_ROUTE_TITLE : 'Unable to apply the route', routeErrorMessage(error));
+            if (error) showAlert(isStaleRouteError(error) ? STALE_ROUTE_TITLE : 'Unable to apply the route', routeErrorMessage(error));
             void load();
           });
         },

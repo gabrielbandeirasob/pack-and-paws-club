@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Pressable, StyleSheet, Text, View, type AlertButton } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, View, type AlertButton } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -27,6 +27,7 @@ import {
   captureProofPhoto,
   proofColumn,
   proofErrorMessage,
+  proofFailureHandling,
   proofKindForAction,
   proofPath,
   proofRequired,
@@ -47,6 +48,7 @@ import {
   type DriverEventStatus,
 } from '@/features/driver/offlineStore';
 import { colors, radii } from '@/features/theme/tokens';
+import { showAlert } from '@/features/ui/alert';
 import { NavigationSheet } from '@/features/maps/NavigationSheet';
 import type { NavTarget } from '@/features/maps/links';
 import { navigationUrlFor, type NavApp } from '@/features/maps/navigation';
@@ -71,16 +73,30 @@ function startOfTomorrow(): string {
 
 /**
  * Pergunta ao motorista de onde vem a foto. Obrigatório não oferece pular; opcional oferece;
- * desistir (fora do alerta) devolve 'cancel' e o passo não é marcado.
+ * desistir (fechar o alerta) devolve 'cancel' e o passo não é marcado.
+ *
+ * No navegador não existe câmera: a origem é a biblioteca de fotos e o botão de recusar vai
+ * marcado como `style: 'cancel'`, que é o que o shim (features/ui/alert) traduz para o diálogo
+ * do browser. Antes disso o passo ficava travado para sempre no web, porque o `Alert.alert` do
+ * react-native-web é uma função VAZIA e a Promise que espera a escolha nunca resolvia.
  */
 function askProofChoice(required: boolean): Promise<ProofChoice | 'skip' | 'cancel'> {
   return new Promise((resolve) => {
-    const buttons: AlertButton[] = [
-      { text: 'Take photo', onPress: () => resolve('camera') },
-      { text: 'Choose from library', onPress: () => resolve('library') },
-    ];
-    if (!required) buttons.push({ text: 'No photo', onPress: () => resolve('skip') });
-    Alert.alert(
+    const buttons: AlertButton[] = [];
+    if (Platform.OS !== 'web') buttons.push({ text: 'Take photo', onPress: () => resolve('camera') });
+    buttons.push({
+      text: Platform.OS === 'web' ? 'Choose a photo' : 'Choose from library',
+      onPress: () => resolve('library'),
+    });
+    if (!required) {
+      buttons.push({
+        text: 'No photo',
+        // No navegador o botao de recusa e o "Cancel" do dialogo (o shim precisa dessa marca).
+        ...(Platform.OS === 'web' ? { style: 'cancel' as const } : {}),
+        onPress: () => resolve('skip'),
+      });
+    }
+    showAlert(
       required ? 'Proof photo required' : 'Attach a proof photo?',
       required
         ? 'This stop only moves forward with a photo.'
@@ -181,7 +197,7 @@ export default function DriverTodayScreen() {
       let prova: Record<string, unknown> = {};
       if (event.proof) {
         try {
-          const caminho = await uploadProof(supabase, event.proof.localUri, event.proof.path);
+          const caminho = await uploadProof(supabase, event.proof.localUri, event.proof.path, event.proof.mimeType ?? null);
           prova = {
             [proofColumn(event.proof.kind, 'path')]: caminho,
             [proofColumn(event.proof.kind, 'at')]: event.proof.capturedAt,
@@ -364,7 +380,7 @@ export default function DriverTodayScreen() {
   /** Grava a ordem sugerida pelo GPS sem permitir que um motorista altere a rota de outro. */
   const applyOptimizedOrder = async (dogIds: string[]) => {
     if (!routeId || routeVersion === null) {
-      Alert.alert('Unable to save this route', 'Reload the route and optimize it again.');
+      showAlert('Unable to save this route', 'Reload the route and optimize it again.');
       return;
     }
 
@@ -377,7 +393,7 @@ export default function DriverTodayScreen() {
       });
       if (error) {
         const stale = error.message.toLowerCase().includes('stale_route');
-        Alert.alert(
+        showAlert(
           stale ? 'Route changed' : 'Unable to save this route',
           stale
             ? 'The manager changed this route. Reload it and optimize again.'
@@ -396,7 +412,7 @@ export default function DriverTodayScreen() {
       await load();
       setMessage('Route optimized from your current location.');
     } catch {
-      Alert.alert('Unable to save this route', 'The optimized route could not be saved. Check your connection and try again.');
+      showAlert('Unable to save this route', 'The optimized route could not be saved. Check your connection and try again.');
     } finally {
       setOptimizeBusy(false);
     }
@@ -413,13 +429,13 @@ export default function DriverTodayScreen() {
       const origin = await resolveDriverOptimizationOrigin(getCurrentDriverLocation, position);
       if (origin) setPosition(origin);
       if (!origin) {
-        Alert.alert('Unable to optimize this route', 'Your current location is not available. Allow location access and try again.');
+        showAlert('Unable to optimize this route', 'Your current location is not available. Allow location access and try again.');
         return;
       }
 
       const missingDog = stops.find((stop) => !stop.dogId);
       if (missingDog) {
-        Alert.alert('Unable to optimize this route', 'One of the assigned dogs is unavailable. Ask the manager to reload and publish the route again.');
+        showAlert('Unable to optimize this route', 'One of the assigned dogs is unavailable. Ask the manager to reload and publish the route again.');
         return;
       }
 
@@ -445,13 +461,13 @@ export default function DriverTodayScreen() {
         travel: traffic.travel,
       });
       if (!result.feasible) {
-        Alert.alert('Unable to optimize this route', result.reason ?? 'The route cannot be calculated.');
+        showAlert('Unable to optimize this route', result.reason ?? 'The route cannot be calculated.');
         return;
       }
 
       const lines = result.optimized.map((stop, index) => `• ${index + 1}. ${stop.clientName} · ${stop.dogName} — ${stop.plannedArrival ?? 'next'}`);
       const source = traffic.source === 'live' ? 'live traffic' : 'distance estimate';
-      Alert.alert(
+      showAlert(
         `Route ready (${source})`,
         `Starting at your current location:\n${lines.join('\n')}`,
         [
@@ -460,7 +476,7 @@ export default function DriverTodayScreen() {
         ],
       );
     } catch (reason) {
-      Alert.alert('Unable to optimize this route', reason instanceof Error ? reason.message : 'Location or route service is unavailable.');
+      showAlert('Unable to optimize this route', reason instanceof Error ? reason.message : 'Location or route service is unavailable.');
     } finally {
       setOptimizeBusy(false);
     }
@@ -499,20 +515,24 @@ export default function DriverTodayScreen() {
     // Obrigatório bloqueia, opcional só oferece, e sem configuração carregada o motorista
     // nunca fica preso num passo.
     const proofKind = proofKindForAction(action);
-    let proof: { kind: ProofKind; localUri: string; path: string; capturedAt: string } | null = null;
+    let proof: { kind: ProofKind; localUri: string; path: string; capturedAt: string; mimeType: string | null } | null = null;
+    // A exigencia da foto vale la embaixo tambem, na hora de decidir o que fazer se a gravacao falhar.
+    let provaObrigatoria = false;
     if (proofKind && organizationId) {
       const required = proofRequired(proofKind, proofSettings);
+      provaObrigatoria = required;
       const choice = await askProofChoice(required);
       if (choice === 'cancel') return;
       if (choice !== 'skip') {
         try {
-          const localUri = await captureProofPhoto(choice);
-          if (localUri) {
+          const escolhida = await captureProofPhoto(choice);
+          if (escolhida) {
             proof = {
               kind: proofKind,
-              localUri,
-              path: proofPath(organizationId, stopId, proofKind, localUri),
+              localUri: escolhida.uri,
+              path: proofPath(organizationId, stopId, proofKind, escolhida.uri, new Date(), escolhida.mimeType),
               capturedAt: new Date().toISOString(),
+              mimeType: escolhida.mimeType,
             };
           } else if (required) {
             setMessage('The proof photo is required to finish this stop.');
@@ -525,44 +545,75 @@ export default function DriverTodayScreen() {
       }
     }
 
+    const statusAnterior = stops.find((stop) => stop.id === stopId)?.status ?? status;
     setStops((current) => current.map((stop) => (stop.id === stopId ? { ...stop, status } : stop)));
 
-    try {
+    /** Grava o passo no banco (com a foto, quando houver). Lança em QUALQUER falha. */
+    const gravarPasso = async (comProva: boolean) => {
       const atualizacao: Record<string, unknown> = { status };
-      if (proof) {
+      if (proof && comProva) {
         // Sobe a foto e grava o caminho junto do status: uma única escrita no banco.
-        const caminho = await uploadProof(supabase, proof.localUri, proof.path);
+        const caminho = await uploadProof(supabase, proof.localUri, proof.path, proof.mimeType);
         atualizacao[proofColumn(proof.kind, 'path')] = caminho;
         atualizacao[proofColumn(proof.kind, 'at')] = proof.capturedAt;
       }
       const { error } = await supabase.from('route_stops').update(atualizacao).eq('id', stopId);
-      if (error) {
-        if (!isNetworkError(error.message)) {
-          setMessage(error.message);
-          return;
-        }
-        throw new Error(error.message);
-      }
+      if (error) throw new Error(error.message);
+    };
+
+    /** O cartao volta para o estado do BANCO (a escrita nao aconteceu). */
+    const desfazerStatus = () =>
+      setStops((current) => current.map((stop) => (stop.id === stopId ? { ...stop, status: statusAnterior } : stop)));
+
+    try {
+      await gravarPasso(true);
       const events = (await loadOutbox()).filter((event) => event.stopId !== stopId);
       await saveOutbox(events);
       setPendingSync(events.length);
       if (events.length === 0) setOffline(false);
       await load();
     } catch (reason) {
-      const events = enqueueEvent(await loadOutbox(), {
-        stopId,
-        status,
-        createdAt: new Date().toISOString(),
-        ...(proof ? { proof } : {}),
+      // O destino do passo que nao gravou e uma regra pura (proofCapture.proofFailureHandling):
+      // fila local quando e rede; sem a foto quando ela era opcional; volta ao estado do banco
+      // no resto (inclusive foto OBRIGATORIA). Antes disso QUALQUER falha virava "sem conexao" e
+      // ia para a fila: a tela marcava "Completed" e o banco ficava sem o carimbo da foto.
+      const destino = proofFailureHandling({
+        networkError: isNetworkError(reason),
+        hasProof: proof !== null,
+        proofRequired: provaObrigatoria,
       });
-      await saveOutbox(events);
-      setPendingSync(events.length);
-      setOffline(true);
-      setMessage(
-        proof
-          ? 'No connection: the photo and this step are saved on your device and will sync automatically.'
-          : 'You are offline. This change is saved on your device and will sync automatically.',
-      );
+
+      if (destino === 'queue') {
+        const events = enqueueEvent(await loadOutbox(), {
+          stopId,
+          status,
+          createdAt: new Date().toISOString(),
+          ...(proof ? { proof } : {}),
+        });
+        await saveOutbox(events);
+        setPendingSync(events.length);
+        setOffline(true);
+        setMessage(
+          proof
+            ? 'No connection: the photo and this step are saved on your device and will sync automatically.'
+            : 'You are offline. This change is saved on your device and will sync automatically.',
+        );
+        return;
+      }
+
+      if (destino === 'without-photo') {
+        try {
+          await gravarPasso(false);
+          setMessage(`Step saved without the photo. ${proofErrorMessage(reason)}`);
+          await load();
+          return;
+        } catch {
+          // nem sem a foto deu: cai no aviso abaixo
+        }
+      }
+
+      desfazerStatus();
+      setMessage(proofErrorMessage(reason));
     }
   };
 

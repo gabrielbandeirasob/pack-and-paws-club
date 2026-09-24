@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ModalScreen } from '@/features/ui/ModalScreen';
+import { showAlert } from '@/features/ui/alert';
 import { useFocusEffect, useRouter } from 'expo-router';
 
 import { CalendarGrid, BOARDING_DOT, DAYCARE_DOT } from '@/features/calendar/CalendarGrid';
@@ -217,7 +218,7 @@ export default function CalendarScreen() {
       end_date: selectedDay,
       reason: 'Skipped on this date',
     });
-    if (error) Alert.alert('Unable to skip this date', error.message);
+    if (error) showAlert('Unable to skip this date', error.message);
     await load();
   };
 
@@ -229,7 +230,7 @@ export default function CalendarScreen() {
       .eq('action', 'skip')
       .eq('start_date', selectedDay)
       .eq('end_date', selectedDay);
-    if (error) Alert.alert('Unable to restore this date', error.message);
+    if (error) showAlert('Unable to restore this date', error.message);
     await load();
   };
 
@@ -244,7 +245,7 @@ export default function CalendarScreen() {
     );
     if (covering.length > 0) {
       const { error } = await supabase.from('recurring_exceptions').delete().in('id', covering.map((exception) => exception.id));
-      if (error) Alert.alert('Unable to clear transport override', error.message);
+      if (error) showAlert('Unable to clear transport override', error.message);
     } else {
       const { error } = await supabase.from('recurring_exceptions').insert({
         organization_id: organizationId,
@@ -254,14 +255,14 @@ export default function CalendarScreen() {
         end_date: selectedDay,
         reason: schedule.transportRequired ? 'No transport on this date' : 'Transport on this date',
       });
-      if (error) Alert.alert('Unable to change transport', error.message);
+      if (error) showAlert('Unable to change transport', error.message);
     }
     await load();
   };
 
   const removeSeries = async (scheduleId: string) => {
     const { error } = await supabase.from('recurring_schedules').delete().eq('id', scheduleId);
-    if (error) Alert.alert('Unable to remove the series', error.message);
+    if (error) showAlert('Unable to remove the series', error.message);
     await load();
   };
 
@@ -287,13 +288,13 @@ export default function CalendarScreen() {
       { text: 'Remove series', style: 'destructive' as const, onPress: () => void removeSeries(schedule.id) },
       { text: 'Cancel', style: 'cancel' as const },
     ];
-    Alert.alert(`${item.clientName} · ${item.dogName}`, `Repeats ${schedule.weekdays.map((day) => WEEKDAY_NAMES[day]).join(' · ')}`, buttons);
+    showAlert(`${item.clientName} · ${item.dogName}`, `Repeats ${schedule.weekdays.map((day) => WEEKDAY_NAMES[day]).join(' · ')}`, buttons);
   };
 
   const openReservationActions = (item: DayItem) => {
     if (!item.reservationId) { confirmRemoveReservation(item); return; }
     const label = `${item.clientName} · ${item.dogName}`;
-    Alert.alert(label, 'What do you want to do with this reservation?', [
+    showAlert(label, 'What do you want to do with this reservation?', [
       { text: 'Edit reservation', onPress: () => router.push({ pathname: '/reservation-edit', params: { id: item.reservationId as string } }) },
       { text: 'Remove', style: 'destructive', onPress: () => void removeReservation(item) },
       { text: 'Cancel', style: 'cancel' },
@@ -302,7 +303,7 @@ export default function CalendarScreen() {
 
   const confirmRemoveReservation = (item: DayItem) => {
     const label = `${item.clientName} · ${item.dogName}`;
-    Alert.alert('Remove reservation', `Remove ${label} from the calendar?`, [
+    showAlert('Remove reservation', `Remove ${label} from the calendar?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => void removeReservation(item) },
     ]);
@@ -310,7 +311,7 @@ export default function CalendarScreen() {
 
   const restorePaused = (schedule: RecurringScheduleRecord) => {
     const label = `${schedule.dog.clientName} · ${schedule.dog.dogName}`;
-    Alert.alert('Restore this date', `Add ${label} back to ${formatDayLabel(selectedDay)}?`, [
+    showAlert('Restore this date', `Add ${label} back to ${formatDayLabel(selectedDay)}?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Restore', onPress: () => void removeSkipOnDate(schedule.id) },
     ]);

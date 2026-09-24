@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ModalScreen } from '@/features/ui/ModalScreen';
 import { router, useFocusEffect } from 'expo-router';
@@ -7,6 +7,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { DriverInviteForm } from '@/features/drivers/DriverInviteForm';
 import { driverRemovalPlan, fullNameOrFallback, isActiveStatus, memberRoleLabel, memberStatusFromActive, memberStatusLabel, type MemberRole } from '@/features/drivers/driversService';
 import { normalizeForSearch } from '@/features/clients/clientsService';
+import { showAlert } from '@/features/ui/alert';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -85,7 +86,7 @@ export default function DriversScreen() {
   const saveDriver = async () => {
     if (!editing || !organizationId) return;
     const name = editName.trim();
-    if (name.length === 0) { Alert.alert('Name required', 'Give the driver a name.'); return; }
+    if (name.length === 0) { showAlert('Name required', 'Give the driver a name.'); return; }
     setSaving(true);
     const { error: profileError } = await supabase.from('profiles').update({ full_name: name }).eq('id', editing.user_id);
     const { error: memberError } = await supabase
@@ -94,7 +95,7 @@ export default function DriversScreen() {
       .eq('organization_id', organizationId)
       .eq('user_id', editing.user_id);
     setSaving(false);
-    if (profileError || memberError) { Alert.alert('Could not save', (profileError ?? memberError)?.message ?? 'Unknown error'); return; }
+    if (profileError || memberError) { showAlert('Could not save', (profileError ?? memberError)?.message ?? 'Unknown error'); return; }
     setEditing(null);
     await load({ silent: true });
   };
@@ -113,7 +114,7 @@ export default function DriversScreen() {
       pastRoutes: impact.pastRoutes,
       isSelf: editing.user_id === userId,
     });
-    if (!plan.allowed) { Alert.alert(plan.title, plan.message); return; }
+    if (!plan.allowed) { showAlert(plan.title, plan.message); return; }
 
     const desativar = async () => {
       setRemoving(true);
@@ -123,7 +124,7 @@ export default function DriversScreen() {
         .eq('organization_id', organizationId)
         .eq('user_id', editing.user_id);
       setRemoving(false);
-      if (error) { Alert.alert('Could not disable', error.message); return; }
+      if (error) { showAlert('Could not disable', error.message); return; }
       setEditing(null);
       await load({ silent: true });
     };
@@ -135,7 +136,7 @@ export default function DriversScreen() {
         .delete()
         .eq('organization_id', organizationId)
         .eq('user_id', editing.user_id);
-      if (error) { setRemoving(false); Alert.alert('Could not remove', error.message); return; }
+      if (error) { setRemoving(false); showAlert('Could not remove', error.message); return; }
       // Push para na hora (politica device_tokens_manager_delete, migration 022).
       // Se falhar, a remocao vale igual: sem vinculo ele nao recebe mais rota atribuida.
       await supabase.from('device_tokens').delete().eq('user_id', editing.user_id);
@@ -144,11 +145,11 @@ export default function DriversScreen() {
       await load({ silent: true });
     };
 
-    const botoes: Parameters<typeof Alert.alert>[2] = [{ text: 'Cancel', style: 'cancel' }];
+    const botoes: Parameters<typeof showAlert>[2] = [{ text: 'Cancel', style: 'cancel' }];
     if (plan.offerDisable) botoes.push({ text: 'Disable instead', onPress: () => void desativar() });
     botoes.push({ text: plan.confirmLabel, style: 'destructive', onPress: () => void apagarVinculo() });
 
-    Alert.alert(plan.title, plan.message, botoes);
+    showAlert(plan.title, plan.message, botoes);
   };
 
   const invite = async (name: string, email: string, role: MemberRole) => {

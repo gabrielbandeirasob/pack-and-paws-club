@@ -20,12 +20,13 @@ jest.mock('@/lib/supabase', () => {
     { user_id: 'd1', role: 'driver', profile: { full_name: 'Rafael' } },
     { user_id: 'd2', role: 'driver', profile: { full_name: 'Jordan' } },
   ];
+  // A rota NAO traz `profile`: no banco de verdade `routes.driver_id` aponta para auth.users e o
+  // embed `profiles(full_name)` devolve 400 PGRST200. O nome tem de vir do mapa de membros.
   const rotas = [
     {
       id: 'r1',
       driver_id: 'd1',
       route_date: '2026-09-23',
-      profile: { full_name: 'Rafael' },
       route_stops: [
         { id: 's1', sequence: 1, status: 'completed', arrived_at: '2026-09-23T11:10:00.000Z', picked_up_at: null, completed_at: '2026-09-23T11:30:00.000Z', skipped_at: null },
         { id: 's2', sequence: 2, status: 'completed', arrived_at: '2026-09-23T12:00:00.000Z', picked_up_at: null, completed_at: '2026-09-23T14:40:00.000Z', skipped_at: null },
@@ -35,7 +36,10 @@ jest.mock('@/lib/supabase', () => {
   const jornadas = [
     { id: 'j1', driver_id: 'd2', route_id: null, started_at: '2026-09-23T09:00:00.000Z', ended_at: '2026-09-23T10:30:00.000Z', start_reason: 'Covered the morning run', end_reason: 'Handed the van over' },
   ];
+  /** O que cada consulta pediu — é aqui que se prova que a rota não pede embed de `profiles`. */
+  const selecoes: { tabela: string; colunas: string }[] = [];
   return {
+    __selecoes: selecoes,
     supabase: {
       auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
       from: (tabela: string) => {
@@ -48,6 +52,7 @@ jest.mock('@/lib/supabase', () => {
         const chain: Record<string, unknown> = {};
         chain.select = (c: string) => {
           colunas = c;
+          selecoes.push({ tabela, colunas: c });
           return chain;
         };
         chain.eq = () => chain;
@@ -98,5 +103,28 @@ describe('Driver hours (tela do gestor)', () => {
     expect(enviado.message).toContain('Jordan');
     expect(enviado.message).toContain('1h30;90;1');
     compartilhar.mockRestore();
+  });
+
+  /**
+   * Regressao do erro de producao: `routes` nao tem FK para `profiles` (o driver_id aponta para
+   * auth.users), entao pedir `profile:profiles(full_name)` na consulta das rotas devolvia
+   * `400 PGRST200` — o `throw` subia no load() e a tela ficava SEM DADOS (nem erro na tela).
+   * O nome do motorista vem do mapa de `loadDriverNames()`, que usa a FK que existe.
+   */
+  it('nao pede o embed de profiles nas rotas e ainda mostra o nome do motorista', async () => {
+    const banco = jest.requireMock('@/lib/supabase') as { __selecoes: { tabela: string; colunas: string }[] };
+    banco.__selecoes.length = 0;
+
+    const Tela = require('../app/driver-hours').default;
+    const tela = await render(<Tela />);
+
+    const consultaDeRotas = banco.__selecoes.find((s) => s.tabela === 'routes');
+    expect(consultaDeRotas).toBeDefined();
+    expect(consultaDeRotas?.colunas).not.toContain('profiles');
+    expect(consultaDeRotas?.colunas).toContain('route_stops');
+
+    // O nome continua na tela — vindo do mapa de membros, nao do embed.
+    await waitFor(() => expect(tela.getByText('Rafael')).toBeTruthy());
+    expect(tela.queryByText('Driver')).toBeNull();
   });
 });
