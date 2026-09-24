@@ -1,4 +1,14 @@
-import { listEvents, parseEvent, toEventBody, type CalendarFetch } from '@/features/integrations/google/calendarApi';
+import {
+  createEvent,
+  deleteEvent,
+  listAllEvents,
+  listCalendars,
+  listEvents,
+  parseEvent,
+  toEventBody,
+  updateEvent,
+  type CalendarFetch,
+} from '@/features/integrations/google/calendarApi';
 import { describeSummary, runCalendarSync } from '@/features/integrations/google/sync';
 import type { LocalReservation } from '@/features/integrations/google/calendarSync';
 
@@ -41,6 +51,10 @@ function fakeGoogle(seed: Stored[] = [], failures: string[] = []) {
 }
 
 const range = { timeMin: '2026-09-01T00:00:00Z', timeMax: '2026-12-31T00:00:00Z' };
+
+/** Calendário secundário do escritório ("bot venda") — o id do Google tem `@` (vira `%40` na URL). */
+const CALENDARIO_ESCOLHIDO = 'bot-venda@group.calendar.google.com';
+const CAMINHO_ESCOLHIDO = '/calendars/bot-venda%40group.calendar.google.com/events';
 
 const reserva: LocalReservation = {
   id: 'res-1',
@@ -151,5 +165,106 @@ describe('runCalendarSync', () => {
     expect(summary.failures[0].error).toContain('criar evento falhou');
     // Texto do resumo no idioma da interface (inglês) — corrigido em 23/09/2026.
     expect(describeSummary(summary)).toContain('failed');
+  });
+
+  it('espelha no calendário escolhido pela organização (e no primary sem escolha)', async () => {
+    const urls: string[] = [];
+    const doFetch: CalendarFetch = async (url) => {
+      urls.push(url);
+      return { ok: true, status: 200, json: async () => ({ items: [] }) };
+    };
+
+    await runCalendarSync({ accessToken: 't', reservations: [reserva], range, doFetch });
+    expect(urls[0]).toContain('/calendars/primary/events');
+
+    urls.length = 0;
+    const resumo = await runCalendarSync({ accessToken: 't', reservations: [reserva], range, doFetch, calendarId: CALENDARIO_ESCOLHIDO });
+    expect(resumo.created).toBe(1);
+    // Listar (GET) e criar (POST) no MESMO calendário: é isso que faz a importação enxergar o que o
+    // espelho escreveu — o que estava quebrado quando o app lia só o `primary`.
+    expect(urls).toHaveLength(2);
+    for (const url of urls) expect(url).toContain(CAMINHO_ESCOLHIDO);
+  });
+});
+
+/**
+ * O calendário escolhido pela organização ("bot venda") entra em TODAS as chamadas das duas vias.
+ * O id do Google tem `@`: na URL precisa ir codificado (`%40`).
+ */
+describe('calendário escolhido pela organização', () => {
+  const evento = { summary: 'Daycare · Filó (Raphael)', start: { date: '2026-09-10' }, end: { date: '2026-09-11' } };
+
+  function gravador() {
+    const chamadas: { method: string; url: string }[] = [];
+    const doFetch: CalendarFetch = async (url, init) => {
+      chamadas.push({ method: init.method, url });
+      if (init.method === 'DELETE') return { ok: true, status: 204, json: async () => ({}) };
+      if (init.method === 'GET') return { ok: true, status: 200, json: async () => ({ items: [] }) };
+      return { ok: true, status: 200, json: async () => ({ id: 'g-1' }) };
+    };
+    return { chamadas, doFetch };
+  }
+
+  it('lista os calendários da conta com nome, principal e papel de acesso', async () => {
+    const urls: string[] = [];
+    const doFetch: CalendarFetch = async (url) => {
+      urls.push(url);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          kind: 'calendar#calendarList',
+          items: [
+            { id: 'raphael@packandpawsclub.com', summary: 'raphael@packandpawsclub.com', primary: true, accessRole: 'owner' },
+            { id: CALENDARIO_ESCOLHIDO, summary: 'bot venda', accessRole: 'writer' },
+            { id: 'feriados@group.calendar.google.com', summary: 'Feriados', accessRole: 'reader' },
+          ],
+        }),
+      };
+    };
+
+    const lista = await listCalendars('t', doFetch);
+    expect(urls[0]).toContain('/users/me/calendarList');
+    expect(lista.map((item) => [item.summary, item.primary, item.accessRole])).toEqual([
+      ['raphael@packandpawsclub.com', true, 'owner'],
+      ['bot venda', false, 'writer'],
+      ['Feriados', false, 'reader'],
+    ]);
+  });
+
+  it('o espelho escreve no calendário escolhido (criar, atualizar e apagar)', async () => {
+    const google = gravador();
+    await createEvent('t', evento, google.doFetch, CALENDARIO_ESCOLHIDO);
+    await updateEvent('t', 'g-1', evento, google.doFetch, CALENDARIO_ESCOLHIDO);
+    await deleteEvent('t', 'g-1', google.doFetch, CALENDARIO_ESCOLHIDO);
+
+    expect(google.chamadas.map((chamada) => chamada.method)).toEqual(['POST', 'PATCH', 'DELETE']);
+    for (const chamada of google.chamadas) expect(chamada.url).toContain(CAMINHO_ESCOLHIDO);
+  });
+
+  it('a importação lê o calendário escolhido (e nenhuma via sobra no primary)', async () => {
+    const doEspelho = gravador();
+    const doImportacao = gravador();
+    await listEvents('t', range, doEspelho.doFetch, CALENDARIO_ESCOLHIDO);
+    await listAllEvents('t', range, doImportacao.doFetch, CALENDARIO_ESCOLHIDO);
+
+    expect(doEspelho.chamadas[0].url).toContain(CAMINHO_ESCOLHIDO);
+    expect(doImportacao.chamadas[0].url).toContain(CAMINHO_ESCOLHIDO);
+    expect(doImportacao.chamadas[0].url).not.toContain('/calendars/primary/');
+    // O filtro do espelho continua só na listagem do espelho.
+    expect(doEspelho.chamadas[0].url).toContain('privateExtendedProperty=packpawsMirror%3Dv1');
+    expect(doImportacao.chamadas[0].url).not.toContain('privateExtendedProperty');
+  });
+
+  it('sem escolha gravada, tudo continua no calendário principal', async () => {
+    const google = gravador();
+    await listEvents('t', range, google.doFetch);
+    await listAllEvents('t', range, google.doFetch);
+    await createEvent('t', evento, google.doFetch);
+    await updateEvent('t', 'g-1', evento, google.doFetch);
+    await deleteEvent('t', 'g-1', google.doFetch);
+
+    expect(google.chamadas).toHaveLength(5);
+    for (const chamada of google.chamadas) expect(chamada.url).toContain('/calendars/primary/events');
   });
 });

@@ -2,6 +2,7 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
 import { CalendarConnectionCard, dentroDaJanela, janelaDeEspelho, janelaDeImportacao } from '@/features/integrations/google/CalendarConnectionCard';
+import { TEXTO_FALTA_DE_ESCOPO, TEXTO_SOMENTE_LEITURA } from '@/features/integrations/google/calendarChoice';
 import type { LocalReservation } from '@/features/integrations/google/calendarSync';
 import type { BookingForImport, DogForImport } from '@/features/integrations/google/importPlan';
 
@@ -15,6 +16,28 @@ jest.mock('@/features/integrations/google/importService', () => ({
   runCalendarImport: jest.fn(),
   hasImportChanges: jest.requireActual('@/features/integrations/google/importService').hasImportChanges,
 }));
+// A lista de calendarios vem da API do Google: aqui ela e injetada (nenhuma chamada de rede).
+jest.mock('@/features/integrations/google/calendarApi', () => ({
+  listCalendars: jest.fn(),
+  CalendarApiError: jest.requireActual('@/features/integrations/google/calendarApi').CalendarApiError,
+}));
+
+/** O que está gravado na ORGANIZAÇÃO (a escolha é por organização, não por aparelho). */
+let mockOrganizacao: { google_calendar_id: string | null; google_calendar_summary: string | null } = {
+  google_calendar_id: null,
+  google_calendar_summary: null,
+};
+
+const CAL_PRINCIPAL = 'raphael@packandpawsclub.com';
+/** Calendário secundário do escritório: é nele que estão os agendamentos (o print do cliente). */
+const CAL_BOT_VENDA = 'bot-venda@group.calendar.google.com';
+const CAL_FERIADOS = 'feriados@group.calendar.google.com';
+
+const contaCalendarios = [
+  { id: CAL_PRINCIPAL, summary: CAL_PRINCIPAL, primary: true, accessRole: 'owner' },
+  { id: CAL_BOT_VENDA, summary: 'bot venda', primary: false, accessRole: 'writer' },
+  { id: CAL_FERIADOS, summary: 'Feriados', primary: false, accessRole: 'reader' },
+];
 
 /** Escritas no banco: o alvo e conferir o que a tela manda para o Supabase. */
 const insercoes: { tabela: string; valores: Record<string, unknown> }[] = [];
@@ -35,6 +58,7 @@ jest.mock('@/lib/supabase', () => ({
       chain.select = () => chain;
       chain.eq = () => chain;
       chain.single = async () => ({ data: { id: 'novo-id' }, error: null });
+      chain.maybeSingle = async () => ({ data: mockOrganizacao, error: null });
       chain.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(res);
       return chain;
     },
@@ -44,6 +68,7 @@ jest.mock('@/lib/supabase', () => ({
 const useCalendarConnection = jest.requireMock('@/features/integrations/google/useCalendarConnection').useCalendarConnection as jest.Mock;
 const runCalendarSync = jest.requireMock('@/features/integrations/google/sync').runCalendarSync as jest.Mock;
 const runCalendarImport = jest.requireMock('@/features/integrations/google/importService').runCalendarImport as jest.Mock;
+const listCalendars = jest.requireMock('@/features/integrations/google/calendarApi').listCalendars as jest.Mock;
 
 /** Conexao falsa no formato que o card consome. */
 function conexao(status: 'not_configured' | 'disconnected' | 'connected', extras: Record<string, unknown> = {}) {
@@ -71,13 +96,24 @@ function props() {
   return { reservations: reservas, organizationId: 'org-1', dogs, bookings, onImported };
 }
 
+/**
+ * Espera a escolha da organização chegar na tela (a leitura é assíncrona).
+ * `toHaveTextContent` (e não `within(...).getByText`) porque a consulta dentro de um nó procura nos
+ * FILHOS — o texto do próprio `Text` com testID não é encontrado assim.
+ */
+async function esperandoEscolha(screen: Awaited<ReturnType<typeof render>>, nome: string) {
+  await waitFor(() => expect(screen.getByTestId('google-calendar-escolhido')).toHaveTextContent(nome));
+}
+
 describe('CalendarConnectionCard', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     insercoes.length = 0;
     atualizacoes.length = 0;
+    mockOrganizacao = { google_calendar_id: null, google_calendar_summary: null };
     runCalendarSync.mockResolvedValue({ created: 2, updated: 0, deleted: 1, failures: [] });
     runCalendarImport.mockResolvedValue({ created: 0, updated: 0, cancelled: 0, review: [], failures: [] });
+    listCalendars.mockResolvedValue(contaCalendarios);
   });
 
   it('explica que o Google nao esta no build, em vez de mostrar botao que nao funciona', async () => {
@@ -242,5 +278,106 @@ describe('CalendarConnectionCard', () => {
     });
     // A pendencia sai da lista.
     expect(screen.queryByTestId('google-calendar-revisao')).toBeNull();
+  });
+
+  // ------------------------------------------------------- calendário escolhido pela organização
+
+  it('mostra a conta conectada (mesmo sem e-mail no token) e o calendário escolhido', async () => {
+    // O token do app não pede escopo de e-mail: `email` chega nulo (era o defeito do print).
+    useCalendarConnection.mockReturnValue(conexao('connected', { email: null }));
+    mockOrganizacao = { google_calendar_id: CAL_BOT_VENDA, google_calendar_summary: 'bot venda' };
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    // A conta aparece pelo nome do calendário PRINCIPAL da conta conectada...
+    await waitFor(() => expect(screen.getByText(/Connected as raphael@packandpawsclub\.com/)).toBeTruthy());
+    // ...e o calendário escolhido aparece no cartão.
+    await esperandoEscolha(screen, 'bot venda');
+    expect(screen.queryByTestId('google-calendar-padrao')).toBeNull();
+  });
+
+  it('sem escolha gravada, o padrão continua sendo o calendário principal', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await waitFor(() => expect(screen.getByTestId('google-calendar-padrao')).toBeTruthy());
+    await esperandoEscolha(screen, 'Primary calendar');
+
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+    await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
+    expect(runCalendarSync.mock.calls[0][0].calendarId).toBe('primary');
+    expect(runCalendarImport.mock.calls[0][0].calendarId).toBe('primary');
+  });
+
+  it('o Sync usa o calendário escolhido nas DUAS vias (espelho e importação)', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    mockOrganizacao = { google_calendar_id: CAL_BOT_VENDA, google_calendar_summary: 'bot venda' };
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await esperandoEscolha(screen, 'bot venda');
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+    expect(runCalendarSync.mock.calls[0][0].calendarId).toBe(CAL_BOT_VENDA);
+    expect(runCalendarImport.mock.calls[0][0].calendarId).toBe(CAL_BOT_VENDA);
+  });
+
+  it('trocar de calendário grava na ORGANIZAÇÃO e avisa que os eventos ficam no calendário antigo', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    mockOrganizacao = { google_calendar_id: CAL_BOT_VENDA, google_calendar_summary: 'bot venda' };
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+    await esperandoEscolha(screen, 'bot venda');
+
+    await fireEvent.press(screen.getByTestId('google-calendar-trocar'));
+    // O aviso é do calendário ATUAL: o que já foi espelhado continua lá.
+    expect(screen.getByText(/does not move or delete anything there/)).toBeTruthy();
+    expect(screen.getByText('Feriados')).toBeTruthy();
+    expect(screen.getByText('Read-only')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('Use calendar Feriados'));
+    await fireEvent.press(screen.getByTestId('google-calendar-salvar-calendario'));
+
+    await waitFor(() => expect(atualizacoes.length).toBe(1));
+    expect(atualizacoes[0].tabela).toBe('organizations');
+    expect(atualizacoes[0].valores).toEqual({ google_calendar_id: CAL_FERIADOS, google_calendar_summary: 'Feriados' });
+
+    // A escolha nova vale na hora e o aviso da troca fica na tela.
+    await esperandoEscolha(screen, 'Feriados');
+    // RegExp (e não string) porque `toHaveTextContent` compara o conteúdo inteiro quando recebe texto.
+    expect(screen.getByTestId('google-calendar-aviso-troca')).toHaveTextContent(/bot venda/);
+  });
+
+  it('calendário somente leitura: o espelho falha com uma frase que o gestor entende', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    mockOrganizacao = { google_calendar_id: CAL_FERIADOS, google_calendar_summary: 'Feriados' };
+    runCalendarSync.mockResolvedValue({
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      failures: [{ action: 'create', reservationId: 'res:futura', error: 'criar evento falhou (HTTP 403): The user does not have write access to this calendar.' }],
+    });
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+    await esperandoEscolha(screen, 'Feriados');
+
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+
+    await waitFor(() => expect(screen.getByTestId('google-calendar-erro')).toBeTruthy());
+    expect(screen.getByTestId('google-calendar-erro')).toHaveTextContent(TEXTO_SOMENTE_LEITURA);
+    // O erro cru da API não vai para a tela do gestor.
+    expect(screen.queryByText(/HTTP 403/)).toBeNull();
+    // E o cartão já avisa que ali não dá para espelhar.
+    expect(screen.getByTestId('google-calendar-escolhido-acesso')).toHaveTextContent(TEXTO_SOMENTE_LEITURA);
+  });
+
+  it('token antigo (sem permissão de listar calendários) explica que é preciso reconectar', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    listCalendars.mockRejectedValue(new Error('listar calendários falhou (HTTP 403): Request had insufficient authentication scopes.'));
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-trocar'));
+
+    await waitFor(() =>
+      expect(screen.getByTestId('google-calendar-erro-calendarios')).toHaveTextContent(TEXTO_FALTA_DE_ESCOPO),
+    );
+    expect(screen.getByTestId('google-calendar-recarregar-calendarios')).toBeTruthy();
   });
 });

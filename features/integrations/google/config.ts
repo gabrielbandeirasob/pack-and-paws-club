@@ -41,5 +41,16 @@ export function isMapsConfigured(): boolean {
   return googleMapsKey() !== null;
 }
 
-/** Escopos pedidos ao usuário (o mínimo necessário para espelhar as reservas). */
-export const CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar.events'];
+/**
+ * Escopos pedidos ao usuário (o mínimo necessário para espelhar as reservas e listar os calendários).
+ *
+ * `calendar.calendarlist.readonly` entrou em 24/09/2026 junto com o seletor de calendário: a API
+ * `users/me/calendarList` NÃO aceita `calendar.events` (responde HTTP 403 "insufficient
+ * authentication scopes"), e sem ela o gestor não tem como escolher o calendário do escritório
+ * ("bot venda"), que é onde os agendamentos realmente estão. É o escopo mais estreito que resolve:
+ * só a LISTA de calendários, nada de ler ou escrever evento a mais.
+ */
+export const CALENDAR_SCOPES = [
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+];

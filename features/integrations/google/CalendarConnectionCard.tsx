@@ -15,9 +15,15 @@
  * REVISÃO ("From Google — needs a dog") — junto com a duplicata, que o gestor prefere ligar à
  * reserva que já existe.
  *
+ * CALENDÁRIO (24/09/2026): o escritório guarda os agendamentos num calendário secundário ("bot
+ * venda"), então o app passou a LER e ESPELHAR o calendário escolhido pela organização — as duas
+ * vias usam o mesmo id, guardado em `organizations.google_calendar_id`. O padrão continua sendo o
+ * `primary` quando ninguém escolheu. Trocar de calendário é decisão consciente e avisada: o que já
+ * foi espelhado fica no calendário antigo (o app não move nem apaga nada lá).
+ *
  * Só o gestor chega nesta aba (a lista de abas por papel está em `app/(tabs)/_layout.tsx`).
  */
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
@@ -26,7 +32,23 @@ import type { DogRef } from '@/features/calendar/dayMath';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
-import type { CalendarFetch } from './calendarApi';
+import { listCalendars, type CalendarFetch } from './calendarApi';
+import {
+  corpoDaEscolha,
+  DEFAULT_CALENDAR_ID,
+  ehSomenteLeitura,
+  escolhaDaOrganizacao,
+  explicarFalhaDeListagem,
+  nomeDoCalendario,
+  ordenarCalendarios,
+  rotuloDeAcesso,
+  textoDeAvisoDeTroca,
+  TEXTO_SOMENTE_LEITURA,
+  avisoDeTroca,
+  type CalendarChoice,
+  type GoogleCalendarEntry,
+  type OrganizationCalendarRow,
+} from './calendarChoice';
 import type { LocalReservation } from './calendarSync';
 import { escolhaDaRevisao, supabaseImportPorts } from './importPorts';
 import { kindOf, type BookingForImport, type DogForImport } from './importPlan';
@@ -90,13 +112,22 @@ type Props = {
 
 export function CalendarConnectionCard({ reservations, organizationId, dogs, bookings, onImported }: Props) {
   const { status, email, connect, disconnect, getAccessToken } = useCalendarConnection();
-  const [ocupado, setOcupado] = useState<'conectando' | 'sincronizando' | 'desconectando' | null>(null);
+  const [ocupado, setOcupado] = useState<'conectando' | 'sincronizando' | 'desconectando' | 'escolhendo' | null>(null);
   const [resumo, setResumo] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [ultimoEnvio, setUltimoEnvio] = useState<string | null>(null);
   const [revisao, setRevisao] = useState<ImportReviewItem[]>([]);
   const [escolhendo, setEscolhendo] = useState<ImportReviewItem | null>(null);
   const [caoEscolhido, setCaoEscolhido] = useState<DogRef | null>(null);
+
+  // Calendário: escolha da ORGANIZAÇÃO (o escritório inteiro usa o mesmo) + a lista da conta.
+  const [escolha, setEscolha] = useState<CalendarChoice>(() => escolhaDaOrganizacao(null));
+  const [calendarios, setCalendarios] = useState<GoogleCalendarEntry[]>([]);
+  const [seletorAberto, setSeletorAberto] = useState(false);
+  const [candidato, setCandidato] = useState<GoogleCalendarEntry | null>(null);
+  const [erroCalendarios, setErroCalendarios] = useState<string | null>(null);
+  const [carregandoCalendarios, setCarregandoCalendarios] = useState(false);
+  const [avisoCalendario, setAvisoCalendario] = useState<string | null>(null);
 
   const janela = useMemo(() => janelaDeEspelho(), []);
   const janelaImport = useMemo(() => janelaDeImportacao(), []);
@@ -107,13 +138,79 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     [dogs],
   );
 
+  /** Papel de acesso do calendário escolhido (a lista da conta é quem sabe). */
+  const acessoDoEscolhido = useMemo(
+    () => calendarios.find((item) => item.id === escolha.calendarId)?.accessRole ?? null,
+    [calendarios, escolha.calendarId],
+  );
+
+  /** Escolha salva da organização — por organização, não por aparelho. */
+  const carregarEscolha = useCallback(async () => {
+    if (!organizationId) return;
+    try {
+      const { data, error } = await supabase
+        .from('organizations')
+        .select('google_calendar_id, google_calendar_summary')
+        .eq('id', organizationId)
+        .maybeSingle();
+      // Erro aqui (coluna ausente, RLS) não derruba a tela: fica no padrão `primary`, que era o
+      // comportamento antigo, e o gestor ainda pode escolher e ver o erro na hora de salvar.
+      if (error) return;
+      setEscolha(escolhaDaOrganizacao(data as OrganizationCalendarRow));
+    } catch {
+      // Consulta que estoura (coluna que ainda não existe, cliente de teste sem `maybeSingle`)
+      // também não pode derrubar a aba: o cartão segue no padrão.
+    }
+  }, [organizationId]);
+
+  useEffect(() => {
+    void carregarEscolha();
+  }, [carregarEscolha]);
+
+  /**
+   * Calendários da conta conectada. O nome do calendário PRINCIPAL é o que a tela mostra como
+   * "conta conectada": o token OAuth do app não pede escopo de e-mail, então o `summary` do primary
+   * é a identidade que existe sem pedir permissão nova.
+   */
+  const carregarCalendarios = useCallback(async () => {
+    if (status !== 'connected') return;
+    setCarregandoCalendarios(true);
+    setErroCalendarios(null);
+    try {
+      const accessToken = await getAccessToken();
+      const lista = ordenarCalendarios(await listCalendars(accessToken, fetchReal));
+      setCalendarios(lista);
+      // A escolha gravada só tinha o id? Completa o nome com o que o Google devolveu.
+      setEscolha((atual) => {
+        if (atual.summary) return atual;
+        const achado = lista.find((item) => item.id === atual.calendarId);
+        return achado ? { ...atual, summary: achado.summary } : atual;
+      });
+    } catch (error) {
+      setErroCalendarios(explicarFalhaDeListagem(error instanceof Error ? error.message : String(error)));
+    } finally {
+      setCarregandoCalendarios(false);
+    }
+  }, [getAccessToken, status]);
+
+  useEffect(() => {
+    void carregarCalendarios();
+  }, [carregarCalendarios]);
+
   const sincronizar = useCallback(async () => {
     setOcupado('sincronizando');
     setErro(null);
     setResumo(null);
     try {
       const accessToken = await getAccessToken();
-      const summary = await runCalendarSync({ accessToken, reservations: paraEspelhar, range: janela, doFetch: fetchReal });
+      const summary = await runCalendarSync({
+        accessToken,
+        reservations: paraEspelhar,
+        range: janela,
+        doFetch: fetchReal,
+        // Mesmo calendário dos dois lados: o espelho escreve onde a importação lê.
+        calendarId: escolha.calendarId,
+      });
 
       let texto = describeSummary(summary);
       try {
@@ -127,6 +224,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
           reservations: bookings,
           doFetch: fetchReal,
           ports: supabaseImportPorts(supabase, organizationId),
+          calendarId: escolha.calendarId,
         });
         const daImportacao = describeImport({
           created: importado.created,
@@ -140,18 +238,24 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
         if (importado.failures.length) setErro(`${importado.failures.length} item(s) from Google could not be saved.`);
       } catch (importError) {
         // O espelho já passou: a importação falhando não esconde o que foi enviado.
-        setErro(importError instanceof Error ? importError.message : String(importError));
+        setErro(mensagemDeFalha(importError, acessoDoEscolhido));
       }
 
       setResumo(texto);
-      if (summary.failures.length) setErro(`${summary.failures.length} event(s) could not be sent.`);
+      if (summary.failures.length) {
+        setErro(
+          ehSomenteLeitura(summary.failures[0].error, acessoDoEscolhido)
+            ? TEXTO_SOMENTE_LEITURA
+            : `${summary.failures.length} event(s) could not be sent.`,
+        );
+      }
       setUltimoEnvio(new Date().toLocaleTimeString());
     } catch (error) {
-      setErro(error instanceof Error ? error.message : String(error));
+      setErro(mensagemDeFalha(error, acessoDoEscolhido));
     } finally {
       setOcupado(null);
     }
-  }, [bookings, dogs, getAccessToken, janela, janelaImport, onImported, organizationId, paraEspelhar]);
+  }, [acessoDoEscolhido, bookings, dogs, escolha.calendarId, getAccessToken, janela, janelaImport, onImported, organizationId, paraEspelhar]);
 
   /** Liga o evento ao cão escolhido: aproveita reserva igual que já existe, senão cria. */
   const resolverRevisao = useCallback(async () => {
@@ -159,8 +263,8 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     setOcupado('sincronizando');
     setErro(null);
     try {
-      const escolha = escolhaDaRevisao({ parsed: escolhendo.parsed, dogId: caoEscolhido.id, bookings });
-      if ('criar' in escolha) {
+      const escolha2 = escolhaDaRevisao({ parsed: escolhendo.parsed, dogId: caoEscolhido.id, bookings });
+      if ('criar' in escolha2) {
         await supabaseImportPorts(supabase, organizationId).createBooking({
           eventId: escolhendo.eventId,
           dogId: caoEscolhido.id,
@@ -168,11 +272,11 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
           parsed: escolhendo.parsed,
         });
       } else {
-        const tabela = escolha.kind === 'recurring' ? 'recurring_schedules' : 'reservations';
+        const tabela = escolha2.kind === 'recurring' ? 'recurring_schedules' : 'reservations';
         const { error } = await supabase
           .from(tabela)
           .update({ google_event_id: escolhendo.eventId, source: 'google' })
-          .eq('id', escolha.id);
+          .eq('id', escolha2.id);
         if (error) throw new Error(error.message);
       }
       setRevisao((itens) => itens.filter((item) => item.eventId !== escolhendo.eventId));
@@ -181,11 +285,11 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
       setResumo(`Saved from Google · ${escolhendo.parsed.dogName}`);
       onImported?.();
     } catch (error) {
-      setErro(error instanceof Error ? error.message : String(error));
+      setErro(mensagemDeFalha(error, acessoDoEscolhido));
     } finally {
       setOcupado(null);
     }
-  }, [bookings, caoEscolhido, escolhendo, onImported, organizationId]);
+  }, [acessoDoEscolhido, bookings, caoEscolhido, escolhendo, onImported, organizationId]);
 
   const conectar = useCallback(async () => {
     setOcupado('conectando');
@@ -207,7 +311,51 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     setUltimoEnvio(null);
     setRevisao([]);
     setErro(null);
+    setErroCalendarios(null);
+    setCalendarios([]);
+    setSeletorAberto(false);
+    setCandidato(null);
   }, [disconnect]);
+
+  const abrirSeletor = useCallback(() => {
+    setCandidato(null);
+    setSeletorAberto(true);
+    // A lista pode ter falhado (token antigo sem o escopo de listar): abrir o seletor tenta de novo.
+    if (calendarios.length === 0) void carregarCalendarios();
+  }, [calendarios.length, carregarCalendarios]);
+
+  /**
+   * Salvar a escolha: por ORGANIZAÇÃO (o escritório inteiro passa a usar o mesmo calendário).
+   * Trocar é decisão consciente — o aviso fica na tela dizendo que o que já foi espelhado continua
+   * no calendário antigo, e que o próximo Sync é quem passa a usar o novo.
+   */
+  const usarCalendario = useCallback(async () => {
+    if (!candidato) return;
+    setOcupado('escolhendo');
+    setErro(null);
+    try {
+      const nova: CalendarChoice = { calendarId: candidato.id, summary: candidato.summary };
+      if (organizationId) {
+        const { error } = await supabase.from('organizations').update(corpoDaEscolha(nova)).eq('id', organizationId);
+        if (error) throw new Error(error.message);
+      }
+      setAvisoCalendario(avisoDeTroca(escolha, candidato.id));
+      setEscolha(nova);
+      setSeletorAberto(false);
+      setCandidato(null);
+      setResumo(`Calendar in use: ${candidato.summary}. Sync now to mirror and import in it.`);
+    } catch (error) {
+      setErro(mensagemDeFalha(error, null));
+    } finally {
+      setOcupado(null);
+    }
+  }, [candidato, escolha, organizationId]);
+
+  const contaConectada = useMemo(() => {
+    if (email) return email;
+    const principal = calendarios.find((item) => item.primary);
+    return principal?.summary ?? null;
+  }, [calendarios, email]);
 
   if (status === 'not_configured') {
     return (
@@ -227,8 +375,44 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
       {status === 'connected' ? (
         <>
           <Text style={styles.body} testID="google-calendar-status">
-            Connected{email ? ` as ${email}` : ''} — bookings travel both ways now.
+            Connected{contaConectada ? ` as ${contaConectada}` : ''} — bookings travel both ways now.
           </Text>
+
+          <View style={styles.calendario} testID="google-calendar-calendario">
+            <Text style={styles.calendarioRotulo}>Calendar in use</Text>
+            <Text style={styles.calendarioNome} testID="google-calendar-escolhido">
+              {nomeDoCalendario(escolha)}
+            </Text>
+            {rotuloDeAcesso(acessoDoEscolhido) ? (
+              <Text style={styles.calendarioAlerta} testID="google-calendar-escolhido-acesso">
+                {TEXTO_SOMENTE_LEITURA}
+              </Text>
+            ) : null}
+            {escolha.calendarId === DEFAULT_CALENDAR_ID ? (
+              <Text style={styles.calendarioDica} testID="google-calendar-padrao">
+                Default — this is the main calendar of the connected account. Pick the office calendar if the
+                bookings live somewhere else.
+              </Text>
+            ) : null}
+            <Pressable
+              accessibilityLabel="Choose calendar"
+              accessibilityRole="button"
+              disabled={ocupado !== null}
+              onPress={abrirSeletor}
+              style={[styles.secondary, ocupado !== null && styles.disabled]}
+              testID="google-calendar-trocar"
+            >
+              <Text style={styles.secondaryText}>Change calendar</Text>
+            </Pressable>
+            {carregandoCalendarios ? <Text style={styles.calendarioDica}>Loading the calendars of this account…</Text> : null}
+          </View>
+
+          {avisoCalendario ? (
+            <Text style={styles.avisoTroca} testID="google-calendar-aviso-troca">
+              {avisoCalendario}
+            </Text>
+          ) : null}
+
           <Text style={styles.hint}>
             {paraEspelhar.length} booking(s) mirrored to Google. This is a business-only calendar, so every event
             from today on comes back here — if the title names a dog that is not in the app yet, the dog (and its
@@ -316,6 +500,74 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
         </Text>
       ) : null}
 
+      <Modal visible={seletorAberto} transparent animationType="slide" onRequestClose={() => setSeletorAberto(false)}>
+        <View style={styles.fundo}>
+          <View style={styles.folha}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.folhaTitulo}>Which calendar?</Text>
+              <Text style={styles.folhaSub}>
+                The whole office mirrors bookings to, and imports them from, the calendar you pick here.
+              </Text>
+
+              {erroCalendarios ? (
+                <Text style={styles.error} testID="google-calendar-erro-calendarios">
+                  {erroCalendarios}
+                </Text>
+              ) : null}
+
+              {calendarios.map((item) => (
+                <Pressable
+                  key={item.id}
+                  accessibilityLabel={`Use calendar ${item.summary}`}
+                  accessibilityRole="button"
+                  disabled={ocupado !== null}
+                  onPress={() => setCandidato(item)}
+                  style={[styles.opcao, candidato?.id === item.id && styles.opcaoEscolhida]}
+                  testID={`google-calendar-opcao-${item.id}`}
+                >
+                  <View style={styles.opcaoTexto}>
+                    <Text style={styles.opcaoNome}>{item.summary}</Text>
+                    <Text style={styles.opcaoDetalhe}>
+                      {[item.primary ? 'Primary' : null, rotuloDeAcesso(item.accessRole)].filter(Boolean).join(' · ') ||
+                        'Can read and write'}
+                    </Text>
+                  </View>
+                  {candidato?.id === item.id ? <Text style={styles.opcaoMarca}>✓</Text> : null}
+                </Pressable>
+              ))}
+
+              {!carregandoCalendarios && calendarios.length === 0 ? (
+                <Pressable
+                  accessibilityLabel="Try again"
+                  accessibilityRole="button"
+                  onPress={() => void carregarCalendarios()}
+                  style={styles.secondary}
+                  testID="google-calendar-recarregar-calendarios"
+                >
+                  <Text style={styles.secondaryText}>Try again</Text>
+                </Pressable>
+              ) : null}
+
+              <Text style={styles.avisoTroca}>{textoDeAvisoDeTroca(nomeDoCalendario(escolha))}</Text>
+
+              <Pressable
+                accessibilityLabel="Use this calendar"
+                accessibilityRole="button"
+                disabled={!candidato || ocupado !== null}
+                onPress={() => void usarCalendario()}
+                style={[styles.salvar, (!candidato || ocupado !== null) && styles.disabled]}
+                testID="google-calendar-salvar-calendario"
+              >
+                <Text style={styles.salvarTexto}>Use this calendar</Text>
+              </Pressable>
+              <Pressable accessibilityLabel="Cancel" accessibilityRole="button" onPress={() => setSeletorAberto(false)} style={styles.cancelar}>
+                <Text style={styles.cancelarTexto}>Cancel</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={escolhendo !== null} transparent animationType="slide" onRequestClose={() => setEscolhendo(null)}>
         <View style={styles.fundo}>
           <View style={styles.folha}>
@@ -346,6 +598,12 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
   );
 }
 
+/** Erro que o gestor entende: calendário de leitura vira a frase combinada, o resto fica como veio. */
+function mensagemDeFalha(error: unknown, accessRole: string | null): string {
+  const mensagem = error instanceof Error ? error.message : String(error);
+  return ehSomenteLeitura(mensagem, accessRole) ? TEXTO_SOMENTE_LEITURA : mensagem;
+}
+
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.paper,
@@ -371,6 +629,7 @@ const styles = StyleSheet.create({
   primaryText: { color: colors.cream, fontSize: 14, fontWeight: '600' },
   secondary: {
     alignItems: 'center',
+    alignSelf: 'flex-start',
     borderColor: colors.line,
     borderRadius: radii.small,
     borderWidth: 1,
@@ -398,4 +657,25 @@ const styles = StyleSheet.create({
   salvarTexto: { color: colors.forest900, fontSize: 14, fontWeight: '900' },
   cancelar: { alignItems: 'center', padding: 12 },
   cancelarTexto: { color: colors.muted, fontWeight: '800' },
+  calendario: { borderTopColor: colors.line, borderTopWidth: 1, marginTop: 10, paddingTop: 8 },
+  calendarioRotulo: { color: colors.muted, fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
+  calendarioNome: { color: colors.ink, fontSize: 14, fontWeight: '700', marginTop: 2 },
+  calendarioDica: { color: colors.muted, fontSize: 11, marginTop: 4 },
+  calendarioAlerta: { color: colors.urgency, fontSize: 11, marginTop: 4 },
+  avisoTroca: { color: colors.muted, fontSize: 11, marginTop: 8 },
+  opcao: {
+    alignItems: 'center',
+    borderColor: colors.line,
+    borderRadius: radii.small,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+    padding: 12,
+  },
+  opcaoEscolhida: { backgroundColor: colors.sage, borderColor: colors.forest500 },
+  opcaoTexto: { flex: 1 },
+  opcaoNome: { color: colors.ink, fontSize: 14, fontWeight: '600' },
+  opcaoDetalhe: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  opcaoMarca: { color: colors.forest900, fontSize: 16, fontWeight: '900' },
 });

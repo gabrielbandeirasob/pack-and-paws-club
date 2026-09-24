@@ -12,6 +12,7 @@
  */
 import type { CalendarFetch } from './calendarApi';
 import { listAllEvents } from './calendarApi';
+import { DEFAULT_CALENDAR_ID } from './calendarChoice';
 import {
   kindOf,
   planCalendarImport,
@@ -65,6 +66,8 @@ export type ImportParams = {
   reservations: BookingForImport[];
   doFetch: CalendarFetch;
   ports: ImportPorts;
+  /** Calendario escolhido pela organizacao (o mesmo do espelho). Padrao: o principal. */
+  calendarId?: string;
 };
 
 export async function runCalendarImport({
@@ -75,8 +78,9 @@ export async function runCalendarImport({
   reservations,
   doFetch,
   ports,
+  calendarId = DEFAULT_CALENDAR_ID,
 }: ImportParams): Promise<ImportSummary> {
-  const eventos = await listAllEvents(accessToken, range, doFetch);
+  const eventos = await listAllEvents(accessToken, range, doFetch, calendarId);
   const plano = planCalendarImport(eventos, dogs, reservations, window);
 
   const resumo: ImportSummary = { created: 0, updated: 0, cancelled: 0, review: [], failures: [] };
