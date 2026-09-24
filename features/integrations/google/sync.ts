@@ -8,6 +8,7 @@
 import { planCalendarSync, type LocalReservation } from './calendarSync';
 import { createEvent, deleteEvent, listEvents, updateEvent, type CalendarFetch } from './calendarApi';
 import { DEFAULT_CALENDAR_ID } from './calendarChoice';
+import type { EventLabel } from '@/features/calendar/googleColors';
 
 export type SyncSummary = {
   created: number;
@@ -23,6 +24,12 @@ export type SyncParams = {
   doFetch: CalendarFetch;
   /** Calendario escolhido pela organizacao (o mesmo da importacao). Padrao: o principal. */
   calendarId?: string;
+  /**
+   * Etiquetas de cor do calendario escolhido (paleta NOVA do Google). Com uma etiqueta do tom do
+   * servico o evento sai com ela; sem etiqueta (ou sem permissao de ler as etiquetas) o espelho
+   * pinta so com o `colorId` legado — etiqueta nunca quebra o espelho.
+   */
+  labels?: EventLabel[];
 };
 
 export async function runCalendarSync({
@@ -31,9 +38,10 @@ export async function runCalendarSync({
   range,
   doFetch,
   calendarId = DEFAULT_CALENDAR_ID,
+  labels = [],
 }: SyncParams): Promise<SyncSummary> {
   const remotos = await listEvents(accessToken, range, doFetch, calendarId);
-  const actions = planCalendarSync(reservations, remotos);
+  const actions = planCalendarSync(reservations, remotos, { labels });
 
   const summary: SyncSummary = { created: 0, updated: 0, deleted: 0, failures: [] };
 

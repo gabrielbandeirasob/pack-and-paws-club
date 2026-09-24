@@ -23,23 +23,31 @@
  * `primary` quando ninguém escolheu. Trocar de calendário é decisão consciente e avisada: o que já
  * foi espelhado fica no calendário antigo (o app não move nem apaga nada lá).
  *
+ * CORES (bug 56, 25/09/2026): o Google ampliou a paleta e o evento passou a carregar uma ETIQUETA
+ * (`eventLabelId`) com hex próprio — o "Cobalto" (#4A86E8) do cliente. O cartão lê as etiquetas do
+ * calendário escolhido (`GET /calendars/{id}`, escopo `calendar.calendars.readonly`: token antigo
+ * precisa reconectar e a tela diz isso, sem erro cru) e mostra, em cada pendência, **o que foi lido**
+ * — nome da etiqueta + hex + `colorId` legado — para o suporte parar de adivinhar.
+ *
  * Só o gestor chega nesta aba (a lista de abas por papel está em `app/(tabs)/_layout.tsx`).
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
+import { describeEventColor, type EventLabel } from '@/features/calendar/googleColors';
 import { DogPicker } from '@/features/calendar/DogPicker';
 import type { DogRef } from '@/features/calendar/dayMath';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
-import { listCalendars, type CalendarFetch } from './calendarApi';
+import { getCalendarLabels, listCalendars, type CalendarFetch } from './calendarApi';
 import {
   corpoDaEscolha,
   DEFAULT_CALENDAR_ID,
   ehSomenteLeitura,
   escolhaDaOrganizacao,
+  explicarFalhaDeEtiquetas,
   explicarFalhaDeListagem,
   nomeDoCalendario,
   ordenarCalendarios,
@@ -131,6 +139,10 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
   const [carregandoCalendarios, setCarregandoCalendarios] = useState(false);
   const [avisoCalendario, setAvisoCalendario] = useState<string | null>(null);
 
+  // Cores do calendário (paleta NOVA do Google): as etiquetas de `labelProperties.eventLabels`.
+  const [etiquetas, setEtiquetas] = useState<EventLabel[]>([]);
+  const [erroEtiquetas, setErroEtiquetas] = useState<string | null>(null);
+
   const janela = useMemo(() => janelaDeEspelho(), []);
   const janelaImport = useMemo(() => janelaDeImportacao(), []);
   const paraEspelhar = useMemo(() => dentroDaJanela(reservations, janela), [reservations, janela]);
@@ -207,12 +219,42 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     void carregarCalendarios();
   }, [carregarCalendarios]);
 
+  /**
+   * Cores do calendário escolhido (etiquetas da paleta NOVA do Google).
+   *
+   * Devolve a lista para quem chamou (o Sync usa a mesma lista nas DUAS vias, sem ler duas vezes) e
+   * NUNCA lança: sem etiqueta — token sem o escopo `calendar.calendars.readonly`, calendário sem
+   * etiqueta, erro de rede — o app cai no `colorId` legado, que é o que já funcionava. É por isso que
+   * a falha vira uma frase na tela, e não um erro que derruba o Sync.
+   */
+  const carregarEtiquetas = useCallback(async (): Promise<EventLabel[]> => {
+    if (status !== 'connected') return [];
+    try {
+      const accessToken = await getAccessToken();
+      const lista = await getCalendarLabels(accessToken, fetchReal, escolha.calendarId);
+      setEtiquetas(lista);
+      setErroEtiquetas(null);
+      return lista;
+    } catch (error) {
+      setEtiquetas([]);
+      setErroEtiquetas(explicarFalhaDeEtiquetas(error instanceof Error ? error.message : String(error)));
+      return [];
+    }
+  }, [escolha.calendarId, getAccessToken, status]);
+
+  useEffect(() => {
+    void carregarEtiquetas();
+  }, [carregarEtiquetas]);
+
   const sincronizar = useCallback(async () => {
     setOcupado('sincronizando');
     setErro(null);
     setResumo(null);
     try {
       const accessToken = await getAccessToken();
+      // As etiquetas saem daqui e servem às duas vias: o espelho pinta o evento com a etiqueta do
+      // serviço (quando existir) e a importação lê a cor do evento por ela (o caso do "Cobalto").
+      const labels = await carregarEtiquetas();
       const summary = await runCalendarSync({
         accessToken,
         reservations: paraEspelhar,
@@ -220,6 +262,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
         doFetch: fetchReal,
         // Mesmo calendário dos dois lados: o espelho escreve onde a importação lê.
         calendarId: escolha.calendarId,
+        labels,
       });
 
       let texto = describeSummary(summary);
@@ -235,6 +278,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
           doFetch: fetchReal,
           ports: supabaseImportPorts(supabase, organizationId),
           calendarId: escolha.calendarId,
+          labels,
         });
         const daImportacao = describeImport({
           created: importado.created,
@@ -265,7 +309,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     } finally {
       setOcupado(null);
     }
-  }, [acessoDoEscolhido, bookings, dogs, escolha.calendarId, getAccessToken, janela, janelaImport, onImported, organizationId, paraEspelhar]);
+  }, [acessoDoEscolhido, bookings, carregarEtiquetas, dogs, escolha.calendarId, getAccessToken, janela, janelaImport, onImported, organizationId, paraEspelhar]);
 
   /** Liga o evento ao cão escolhido: aproveita reserva igual que já existe, senão cria. */
   const resolverRevisao = useCallback(async () => {
@@ -325,6 +369,8 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     setErro(null);
     setErroCalendarios(null);
     setCalendarios([]);
+    setEtiquetas([]);
+    setErroEtiquetas(null);
     setSeletorAberto(false);
     setCandidato(null);
   }, [disconnect]);
@@ -417,6 +463,18 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
               <Text style={styles.secondaryText}>Change calendar</Text>
             </Pressable>
             {carregandoCalendarios ? <Text style={styles.calendarioDica}>Loading the calendars of this account…</Text> : null}
+            {/* Cores do calendário: quantas etiquetas da paleta nova existem aqui (o que a leitura usa)
+                e, quando não deu para ler, a frase que diz ao gestor o que fazer. */}
+            {etiquetas.length > 0 ? (
+              <Text style={styles.calendarioDica} testID="google-calendar-etiquetas">
+                {etiquetas.length} custom color(s) in this calendar — the app reads them by color tone.
+              </Text>
+            ) : null}
+            {erroEtiquetas ? (
+              <Text style={styles.calendarioAlerta} testID="google-calendar-erro-etiquetas">
+                {erroEtiquetas}
+              </Text>
+            ) : null}
           </View>
 
           {avisoCalendario ? (
@@ -428,7 +486,8 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
           <Text style={styles.hint}>
             {paraEspelhar.length} booking(s) mirrored to Google. This is a business-only calendar, so every event
             from today on comes back here — the title is the dog's name and the COLOR of the event says the
-            service: green is boarding, blue is daycare, red cancels that day. A dog that is not registered in the
+            service: green is boarding, blue is daycare, red cancels that day. If the office paints the event with
+            one of Google's new color labels, its color tone is what counts. A dog that is not registered in the
             app is never created from here: it waits in the list below for you to register it and sync again.
           </Text>
 
@@ -475,6 +534,10 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
                     <Text style={styles.revisaoData}>
                       {item.date} · {motivoDaRevisao(item.reason)}
                     </Text>
+                    {/* O que foi LIDO na cor: é o que o suporte precisa para não adivinhar. */}
+                    <Text style={styles.revisaoCor} testID={`google-calendar-cor-${item.eventId}`}>
+                      {describeEventColor(item.parsed.color)}
+                    </Text>
                   </View>
                   {/* Só oferece o botão quando o serviço é conhecido (a cor diz o serviço): sem isso a
                       escolha do cão não teria o que gravar. */}
@@ -509,6 +572,12 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
                     <Text style={styles.revisaoTituloEvento}>{item.title.trim() || '(no title)'}</Text>
                     <Text style={styles.revisaoData}>
                       {item.date} · {motivoDaRevisao(item.reason)}
+                    </Text>
+                    {/* É AQUI que o suporte para de adivinhar: sem esta linha, "cor não reconhecida" não
+                        dizia QUAL cor o Google mandou (o "Cobalto" #4A86E8 do cliente aparecia como se
+                        o evento não tivesse cor nenhuma). */}
+                    <Text style={styles.revisaoCor} testID={`google-calendar-cor-${item.eventId}`}>
+                      {describeEventColor(item.parsed.color)}
                     </Text>
                   </View>
                 </View>
@@ -688,6 +757,8 @@ const styles = StyleSheet.create({
   revisaoTexto: { flex: 1 },
   revisaoTituloEvento: { color: colors.ink, fontSize: 13, fontWeight: '600' },
   revisaoData: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  /** O que foi lido na cor do evento (nome da etiqueta + hex + colorId legado). */
+  revisaoCor: { color: colors.muted, fontSize: 11, marginTop: 2, fontVariant: ['tabular-nums'] },
   revisaoBotao: { backgroundColor: colors.sage, borderRadius: radii.small, paddingHorizontal: 10, paddingVertical: 8 },
   revisaoBotaoTexto: { color: colors.forest900, fontSize: 12, fontWeight: '800' },
   fundo: { backgroundColor: 'rgba(0,0,0,0.45)', flex: 1, justifyContent: 'flex-end' },

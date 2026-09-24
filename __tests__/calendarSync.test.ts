@@ -101,3 +101,57 @@ describe('planCalendarSync', () => {
     expect(eventsEqual(eventFor(daycare), remoteFrom(daycare, { recurrence: null }))).toBe(true);
   });
 });
+
+/**
+ * ETIQUETAS no espelho (bug 56): verde/azul continuam sendo o contrato, mas quando o calendário já
+ * tem uma etiqueta daquele tom o evento sai com ela — é assim que o escritório vê o mesmo padrão de
+ * cor que usa à mão. Sem etiqueta (ou quando não deu para lê-las) o espelho cai no `colorId` legado e
+ * NÃO quebra.
+ */
+describe('espelho e as etiquetas de cor do calendário', () => {
+  const ETIQUETAS = [
+    { id: 'lab-azul', name: 'Cobalto', backgroundColor: '#4A86E8' },
+    { id: 'lab-verde', name: 'Verde', backgroundColor: '#33b679' },
+    { id: 'lab-amarela', name: 'Amarelo', backgroundColor: '#ffd666' },
+  ];
+
+  it('usa a etiqueta do tom do serviço (azul = daycare, verde = boarding) e mantém o colorId', () => {
+    const manha = eventFor(daycare, { labels: ETIQUETAS });
+    const noite = eventFor(boarding, { labels: ETIQUETAS });
+
+    expect(manha.eventLabelId).toBe('lab-azul');
+    expect(noite.eventLabelId).toBe('lab-verde');
+    // O `colorId` legado vai junto: é o que um cliente antigo do calendário entende.
+    expect(manha.colorId).toBe('7');
+    expect(noite.colorId).toBe('2');
+  });
+
+  it('sem etiqueta do serviço no calendário, o evento sai só com o colorId (não pode quebrar o espelho)', () => {
+    const semCor = eventFor(daycare, { labels: [{ id: 'x', name: 'Amarelo', backgroundColor: '#ffd666' }] });
+    expect(semCor.eventLabelId).toBeUndefined();
+    expect(semCor.colorId).toBe('7');
+    // Sem etiquetas lidas (token sem o escopo novo) nada muda em relação ao que já funcionava.
+    expect(eventFor(daycare, { labels: [] }).eventLabelId).toBeUndefined();
+    expect(eventFor(daycare).eventLabelId).toBeUndefined();
+  });
+
+  it('o espelho ADOTA a etiqueta no primeiro Sync e depois fica idempotente', () => {
+    const remoto = remoteFrom(daycare, { colorId: '7' }); // evento criado antes desta correção
+    expect(eventsEqual(eventFor(daycare, { labels: ETIQUETAS }), remoto)).toBe(false);
+    expect(eventsEqual(eventFor(daycare, { labels: ETIQUETAS }), remoteFrom(daycare, { colorId: '7', eventLabelId: 'lab-azul' }))).toBe(true);
+  });
+
+  it('sem etiqueta a cobrar, o que está no Google não vira atualização por causa da etiqueta', () => {
+    // Evento pintado à mão com etiqueta e reserva nossa: `undefined` = "não mexe" (não brigamos com
+    // quem pinta o calendário).
+    const remoto = remoteFrom(daycare, { eventLabelId: 'lab-azul' });
+    expect(eventsEqual(eventFor(daycare), remoto)).toBe(true);
+  });
+
+  it('o plano manda a etiqueta do serviço no evento criado', () => {
+    const acoes = planCalendarSync([daycare], [], { labels: ETIQUETAS });
+    expect(acoes).toHaveLength(1);
+    if (acoes[0].type !== 'create') throw new Error('esperava create');
+    expect(acoes[0].event.eventLabelId).toBe('lab-azul');
+  });
+});

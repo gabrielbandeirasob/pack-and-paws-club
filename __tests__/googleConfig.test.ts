@@ -51,13 +51,18 @@ describe('estado da configuracao do Google no app', () => {
     expect(config.isCalendarConfigured()).toBe(false);
   });
 
-  it('pede eventos E a lista de calendarios (o seletor precisa dela)', () => {
+  it('pede eventos, a lista de calendarios e as CORES do calendario', () => {
     // `calendar.calendarlist.readonly` entrou em 24/09/2026 com o seletor de calendário: a API
     // `users/me/calendarList` recusa `calendar.events` com HTTP 403 (insufficient scopes), e sem
     // listar calendários o gestor não escolhe o "bot venda" — onde os agendamentos estão.
+    // `calendar.calendars.readonly` entrou em 25/09/2026 (bug 56): as etiquetas de cor do calendário
+    // (`labelProperties.eventLabels`, a paleta nova do Google) só saem de `GET /calendars/{id}`, que
+    // também recusa `calendar.events`. Token gravado antes disso PRECISA reconectar — é o que o
+    // cartão explica (`TEXTO_FALTA_DE_ESCOPO_CORES`).
     const esperado = [
       'https://www.googleapis.com/auth/calendar.events',
       'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+      'https://www.googleapis.com/auth/calendar.calendars.readonly',
     ];
     expect(loadConfig(null).CALENDAR_SCOPES).toEqual(esperado);
     expect(CALENDAR_SCOPES).toEqual(esperado);

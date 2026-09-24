@@ -156,3 +156,23 @@ export function explicarFalhaDeListagem(mensagem: string): string {
   }
   return `Could not load the calendars of the connected account: ${mensagem}`;
 }
+
+/**
+ * Frase para o token não ter permissão de ler as CORES do calendário (as etiquetas da paleta nova).
+ *
+ * Mesmo caso do aviso acima, outro escopo: `GET /calendars/{id}` (que devolve
+ * `labelProperties.eventLabels`) não aceita `calendar.events`; precisa de
+ * `calendar.calendars.readonly`. Token gravado antes de 25/09/2026 não tem — daí a frase dizer
+ * exatamente o que fazer (desconectar e conectar de novo) e o que o app faz enquanto isso (lê a
+ * paleta antiga pelo `colorId`).
+ */
+export const TEXTO_FALTA_DE_ESCOPO_CORES =
+  'The connected account has not allowed the app to read the colors of this calendar yet, so custom colors (the new Google labels, like Cobalt) cannot be read here. Disconnect and connect Google Calendar again to grant it — until then the app reads only the old color palette.';
+
+/** Erro legível na hora de ler as cores do calendário. */
+export function explicarFalhaDeEtiquetas(mensagem: string): string {
+  if (/insufficient authentication scopes|insufficient ?permission|forbidden|HTTP 403/i.test(mensagem)) {
+    return TEXTO_FALTA_DE_ESCOPO_CORES;
+  }
+  return `Could not read the colors of this calendar: ${mensagem}`;
+}

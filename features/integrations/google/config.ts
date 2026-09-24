@@ -42,15 +42,29 @@ export function isMapsConfigured(): boolean {
 }
 
 /**
- * Escopos pedidos ao usuário (o mínimo necessário para espelhar as reservas e listar os calendários).
+ * Escopos pedidos ao usuário (o mínimo necessário para espelhar as reservas, listar os calendários e
+ * ler as cores/etiquetas do calendário).
  *
  * `calendar.calendarlist.readonly` entrou em 24/09/2026 junto com o seletor de calendário: a API
  * `users/me/calendarList` NÃO aceita `calendar.events` (responde HTTP 403 "insufficient
  * authentication scopes"), e sem ela o gestor não tem como escolher o calendário do escritório
  * ("bot venda"), que é onde os agendamentos realmente estão. É o escopo mais estreito que resolve:
  * só a LISTA de calendários, nada de ler ou escrever evento a mais.
+ *
+ * `calendar.calendars.readonly` entrou em 25/09/2026 (bug 56 — o Google trocou o esquema de cor): as
+ * cores do calendário (as etiquetas de `labelProperties.eventLabels`, que substituíram os 11 `colorId`
+ * fixos) só saem de `GET /calendars/{id}` (Calendars.get), e essa chamada **não** aceita
+ * `calendar.events` nem `calendar.calendarlist.readonly` — exige `calendar.calendars.readonly` (ou um
+ * escopo mais amplo). Mais uma vez é o mais estreito que resolve: só as PROPRIEDADES do calendário,
+ * nada de evento.
+ *
+ * CONSEQUÊNCIA: **conta conectada antes destas mudanças precisa reconectar** uma vez (o token
+ * gravado no Keychain não tem o escopo novo). Enquanto não reconectar, o cartão explica isso ao
+ * gestor (`TEXTO_FALTA_DE_ESCOPO_CORES`) e o app segue lendo a paleta antiga pelo `colorId` — o
+ * espelho não quebra.
  */
 export const CALENDAR_SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+  'https://www.googleapis.com/auth/calendar.calendars.readonly',
 ];

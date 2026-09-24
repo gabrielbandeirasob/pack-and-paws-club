@@ -183,6 +183,8 @@ describe('ida e volta do formato', () => {
     );
     expect(lido).toEqual({
       serviceType: 'boarding',
+      // O que foi lido na cor (paleta antiga): o cartão mostra `colorId 2 (Sage)`.
+      color: { source: 'colorId', labelId: null, labelName: null, backgroundColor: null, colorId: VERDE, meaning: { kind: 'service', serviceType: 'boarding' } },
       cancels: false,
       dogName: 'Filó',
       startDate: '2026-09-28',
