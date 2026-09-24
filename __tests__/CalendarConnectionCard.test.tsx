@@ -2,7 +2,7 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
 import { CalendarConnectionCard, dentroDaJanela, janelaDeEspelho, janelaDeImportacao } from '@/features/integrations/google/CalendarConnectionCard';
-import { TEXTO_FALTA_DE_ESCOPO, TEXTO_SOMENTE_LEITURA } from '@/features/integrations/google/calendarChoice';
+import { TEXTO_FALTA_DE_ESCOPO, TEXTO_FALTA_DE_ESCOPO_CORES, TEXTO_SOMENTE_LEITURA } from '@/features/integrations/google/calendarChoice';
 import type { LocalReservation } from '@/features/integrations/google/calendarSync';
 import type { BookingForImport, DogForImport } from '@/features/integrations/google/importPlan';
 
@@ -16,9 +16,11 @@ jest.mock('@/features/integrations/google/importService', () => ({
   runCalendarImport: jest.fn(),
   hasImportChanges: jest.requireActual('@/features/integrations/google/importService').hasImportChanges,
 }));
-// A lista de calendarios vem da API do Google: aqui ela e injetada (nenhuma chamada de rede).
+// A lista de calendarios e as cores do calendario vem da API do Google: aqui sao injetadas (nenhuma
+// chamada de rede).
 jest.mock('@/features/integrations/google/calendarApi', () => ({
   listCalendars: jest.fn(),
+  getCalendarLabels: jest.fn(),
   CalendarApiError: jest.requireActual('@/features/integrations/google/calendarApi').CalendarApiError,
 }));
 
@@ -69,6 +71,7 @@ const useCalendarConnection = jest.requireMock('@/features/integrations/google/u
 const runCalendarSync = jest.requireMock('@/features/integrations/google/sync').runCalendarSync as jest.Mock;
 const runCalendarImport = jest.requireMock('@/features/integrations/google/importService').runCalendarImport as jest.Mock;
 const listCalendars = jest.requireMock('@/features/integrations/google/calendarApi').listCalendars as jest.Mock;
+const getCalendarLabels = jest.requireMock('@/features/integrations/google/calendarApi').getCalendarLabels as jest.Mock;
 
 /** Conexao falsa no formato que o card consome. */
 function conexao(status: 'not_configured' | 'disconnected' | 'connected', extras: Record<string, unknown> = {}) {
@@ -114,6 +117,7 @@ describe('CalendarConnectionCard', () => {
     runCalendarSync.mockResolvedValue({ created: 2, updated: 0, deleted: 1, failures: [] });
     runCalendarImport.mockResolvedValue({ created: 0, updated: 0, cancelled: 0, review: [], failures: [] });
     listCalendars.mockResolvedValue(contaCalendarios);
+    getCalendarLabels.mockResolvedValue([]);
   });
 
   it('explica que o Google nao esta no build, em vez de mostrar botao que nao funciona', async () => {
@@ -463,5 +467,111 @@ describe('CalendarConnectionCard', () => {
       expect(screen.getByTestId('google-calendar-erro-calendarios')).toHaveTextContent(TEXTO_FALTA_DE_ESCOPO),
     );
     expect(screen.getByTestId('google-calendar-recarregar-calendarios')).toBeTruthy();
+  });
+
+  // --------------------------------------------------------- cores do calendário (bug 56, labels)
+
+  it('mostra QUAL cor foi lida no item da lista (Cobalto #4A86E8) — o suporte para de adivinhar', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    runCalendarImport.mockResolvedValue({
+      created: 0,
+      updated: 0,
+      cancelled: 0,
+      failures: [],
+      review: [
+        {
+          eventId: 'ev-zara',
+          title: 'zara',
+          date: '2026-09-26',
+          reason: 'unrecognized color',
+          // O evento veio pintado com a etiqueta da paleta nova e SEM `colorId`: era o defeito de
+          // produção (build 55) que fazia o agendamento do cão cadastrado virar "cor não reconhecida".
+          parsed: {
+            serviceType: null,
+            color: { source: 'label', labelId: 'lab-amarela', labelName: 'Amarelo', backgroundColor: '#ffd666', colorId: null, meaning: null },
+            cancels: false,
+            dogName: 'zara',
+            startDate: '2026-09-26',
+            endDate: '2026-09-27',
+            weekdays: [],
+            skipDates: [],
+            openEnded: false,
+          },
+        },
+      ],
+    });
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+    await waitFor(() => expect(screen.getByTestId('google-calendar-cor-desconhecida')).toBeTruthy());
+
+    expect(screen.getByTestId('google-calendar-cor-ev-zara')).toHaveTextContent('Amarelo (#ffd666)');
+  });
+
+  it('mostra a cor lida também na lista de cão não cadastrado (nome + hex + colorId legado)', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    runCalendarImport.mockResolvedValue({
+      created: 0,
+      updated: 0,
+      cancelled: 0,
+      failures: [],
+      review: [
+        {
+          eventId: 'ev-rex',
+          title: 'Rex',
+          date: '2026-10-05',
+          reason: 'unknown dog',
+          parsed: {
+            serviceType: 'daycare',
+            color: { source: 'label', labelId: 'lab-azul', labelName: 'Cobalto', backgroundColor: '#4A86E8', colorId: '7', meaning: { kind: 'service', serviceType: 'daycare' } },
+            cancels: false,
+            dogName: 'Rex',
+            startDate: '2026-10-05',
+            endDate: '2026-10-06',
+            weekdays: [],
+            skipDates: [],
+            openEnded: false,
+          },
+        },
+      ],
+    });
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+    await waitFor(() => expect(screen.getByTestId('google-calendar-revisao')).toBeTruthy());
+
+    expect(screen.getByTestId('google-calendar-cor-ev-rex')).toHaveTextContent('Cobalto (#4A86E8) · colorId 7 (Peacock)');
+  });
+
+  it('token sem o escopo das cores: o cartão explica que é preciso reconectar, sem erro cru', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    getCalendarLabels.mockRejectedValue(
+      new Error('ler as cores do calendário falhou (HTTP 403): Request had insufficient authentication scopes.'),
+    );
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId('google-calendar-erro-etiquetas')).toHaveTextContent(TEXTO_FALTA_DE_ESCOPO_CORES),
+    );
+    expect(screen.queryByText(/insufficient authentication scopes/)).toBeNull();
+
+    // E o Sync continua funcionando (o espelho cai no `colorId` legado).
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+    await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
+    expect(runCalendarSync.mock.calls[0][0].labels).toEqual([]);
+  });
+
+  it('as etiquetas do calendário são lidas uma vez e vão para AS DUAS vias (espelho e importação)', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    getCalendarLabels.mockResolvedValue([{ id: 'lab-azul', name: 'Cobalto', backgroundColor: '#4A86E8' }]);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    // RegExp (e não string): `toHaveTextContent` compara o conteúdo INTEIRO quando recebe texto.
+    await waitFor(() => expect(screen.getByTestId('google-calendar-etiquetas')).toHaveTextContent(/1 custom color/));
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+
+    expect(runCalendarSync.mock.calls[0][0].labels).toEqual([{ id: 'lab-azul', name: 'Cobalto', backgroundColor: '#4A86E8' }]);
+    expect(runCalendarImport.mock.calls[0][0].labels).toEqual([{ id: 'lab-azul', name: 'Cobalto', backgroundColor: '#4A86E8' }]);
   });
 });

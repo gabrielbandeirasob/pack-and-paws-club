@@ -14,6 +14,7 @@
 import type { CalendarFetch } from './calendarApi';
 import { listAllEvents } from './calendarApi';
 import { DEFAULT_CALENDAR_ID } from './calendarChoice';
+import type { EventLabel } from '@/features/calendar/googleColors';
 import {
   kindOf,
   planCalendarImport,
@@ -68,6 +69,11 @@ export type ImportParams = {
   ports: ImportPorts;
   /** Calendario escolhido pela organizacao (o mesmo do espelho). Padrao: o principal. */
   calendarId?: string;
+  /**
+   * Etiquetas de cor do calendario escolhido (paleta NOVA do Google). Quem as le e o cartao, que ja
+   * precisa delas para o espelho; sem etiqueta a importacao le so o `colorId` legado.
+   */
+  labels?: EventLabel[];
 };
 
 export async function runCalendarImport({
@@ -79,9 +85,10 @@ export async function runCalendarImport({
   doFetch,
   ports,
   calendarId = DEFAULT_CALENDAR_ID,
+  labels = [],
 }: ImportParams): Promise<ImportSummary> {
   const eventos = await listAllEvents(accessToken, range, doFetch, calendarId);
-  const plano = planCalendarImport(eventos, dogs, reservations, window);
+  const plano = planCalendarImport(eventos, dogs, reservations, window, { labels });
 
   const resumo: ImportSummary = { created: 0, updated: 0, cancelled: 0, review: [], failures: [] };
 

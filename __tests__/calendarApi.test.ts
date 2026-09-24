@@ -1,7 +1,10 @@
 import {
+  CALENDAR_API,
   createEvent,
   deleteEvent,
+  EVENT_LABEL_VERSION_PARAM,
   fimExclusivoDoEvento,
+  getCalendarLabels,
   listAllEvents,
   listCalendars,
   listEvents,
@@ -38,7 +41,7 @@ function fakeGoogle(seed: Stored[] = [], failures: string[] = []) {
       events.push({ id, body });
       return { ok: true, status: 200, json: async () => ({ id }) };
     }
-    const id = url.slice(url.indexOf(base) + base.length);
+    const id = url.slice(url.indexOf(base) + base.length).split('?')[0];
     const index = events.findIndex((event) => event.id === id);
     if (init.method === 'PATCH') {
       events[index] = { id, body: JSON.parse(init.body ?? '{}') as Record<string, unknown> };
@@ -99,8 +102,24 @@ describe('cliente do Google Calendar', () => {
       startDate: '2026-09-05',
       endDate: '2026-09-11',
       colorId: '2',
+      // Evento da paleta antiga: sem etiqueta (o campo entra nulo de propósito, para o planejador
+      // saber que a cor veio do `colorId`).
+      eventLabelId: null,
       recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO'],
     });
+  });
+
+  it('lê a ETIQUETA do evento (paleta nova): o "Cobalto" do cliente chega como colorId nulo', () => {
+    const parsed = parseEvent({
+      id: 'g-zara',
+      summary: 'zara',
+      colorId: undefined, // a paleta nova não manda id fixo
+      eventLabelId: '42617328-8756-4291-8273-192837465647',
+      start: { date: '2026-09-26' },
+      end: { date: '2026-09-27' },
+    });
+    expect(parsed.colorId).toBeNull();
+    expect(parsed.eventLabelId).toBe('42617328-8756-4291-8273-192837465647');
   });
 
   it('evento sem cor chega com colorId nulo (a importação não chuta serviço)', () => {
@@ -143,6 +162,94 @@ describe('cliente do Google Calendar', () => {
     // HTTP 400 "A key or value missing in the extended_properties_match" é o que o gestor recebeu
     // quando o filtro ia só com a chave. Este teste trava o formato exigido pela API (nome%3Dvalor).
     expect(urls[0]).toContain('privateExtendedProperty=packpawsMirror%3Dv1');
+  });
+
+  /**
+   * A descoberta oficial da Calendar API (revision 20260826) NÃO aceita `eventLabelVersion` em
+   * events.list/get: o campo `eventLabelId` já faz parte do recurso retornado. O parâmetro existe só
+   * em insert/import/update/patch. Mandá-lo na listagem arrisca HTTP 400 por parâmetro desconhecido.
+   */
+  it('a listagem NÃO manda o parâmetro de escrita `eventLabelVersion`', async () => {
+    const urls: string[] = [];
+    const doFetch: CalendarFetch = async (url) => {
+      urls.push(url);
+      return { ok: true, status: 200, json: async () => ({ items: [] }) };
+    };
+    await listEvents('t', range, doFetch);
+    await listAllEvents('t', range, doFetch);
+
+    expect(EVENT_LABEL_VERSION_PARAM).toBe('eventLabelVersion=1');
+    for (const url of urls) expect(url).not.toContain('eventLabelVersion');
+  });
+
+  it('as escritas do espelho também levam `eventLabelVersion=1`', async () => {
+    const chamadas: { method: string; url: string }[] = [];
+    const doFetch: CalendarFetch = async (url, init) => {
+      chamadas.push({ method: init.method, url });
+      return { ok: true, status: 200, json: async () => ({ id: 'g-1' }) };
+    };
+    const evento = { summary: 'Daycare · Filó (Raphael)', start: { date: '2026-09-10' }, end: { date: '2026-09-11' }, eventLabelId: 'lab-azul' };
+    await createEvent('t', evento, doFetch);
+    await updateEvent('t', 'g-1', evento, doFetch);
+
+    expect(chamadas.map((item) => item.method)).toEqual(['POST', 'PATCH']);
+    for (const chamada of chamadas) expect(chamada.url).toContain('eventLabelVersion=1');
+  });
+
+  it('fallback legado grava colorId SEM eventLabelVersion, pois versão 1 ignora colorId', async () => {
+    const chamadas: { url: string; body: Record<string, unknown> }[] = [];
+    const doFetch: CalendarFetch = async (url, init) => {
+      chamadas.push({ url, body: JSON.parse(init.body ?? '{}') as Record<string, unknown> });
+      return { ok: true, status: 200, json: async () => ({ id: 'g-legado' }) };
+    };
+    const legado = { summary: 'Daycare · Filó', start: { date: '2026-09-10' }, end: { date: '2026-09-11' }, colorId: '7' };
+    await createEvent('t', legado, doFetch);
+    await updateEvent('t', 'g-legado', legado, doFetch);
+
+    for (const chamada of chamadas) {
+      expect(chamada.url).not.toContain('eventLabelVersion');
+      expect(chamada.body).toMatchObject({ colorId: '7' });
+    }
+  });
+
+  it('o corpo do evento leva a etiqueta; `null` LIMPA (string vazia) e `undefined` não mexe', () => {
+    const base = { summary: 'Daycare · Filó (Raphael)', start: { date: '2026-09-10' }, end: { date: '2026-09-11' } };
+    expect(toEventBody({ ...base, eventLabelId: 'lab-azul' }).eventLabelId).toBe('lab-azul');
+    // É assim que a API remove a etiqueta de um evento (documentado em `guides/labels`).
+    expect(toEventBody({ ...base, eventLabelId: null }).eventLabelId).toBe('');
+    expect('eventLabelId' in toEventBody(base)).toBe(false);
+  });
+
+  it('lê as cores do calendário (etiquetas da paleta nova) do calendário escolhido', async () => {
+    const urls: string[] = [];
+    const doFetch: CalendarFetch = async (url) => {
+      urls.push(url);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          kind: 'calendar#calendar',
+          id: CALENDARIO_ESCOLHIDO,
+          labelProperties: { eventLabels: [{ id: 'lab-azul', name: 'Cobalto', backgroundColor: '#4A86E8' }] },
+        }),
+      };
+    };
+    const etiquetas = await getCalendarLabels('t', doFetch, CALENDARIO_ESCOLHIDO);
+
+    // Calendars.get: `/calendars/{id}` (e não `/events`) — e no calendário escolhido, o mesmo dos
+    // eventos. É essa chamada que exige o escopo `calendar.calendars.readonly`.
+    expect(urls[0]).toContain(`${CALENDAR_API}/calendars/bot-venda%40group.calendar.google.com`);
+    expect(urls[0]).not.toContain('/events');
+    expect(etiquetas).toEqual([{ id: 'lab-azul', name: 'Cobalto', backgroundColor: '#4A86E8' }]);
+  });
+
+  it('token sem o escopo de cores: a falha da leitura de etiquetas é explícita (HTTP 403)', async () => {
+    const doFetch: CalendarFetch = async () => ({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { message: 'Request had insufficient authentication scopes.' } }),
+    });
+    await expect(getCalendarLabels('t', doFetch)).rejects.toThrow(/ler as cores do calendário falhou \(HTTP 403\)/);
   });
 });
 

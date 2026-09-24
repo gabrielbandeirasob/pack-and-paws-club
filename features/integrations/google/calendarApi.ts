@@ -10,11 +10,25 @@
  * calendário — foi um calendário secundário ("bot venda") que fez a importação parecer quebrada.
  */
 import type { GoogleEventInput } from '@/features/calendar/googleEvents';
+import { interpretarEtiquetas, type EventLabel } from '@/features/calendar/googleColors';
 import { addDaysISO } from '@/features/calendar/dates';
 import { DEFAULT_CALENDAR_ID, interpretarCalendarios, normalizarCalendarId, type GoogleCalendarEntry } from './calendarChoice';
 import { APP_KEY_PROPERTY, MIRROR_MARKER_PROPERTY, MIRROR_MARKER_VALUE, type RemoteEvent } from './calendarSync';
 
 export const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
+
+/**
+ * `eventLabelVersion=1` — parâmetro das operações de ESCRITA com etiqueta.
+ *
+ * Bug 56 (produção, build 55): o Google trocou/ampliou o esquema de cor em junho/2026 (24 cores
+ * padrão + até 200 personalizadas por calendário, via `labelProperties.eventLabels`; o evento passou
+ * a ter `eventLabelId`). Sem este parâmetro a API assume a versão 0 na ESCRITA e processa `colorId`.
+ * A descoberta oficial da API (revision 20260826) não aceita este parâmetro em `events.list/get`:
+ * nessas leituras `eventLabelId` já faz parte do recurso Event devolvido.
+ *
+ * Doc: https://developers.google.com/workspace/calendar/api/guides/labels
+ */
+export const EVENT_LABEL_VERSION_PARAM = 'eventLabelVersion=1';
 
 const GOOGLE_EVENT_ID_FIELD = 'googleEventId';
 
@@ -23,8 +37,10 @@ type GoogleEventResource = {
   summary?: string;
   start?: { date?: string; dateTime?: string };
   end?: { date?: string; dateTime?: string };
-  /** Cor do evento na paleta do Google (1..11) — é ela que diz o serviço (ver `googleColors`). */
+  /** Cor do evento na paleta antiga (1..11) — só aparece em evento pintado antes das etiquetas. */
   colorId?: string;
+  /** Etiqueta de cor do evento (paleta NOVA). */
+  eventLabelId?: string;
   recurrence?: string[];
   extendedProperties?: { private?: Record<string, string> };
 };
@@ -69,6 +85,8 @@ export function parseEvent(resource: GoogleEventResource): RemoteEvent {
     endDate: fimExclusivoDoEvento(resource.end),
     // A cor acompanha o evento: é ela que diz o serviço na importação (não o título).
     colorId: resource.colorId ?? null,
+    // Paleta NOVA: a etiqueta já faz parte do recurso Event devolvido pela leitura.
+    eventLabelId: resource.eventLabelId ?? null,
     recurrence: resource.recurrence ?? null,
   };
 }
@@ -80,6 +98,8 @@ export function toEventBody(event: GoogleEventInput): Record<string, unknown> {
   // `colorId` vai no corpo mesmo quando o evento é atualizado por PATCH: é assim que um evento antigo
   // (sem cor) ganha a cor do serviço no próximo Sync.
   if (event.colorId) body.colorId = event.colorId;
+  // Etiqueta: `null` = limpar (a API remove com string vazia); `undefined` = não mexe no que está lá.
+  if (event.eventLabelId !== undefined) body.eventLabelId = event.eventLabelId ?? '';
   if (event.extendedProperties) body.extendedProperties = event.extendedProperties;
   return body;
 }
@@ -136,6 +156,31 @@ export async function listCalendars(accessToken: string, doFetch: CalendarFetch)
   return interpretarCalendarios(payload);
 }
 
+/**
+ * Etiquetas de cor do calendário (`labelProperties.eventLabels`) — a paleta NOVA do Google.
+ *
+ * Escopo: `GET /calendars/{id}` (Calendars.get) NÃO aceita `calendar.events` nem
+ * `calendar.calendarlist.readonly` — exige um dos `calendar.calendars.readonly`, `calendar.calendars`,
+ * `calendar.readonly`, `calendar` (ver `config.ts`, que passou a pedir `calendar.calendars.readonly`).
+ * Token gravado ANTES desta mudança falha aqui com HTTP 403 "insufficient authentication scopes": o
+ * cartão explica que é preciso reconectar, e a importação continua lendo a paleta antiga pelo
+ * `colorId` (o espelho não quebra).
+ *
+ * Doc: https://developers.google.com/workspace/calendar/api/v3/reference/calendars/get
+ */
+export async function getCalendarLabels(
+  accessToken: string,
+  doFetch: CalendarFetch,
+  calendarId: string = DEFAULT_CALENDAR_ID,
+): Promise<EventLabel[]> {
+  const response = await doFetch(`${CALENDAR_API}/calendars/${calendarPath(calendarId)}`, {
+    method: 'GET',
+    headers: authHeaders(accessToken),
+  });
+  const payload = await handle<unknown>(response, 'ler as cores do calendário');
+  return interpretarEtiquetas(payload);
+}
+
 /** Eventos do calendario entre duas datas (a janela que o app espelha). */
 export async function listEvents(
   accessToken: string,
@@ -186,11 +231,17 @@ export async function createEvent(
   doFetch: CalendarFetch,
   calendarId: string = DEFAULT_CALENDAR_ID,
 ): Promise<string> {
-  const response = await doFetch(`${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events`, {
-    method: 'POST',
-    headers: authHeaders(accessToken),
-    body: JSON.stringify(toEventBody(event)),
-  });
+  // Versão 1 só quando há etiqueta. Sem etiqueta, omitir é obrigatório para a API processar o
+  // `colorId` legado (com versão 1 o Google ignora colorId).
+  const sufixo = event.eventLabelId !== undefined ? `?${EVENT_LABEL_VERSION_PARAM}` : '';
+  const response = await doFetch(
+    `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events${sufixo}`,
+    {
+      method: 'POST',
+      headers: authHeaders(accessToken),
+      body: JSON.stringify(toEventBody(event)),
+    },
+  );
   const created = await handle<{ id: string }>(response, 'criar evento');
   return created.id;
 }
@@ -202,8 +253,9 @@ export async function updateEvent(
   doFetch: CalendarFetch,
   calendarId: string = DEFAULT_CALENDAR_ID,
 ): Promise<void> {
+  const sufixo = event.eventLabelId !== undefined ? `?${EVENT_LABEL_VERSION_PARAM}` : '';
   const response = await doFetch(
-    `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events/${encodeURIComponent(eventId)}${sufixo}`,
     {
       method: 'PATCH',
       headers: authHeaders(accessToken),

@@ -11,10 +11,12 @@
  *     cao: nome fora do cadastro NAO entra e aparece na lista "not registered in the app" do cartao,
  *     para o escritorio cadastrar e sincronizar de novo. Silencio total foi recusado pelo dono.
  *     Nome que casa com DOIS caes tambem vai para essa lista, com o motivo — nada de escolher no chute.
- *  3. O SERVICO vem da COR do evento (`colorId`), nunca do titulo: verde = boarding, azul = daycare,
+ *  3. O SERVICO vem da COR do evento, nunca do titulo: verde = boarding, azul = daycare,
  *     vermelho = CANCELAMENTO (cancela a reserva daquele cao naquele dia, se existir; numa serie,
- *     pula o dia). Sem cor ou com cor fora do mapa o app NAO chuta servico: vai para a lista
- *     "color not recognized" (ver `features/calendar/googleColors`).
+ *     pula o dia). Sao DOIS esquemas de cor: a etiqueta do calendario (paleta nova, classificada pelo
+ *     TOM do hex — o "Cobalto" #4A86E8 do cliente) manda, e o `colorId` legado (1..11) e o fallback
+ *     (ver `features/calendar/googleColors`). Sem cor ou com cor fora do mapa o app NAO chuta servico:
+ *     vai para a lista "color not recognized".
  *  4. O vinculo com o Google e por EVENTO (`googleEventId`), nunca por nome: o segundo Sync nao cria
  *     de novo, e renomear o cao no app tambem nao faz o proximo Sync criar outro cadastro.
  *  5. Reserva que nasceu no Google: se o evento mudar, a reserva muda; se o evento sumir, a reserva
@@ -30,17 +32,19 @@
  *     e derruba o insert inteiro (era o defeito de producao de 24/09/2026).
  */
 import { addDaysISO, weekdayOfISO } from '@/features/calendar/dates';
-import { meaningOfColor, type BookingServiceType, type ColorMeaning } from '@/features/calendar/googleColors';
+import { readEventColor, type BookingServiceType, type ColorMeaning, type EventColorRead, type EventLabel } from '@/features/calendar/googleColors';
 import type { RemoteEvent } from './calendarSync';
 
 export type { BookingServiceType };
 
 export type ParsedBooking = {
   /**
-   * Servico lido da COR do evento. `null` = cor ausente ou fora da paleta mapeada: sem servico nao se
+   * Servico lido da COR do evento. `null` = cor ausente ou fora do mapa mapeado: sem servico nao se
    * importa (o banco exige `service_type`), e a pendencia aparece como "color not recognized".
    */
   serviceType: BookingServiceType | null;
+  /** O que foi LIDO da cor — etiqueta (nome + hex) e/ou `colorId` legado. É o que a tela mostra. */
+  color: EventColorRead;
   /** Evento na cor de CANCELAMENTO (vermelho): cancela a reserva daquele cao naquele dia. */
   cancels: boolean;
   /** Nome do cao, lido do titulo (a regra nova: o titulo e so o nome). */
@@ -203,16 +207,21 @@ export function parseRecurrence(
 
 /**
  * Evento do Google -> agendamento lido. Só um evento SEM NOME utilizável retorna null (aí o plano
- * monta a pendência "unreadable"). O serviço sai da COR; o nome sai do TÍTULO.
+ * monta a pendência "unreadable"). O serviço sai da COR — etiqueta da paleta nova (tom do hex) ou,
+ * na falta dela, o `colorId` legado —; o nome sai do TÍTULO.
+ *
+ * `labels` são as etiquetas do calendário escolhido: sem elas um evento pintado na paleta nova não
+ * tem como dizer serviço (ele chega sem `colorId`) e vira pendência "cor não reconhecida".
  */
-export function parseBookingEvent(event: RemoteEvent): ParsedBooking | null {
+export function parseBookingEvent(event: RemoteEvent, labels: EventLabel[] = []): ParsedBooking | null {
   const dogName = dogNameFromTitle(event.summary);
   if (!dogName) return null;
-  const cor = meaningOfColor(event.colorId);
+  const color = readEventColor(event, labels);
   const recorrencia = parseRecurrence(event.recurrence, event.startDate, event.endDate);
   return {
-    serviceType: cor?.kind === 'service' ? cor.serviceType : null,
-    cancels: cor?.kind === 'cancel',
+    serviceType: color.meaning?.kind === 'service' ? color.meaning.serviceType : null,
+    color,
+    cancels: color.meaning?.kind === 'cancel',
     dogName,
     startDate: event.startDate,
     ...recorrencia,
@@ -366,7 +375,9 @@ export function planCalendarImport(
   dogs: DogForImport[],
   reservations: BookingForImport[],
   window: ImportWindow,
+  options: { labels?: EventLabel[] } = {},
 ): ImportOutcome[] {
+  const labels = options.labels ?? [];
   const porEvento = new Map<string, BookingForImport>();
   for (const reserva of reservations) {
     if (reserva.googleEventId) porEvento.set(reserva.googleEventId, reserva);
@@ -379,13 +390,13 @@ export function planCalendarImport(
     // 1. Evento com marca do app é o nosso espelho: o espelho cuida dele, não a importação.
     if (evento.appKey) continue;
 
-    const parsed = parseBookingEvent(evento);
+    const parsed = parseBookingEvent(evento, labels);
     // 2. Até evento sem título precisa aparecer para revisão; o calendário é exclusivo do negócio.
     //    Exceção: evento que COMEÇOU antes de hoje não gera nada — nem reserva, nem pendência
     //    (senão uma hospedagem em curso criaria/alteraria/cancelaria data passada).
     if (!parsed) {
       if (antesDaJanela(evento.startDate, window)) continue;
-      const cor = meaningOfColor(evento.colorId);
+      const color = readEventColor(evento, labels);
       const recorrencia = parseRecurrence(evento.recurrence, evento.startDate, evento.endDate);
       resultados.push({
         kind: 'review',
@@ -393,8 +404,9 @@ export function planCalendarImport(
         title: evento.summary,
         date: evento.startDate,
         parsed: {
-          serviceType: cor?.kind === 'service' ? cor.serviceType : null,
-          cancels: cor?.kind === 'cancel',
+          serviceType: color.meaning?.kind === 'service' ? color.meaning.serviceType : null,
+          color,
+          cancels: color.meaning?.kind === 'cancel',
           dogName: '(no title)',
           startDate: evento.startDate,
           ...recorrencia,
@@ -406,9 +418,11 @@ export function planCalendarImport(
 
     if (antesDaJanela(parsed.startDate, window)) continue;
 
-    // 3. O serviço vem da COR. Sem cor (ou cor fora do mapa) NÃO se chuta serviço: o evento entra na
-    //    lista "color not recognized" e o escritório pinta e sincroniza de novo.
-    const cor: ColorMeaning | null = meaningOfColor(evento.colorId);
+    // 3. O serviço vem da COR (etiqueta da paleta nova pelo TOM do hex, senão `colorId` legado). Sem
+    //    cor (ou cor fora do mapa) NÃO se chuta serviço: o evento entra na lista "color not recognized"
+    //    — que mostra o que foi lido (nome da etiqueta + hex + colorId) — e o escritório pinta e
+    //    sincroniza de novo.
+    const cor: ColorMeaning | null = parsed.color.meaning;
     if (!cor) {
       resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'unrecognized color' });
       continue;

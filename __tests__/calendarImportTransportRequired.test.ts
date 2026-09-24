@@ -15,6 +15,8 @@ import type { ParsedBooking } from '@/features/integrations/google/importPlan';
 
 const parsed: ParsedBooking = {
   serviceType: 'daycare',
+  // O que foi lido na cor do evento (paleta antiga, `colorId` 7 = Peacock).
+  color: { source: 'colorId', labelId: null, labelName: null, backgroundColor: null, colorId: '7', meaning: { kind: 'service', serviceType: 'daycare' } },
   cancels: false,
   dogName: 'filó',
   startDate: '2026-09-25',

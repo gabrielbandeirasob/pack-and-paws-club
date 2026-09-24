@@ -1,5 +1,5 @@
 import { addDaysISO } from '@/features/calendar/dates';
-import { colorOfService } from '@/features/calendar/googleColors';
+import { colorOfService, labelForService, type EventLabel } from '@/features/calendar/googleColors';
 
 export type GoogleEventInput = {
   summary: string;
@@ -10,9 +10,17 @@ export type GoogleEventInput = {
   /**
    * Cor do evento na paleta fixa do Google (1..11). O app usa a cor como CONTRATO do serviço — verde
    * boarding, azul daycare (ver `googleColors`): é ela que o escritório vê e a que a importação lê de
-   * volta, então o espelho PRECISA pintar o evento que cria/atualiza.
+   * volta, então o espelho PRECISA pintar o evento que cria/atualiza. Vai SEMPRE, mesmo quando o
+   * evento também leva etiqueta: é o fallback de quem lê o calendário com um cliente antigo.
    */
   colorId?: string;
+  /**
+   * Etiqueta de cor do calendário (paleta NOVA do Google). Só vai quando o calendário TEM uma etiqueta
+   * com o tom do serviço — a API recusa etiqueta que não existe no calendário. `null` significa
+   * "limpe a etiqueta do evento" (`eventLabelId` vazio, o jeito documentado de remover); `undefined`
+   * significa "não mexe".
+   */
+  eventLabelId?: string | null;
   /** Propriedades privadas do evento — usadas para idempotencia do sync (appKey = id da reserva). */
   extendedProperties?: { private: Record<string, string> };
 };
@@ -36,7 +44,15 @@ function recurrenceRule(weekdays: number[], untilDate?: string): string {
   return `RRULE:FREQ=WEEKLY;BYDAY=${days}${until}`;
 }
 
-export function buildGoogleEvent(reservation: ReservationForSync): GoogleEventInput {
+/**
+ * Evento do espelho para a reserva.
+ *
+ * `options.labels` são as etiquetas do calendário escolhido (paleta NOVA). Quando existe uma etiqueta
+ * com o tom do serviço, o evento leva `eventLabelId` **e** o `colorId` legado; quando não existe (ou
+ * não deu para ler as etiquetas), o evento sai só com o `colorId` — o espelho nunca quebra por causa
+ * de etiqueta.
+ */
+export function buildGoogleEvent(reservation: ReservationForSync, options: { labels?: EventLabel[] } = {}): GoogleEventInput {
   const summary = `${reservation.serviceType === 'daycare' ? 'Daycare' : 'Boarding'} · ${reservation.dogName} (${reservation.clientName})`;
   // Google Calendar all-day events use an exclusive end date.
   const effectiveEnd = reservation.endDate ?? reservation.startDate;
@@ -45,6 +61,8 @@ export function buildGoogleEvent(reservation: ReservationForSync): GoogleEventIn
   // O evento sai PINTADO com a cor do serviço: é assim que o escritório enxerga o tipo no calendário
   // e é o que a importação lê de volta quando o evento volta para o app.
   event.colorId = colorOfService(reservation.serviceType);
+  const etiqueta = labelForService(options.labels, reservation.serviceType);
+  if (etiqueta) event.eventLabelId = etiqueta.id;
   if (reservation.weekdays?.length) {
     const openEnded = !reservation.endDate || reservation.endDate === reservation.startDate;
     event.recurrence = [recurrenceRule(reservation.weekdays, openEnded ? undefined : reservation.endDate)];

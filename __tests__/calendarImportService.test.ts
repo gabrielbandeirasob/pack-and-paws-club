@@ -425,6 +425,63 @@ describe('runCalendarImport', () => {
     expect(resumo.created).toBe(1);
   });
 
+  /**
+   * BUG 56 — o evento pintado com a etiqueta da paleta NOVA do Google (o "Cobalto" do cliente) chega
+   * sem `colorId` e vira pendência "cor não reconhecida" se o app não souber ler o TOM da etiqueta.
+   * Aqui é o executor inteiro: a URL pede as etiquetas, a lista do cartão entra e o serviço sai certo
+   * na porta que grava no banco.
+   */
+  it('serviço vem da ETIQUETA do calendário (azul = daycare) sem parâmetro inválido na listagem', async () => {
+    const urls: string[] = [];
+    const doFetch: CalendarFetch = async (url) => {
+      urls.push(url);
+      return resposta([
+        // Evento da paleta nova: etiqueta, SEM colorId.
+        { id: 'e-zara', summary: 'Zara', eventLabelId: 'lab-azul', start: { date: '2026-09-26' }, end: { date: '2026-09-27' } },
+      ]);
+    };
+    const registro: string[] = [];
+    const resumo = await runCalendarImport({
+      accessToken: 'tok',
+      range: JANELA,
+      window: DESDE_HOJE,
+      dogs: [{ id: 'dog-zara', name: 'Zara', clientName: 'Zara kot' }],
+      reservations: [],
+      doFetch,
+      ports: portas(registro),
+      labels: [{ id: 'lab-azul', name: 'Cobalto', backgroundColor: '#4A86E8' }],
+    });
+
+    expect(urls[0]).not.toContain('eventLabelVersion');
+    expect(registro).toEqual(['reserva:e-zara:dog-zara:daycare']);
+    expect(resumo.review).toEqual([]);
+    expect(resumo.created).toBe(1);
+  });
+
+  it('SEM as etiquetas (token antigo), o mesmo evento não é importado nem quebra: volta como pendência com o que foi lido', async () => {
+    const doFetch: CalendarFetch = async () =>
+      resposta([{ id: 'e-zara', summary: 'Zara', eventLabelId: 'lab-azul', start: { date: '2026-09-26' }, end: { date: '2026-09-27' } }]);
+    const registro: string[] = [];
+    const resumo = await runCalendarImport({
+      accessToken: 'tok',
+      range: JANELA,
+      window: DESDE_HOJE,
+      dogs: [{ id: 'dog-zara', name: 'Zara', clientName: 'Zara kot' }],
+      reservations: [],
+      doFetch,
+      ports: portas(registro),
+    });
+
+    expect(registro).toEqual([]);
+    expect(resumo.review).toEqual([
+      expect.objectContaining({
+        eventId: 'e-zara',
+        reason: 'unrecognized color',
+        parsed: expect.objectContaining({ color: expect.objectContaining({ labelId: 'lab-azul', colorId: null }) }),
+      }),
+    ]);
+  });
+
   it('a importação não cria cliente nem cão: nenhuma porta de cadastro existe mais', () => {
     // Guarda de regressão barata: se alguém reintroduzir `createClient`/`createDog` no contrato das
     // portas, este teste (e a ausência delas no tipo) acusa.

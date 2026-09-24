@@ -9,6 +9,7 @@
  * entao reexecutar o sync nao duplica eventos.
  */
 import { buildGoogleEvent, type GoogleEventInput, type ReservationForSync } from '@/features/calendar/googleEvents';
+import type { EventLabel } from '@/features/calendar/googleColors';
 
 export const APP_KEY_PROPERTY = 'appKey';
 
@@ -54,6 +55,11 @@ export type RemoteEvent = {
    * quando o evento não tem cor marcada.
    */
   colorId?: string | null;
+  /**
+   * Etiqueta de cor do evento (`eventLabelId`, paleta NOVA do Google). Um evento pintado com a paleta
+   * nova NÃO traz `colorId` — a cor (e portanto o serviço) sai do TOM do hex da etiqueta.
+   */
+  eventLabelId?: string | null;
   recurrence?: string[] | null;
 };
 
@@ -67,9 +73,9 @@ export function appKeyOf(reservation: LocalReservation): string {
 }
 
 /** Evento do Google pronto para envio, com a chave de idempotencia embutida. */
-export function eventFor(reservation: LocalReservation): GoogleEventInput {
+export function eventFor(reservation: LocalReservation, options: { labels?: EventLabel[] } = {}): GoogleEventInput {
   return {
-    ...buildGoogleEvent(reservation),
+    ...buildGoogleEvent(reservation, options),
     extendedProperties: {
       private: {
         [APP_KEY_PROPERTY]: appKeyOf(reservation),
@@ -87,14 +93,19 @@ function sameRecurrence(a?: string[] | null, b?: string[] | null): boolean {
 
 /** Compara o que esta no Google com o que o app quer publicar. */
 export function eventsEqual(desired: GoogleEventInput, remote: RemoteEvent): boolean {
+  // Etiqueta SUPERA colorId na API. Com uma etiqueta desejada, o Google pode devolver colorId nulo:
+  // comparar também o legado causaria PATCH infinito. Sem etiqueta lida pelo app, preservamos uma
+  // etiqueta remota em vez de substituí-la por colorId; se nenhum lado usa etiqueta, vale o legado.
+  const corOk = desired.eventLabelId !== undefined
+    ? (desired.eventLabelId ?? null) === (remote.eventLabelId ?? null)
+    : remote.eventLabelId
+      ? true
+      : (desired.colorId ?? null) === (remote.colorId ?? null);
   return (
     desired.summary === remote.summary &&
     desired.start.date === remote.startDate &&
     desired.end.date === remote.endDate &&
-    // A cor é o contrato do serviço (verde boarding / azul daycare): evento do espelho que ficou sem
-    // cor (ou com a cor do outro serviço) precisa ser atualizado, senão a importação de volta lê o
-    // serviço errado. Evento antigo, criado antes desta regra, cai aqui e ganha a cor no 1º Sync.
-    (desired.colorId ?? null) === (remote.colorId ?? null) &&
+    corOk &&
     sameRecurrence(desired.recurrence, remote.recurrence)
   );
 }
@@ -102,8 +113,11 @@ export function eventsEqual(desired: GoogleEventInput, remote: RemoteEvent): boo
 /**
  * Operacoes necessarias. Deterministico: reservas fora de ordem produzem o mesmo plano.
  * Eventos remotos sem `appKey` sao ignorados (podem ser do dono do calendario, nao nossos).
+ *
+ * `options.labels` são as etiquetas do calendário escolhido: quando há uma com o tom do serviço, o
+ * evento sai com ela (`eventLabelId`); senão sai só com o `colorId` legado.
  */
-export function planCalendarSync(local: LocalReservation[], remote: RemoteEvent[]): SyncAction[] {
+export function planCalendarSync(local: LocalReservation[], remote: RemoteEvent[], options: { labels?: EventLabel[] } = {}): SyncAction[] {
   const byKey = new Map<string, RemoteEvent>();
   const byId = new Map<string, RemoteEvent>();
   for (const event of remote) {
@@ -117,7 +131,7 @@ export function planCalendarSync(local: LocalReservation[], remote: RemoteEvent[
   for (const reservation of [...local].sort((a, b) => a.id.localeCompare(b.id))) {
     const key = appKeyOf(reservation);
     seen.add(key);
-    const desired = eventFor(reservation);
+    const desired = eventFor(reservation, options);
     // Reserva ligada a um evento do Google: o espelho cuida DESSE evento (nada de criar um segundo).
     const existing = byKey.get(key) ?? (reservation.googleEventId ? byId.get(reservation.googleEventId) ?? null : null);
     if (!existing) {
