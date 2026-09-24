@@ -241,7 +241,7 @@ export default function DriverTodayScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       const { data: routes, error } = await supabase
         .from('routes')
-        .select('id, organization_id, lock_version, published_at, organization:organizations(proof_pickup_required, proof_dropoff_required), route_stops(id, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, status_updated_at, eta_notice_at, eta_notice_kind, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
+        .select('id, organization_id, lock_version, published_at, organization:organizations(proof_pickup_required, proof_dropoff_required), route_stops(id, sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, status_updated_at, eta_notice_at, eta_notice_kind, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
         .eq('driver_id', user?.id ?? '')
         .eq('route_date', todayLocalISO())
         .eq('status', 'published')

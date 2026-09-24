@@ -9,6 +9,8 @@ export type DriverStopRow = {
   id: string;
   sequence: number;
   status: DriverStop['status'];
+  /** Parada agrupada por cliente (migration 029): mesmo cliente na mesma rota = mesma parada. */
+  stop_group_id?: string | null;
   window_start?: string | null;
   window_end: string | null;
   exact_time: string | null;
@@ -67,6 +69,7 @@ export function rowToStop(row: DriverStopRow): DriverStop {
   return {
     id: row.id,
     dogId: dog?.id ?? null,
+    groupId: row.stop_group_id ?? null,
     sequence: row.sequence,
     status: row.status,
     clientName: client?.name?.trim() || UNKNOWN_CLIENT,
