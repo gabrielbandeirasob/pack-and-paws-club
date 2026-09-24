@@ -239,6 +239,33 @@ describe('CalendarConnectionCard', () => {
     expect(screen.getByLabelText('Choose dog for ')).toBeTruthy();
   });
 
+  it('falha da importação mostra o MOTIVO da primeira falha, não só a contagem', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    runCalendarImport.mockResolvedValue({
+      created: 0,
+      updated: 0,
+      cancelled: 0,
+      review: [],
+      failures: [
+        {
+          eventId: 'e-pietro',
+          reservationId: undefined,
+          error: 'new row for relation "reservations" violates check constraint "reservations_check"',
+        },
+      ],
+    });
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+
+    // Antes o gestor via só "1 item(s) from Google could not be saved" e o suporte ficava cego: agora
+    // a tela diz QUAL foi o motivo da primeira falha (o erro cru do Postgres traduzido).
+    await waitFor(() => expect(screen.getByTestId('google-calendar-erro')).toBeTruthy());
+    expect(screen.getByTestId('google-calendar-erro')).toHaveTextContent(
+      '1 item(s) from Google could not be saved. First: end_date before start_date',
+    );
+  });
+
   it('ao escolher o cão da revisão, cria a reserva com o evento gravado (anti-duplicata)', async () => {
     useCalendarConnection.mockReturnValue(conexao('connected'));
     runCalendarImport.mockResolvedValue({

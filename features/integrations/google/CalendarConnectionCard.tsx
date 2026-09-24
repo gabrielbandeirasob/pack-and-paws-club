@@ -51,10 +51,9 @@ import {
 } from './calendarChoice';
 import type { LocalReservation } from './calendarSync';
 import { escolhaDaRevisao, supabaseImportPorts } from './importPorts';
-import { kindOf, type BookingForImport, type DogForImport } from './importPlan';
+import { describeImport, describeImportFailure, kindOf, type BookingForImport, type DogForImport } from './importPlan';
 import { runCalendarImport, type ImportReviewItem, type ImportSummary } from './importService';
 import { describeSummary, runCalendarSync } from './sync';
-import { describeImport } from './importPlan';
 import { useCalendarConnection } from './useCalendarConnection';
 
 /**
@@ -235,7 +234,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
         if (daImportacao) texto = texto ? `${texto} · ${daImportacao}` : daImportacao;
         setRevisao(importado.review);
         if (importado.created + importado.updated + importado.cancelled > 0) onImported?.();
-        if (importado.failures.length) setErro(`${importado.failures.length} item(s) from Google could not be saved.`);
+        if (importado.failures.length) setErro(describeImportFailure(importado.failures));
       } catch (importError) {
         // O espelho já passou: a importação falhando não esconde o que foi enviado.
         setErro(mensagemDeFalha(importError, acessoDoEscolhido));

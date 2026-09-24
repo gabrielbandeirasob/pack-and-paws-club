@@ -1,6 +1,7 @@
 import {
   createEvent,
   deleteEvent,
+  fimExclusivoDoEvento,
   listAllEvents,
   listCalendars,
   listEvents,
@@ -104,6 +105,25 @@ describe('cliente do Google Calendar', () => {
     const parsed = parseEvent({ id: 'x', summary: 'Dentista', start: { dateTime: '2026-09-10T09:00:00-03:00' }, end: { dateTime: '2026-09-10T10:00:00-03:00' } });
     expect(parsed.appKey).toBeNull();
     expect(parsed.startDate).toBe('2026-09-10');
+    // Evento COM HORA: o `end.dateTime` é INCLUSIVO (o dia 10 é o último dia do evento), então o fim
+    // em forma EXCLUSIVA — o formato que o planejador da importação espera — é o dia seguinte. Este
+    // era o defeito de produção de 24/09/2026: o dia era recuado duas vezes e a reserva nascia com
+    // `end_date` anterior ao `start_date` (o banco recusa por `check (end_date >= start_date)`).
+    expect(parsed.endDate).toBe('2026-09-11');
+  });
+
+  it('fim de evento com hora é normalizado para o formato EXCLUSIVO (e o de dia inteiro já vem assim)', () => {
+    // mesmos dia: 10/09 09:00-17:00 -> o dia 10 é do evento, o fim exclusivo é 11/09
+    expect(fimExclusivoDoEvento({ dateTime: '2026-09-10T17:00:00-03:00' })).toBe('2026-09-11');
+    // meia-noite exata: o evento não ocupa minuto nenhum do dia seguinte -> já é exclusivo
+    expect(fimExclusivoDoEvento({ dateTime: '2026-09-11T00:00:00-03:00' })).toBe('2026-09-11');
+    // multi-dia com hora: 10/09 10:00 -> 12/09 12:00 -> fim exclusivo 13/09
+    expect(fimExclusivoDoEvento({ dateTime: '2026-09-12T12:00:00-03:00' })).toBe('2026-09-13');
+    // dia inteiro: o Google já manda o primeiro dia FORA do evento
+    expect(fimExclusivoDoEvento({ date: '2026-09-11' })).toBe('2026-09-11');
+    // sem fim nenhum: string vazia (a garantia dura do parser impede virar data do passado)
+    expect(fimExclusivoDoEvento(undefined)).toBe('');
+    expect(fimExclusivoDoEvento({})).toBe('');
   });
 
   it('filtra a listagem no formato que o Google exige (nome=valor)', async () => {

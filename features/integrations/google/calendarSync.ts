@@ -41,6 +41,12 @@ export type RemoteEvent = {
   appKey?: string | null;
   summary: string;
   startDate: string;
+  /**
+   * Fim do evento em forma EXCLUSIVA (o primeiro dia FORA do evento), igual ao que o Google usa no
+   * evento de dia inteiro — quem monta isto (`parseEvent`, em `calendarApi`) já normaliza o evento com
+   * hora para esse formato. É o formato que o espelho compara com o que ele mesmo escreve
+   * (`eventsEqual`) e o que a importação recua um dia para virar o fim INCLUSIVO da reserva.
+   */
   endDate: string;
   recurrence?: string[] | null;
 };

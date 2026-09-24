@@ -10,10 +10,13 @@
  *  - nada com data anterior a janela e escrito (a janela da importacao comeca em hoje);
  *  - falha de um item NAO derruba os outros (o resumo conta o que falhou);
  *  - item de revisao (titulo sem nome) volta para a tela, nao some.
+ *  - evento COM HORA chega na porta com `end_date >= start_date` e, se a reserva falhar depois do
+ *    cadastro, o cao (e o cliente) da rodada sao desfeitos em vez de ficarem orfaos (24/09/2026).
  */
 import { runCalendarImport, hasImportChanges } from '@/features/integrations/google/importService';
 import type { ImportPorts } from '@/features/integrations/google/importService';
 import type { CalendarFetch } from '@/features/integrations/google/calendarApi';
+import { describeImportFailure } from '@/features/integrations/google/importPlan';
 
 const JANELA = { timeMin: '2026-09-24T00:00:00Z', timeMax: '2027-03-23T00:00:00Z' };
 /** Janela em datas da importacao: comeca HOJE (nada do passado). */
@@ -257,6 +260,98 @@ describe('runCalendarImport', () => {
     expect(registro).toEqual([]);
     expect(resumo.created).toBe(0);
     expect(resumo.failures).toEqual([{ eventId: 'e-kona', reservationId: undefined, error: 'RLS negou o cliente' }]);
+  });
+
+  it('evento COM HORA chega na porta com end_date >= start_date (o defeito de produção)', async () => {
+    // Evento do escritório no calendário "bot venda": 25/09, 1:00-2:00pm (print do gestor, 24/09/2026).
+    const doFetch: CalendarFetch = async () =>
+      resposta([
+        { id: 'e-pietro', summary: 'dog pietro', start: { dateTime: '2026-09-25T13:00:00-07:00' }, end: { dateTime: '2026-09-25T14:00:00-07:00' } },
+      ]);
+    const criadas: { start_date: string; end_date: string }[] = [];
+    const resumo = await runCalendarImport({
+      accessToken: 'tok',
+      range: JANELA,
+      window: DESDE_HOJE,
+      dogs: [{ id: 'dog-pietro', name: 'dog pietro' }],
+      reservations: [],
+      doFetch,
+      ports: portas([], {
+        createBooking: async ({ parsed }) => {
+          criadas.push({ start_date: parsed.startDate, end_date: parsed.endDate });
+        },
+      }),
+    });
+
+    expect(criadas).toEqual([{ start_date: '2026-09-25', end_date: '2026-09-25' }]);
+    expect(resumo.created).toBe(1);
+    expect(resumo.failures).toEqual([]);
+  });
+
+  it('reserva que falha depois do cão criado desfaz o cadastro da rodada (nada de cão órfão)', async () => {
+    const doFetch: CalendarFetch = async () =>
+      resposta([
+        { id: 'e-pietro', summary: 'dog pietro', start: { dateTime: '2026-09-25T13:00:00-07:00' }, end: { dateTime: '2026-09-25T14:00:00-07:00' } },
+      ]);
+    const registro: string[] = [];
+    const resumo = await runCalendarImport({
+      accessToken: 'tok',
+      range: JANELA,
+      window: DESDE_HOJE,
+      dogs: [],
+      reservations: [],
+      doFetch,
+      ports: portas(registro, {
+        createClient: async () => ({ clientId: 'cli-novo', criadoAgora: true }),
+        createDog: async () => ({ dogId: 'dog-novo', criadoAgora: true }),
+        createBooking: async () => {
+          // A mensagem real do Postgres, como o supabase-js entrega (prova em banco: sqlstate 23514).
+          throw new Error('new row for relation "reservations" violates check constraint "reservations_check"');
+        },
+        removeDog: async ({ dogId }) => {
+          registro.push(`removeu-cao:${dogId}`);
+        },
+        removeClientIfEmpty: async ({ clientId }) => {
+          registro.push(`removeu-cliente-vazio:${clientId}`);
+        },
+      }),
+    });
+
+    // A ordem importa: primeiro o cão, depois o cliente que ficou sem cão nenhum.
+    expect(registro).toEqual(['removeu-cao:dog-novo', 'removeu-cliente-vazio:cli-novo']);
+    expect(resumo.created).toBe(0);
+    expect(resumo.failures).toHaveLength(1);
+    // E a tela ganha o MOTIVO da primeira falha, não só a contagem (o gestor ficou sem saber o que houve).
+    expect(describeImportFailure(resumo.failures)).toBe('1 item(s) from Google could not be saved. First: end_date before start_date');
+  });
+
+  it('cão que já existia no cadastro NÃO é apagado por causa de uma falha da reserva', async () => {
+    const doFetch: CalendarFetch = async () => resposta([{ id: 'e-kona', summary: 'Leigh Ann · Kona', start: { date: '2026-10-05' }, end: { date: '2026-10-06' } }]);
+    const registro: string[] = [];
+    const resumo = await runCalendarImport({
+      accessToken: 'tok',
+      range: JANELA,
+      window: DESDE_HOJE,
+      dogs: [],
+      reservations: [],
+      doFetch,
+      ports: portas(registro, {
+        createClient: async () => ({ clientId: 'cli-existente', criadoAgora: false }),
+        createDog: async () => ({ dogId: 'dog-existente', criadoAgora: false }),
+        createBooking: async () => {
+          throw new Error('RLS negou a reserva');
+        },
+        removeDog: async ({ dogId }) => {
+          registro.push(`removeu-cao:${dogId}`);
+        },
+        removeClientIfEmpty: async ({ clientId }) => {
+          registro.push(`removeu-cliente-vazio:${clientId}`);
+        },
+      }),
+    });
+
+    expect(registro).toEqual([]);
+    expect(resumo.failures).toEqual([{ eventId: 'e-kona', reservationId: undefined, error: 'RLS negou a reserva' }]);
   });
 
   it('item de revisao (titulo sem nome) volta para a tela', async () => {
