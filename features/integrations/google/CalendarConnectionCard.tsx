@@ -6,9 +6,14 @@
  *    pedido do dono em 23/09/2026 ("as datas que estão marcadas no calendário do cliente fossem para
  *    o aplicativo"). Quem manda em cada reserva é quem a criou: reserva que nasceu no Google muda
  *    (e é cancelada) quando o evento muda/some; reserva que nasceu no app continua com o app.
+ *    A janela desta via começa em HOJE (nada do passado entra nem é cancelado).
  *
- * Nada aqui adivinha cadastro: nome de cão que não casa com UM cão do cadastro vai para a lista de
- * REVISÃO, onde o gestor escolhe o cão. É o que evita cliente/cão fantasma por título mal escrito.
+ * Título que não casa com UM cão do cadastro NÃO fica pendente (decisão do dono, 24/09/2026: "puxe
+ * todos os agendamentos do Google do cliente"): o app cria cliente + cão com o nome do título e a
+ * reserva nasce em seguida, já ligada ao evento. O vínculo é por EVENTO, então o segundo Sync não
+ * repete o cadastro e renomear o cão não cria outro. Só título sem nome nenhum vai para a lista de
+ * REVISÃO ("From Google — needs a dog") — junto com a duplicata, que o gestor prefere ligar à
+ * reserva que já existe.
  *
  * Só o gestor chega nesta aba (a lista de abas por papel está em `app/(tabs)/_layout.tsx`).
  */
@@ -39,8 +44,19 @@ export function janelaDeEspelho(hoje = todayLocalISO()): { timeMin: string; time
   return { timeMin: `${addDaysISO(hoje, -30)}T00:00:00Z`, timeMax: `${addDaysISO(hoje, 180)}T00:00:00Z` };
 }
 
-export function janelaDeImportacao(janela: { timeMin: string; timeMax: string }): { from: string; to: string } {
-  return { from: janela.timeMin.slice(0, 10), to: janela.timeMax.slice(0, 10) };
+/**
+ * Janela da IMPORTAÇÃO: de HOJE (data local) a 180 dias à frente.
+ *
+ * É independente da janela do espelho de propósito. O espelho continua recuando 30 dias porque o
+ * recuo evita que um evento de ontem "suma" da consulta e volte como evento novo; a importação, ao
+ * contrário, não pode trazer nada do passado (pedido do dono, 24/09/2026: "de hoje para frente").
+ * Com o `from` em hoje, a própria janela é o que impede cancelar uma reserva de ontem que veio do
+ * Google só porque ela não aparece mais na consulta — e o planCalendarImport ainda confere de novo.
+ */
+export function janelaDeImportacao(hoje = todayLocalISO()): { from: string; to: string; timeMin: string; timeMax: string } {
+  const from = hoje;
+  const to = addDaysISO(hoje, 180);
+  return { from, to, timeMin: `${from}T00:00:00Z`, timeMax: `${to}T00:00:00Z` };
 }
 
 /** Só o que cai na janela é espelhado (o passado distante e o futuro longe ficam fora). */
@@ -55,7 +71,8 @@ export function motivoDaRevisao(reason: ImportReviewItem['reason']): string {
   if (reason === 'unknown dog') return 'No dog with this name in the app';
   if (reason === 'ambiguous dog') return 'More than one dog with this name — pick the right one';
   if (reason === 'duplicate') return 'A booking like this already exists in the app';
-  return 'Could not read the title — pick the dog and we save it';
+  // Único caso que sobra sem cão: título sem nome nenhum (o resto o app cadastra sozinho).
+  return 'This event has no title — pick the dog and we save it';
 }
 
 const fetchReal: CalendarFetch = (url, init) => fetch(url, init);
@@ -82,6 +99,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
   const [caoEscolhido, setCaoEscolhido] = useState<DogRef | null>(null);
 
   const janela = useMemo(() => janelaDeEspelho(), []);
+  const janelaImport = useMemo(() => janelaDeImportacao(), []);
   const paraEspelhar = useMemo(() => dentroDaJanela(reservations, janela), [reservations, janela]);
 
   const refsDeCao = useMemo<DogRef[]>(
@@ -101,8 +119,10 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
       try {
         const importado: ImportSummary = await runCalendarImport({
           accessToken,
-          range: janela,
-          window: janelaDeImportacao(janela),
+          // A importação consulta de HOJE para frente (a janela do espelho não serve aqui: ela
+          // recua 30 dias de propósito).
+          range: { timeMin: janelaImport.timeMin, timeMax: janelaImport.timeMax },
+          window: { from: janelaImport.from, to: janelaImport.to },
           dogs,
           reservations: bookings,
           doFetch: fetchReal,
@@ -131,7 +151,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     } finally {
       setOcupado(null);
     }
-  }, [bookings, dogs, getAccessToken, janela, onImported, organizationId, paraEspelhar]);
+  }, [bookings, dogs, getAccessToken, janela, janelaImport, onImported, organizationId, paraEspelhar]);
 
   /** Liga o evento ao cão escolhido: aproveita reserva igual que já existe, senão cria. */
   const resolverRevisao = useCallback(async () => {
@@ -211,7 +231,8 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
           </Text>
           <Text style={styles.hint}>
             {paraEspelhar.length} booking(s) mirrored to Google. This is a business-only calendar, so every event
-            comes back here. Use the dog&apos;s name as the title (e.g. &quot;Bella&quot;); unmatched titles wait for review.
+            from today on comes back here — if the title names a dog that is not in the app yet, the dog (and its
+            owner) are created automatically. Only a title with no name at all waits for review.
           </Text>
 
           <View style={styles.row}>
@@ -250,13 +271,13 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
               {revisao.map((item) => (
                 <View key={item.eventId} style={styles.revisaoItem}>
                   <View style={styles.revisaoTexto}>
-                    <Text style={styles.revisaoTituloEvento}>{item.title || '(no title)'}</Text>
+                    <Text style={styles.revisaoTituloEvento}>{item.title.trim() || '(no title)'}</Text>
                     <Text style={styles.revisaoData}>
                       {item.date} · {motivoDaRevisao(item.reason)}
                     </Text>
                   </View>
                   <Pressable
-                    accessibilityLabel={`Choose dog for ${item.title}`}
+                    accessibilityLabel={`Choose dog for ${item.title.trim()}`}
                     accessibilityRole="button"
                     onPress={() => {
                       setEscolhendo(item);
