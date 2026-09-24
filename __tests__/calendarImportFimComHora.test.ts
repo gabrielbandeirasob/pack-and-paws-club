@@ -126,9 +126,9 @@ describe('fim do evento com hora x dia inteiro (bug de produção 24/09/2026)', 
 
     expect(plano.length).toBeGreaterThan(0);
     for (const item of plano) {
-      // 'skip' (dia de série pulado pelo evento vermelho) não tem `parsed`; 'review'/'cancel' também não
-      // comparam data de reserva.
-      if (item.kind === 'review' || item.kind === 'cancel' || item.kind === 'skip') continue;
+      // 'skip' (dia de série pulado pelo evento vermelho), 'extraDay' (dia extra ligado à escala),
+      // 'review' e 'cancel' não carregam `parsed` para comparar data de reserva.
+      if (item.kind !== 'create' && item.kind !== 'update') continue;
       expect(item.parsed.endDate >= item.parsed.startDate).toBe(true);
     }
   });

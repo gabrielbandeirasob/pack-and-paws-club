@@ -45,6 +45,9 @@ function portas(registro: string[] = [], extras: Partial<ImportPorts> = {}): Imp
     skipRecurringDay: async (entrada) => {
       registro.push(`pula:${entrada.scheduleId}:${entrada.date}`);
     },
+    addScheduleExtraDay: async (entrada) => {
+      registro.push(`dia-extra:${entrada.scheduleId}:${entrada.date}`);
+    },
     ...extras,
   };
 }
@@ -486,7 +489,13 @@ describe('runCalendarImport', () => {
     // Guarda de regressão barata: se alguém reintroduzir `createClient`/`createDog` no contrato das
     // portas, este teste (e a ausência delas no tipo) acusa.
     const contrato = portas([]);
-    expect(Object.keys(contrato).sort()).toEqual(['cancelBooking', 'createBooking', 'skipRecurringDay', 'updateBooking']);
+    expect(Object.keys(contrato).sort()).toEqual([
+      'addScheduleExtraDay',
+      'cancelBooking',
+      'createBooking',
+      'skipRecurringDay',
+      'updateBooking',
+    ]);
   });
 
   it('reserva do Google que sumiu e já estava cancelada não é cancelada de novo', async () => {

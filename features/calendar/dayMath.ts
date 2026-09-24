@@ -27,7 +27,7 @@ export type RecurringScheduleRecord = {
   source?: 'app' | 'google' | null;
 };
 
-export type RecurringExceptionAction = 'skip' | 'transport_on' | 'transport_off';
+export type RecurringExceptionAction = 'skip' | 'extra' | 'transport_on' | 'transport_off';
 
 export type RecurringExceptionRecord = {
   id: string;
@@ -152,6 +152,18 @@ export function isSkipped(scheduleId: string, isoDate: string, exceptions: Recur
   );
 }
 
+/**
+ * True when this date is an EXTRA day of the schedule (evento ROXO no Google): o cliente de dia fixo
+ * mudou o dia / veio fora da ordem, e o dia fica LIGADO à escala em vez de virar reserva avulsa —
+ * é o "não ficar serviço solto" do pedido do dono (24/09/2026).
+ */
+export function isExtraDay(scheduleId: string, isoDate: string, exceptions: RecurringExceptionRecord[]): boolean {
+  return exceptions.some(
+    (exception) =>
+      exception.scheduleId === scheduleId && exception.action === 'extra' && isWithin(isoDate, exception.startDate, exception.endDate),
+  );
+}
+
 export function buildDay(
   isoDate: string,
   reservations: ReservationRecord[],
@@ -176,6 +188,18 @@ export function buildDay(
     if (isoDate < schedule.startDate) continue;
     if (schedule.endDate && isoDate > schedule.endDate) continue;
     if (!schedule.weekdays.includes(weekday)) continue;
+    if (isSkipped(schedule.id, isoDate, exceptions)) continue;
+    daycare.push({ ...itemize('recurring-daycare', null, schedule), transportRequired: transportForSchedule(schedule, isoDate, exceptions) });
+  }
+
+  // Dia EXTRA (evento ROXO no Google): o dia não está nos `weekdays`, mas faz parte da escala daquele
+  // cão. Entra na agenda ligado à escala (mesmo cartão "Repeats weekly"), não como reserva avulsa.
+  for (const schedule of recurring) {
+    if (!schedule.active) continue;
+    if (isoDate < schedule.startDate) continue;
+    if (schedule.endDate && isoDate > schedule.endDate) continue;
+    if (schedule.weekdays.includes(weekday)) continue; // dia normal da escala: já entrou acima
+    if (!isExtraDay(schedule.id, isoDate, exceptions)) continue;
     if (isSkipped(schedule.id, isoDate, exceptions)) continue;
     daycare.push({ ...itemize('recurring-daycare', null, schedule), transportRequired: transportForSchedule(schedule, isoDate, exceptions) });
   }

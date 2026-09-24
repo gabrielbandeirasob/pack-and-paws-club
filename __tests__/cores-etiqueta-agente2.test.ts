@@ -34,8 +34,10 @@ describe('TOM da cor -> servico (o caso real: azul Cobalto = daycare)', () => {
     ['#039be5', 'Peacock (azul)', 'daycare'],
     ['#4986e7', 'Blueberry (azul)', 'daycare'],
     ['#4a86e8', 'Cobalto (azul NOVO, o da zara)', 'daycare'],
-    ['#a4bdfc', 'Lavanda', 'daycare'],
-    ['#dbadff', 'Uva (roxo)', 'daycare'],
+    ['#a4bdfc', 'Lavanda (azul-claro)', 'daycare'],
+    ['#b39ddb', 'Glicinia (lavanda escura)', 'daycare'],
+    ['#dbadff', 'Uva (ROXO) -> alteracao de dia fixo', 'alteracao'],
+    ['#8e24aa', 'Uva profunda (ROXO)', 'alteracao'],
     ['#e67c73', 'Tomate (vermelho)', 'cancel'],
     ['#fbd75b', 'Banana (amarelo)', null],
     ['#ff7537', 'Tangerina (laranja)', null],
@@ -46,7 +48,14 @@ describe('TOM da cor -> servico (o caso real: azul Cobalto = daycare)', () => {
   for (const [hex, nome, esperado] of casos) {
     it(`${nome} (${hex || 'vazio'}) -> ${esperado ?? 'nada'}`, () => {
       const lido = meaningOfLabelColor(hex);
-      const obtido = lido === null ? null : lido.kind === 'cancel' ? 'cancel' : lido.serviceType;
+      const obtido =
+        lido === null
+          ? null
+          : lido.kind === 'service'
+            ? lido.serviceType
+            : lido.kind === 'schedule_change'
+              ? 'alteracao'
+              : 'cancel';
       expect(obtido).toBe(esperado);
     });
   }

@@ -102,7 +102,9 @@ export function motivoDaRevisao(reason: ImportReviewItem['reason']): string {
   if (reason === 'unknown dog') return 'No dog with this name in the app — register the dog and sync again';
   if (reason === 'ambiguous dog') return 'More than one dog with this name — the app does not guess which one';
   if (reason === 'duplicate') return 'A booking like this already exists in the app';
-  if (reason === 'unrecognized color') return 'No service in this color — green is boarding, blue is daycare';
+  if (reason === 'unrecognized color') return 'No service in this color — green is boarding, blue is daycare, purple is a changed day';
+  if (reason === 'purple without schedule')
+    return 'Purple is a changed day for a fixed-day dog — this dog has no weekly schedule in the app';
   // Único caso que sobra sem nome: título sem nome nenhum (o resto o escritório resolve cadastrando).
   return 'This event has no title — pick the dog and we save it';
 }
@@ -157,8 +159,13 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
    * gestor até pode ligar o evento a um cão daqui — e o que só se resolve PINTANDO o evento no
    * Google. Na segunda o app nem oferece botão: sem cor não existe serviço para gravar.
    */
-  const naoCadastrados = useMemo(() => revisao.filter((item) => item.reason !== 'unrecognized color'), [revisao]);
+  const naoCadastrados = useMemo(
+    () => revisao.filter((item) => item.reason !== 'unrecognized color' && item.reason !== 'purple without schedule'),
+    [revisao],
+  );
   const coresDesconhecidas = useMemo(() => revisao.filter((item) => item.reason === 'unrecognized color'), [revisao]);
+  /** ROXO num cão sem escala fixa: não há onde encaixar o dia — lista própria, o escritório resolve. */
+  const alteracoesSemEscala = useMemo(() => revisao.filter((item) => item.reason === 'purple without schedule'), [revisao]);
 
   /** Papel de acesso do calendário escolhido (a lista da conta é quem sabe). */
   const acessoDoEscolhido = useMemo(
@@ -284,11 +291,12 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
           created: importado.created,
           updated: importado.updated,
           cancelled: importado.cancelled,
+          extraDays: importado.extraDays,
           review: importado.review.length,
         });
         if (daImportacao) texto = texto ? `${texto} · ${daImportacao}` : daImportacao;
         setRevisao(importado.review);
-        if (importado.created + importado.updated + importado.cancelled > 0) onImported?.();
+        if (importado.created + importado.updated + importado.cancelled + (importado.extraDays ?? 0) > 0) onImported?.();
         if (importado.failures.length) setErro(describeImportFailure(importado.failures));
       } catch (importError) {
         // O espelho já passou: a importação falhando não esconde o que foi enviado.
@@ -559,12 +567,35 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
             </View>
           ) : null}
 
+          {alteracoesSemEscala.length > 0 ? (
+            <View style={styles.revisao} testID="google-calendar-revisao-escala">
+              <Text style={styles.revisaoTitulo}>From Google — changed day without a fixed schedule</Text>
+              <Text style={styles.revisaoDica}>
+                Purple means this fixed-day client changed the day. This dog has no weekly schedule in the app, so
+                nothing is linked: set the dog&apos;s fixed days in the app and sync again.
+              </Text>
+              {alteracoesSemEscala.map((item) => (
+                <View key={item.eventId} style={styles.revisaoItem}>
+                  <View style={styles.revisaoTexto}>
+                    <Text style={styles.revisaoTituloEvento}>{item.title.trim() || '(no title)'}</Text>
+                    <Text style={styles.revisaoData}>
+                      {item.date} · {motivoDaRevisao(item.reason)}
+                    </Text>
+                    <Text style={styles.revisaoCor} testID={`google-calendar-cor-${item.eventId}`}>
+                      {describeEventColor(item.parsed.color)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
           {coresDesconhecidas.length > 0 ? (
             <View style={styles.revisao} testID="google-calendar-cor-desconhecida">
               <Text style={styles.revisaoTitulo}>From Google — color not recognized</Text>
               <Text style={styles.revisaoDica}>
-                Paint the event green (boarding), blue (daycare) or red (cancel that day) in Google Calendar and
-                sync again. The app does not guess the service from the title.
+                Paint the event green (boarding), blue (daycare), purple (changed day) or red (cancel that day) in
+                Google Calendar and sync again. The app does not guess the service from the title.
               </Text>
               {coresDesconhecidas.map((item) => (
                 <View key={item.eventId} style={styles.revisaoItem}>

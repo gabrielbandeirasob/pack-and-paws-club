@@ -82,13 +82,13 @@ describe('a COR do evento é o serviço (e o título é só o nome do cão)', ()
     for (const id of ['4', '6', '8']) expect(meaningOfColor(id)).toBeNull();
   });
 
-  it('lavanda (1) e uva (3) contam como AZUL -> daycare (decisão do dono, 24/09/2026)', () => {
-    // O dono foi explícito — "Lavanda/Uva conta como azul -> daycare" —, então os ids da família roxa
-    // da paleta antiga SAÍRAM da lista de "cor não reconhecida" e valem o mesmo que o azul. É a mesma
-    // regra que a classificação por TOM aplica às etiquetas da paleta nova (ver googleLabels.test.ts).
-    for (const id of ['1', '3']) {
-      expect([id, meaningOfColor(id)]).toEqual([id, { kind: 'service', serviceType: 'daycare' }]);
-    }
+  it('lavanda (1) = AZUL -> daycare; uva (3) = ROXO -> alteracao de dia fixo (decisao do dono)', () => {
+    // O dono disse primeiro "Lavanda/Uva conta como azul -> daycare" e DEPOIS criou o ROXO com outro
+    // significado: *"Roxo - Alteracao de cliente dia fixo/cliente fora de ordem, para nao ficar servico
+    // solto"*. Vale a regra mais nova: lavanda (azul-claro, tom 223) continua daycare; uva (roxo, tom
+    // 288) e alteracao de dia — a MESMA faixa de tom da classificacao por etiqueta (googleLabels.test.ts).
+    expect(['1', meaningOfColor('1')]).toEqual(['1', { kind: 'service', serviceType: 'daycare' }]);
+    expect(['3', meaningOfColor('3')]).toEqual(['3', { kind: 'schedule_change' }]);
   });
 
   it('lê o nome do cão de um título com apenas o nome', () => {

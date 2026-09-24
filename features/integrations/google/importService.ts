@@ -40,6 +40,8 @@ export type ImportSummary = {
   created: number;
   updated: number;
   cancelled: number;
+  /** Dias extras ligados a escalas (evento ROXO) — o dia entrou na escala, não virou reserva avulsa. */
+  extraDays: number;
   review: ImportReviewItem[];
   /** Itens que falharam, com o motivo cru — a tela mostra o motivo da PRIMEIRA (`describeImportFailure`). */
   failures: ImportFailure[];
@@ -56,6 +58,12 @@ export type ImportPorts = {
    * escala (desativar a série inteira por causa de um dia seria destruir o agendamento do cliente).
    */
   skipRecurringDay: (input: { scheduleId: string; date: string; eventId: string }) => Promise<void>;
+  /**
+   * Dia EXTRA na escala (evento ROXO): o cliente de dia fixo mudou o dia / veio fora da ordem. O dia
+   * fica ligado à escala em vez de virar reserva avulsa ("não ficar serviço solto", dono 24/09/2026).
+   * Idempotente: regravar o mesmo dia substitui a linha em vez de acumular.
+   */
+  addScheduleExtraDay: (input: { scheduleId: string; date: string; eventId: string }) => Promise<void>;
 };
 
 export type ImportParams = {
@@ -90,7 +98,7 @@ export async function runCalendarImport({
   const eventos = await listAllEvents(accessToken, range, doFetch, calendarId);
   const plano = planCalendarImport(eventos, dogs, reservations, window, { labels });
 
-  const resumo: ImportSummary = { created: 0, updated: 0, cancelled: 0, review: [], failures: [] };
+  const resumo: ImportSummary = { created: 0, updated: 0, cancelled: 0, extraDays: 0, review: [], failures: [] };
 
   for (const item of plano) {
     if (item.kind === 'review') {
@@ -101,6 +109,7 @@ export async function runCalendarImport({
       await aplicar(item, ports);
       if (item.kind === 'create') resumo.created += 1;
       else if (item.kind === 'update') resumo.updated += 1;
+      else if (item.kind === 'extraDay') resumo.extraDays += 1;
       else resumo.cancelled += 1;
     } catch (error) {
       const alvo = 'bookingId' in item ? item.bookingId : 'scheduleId' in item ? item.scheduleId : undefined;
@@ -134,9 +143,18 @@ async function aplicar(item: Exclude<ImportOutcome, { kind: 'review' }>, ports: 
     await ports.skipRecurringDay({ scheduleId: item.scheduleId, date: item.date, eventId: item.eventId });
     return;
   }
+  if (item.kind === 'extraDay') {
+    // O dia entra na ESCALA (dia extra). Se o evento já tinha virado reserva solta (antes estava azul),
+    // ela é cancelada — senão o mesmo serviço apareceria duas vezes no dia.
+    if (item.looseBookingId) {
+      await ports.cancelBooking({ bookingId: item.looseBookingId, kind: 'reservation', eventId: item.eventId });
+    }
+    await ports.addScheduleExtraDay({ scheduleId: item.scheduleId, date: item.date, eventId: item.eventId });
+    return;
+  }
   await ports.cancelBooking({ bookingId: item.bookingId, kind: item.bookingKind, eventId: item.eventId });
 }
 
 export function hasImportChanges(resumo: ImportSummary): boolean {
-  return resumo.created + resumo.updated + resumo.cancelled > 0 || resumo.review.length > 0;
+  return resumo.created + resumo.updated + resumo.cancelled + resumo.extraDays > 0 || resumo.review.length > 0;
 }

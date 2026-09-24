@@ -184,5 +184,36 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
       });
       if (error) throw new Error(error.message);
     },
+
+    /**
+     * Dia EXTRA na escala (evento ROXO): o cliente de dia fixo mudou o dia / veio fora da ordem.
+     *
+     * Diferente do vermelho (que tira o dia), aqui o dia ENTRA na escala — fica ligado ao agendamento
+     * fixo do cão em vez de virar reserva avulsa ("não ficar serviço solto", dono 24/09/2026). É a
+     * mesma linha que a tela do app lê (`recurring_exceptions.action = 'extra'`), então o dia aparece
+     * no dia-a-dia como dia previsto daquele cão.
+     *
+     * Regravar o mesmo dia substitui a linha (o executor pode passar de novo se o evento for reescrito)
+     * para não acumular dias repetidos.
+     */
+    addScheduleExtraDay: async ({ scheduleId, date }) => {
+      const { error: erroDaBusca } = await client
+        .from('recurring_exceptions')
+        .delete()
+        .eq('recurring_schedule_id', scheduleId)
+        .eq('action', 'extra')
+        .eq('start_date', date);
+      if (erroDaBusca) throw new Error(erroDaBusca.message);
+
+      const { error } = await client.from('recurring_exceptions').insert({
+        organization_id: organizationId,
+        recurring_schedule_id: scheduleId,
+        action: 'extra',
+        start_date: date,
+        end_date: date,
+        reason: 'Changed day in Google Calendar',
+      });
+      if (error) throw new Error(error.message);
+    },
   };
 }

@@ -61,19 +61,27 @@ describe('tom (hue) do hex da etiqueta', () => {
     expect(meaningOfLabelColor('#d50000')).toEqual({ kind: 'cancel' });
   });
 
-  it('a FAMÍLIA ROXA conta como AZUL -> daycare (decisão do dono, 24/09/2026)', () => {
-    // Palavras do dono: *"Lavanda/Uva conta como azul -> daycare"*. Antes desta decisão estes tons
-    // caíam em "cor não reconhecida" (o app não chutava serviço); agora valem daycare, como o Cobalto.
-    const roxos = [
+  it('lavanda e Glicínia = AZUL -> daycare; Ametista/Uva/lilás = ROXO -> alteracao de dia fixo', () => {
+    // Palavras do dono, na ordem: primeiro *"Lavanda/Uva conta como azul -> daycare"*; depois, ao criar a
+    // quarta cor, *"Roxo - Alteracao de cliente dia fixo/cliente fora de ordem, para nao ficar servico
+    // solto"*. Vale a regra mais nova — o corte e o TOM: ate 265 e azul (daycare), de 265 a 300 e roxo
+    // (alteracao de dia).
+    const azuis = [
       [LAVANDA, 'Lavanda (paleta antiga)'],
       ['#7986cb', 'Lavanda (paleta nova)'],
       ['#b39ddb', 'Glicínia/Wisteria'],
+    ] as const;
+    for (const [hex, nome] of azuis) {
+      expect([nome, meaningOfLabelColor(hex)]).toEqual([nome, { kind: 'service', serviceType: 'daycare' }]);
+    }
+
+    const roxos = [
       ['#9e69af', 'Ametista'],
       [UVA, 'Uva/Grape'],
       ['#dbadff', 'lilás claro'],
     ] as const;
     for (const [hex, nome] of roxos) {
-      expect([nome, meaningOfLabelColor(hex)]).toEqual([nome, { kind: 'service', serviceType: 'daycare' }]);
+      expect([nome, meaningOfLabelColor(hex)]).toEqual([nome, { kind: 'schedule_change' }]);
     }
   });
 
