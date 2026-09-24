@@ -7,8 +7,10 @@
  * paleta nova ("Cobalto" #4A86E8, o caso do cliente) chegava SEM cor e caía em "cor não reconhecida".
  *
  * Estes testes travam o contrato novo:
- *  - a etiqueta é classificada pelo TOM do hex: verde = boarding, azul = daycare, vermelho = cancela;
- *  - tom fora de verde/azul/vermelho (amarelo, laranja, roxo, cinza) NÃO vira serviço — o app não chuta;
+ *  - a etiqueta é classificada pelo TOM do hex: verde = boarding, azul **e roxo/lavanda/uva** = daycare,
+ *    vermelho = cancela;
+ *  - tom fora de verde/azul-roxo/vermelho (amarelo, laranja, marrom, rosa/magenta, cinza) NÃO vira
+ *    serviço — o app não chuta;
  *  - a etiqueta MANDA quando existe; o `colorId` legado é o fallback (paleta velha);
  *  - a tela recebe o que foi lido: nome da etiqueta + hex + `colorId` legado (`Cobalto (#4A86E8)`).
  */
@@ -32,6 +34,8 @@ const COBALTO = '#4A86E8'; // o tom que o cliente escolheu no print
 const SAGE = '#33b679'; // verde da paleta antiga (id 2)
 const TOMATO = '#e67c73'; // vermelho da paleta antiga (id 11)
 const BANANA = '#ffd666'; // amarelo: NÃO vira serviço
+const LAVANDA = '#a4bdfc'; // roxo/lavanda — conta como AZUL (decisão do dono, 24/09/2026)
+const UVA = '#8e24aa'; // roxo "uva" (Grape) — conta como AZUL (mesma decisão)
 
 describe('tom (hue) do hex da etiqueta', () => {
   it('lê o tom de um hex de 6 dígitos e de 3 dígitos', () => {
@@ -57,11 +61,35 @@ describe('tom (hue) do hex da etiqueta', () => {
     expect(meaningOfLabelColor('#d50000')).toEqual({ kind: 'cancel' });
   });
 
-  it('tom fora de verde/azul/vermelho NÃO vira serviço (o app não chuta)', () => {
-    // amarelo, laranja (Tangerine #f4511e ≈ 14°, de propósito FORA do vermelho), roxo e cinza.
-    for (const hex of [BANANA, '#f4511e', '#8e24aa', '#dbadff', '#808080']) {
+  it('a FAMÍLIA ROXA conta como AZUL -> daycare (decisão do dono, 24/09/2026)', () => {
+    // Palavras do dono: *"Lavanda/Uva conta como azul -> daycare"*. Antes desta decisão estes tons
+    // caíam em "cor não reconhecida" (o app não chutava serviço); agora valem daycare, como o Cobalto.
+    const roxos = [
+      [LAVANDA, 'Lavanda (paleta antiga)'],
+      ['#7986cb', 'Lavanda (paleta nova)'],
+      ['#b39ddb', 'Glicínia/Wisteria'],
+      ['#9e69af', 'Ametista'],
+      [UVA, 'Uva/Grape'],
+      ['#dbadff', 'lilás claro'],
+    ] as const;
+    for (const [hex, nome] of roxos) {
+      expect([nome, meaningOfLabelColor(hex)]).toEqual([nome, { kind: 'service', serviceType: 'daycare' }]);
+    }
+  });
+
+  it('tom fora de verde/azul-roxo/vermelho NÃO vira serviço (o app não chuta)', () => {
+    // amarelo, laranja (Tangerine #f4511e ≈ 14°, de propósito FORA do vermelho), marrom, rosa/vinho e
+    // cinza. O ROXO saiu desta lista em 24/09/2026 (virou daycare) — ver o teste acima.
+    for (const hex of [BANANA, '#f4511e', '#795548', '#ad1457', '#808080']) {
       expect([hex, meaningOfLabelColor(hex)]).toEqual([hex, null]);
     }
+  });
+
+  it('o roxo para em 300°: rosa/magenta fica FORA (o dono citou só azul e roxo)', () => {
+    // Magenta pura dá exatamente 300° e é o primeiro tom fora da faixa azul/roxa — de propósito: o
+    // dono não citou rosa/magenta, então o app continua não chutando serviço com elas.
+    expect(hueOfHex('#ff00ff')).toBeCloseTo(300, 0);
+    expect(meaningOfLabelColor('#ff00ff')).toBeNull();
   });
 });
 

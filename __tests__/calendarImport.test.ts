@@ -4,6 +4,7 @@
  * O que estes testes travam (a regra INVERTE o cadastro automatico dos builds 52-54):
  *  - o titulo do evento traz SO o nome do cao (tolerando o formato antigo na leitura do NOME);
  *  - o SERVICO vem da COR do evento: verde (2/10) = boarding, azul (7/9) = daycare;
+ *    lavanda (1) e uva (3) tambem contam como azul -> daycare (decisao do dono, 24/09/2026);
  *  - VERMELHO (11) = cancelamento: cancela a reserva daquele cao NAQUELE dia; numa serie, pula o dia;
  *  - cao fora do cadastro NAO e importado e NAO e cadastrado: vai para a lista "not registered";
  *  - sem cor (ou cor fora do mapa, ex.: amarelo = 5) NAO se chuta servico: lista "color not recognized";
@@ -77,8 +78,17 @@ describe('a COR do evento é o serviço (e o título é só o nome do cão)', ()
     expect(meaningOfColor(undefined)).toBeNull();
     expect(meaningOfColor('')).toBeNull();
     expect(meaningOfColor(AMARELO)).toBeNull();
-    // Lavanda, uva, flamingo, tangerina e grafite também ficam de fora.
-    for (const id of ['1', '3', '4', '6', '8']) expect(meaningOfColor(id)).toBeNull();
+    // Flamingo (4), tangerina (6) e grafite (8) seguem de fora.
+    for (const id of ['4', '6', '8']) expect(meaningOfColor(id)).toBeNull();
+  });
+
+  it('lavanda (1) e uva (3) contam como AZUL -> daycare (decisão do dono, 24/09/2026)', () => {
+    // O dono foi explícito — "Lavanda/Uva conta como azul -> daycare" —, então os ids da família roxa
+    // da paleta antiga SAÍRAM da lista de "cor não reconhecida" e valem o mesmo que o azul. É a mesma
+    // regra que a classificação por TOM aplica às etiquetas da paleta nova (ver googleLabels.test.ts).
+    for (const id of ['1', '3']) {
+      expect([id, meaningOfColor(id)]).toEqual([id, { kind: 'service', serviceType: 'daycare' }]);
+    }
   });
 
   it('lê o nome do cão de um título com apenas o nome', () => {

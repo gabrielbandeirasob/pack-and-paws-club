@@ -16,16 +16,18 @@
  *
  * 2. **Etiquetas** (`labelProperties.eventLabels`, paleta NOVA de 24 cores + até 200 personalizadas
  *    por calendário). O evento passa a ter `eventLabelId` e a cor vem do **hex** da etiqueta, então a
- *    classificação é por **TOM (matiz)**: verde = boarding, azul = daycare, vermelho = cancelar. É o
- *    caso do "Cobalto" (#4A86E8) que o escritório pintou e o app não reconhecia (o evento chegava sem
- *    `colorId` porque a chamada não levava `eventLabelVersion=1` — ver `calendarApi`).
+ *    classificação é por **TOM (matiz)**: verde = boarding, AZUL e a **FAMÍLIA ROXA** (lavanda, uva) =
+ *    daycare, vermelho = cancelar — decisão do dono (24/09/2026): *"Lavanda/Uva conta como azul ->
+ *    daycare"*. É o caso do "Cobalto" (#4A86E8) que o escritório pintou e o app não reconhecia (o
+ *    evento chegava sem `colorId` porque a chamada não levava `eventLabelVersion=1` — ver
+ *    `calendarApi`).
  *
  * A ETIQUETA MANDA quando o evento tem uma (`eventLabelId`): um evento pintado na paleta nova não
  * traz `colorId` nenhum. O mapa antigo continua valendo como **fallback** (evento sem etiqueta, ou
  * etiqueta que não está na lista do calendário — lá o `colorId` legado ainda diz o serviço).
  *
- * O que NÃO é mapeado (lavanda, uva, flamingo, banana, tangerina, grafite, e qualquer tom novo fora
- * de verde/azul/vermelho) e o evento SEM cor não viram serviço nenhum: o app não chuta — o evento
+ * O que NÃO é mapeado (amarelo, laranja, marrom, cinza, rosa/magenta — e qualquer tom fora de
+ * verde/azul-roxo/vermelho) e o evento SEM cor não viram serviço nenhum: o app não chuta — o evento
  * entra na lista "color not recognized" do cartão, que agora **mostra o que foi lido** (nome da
  * etiqueta + hex + `colorId` legado) para o escritório pintar e o suporte não adivinhar.
  */
@@ -35,10 +37,15 @@ export type BookingServiceType = 'daycare' | 'boarding';
 /** O que a cor do evento significa. `null` (sem cor / cor não mapeada) = não se importa. */
 export type ColorMeaning = { kind: 'service'; serviceType: BookingServiceType } | { kind: 'cancel' };
 
-/** Ids da paleta do Google que o app reconhece. Verde = boarding, azul = daycare, vermelho = cancelar. */
+/**
+ * Ids da paleta do Google que o app reconhece. Verde = boarding, azul **e roxo** = daycare, vermelho
+ * = cancelar. Os ids `1` (Lavender — lavanda, azul-claro) e `3` (Grape — "uva", roxo) entram em
+ * daycare pela decisão do dono de 24/09/2026 ("Lavanda/Uva conta como azul -> daycare") — a MESMA
+ * regra que a classificação por TOM aplica às etiquetas da paleta nova.
+ */
 export const GOOGLE_COLOR_IDS = {
   boarding: ['2', '10'],
-  daycare: ['7', '9'],
+  daycare: ['1', '3', '7', '9'],
   cancel: ['11'],
 } as const;
 
@@ -108,13 +115,18 @@ export type EventLabel = {
  * Faixas de TOM (matiz em graus, 0..360) aceitas. Documentadas porque são o contrato da
  * classificação por etiqueta:
  *  - VERDE 70..170 (Sage #33b679 ≈ 152, Basil #0b8043 ≈ 149) → boarding;
- *  - AZUL 170..265 (Peacock #039be5 ≈ 200, Blueberry #4986e7 ≈ 217, Cobalto #4A86E8 ≈ 217) → daycare;
+ *  - AZUL 170..300 (Peacock #039be5 ≈ 200, Blueberry #4986e7 ≈ 217, Cobalto #4A86E8 ≈ 217 e toda a
+ *    **FAMÍLIA ROXA**: Lavanda #a4bdfc ≈ 223, Glicínia #b39ddb ≈ 261, Ametista #9e69af ≈ 285,
+ *    Uva/Grape #8e24aa ≈ 288) → daycare;
  *  - VERMELHO 340..360 e 0..12 (Tomato #e67c73 ≈ 5) → cancelamento.
+ * A família roxa entra em daycare por decisão do dono (24/09/2026): *"Lavanda/Uva conta como azul ->
+ * daycare"*. O teto em 300° é de propósito: daí para cima já é rosa/magenta (o magenta puro #ff00ff
+ * dá exatamente 300° e fica FORA), que o dono não citou.
  * Fora disso o app NÃO chuta serviço (amarelo, laranja — Tangerine #f4511e ≈ 14 fica de fora —,
- * roxo, rosa/magenta, cinza). O limite do vermelho é estreito de propósito: laranja não cancela.
+ * marrom, rosa/magenta, cinza). O limite do vermelho é estreito de propósito: laranja não cancela.
  */
 export const TOM_VERDE = { de: 70, ate: 170 } as const;
-export const TOM_AZUL = { de: 170, ate: 265 } as const;
+export const TOM_AZUL = { de: 170, ate: 300 } as const;
 export const TONS_VERMELHOS = [
   { de: 340, ate: 360 },
   { de: 0, ate: 12 },
@@ -145,7 +157,7 @@ export function hueOfHex(hex?: string | null): number | null {
   return tom < 0 ? tom + 360 : tom;
 }
 
-/** Traduz o HEX de uma etiqueta pelo TOM. `null` = tom fora de verde/azul/vermelho (não se chuta). */
+/** Traduz o HEX de uma etiqueta pelo TOM. `null` = tom fora de verde/azul-roxo/vermelho (não se chuta). */
 export function meaningOfLabelColor(hex?: string | null): ColorMeaning | null {
   const tom = hueOfHex(hex);
   if (tom === null) return null;
@@ -161,6 +173,10 @@ export function meaningOfLabelColor(hex?: string | null): ColorMeaning | null {
  * Determinística: quando o calendário tem mais de uma etiqueta do mesmo tom — o caso normal, porque a
  * paleta nova traz várias variações — vale a de menor `id`. É a etiqueta que o ESPELHO aplica no
  * evento que cria/atualiza; sem ela o espelho pinta com o `colorId` legado (`colorOfService`).
+ *
+ * Obs.: agora que a FAMÍLIA ROXA também é daycare, a etiqueta de menor id pode ser uma roxa — o dono
+ * decidiu que roxo conta como azul, então é o esperado. O espelho continua mandando junto o `colorId` 7
+ * (`colorOfService`), que é o que um cliente antigo do calendário entende.
  */
 export function labelForService(labels: EventLabel[] | null | undefined, serviceType: BookingServiceType): EventLabel | null {
   const encontradas = (labels ?? [])
