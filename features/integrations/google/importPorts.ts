@@ -6,8 +6,10 @@
  * importação "Google manda nos dias desta".
  *
  * Desde 24/09/2026 (pedido do dono: "puxe TODOS os agendamentos") o módulo também CADASTRA cliente e
- * cão quando o título do evento não casa com nenhum cão do app: `createClient` procura por nome antes
- * de criar (nada de cliente repetido) e `createDog` pendura o cão nesse cliente.
+ * cão quando o título do evento não casa com nenhum cão do app: `createClient` **e `createDog`**
+ * procuram por nome (normalizado) antes de criar — nada de cliente repetido e nada de um cão por
+ * toque em "Sync now" —, e a reserva só nasce depois do cadastro. Se a reserva falhar, o executor
+ * desfaz o cadastro daquela rodada pelas portas `removeDog`/`removeClientIfEmpty`.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -60,6 +62,16 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
    */
   const clientesDaRodada = new Map<string, string>();
 
+  /**
+   * Cães cadastrados NESTA sincronização (cliente + nome normalizado → id).
+   *
+   * Mesmo motivo dos clientes, e mais um: o gestor toca "Sync now" duas vezes e a segunda rodada não
+   * pode criar outro cão com o mesmo nome. A busca no banco (abaixo) resolve o caso entre rodadas;
+   * este mapa resolve o caso de dois eventos do MESMO cão na MESMA rodada.
+   */
+  const caesDaRodada = new Map<string, string>();
+  const chaveDoCao = (clientId: string, nome: string): string => `${clientId}:${normalizar(nome)}`;
+
   /** `ilike` do Postgres casa `%` e `_` como curinga: escapa para procurar o nome literal. */
   const escaparLike = (valor: string): string => valor.replace(/[\\%_]/g, '\\$&');
 
@@ -100,7 +112,7 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
       const nome = name.trim();
       const chave = normalizar(nome);
       const daRodada = clientesDaRodada.get(chave);
-      if (daRodada) return { clientId: daRodada };
+      if (daRodada) return { clientId: daRodada, criadoAgora: false };
 
       const { data: existente, error: buscaError } = await client
         .from('clients')
@@ -113,7 +125,7 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
       const achado = (existente as { id: string } | null)?.id ?? null;
       if (achado) {
         clientesDaRodada.set(chave, achado);
-        return { clientId: achado };
+        return { clientId: achado, criadoAgora: false };
       }
 
       const { data, error } = await client
@@ -125,20 +137,48 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
       const criado = (data as { id: string } | null)?.id;
       if (!criado) throw new Error('clients: insert sem id');
       clientesDaRodada.set(chave, criado);
-      return { clientId: criado };
+      return { clientId: criado, criadoAgora: true };
     },
 
-    /** Cão do mesmo caso: nasce ativo, sob o cliente acima (o dono ajusta raça/foto depois). */
+    /**
+     * Cão do mesmo caso: nasce ativo, sob o cliente acima (o dono ajusta raça/foto depois).
+     *
+     * Procura ANTES de criar, sob o MESMO cliente e pelo nome NORMALIZADO comparado aqui em JS (o
+     * `ilike` do Postgres não enxerga acento: "Filó" não casa "filo"). Sem essa busca, cada toque em
+     * "Sync now" criava outro cão com o mesmo nome — foi o que a org do cliente mostrou: **2 cães
+     * "dog pietro"** (dois toques no Sync) para um cliente só, ambos sem reserva.
+     *
+     * Nome igual sob OUTRO cliente é outro cão (homônimo de outro tutor), de propósito.
+     */
     createDog: async ({ clientId, name }) => {
+      const nome = name.trim();
+      const chave = chaveDoCao(clientId, nome);
+      const daRodada = caesDaRodada.get(chave);
+      if (daRodada) return { dogId: daRodada, criadoAgora: false };
+
+      const { data: existentes, error: buscaError } = await client
+        .from('dogs')
+        .select('id, name')
+        .eq('organization_id', organizationId)
+        .eq('client_id', clientId);
+      if (buscaError) throw new Error(buscaError.message);
+      const alvo = normalizar(nome);
+      const achado = ((existentes as { id: string; name: string }[] | null) ?? []).find((cao) => normalizar(cao.name) === alvo);
+      if (achado) {
+        caesDaRodada.set(chave, achado.id);
+        return { dogId: achado.id, criadoAgora: false };
+      }
+
       const { data, error } = await client
         .from('dogs')
-        .insert({ organization_id: organizationId, client_id: clientId, name: name.trim(), active: true })
+        .insert({ organization_id: organizationId, client_id: clientId, name: nome, active: true })
         .select('id')
         .single();
       if (error) throw new Error(error.message);
       const criado = (data as { id: string } | null)?.id;
       if (!criado) throw new Error('dogs: insert sem id');
-      return { dogId: criado };
+      caesDaRodada.set(chave, criado);
+      return { dogId: criado, criadoAgora: true };
     },
 
     createBooking: async ({ eventId, dogId, kind, parsed }) => {
@@ -216,6 +256,29 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
       const valores = kind === 'recurring' ? { active: false } : { status: 'cancelled' };
       const { error } = await client.from(tabela).update(valores).eq('id', bookingId);
       if (error) throw new Error(error.message);
+    },
+
+    /**
+     * Tira do cadastro o cão que ESTA rodada criou e cuja reserva não nasceu.
+     *
+     * Quem chama é o executor, e só quando a porta confirmou que criou o cão agora (`criadoAgora`) —
+     * cão que já existia tem histórico e nunca é apagado por causa de uma falha de reserva.
+     */
+    removeDog: async ({ dogId }) => {
+      const { error } = await client.from('dogs').delete().eq('id', dogId).eq('organization_id', organizationId);
+      if (error) throw new Error(error.message);
+    },
+
+    /**
+     * Cliente da rodada que ficou SEM cão nenhum: o banco é a prova (conta os cães do cliente antes de
+     * apagar), não o livro-caixa do executor — assim um cliente que já tinha cão nunca sai por engano.
+     */
+    removeClientIfEmpty: async ({ clientId }) => {
+      const { data, error } = await client.from('dogs').select('id').eq('client_id', clientId).limit(1);
+      if (error) throw new Error(error.message);
+      if (((data as { id: string }[] | null) ?? []).length > 0) return;
+      const { error: erroDoCliente } = await client.from('clients').delete().eq('id', clientId).eq('organization_id', organizationId);
+      if (erroDoCliente) throw new Error(erroDoCliente.message);
     },
   };
 }

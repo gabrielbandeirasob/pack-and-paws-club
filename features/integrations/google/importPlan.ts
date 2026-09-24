@@ -26,6 +26,10 @@
  *     de hoje), e nenhum evento/data anterior a `window.from` e criado, alterado ou cancelado.
  *  7. Evento igual a uma reserva que ja existe no app nao duplica: vai para revisao para o gestor
  *     ligar o evento a reserva existente.
+ *  8. FIM DO EVENTO: esta camada recebe o fim EXCLUSIVO (o `parseEvent` do `calendarApi` normaliza o
+ *     evento COM HORA para esse formato) e devolve o fim INCLUSIVO que a reserva guarda — e ele
+ *     NUNCA pode ser anterior ao comeco (`fimNaoAntesDoInicio`): o banco recusa `end_date < start_date`
+ *     e derruba o insert inteiro (era o defeito de producao de 24/09/2026).
  */
 import { addDaysISO } from '@/features/calendar/dates';
 import type { RemoteEvent } from './calendarSync';
@@ -214,6 +218,22 @@ function parseDedicatedCalendarTitle(title: string): { dogName: string; clientNa
   return comDoisNomes({ dogName: resto, clientName });
 }
 
+/**
+ * GARANTIA DURA: `end_date` nunca pode ser anterior a `start_date`.
+ *
+ * O banco tem `check (end_date >= start_date)` (migração 202609090002, linha 19) e um insert que
+ * viole isso é recusado INTEIRO — foi assim que o gestor viu "1 item(s) from Google could not be
+ * saved" em produção (24/09/2026): o evento com hora virava `start_date = 25/09`, `end_date = 24/09`.
+ * Nenhum caminho desta camada pode produzir esse par, nem com evento malformado: fim vazio (o evento
+ * sem `end` nenhum vira "NaN-NaN-NaN" e compara MAIOR que qualquer data ISO), fim antes do começo,
+ * `UNTIL` anterior ao início. No pior caso o fim é o começo.
+ * Comparação de texto serve — `YYYY-MM-DD` ordena igual a data.
+ */
+export function fimNaoAntesDoInicio(startDate: string, endDate: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) return startDate;
+  return endDate < startDate ? startDate : endDate;
+}
+
 /** Le a recorrencia (RRULE + EXDATE) de volta para o modelo do app. */
 export function parseRecurrence(
   recurrence: string[] | null | undefined,
@@ -232,8 +252,10 @@ export function parseRecurrence(
 
   const rrule = blocos.find((bloco) => bloco.startsWith('RRULE'));
   if (!rrule) {
-    // Evento de um dia só: o Google manda o fim exclusivo (dia seguinte).
-    return { weekdays: [], endDate: addDaysISO(endDateExclusive, -1), skipDates, openEnded: false };
+    // Evento de um dia só: `endDateExclusive` é o primeiro dia FORA do evento (é o formato do Google
+    // e o que `fimExclusivoDoEvento`, em `calendarApi`, garante também para evento COM HORA), então o
+    // fim INCLUSIVO que o app guarda é o dia anterior.
+    return { weekdays: [], endDate: fimNaoAntesDoInicio(startDate, addDaysISO(endDateExclusive, -1)), skipDates, openEnded: false };
   }
 
   const byday = /BYDAY=([^;]+)/.exec(rrule)?.[1];
@@ -245,7 +267,9 @@ export function parseRecurrence(
 
   const until = /UNTIL=(\d{8})/.exec(rrule)?.[1];
   const openEnded = !until;
-  const endDate = until ? `${until.slice(0, 4)}-${until.slice(4, 6)}-${until.slice(6, 8)}` : startDate;
+  // `UNTIL` é INCLUSIVO no RRULE: a data dele é o último dia da série (não recua, diferente do fim
+  // do evento avulso). Série sem UNTIL termina onde começa — o fim real é "aberto" (`openEnded`).
+  const endDate = fimNaoAntesDoInicio(startDate, until ? `${until.slice(0, 4)}-${until.slice(4, 6)}-${until.slice(6, 8)}` : startDate);
 
   return { weekdays, endDate, skipDates, openEnded };
 }
@@ -522,4 +546,41 @@ export function describeImport(resumo: { created: number; updated: number; cance
   if (resumo.cancelled) partes.push(`${resumo.cancelled} cancelled`);
   if (resumo.review) partes.push(`${resumo.review} to review`);
   return partes.length ? partes.join(' · ') : '';
+}
+
+/** Falha de um item da importação: o evento (ou a reserva) e a mensagem que veio do banco. */
+export type ImportFailure = { eventId?: string; reservationId?: string; error: string };
+
+/**
+ * Motivos conhecidos, na língua da tela.
+ *
+ * O erro cru do Postgres não serve para o suporte: `new row for relation "reservations" violates check
+ * constraint "reservations_check"` não diz o que aconteceu nem onde olhar. O caso que apareceu em
+ * produção (24/09/2026) é justamente o `check (end_date >= start_date)` da migração 202609090002.
+ */
+const MOTIVOS_CONHECIDOS: { padrao: RegExp; texto: string }[] = [
+  { padrao: /check constraint "(public\.)?reservations_check"/i, texto: 'end_date before start_date' },
+  { padrao: /check constraint "(public\.)?reservations_(service_type|status)_check"/i, texto: 'reservation with an invalid value' },
+  { padrao: /duplicate key value.*reservations/i, texto: 'this event already has a reservation' },
+];
+
+/** Motivo curto e legível de uma falha (usado na tela; erro cru cortado para não estourar o layout). */
+export function motivoDaFalha(error: string): string {
+  const texto = (error ?? '').trim();
+  for (const { padrao, texto: legivel } of MOTIVOS_CONHECIDOS) {
+    if (padrao.test(texto)) return legivel;
+  }
+  return texto.length > 140 ? `${texto.slice(0, 137)}...` : texto;
+}
+
+/**
+ * Erro da importação para a tela: quantos itens falharam E o motivo da PRIMEIRA falha.
+ *
+ * Pedido do dono (24/09/2026): a tela mostrava só "1 item(s) from Google could not be saved" e nem o
+ * gestor nem o suporte sabiam se era rede, permissão ou uma data inválida — o motivo da primeira
+ * falha é o que aponta o caminho (e é o que torna o defeito reproduzível pelo relato de tela).
+ */
+export function describeImportFailure(failures: ImportFailure[]): string {
+  if (failures.length === 0) return '';
+  return `${failures.length} item(s) from Google could not be saved. First: ${motivoDaFalha(failures[0].error)}`;
 }
