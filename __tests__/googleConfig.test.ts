@@ -51,8 +51,15 @@ describe('estado da configuracao do Google no app', () => {
     expect(config.isCalendarConfigured()).toBe(false);
   });
 
-  it('pede apenas o escopo de eventos do calendario', () => {
-    expect(loadConfig(null).CALENDAR_SCOPES).toEqual(['https://www.googleapis.com/auth/calendar.events']);
-    expect(CALENDAR_SCOPES).toEqual(['https://www.googleapis.com/auth/calendar.events']);
+  it('pede eventos E a lista de calendarios (o seletor precisa dela)', () => {
+    // `calendar.calendarlist.readonly` entrou em 24/09/2026 com o seletor de calendário: a API
+    // `users/me/calendarList` recusa `calendar.events` com HTTP 403 (insufficient scopes), e sem
+    // listar calendários o gestor não escolhe o "bot venda" — onde os agendamentos estão.
+    const esperado = [
+      'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+    ];
+    expect(loadConfig(null).CALENDAR_SCOPES).toEqual(esperado);
+    expect(CALENDAR_SCOPES).toEqual(esperado);
   });
 });

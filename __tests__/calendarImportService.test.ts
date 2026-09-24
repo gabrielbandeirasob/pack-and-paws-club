@@ -276,4 +276,28 @@ describe('runCalendarImport', () => {
     ]);
     expect(hasImportChanges(resumo)).toBe(true);
   });
+
+  it('a importação lê o calendário escolhido pela organização (o "bot venda")', async () => {
+    const urls: string[] = [];
+    const doFetch: CalendarFetch = async (url) => {
+      urls.push(url);
+      return resposta([{ id: 'e-bot', summary: 'Dog Pietro', start: { date: '2026-10-05' }, end: { date: '2026-10-06' } }]);
+    };
+    const resumo = await runCalendarImport({
+      accessToken: 'tok',
+      range: JANELA,
+      window: DESDE_HOJE,
+      dogs: [],
+      reservations: [],
+      doFetch,
+      ports: portas([]),
+      calendarId: 'bot-venda@group.calendar.google.com',
+    });
+
+    // Sem o calendário escolhido, o app lia só o `primary` da conta e nenhum agendamento do
+    // escritório aparecia — era exatamente o sintoma do print do cliente.
+    expect(urls[0]).toContain('/calendars/bot-venda%40group.calendar.google.com/events');
+    expect(urls[0]).not.toContain('/calendars/primary/');
+    expect(resumo.created).toBe(1);
+  });
 });
