@@ -210,8 +210,8 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
             Connected{email ? ` as ${email}` : ''} — bookings travel both ways now.
           </Text>
           <Text style={styles.hint}>
-            {paraEspelhar.length} booking(s) mirrored to Google, and anything you type in the calendar comes back
-            here: write the service and the dog&apos;s name (e.g. &quot;Boarding · Bella&quot; or just &quot;Bella&quot;).
+            {paraEspelhar.length} booking(s) mirrored to Google. This is a business-only calendar, so every event
+            comes back here. Use the dog&apos;s name as the title (e.g. &quot;Bella&quot;); unmatched titles wait for review.
           </Text>
 
           <View style={styles.row}>

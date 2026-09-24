@@ -27,7 +27,7 @@ describe('runCalendarImport', () => {
         { id: 'e-cliente', summary: 'Boarding · Bella', start: { date: '2026-10-05' }, end: { date: '2026-10-09' } },
         // evento do espelho do app (não se importa)
         { id: 'e-nosso', summary: 'Daycare · Bella', start: { date: '2026-10-01' }, end: { date: '2026-10-02' }, extendedProperties: { private: { appKey: 'res:1', packpawsMirror: 'v1' } } },
-        // evento pessoal
+        // qualquer evento do calendário dedicado deve entrar (irá para revisão se o cão não casar)
         { id: 'e-dentista', summary: 'Dentist 3pm', start: { date: '2026-10-02' }, end: { date: '2026-10-03' } },
       ]);
     };
@@ -51,7 +51,14 @@ describe('runCalendarImport', () => {
     expect(urls[0]).toContain('/calendars/primary/events');
     expect(urls[0]).not.toContain('privateExtendedProperty');
     expect(resumo).toMatchObject({ created: 1, updated: 0, cancelled: 0 });
-    expect(resumo.review).toEqual([]);
+    expect(resumo.review).toEqual([
+      expect.objectContaining({
+        eventId: 'e-dentista',
+        title: 'Dentist 3pm',
+        reason: 'unknown dog',
+        parsed: expect.objectContaining({ dogName: 'Dentist 3pm', serviceType: 'daycare' }),
+      }),
+    ]);
     expect(criadas).toEqual([
       {
         eventId: 'e-cliente',

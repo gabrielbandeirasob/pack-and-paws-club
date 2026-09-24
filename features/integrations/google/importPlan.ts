@@ -9,8 +9,8 @@
  *
  * Regras desta camada (tudo puro, coberto por teste):
  *  1. Evento COM a marca do app (`appKey`) e o nosso espelho: nao se importa (evita ping-pong).
- *  2. Evento do calendario pessoal (dentista, almoco) nao e reserva: so entra o que tem palavra de
- *     servico no titulo (daycare/boarding/creche/hospedagem). Sem isso a lista de revisao vira lixo.
+ *  2. O calendario conectado e exclusivo do negocio: todo evento entra. Palavra de servico define
+ *     daycare/boarding; sem ela o evento assume daycare e o titulo inteiro e tratado como nome do cao.
  *  3. Nome do cao tem de casar com UM cao do cadastro. Zero ou dois = vai para REVISAO (o app nao
  *     cria cadastro fantasma por causa de um titulo mal escrito).
  *  4. Reserva que nasceu no Google: se o evento mudar, a reserva muda; se o evento sumir, a reserva
@@ -55,7 +55,7 @@ function normalizar(valor: string): string {
     .trim();
 }
 
-/** Tem palavra de servico no titulo? Só isso entra na importação. */
+/** Tem palavra de servico no titulo? Usado para interpretar o tipo, não para filtrar eventos. */
 export function looksLikeBooking(title: string): boolean {
   return SERVICE_PATTERNS.some(({ padrao }) => padrao.test(title));
 }
@@ -127,6 +127,23 @@ export function parseBookingTitle(title: string): { serviceType: BookingServiceT
   return { serviceType, dogName, clientName };
 }
 
+/**
+ * Fallback do calendário dedicado: sem palavra-chave, o título é o nome do cão.
+ * Mantém o tutor opcional entre parênteses para desempatar cães com nomes iguais.
+ */
+function parseDedicatedCalendarTitle(title: string): { dogName: string; clientName: string | null } | null {
+  let resto = limpar(title);
+  if (!resto) return null;
+  let clientName: string | null = null;
+  const parenteses = resto.match(/^(.*?)[\s]*\(([^)]+)\)\s*$/);
+  if (parenteses) {
+    resto = limpar(parenteses[1] ?? '');
+    clientName = limpar(parenteses[2] ?? '') || null;
+  }
+  if (!resto) return null;
+  return { dogName: resto, clientName };
+}
+
 /** Le a recorrencia (RRULE + EXDATE) de volta para o modelo do app. */
 export function parseRecurrence(
   recurrence: string[] | null | undefined,
@@ -163,12 +180,12 @@ export function parseRecurrence(
   return { weekdays, endDate, skipDates, openEnded };
 }
 
-/** Evento do Google -> reserva (ou null quando não parece reserva). */
+/** Evento do Google -> reserva; só um evento sem título legível retorna null. */
 export function parseBookingEvent(event: RemoteEvent): ParsedBooking | null {
-  // Duas portas de entrada: (1) título com palavra de serviço (`Daycare · Bella`); (2) título de
-  // operação (`Pick filó`, `Drop Bella`) — o escritório escreve assim e essa data tem de entrar.
+  // Calendário dedicado: formato do app, operação do escritório ou título livre (normalmente só o
+  // nome do cão). Não existe mais filtro por palavra-chave — decisão do dono em 24/09/2026.
   const titulo = parseBookingTitle(event.summary);
-  const lido = titulo ?? parseTransportTitle(event.summary);
+  const lido = titulo ?? parseTransportTitle(event.summary) ?? parseDedicatedCalendarTitle(event.summary);
   if (!lido) return null;
   const recorrencia = parseRecurrence(event.recurrence, event.startDate, event.endDate);
   return {
@@ -272,27 +289,23 @@ export function planCalendarImport(
     if (evento.appKey) continue;
 
     const parsed = parseBookingEvent(evento);
-    // 2. Evento do calendário pessoal (sem palavra de serviço): ignorado de propósito.
+    // 2. Até evento sem título precisa aparecer para revisão; o calendário é exclusivo do negócio.
     if (!parsed) {
-      if (looksLikeBooking(evento.summary)) {
-        resultados.push({
-          kind: 'review',
-          eventId: evento.id,
-          title: evento.summary,
-          date: evento.startDate,
-          parsed: {
-            serviceType: serviceOf(evento.summary) ?? 'daycare',
-            dogName: evento.summary,
-            clientName: null,
-            startDate: evento.startDate,
-            endDate: evento.endDate,
-            weekdays: [],
-            skipDates: [],
-            openEnded: false,
-          },
-          reason: 'unreadable',
-        });
-      }
+      const recorrencia = parseRecurrence(evento.recurrence, evento.startDate, evento.endDate);
+      resultados.push({
+        kind: 'review',
+        eventId: evento.id,
+        title: evento.summary,
+        date: evento.startDate,
+        parsed: {
+          serviceType: serviceOf(evento.summary) ?? 'daycare',
+          dogName: evento.summary.trim() || '(no title)',
+          clientName: null,
+          startDate: evento.startDate,
+          ...recorrencia,
+        },
+        reason: 'unreadable',
+      });
       continue;
     }
 

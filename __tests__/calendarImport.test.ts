@@ -4,7 +4,7 @@
  *
  * O que estes testes travam (é onde mora o risco):
  *  - o formato do titulo que o proprio app escreve tem de VOLTAR igual (round-trip);
- *  - evento pessoal do calendario (dentista) nao pode virar reserva;
+ *  - todo evento do calendario dedicado entra, mesmo sem palavra de servico/operacao;
  *  - nome de cao desconhecido/ambíguo NAO cria cadastro: vai para revisao;
  *  - reserva que nasceu no Google muda quando o evento muda e e cancelada quando o evento some —
  *    mas so dentro da janela consultada;
@@ -35,7 +35,7 @@ describe('leitura do titulo', () => {
     expect(parseBookingTitle('creche: Mowgli')).toEqual({ serviceType: 'daycare', dogName: 'Mowgli', clientName: null });
   });
 
-  it('ignora evento que não é reserva (calendário pessoal)', () => {
+  it('mantém o parser de formato estrito separado do fallback do calendário dedicado', () => {
     expect(looksLikeBooking('Dentist 3pm')).toBe(false);
     expect(looksLikeBooking('Almoço com o Carlos')).toBe(false);
     expect(parseBookingTitle('Dentist 3pm')).toBeNull();
@@ -52,7 +52,8 @@ describe('leitura do titulo', () => {
  *
  * Antes: sem palavra de serviço no título, o evento era descartado como compromisso pessoal — o dono
  * sincronizou e o app não trouxe a data. Agora título de operação (pick/drop/van) entra, com o cão
- * lido do resto do título. O que continua de fora: dentista, almoço, aniversário.
+ * lido do resto do título. Como o calendário é exclusivo do serviço, qualquer outro título também
+ * entra: se não casar com um cão, vai para revisão.
  */
 describe('título de operação (Pick/Drop) — o caso do print', () => {
   it('le "Pick filó" e cria a reserva do dia (evento com hora, não de dia inteiro)', () => {
@@ -68,11 +69,17 @@ describe('título de operação (Pick/Drop) — o caso do print', () => {
     expect(parseTransportTitle('Van: Thor')).toEqual({ dogName: 'Thor', clientName: null });
   });
 
-  it('não confunde compromisso pessoal com operação', () => {
+  it('importa qualquer título do calendário dedicado, mesmo sem palavra-chave', () => {
     expect(looksLikeTransport('Dentist 3pm')).toBe(false);
     expect(looksLikeTransport('Almoço com o Carlos')).toBe(false);
-    expect(parseBookingEvent(evento({ id: 'ev-dentista', summary: 'Dentist 3pm' }))).toBeNull();
-    expect(parseBookingEvent(evento({ id: 'ev-almoco', summary: 'Almoço com o Carlos' }))).toBeNull();
+    expect(parseBookingEvent(evento({ id: 'ev-bella', summary: 'Bella' }))).toMatchObject({
+      serviceType: 'daycare',
+      dogName: 'Bella',
+    });
+    expect(parseBookingEvent(evento({ id: 'ev-sem-palavra', summary: 'Filó banho' }))).toMatchObject({
+      serviceType: 'daycare',
+      dogName: 'Filó banho',
+    });
   });
 
   it('o "Pick filó" entra no plano como reserva do cão Filó', () => {
@@ -182,9 +189,21 @@ describe('plano da importação', () => {
     expect(plano).toEqual([]);
   });
 
-  it('ignora evento que não é reserva (dentista)', () => {
+  it('manda qualquer título sem cão correspondente para revisão', () => {
     const plano = planCalendarImport([evento({ id: 'e-dent', summary: 'Dentist 3pm' })], dogs, [], JANELA);
-    expect(plano).toEqual([]);
+    expect(plano).toEqual([
+      expect.objectContaining({ kind: 'review', eventId: 'e-dent', reason: 'unknown dog' }),
+    ]);
+  });
+
+  it('cria reserva com título contendo somente o nome do cão', () => {
+    const plano = planCalendarImport([evento({ id: 'e-bella', summary: 'Bella' })], dogs, [], JANELA);
+    expect(plano[0]).toMatchObject({ kind: 'create', eventId: 'e-bella', dogId: 'dog-bella' });
+  });
+
+  it('evento sem título também aparece para revisão em vez de sumir', () => {
+    const plano = planCalendarImport([evento({ id: 'e-sem-titulo', summary: '' })], dogs, [], JANELA);
+    expect(plano[0]).toMatchObject({ kind: 'review', eventId: 'e-sem-titulo', reason: 'unreadable' });
   });
 
   it('manda para revisão quando o cão é desconhecido (não cria cadastro fantasma)', () => {
