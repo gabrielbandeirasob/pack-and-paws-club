@@ -50,11 +50,11 @@ describe('PEDIDO DO DONO: Sync traz TODOS os agendamentos e cadastra o que falta
     expect(plano).toHaveLength(1);
     const item = plano[0];
     expect(item.kind).toBe('create');
-    if (item.kind !== 'create') throw new Error('esperava create');
-    expect(item.dogId).toBeNull();
-    expect(item.newDog?.name).toBe('Bella');
+    // `dogId: null` é o que discrimina "criar cão novo" da variante com cão existente.
+    if (item.kind !== 'create' || item.dogId !== null) throw new Error('esperava create com cadastro novo');
+    expect(item.newDog.name).toBe('Bella');
     // Sem tutor no título, o cliente nasce com o MESMO nome (placeholder para o gestor renomear).
-    expect(item.newDog?.clientName).toBe('Bella');
+    expect(item.newDog.clientName).toBe('Bella');
     expect(item.parsed.startDate).toBe('2026-09-30');
   });
 
@@ -67,16 +67,15 @@ describe('PEDIDO DO DONO: Sync traz TODOS os agendamentos e cadastra o que falta
     if (item.kind !== 'create') throw new Error('esperava create');
     // casa com o cão que já existe -> usa o id, não cria cadastro novo
     expect(item.dogId).toBe('dog-kona');
-    expect(item.newDog).toBeUndefined();
+    expect('newDog' in item).toBe(false);
   });
 
   it('título vazio NÃO cria cadastro sem nome (não pode nascer cliente/cão em branco)', () => {
     const plano = planCalendarImport([evento('ev-vazio', '   ', '2026-09-30')], SEM_CAES, SEM_RESERVAS, JANELA);
 
     for (const item of plano) {
-      if (item.kind === 'create') {
-        expect(item.newDog?.name?.trim()).toBeTruthy();
-        expect((item.parsed.dogName ?? '').trim()).not.toBe('');
+      if (item.kind === 'create' && 'newDog' in item) {
+        expect(item.newDog.name.trim()).toBeTruthy();
       }
     }
     expect(plano.filter((i) => i.kind === 'create')).toHaveLength(0);
