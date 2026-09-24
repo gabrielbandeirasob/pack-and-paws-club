@@ -18,9 +18,8 @@
  *    por calendário). O evento passa a ter `eventLabelId` e a cor vem do **hex** da etiqueta, então a
  *    classificação é por **TOM (matiz)**: verde = boarding, AZUL e a **FAMÍLIA ROXA** (lavanda, uva) =
  *    daycare, vermelho = cancelar — decisão do dono (24/09/2026): *"Lavanda/Uva conta como azul ->
- *    caso do "Cobalto" (#4A86E8) que o escritório pintou e o app não reconhecia: ele chegava sem
- *    `colorId`, e o app ainda não interpretava `eventLabelId` + etiquetas do calendário.
- *    `calendarApi`).
+ *    daycare"*. É o caso do "Cobalto" (#4A86E8) que o escritório pintou e o app não reconhecia: ele
+ *    chegava sem `colorId`, e o app ainda não interpretava `eventLabelId` + etiquetas do calendário.
  *
  * A ETIQUETA MANDA quando o evento tem uma (`eventLabelId`): um evento pintado na paleta nova não
  * traz `colorId` nenhum. O mapa antigo continua valendo como **fallback** (evento sem etiqueta, ou
@@ -35,17 +34,25 @@
 export type BookingServiceType = 'daycare' | 'boarding';
 
 /** O que a cor do evento significa. `null` (sem cor / cor não mapeada) = não se importa. */
-export type ColorMeaning = { kind: 'service'; serviceType: BookingServiceType } | { kind: 'cancel' };
+export type ColorMeaning =
+  | { kind: 'service'; serviceType: BookingServiceType }
+  /** Evento pintado de ROXO: alteração de cliente de dia fixo (dia extra/alterado da escala). */
+  | { kind: 'schedule_change' }
+  | { kind: 'cancel' };
 
 /**
- * Ids da paleta do Google que o app reconhece. Verde = boarding, azul **e roxo** = daycare, vermelho
- * = cancelar. Os ids `1` (Lavender — lavanda, azul-claro) e `3` (Grape — "uva", roxo) entram em
- * daycare pela decisão do dono de 24/09/2026 ("Lavanda/Uva conta como azul -> daycare") — a MESMA
- * regra que a classificação por TOM aplica às etiquetas da paleta nova.
+ * Ids da paleta do Google que o app reconhece. Verde = boarding, azul = daycare, **roxo = alteração de
+ * dia (cliente de dia fixo)**, vermelho = cancelar.
+ *
+ * Os ids `1` (Lavender — lavanda, azul-claro, tom ≈ 223°) e `7`/`9` (azuis) ficam em daycare; o id `3`
+ * (Grape — "uva", roxo, tom ≈ 288°) entrou em `schedule_change` na decisão do dono de 24/09/2026:
+ * *"Roxo - Alteração de cliente dia fixo / cliente fora de ordem, para não ficar serviço solto"* — o
+ * mesmo corte de tom (265°) que a classificação por etiqueta usa.
  */
 export const GOOGLE_COLOR_IDS = {
   boarding: ['2', '10'],
-  daycare: ['1', '3', '7', '9'],
+  daycare: ['1', '7', '9'],
+  schedule_change: ['3'],
   cancel: ['11'],
 } as const;
 
@@ -91,6 +98,7 @@ export function meaningOfColor(colorId?: string | null): ColorMeaning | null {
   if (!id) return null;
   if (ehDaPaleta(id, GOOGLE_COLOR_IDS.boarding)) return { kind: 'service', serviceType: 'boarding' };
   if (ehDaPaleta(id, GOOGLE_COLOR_IDS.daycare)) return { kind: 'service', serviceType: 'daycare' };
+  if (ehDaPaleta(id, GOOGLE_COLOR_IDS.schedule_change)) return { kind: 'schedule_change' };
   if (ehDaPaleta(id, GOOGLE_COLOR_IDS.cancel)) return { kind: 'cancel' };
   return null;
 }
@@ -115,18 +123,21 @@ export type EventLabel = {
  * Faixas de TOM (matiz em graus, 0..360) aceitas. Documentadas porque são o contrato da
  * classificação por etiqueta:
  *  - VERDE 70..170 (Sage #33b679 ≈ 152, Basil #0b8043 ≈ 149) → boarding;
- *  - AZUL 170..300 (Peacock #039be5 ≈ 200, Blueberry #4986e7 ≈ 217, Cobalto #4A86E8 ≈ 217 e toda a
- *    **FAMÍLIA ROXA**: Lavanda #a4bdfc ≈ 223, Glicínia #b39ddb ≈ 261, Ametista #9e69af ≈ 285,
- *    Uva/Grape #8e24aa ≈ 288) → daycare;
+ *  - AZUL 170..265 (Peacock #039be5 ≈ 200, Blueberry #4986e7 ≈ 217, Cobalto #4A86E8 ≈ 217,
+ *    Lavanda #a4bdfc ≈ 223, Glicínia #b39ddb ≈ 261) → daycare;
+ *  - ROXO 265..300 (Ametista #9e69af ≈ 285, Uva/Grape #8e24aa ≈ 288) → **alteração de dia**
+ *    (`schedule_change`): cliente de dia fixo que mudou o dia / veio fora da ordem — decisão do dono
+ *    (24/09/2026): *"Roxo - Alteração de cliente dia fixo/cliente fora de ordem, para não ficar
+ *    serviço solto"*;
  *  - VERMELHO 340..360 e 0..12 (Tomato #e67c73 ≈ 5) → cancelamento.
- * A família roxa entra em daycare por decisão do dono (24/09/2026): *"Lavanda/Uva conta como azul ->
- * daycare"*. O teto em 300° é de propósito: daí para cima já é rosa/magenta (o magenta puro #ff00ff
- * dá exatamente 300° e fica FORA), que o dono não citou.
+ * O teto em 300° é de propósito: daí para cima já é rosa/magenta (o magenta puro #ff00ff dá exatamente
+ * 300° e fica FORA), que o dono não citou.
  * Fora disso o app NÃO chuta serviço (amarelo, laranja — Tangerine #f4511e ≈ 14 fica de fora —,
  * marrom, rosa/magenta, cinza). O limite do vermelho é estreito de propósito: laranja não cancela.
  */
 export const TOM_VERDE = { de: 70, ate: 170 } as const;
-export const TOM_AZUL = { de: 170, ate: 300 } as const;
+export const TOM_AZUL = { de: 170, ate: 265 } as const;
+export const TOM_ROXO = { de: 265, ate: 300 } as const;
 export const TONS_VERMELHOS = [
   { de: 340, ate: 360 },
   { de: 0, ate: 12 },
@@ -157,12 +168,13 @@ export function hueOfHex(hex?: string | null): number | null {
   return tom < 0 ? tom + 360 : tom;
 }
 
-/** Traduz o HEX de uma etiqueta pelo TOM. `null` = tom fora de verde/azul-roxo/vermelho (não se chuta). */
+/** Traduz o HEX de uma etiqueta pelo TOM. `null` = tom fora de verde/azul/roxo/vermelho (não se chuta). */
 export function meaningOfLabelColor(hex?: string | null): ColorMeaning | null {
   const tom = hueOfHex(hex);
   if (tom === null) return null;
   if (tom >= TOM_VERDE.de && tom < TOM_VERDE.ate) return { kind: 'service', serviceType: 'boarding' };
   if (tom >= TOM_AZUL.de && tom < TOM_AZUL.ate) return { kind: 'service', serviceType: 'daycare' };
+  if (tom >= TOM_ROXO.de && tom < TOM_ROXO.ate) return { kind: 'schedule_change' };
   if (TONS_VERMELHOS.some((faixa) => tom >= faixa.de && tom < faixa.ate)) return { kind: 'cancel' };
   return null;
 }

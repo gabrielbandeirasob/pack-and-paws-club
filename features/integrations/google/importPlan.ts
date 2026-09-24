@@ -263,7 +263,14 @@ export type BookingForImport = {
 
 export type ImportWindow = { from: string; to: string };
 
-export type ReviewReason = 'unknown dog' | 'ambiguous dog' | 'unreadable' | 'duplicate' | 'unrecognized color';
+export type ReviewReason =
+  | 'unknown dog'
+  | 'ambiguous dog'
+  | 'unreadable'
+  | 'duplicate'
+  | 'unrecognized color'
+  /** Evento ROXO (alteração de dia) num cão que NÃO tem escala fixa ativa — não há onde encaixar. */
+  | 'purple without schedule';
 
 export type ImportOutcome =
   | { kind: 'create'; eventId: string; dogId: string; parsed: ParsedBooking }
@@ -271,6 +278,13 @@ export type ImportOutcome =
   | { kind: 'cancel'; eventId: string; bookingKind: ExistingBookingKind; bookingId: string }
   /** Dia de uma série pulado (evento vermelho sobre uma escala: não se desativa a série inteira). */
   | { kind: 'skip'; eventId: string; scheduleId: string; date: string }
+  /**
+   * Evento ROXO = alteração de cliente de dia fixo: o dia entra na ESCALA daquele cão como dia extra
+   * (`recurring_exceptions.action = 'extra'`), e não como reserva avulsa. `looseBookingId` traz uma
+   * reserva solta que já existia para esse evento (evento que tinha sido pintado de azul) — ela é
+   * cancelada junto, para o serviço não ficar em dobro.
+   */
+  | { kind: 'extraDay'; eventId: string; dogId: string; scheduleId: string; date: string; looseBookingId: string | null }
   | { kind: 'review'; eventId: string; title: string; date: string; parsed: ParsedBooking; reason: ReviewReason };
 
 function mesmosDias(a?: number[] | null, b?: number[] | null): boolean {
@@ -459,6 +473,41 @@ export function planCalendarImport(
       continue;
     }
 
+    // 6.1 Evento ROXO = alteração de cliente de DIA FIXO (dia extra/alterado, cliente fora da ordem).
+    //     O dia entra na ESCALA daquele cão como dia extra — não vira reserva avulsa: é literalmente o
+    //     "não ficar serviço solto" do dono (24/09/2026). Sem escala ativa não há onde encaixar, e o
+    //     app não inventa escala: vai para a lista de revisão do cartão.
+    if (cor.kind === 'schedule_change') {
+      vistos.add(evento.id);
+      const dogId = dogDoTitulo ?? ligada?.dogId ?? null;
+      const escala =
+        ligada?.kind === 'recurring' && ligada.status === 'active'
+          ? ligada
+          : dogId
+            ? (reservations.find((item) => item.kind === 'recurring' && item.dogId === dogId && item.status === 'active') ?? null)
+            : null;
+      if (!escala) {
+        resultados.push({
+          kind: 'review',
+          eventId: evento.id,
+          title: evento.summary,
+          date: evento.startDate,
+          parsed,
+          reason: dogId ? 'purple without schedule' : candidatos.length > 1 ? 'ambiguous dog' : 'unknown dog',
+        });
+        continue;
+      }
+      resultados.push({
+        kind: 'extraDay',
+        eventId: evento.id,
+        dogId: escala.dogId,
+        scheduleId: escala.id,
+        date: evento.startDate,
+        looseBookingId: ligada?.kind === 'reservation' ? ligada.id : null,
+      });
+      continue;
+    }
+
     if (ligada) {
       vistos.add(evento.id);
       const dogId = dogDoTitulo ?? ligada.dogId;
@@ -520,10 +569,11 @@ export function planCalendarImport(
 }
 
 /** Resumo curto para a tela (mesmo tom do resumo do espelho e no idioma da interface: inglês). */
-export function describeImport(resumo: { created: number; updated: number; cancelled: number; review: number }): string {
+export function describeImport(resumo: { created: number; updated: number; cancelled: number; extraDays?: number; review: number }): string {
   const partes: string[] = [];
   if (resumo.created) partes.push(`${resumo.created} from Google`);
   if (resumo.updated) partes.push(`${resumo.updated} updated`);
+  if (resumo.extraDays) partes.push(`${resumo.extraDays} linked to a recurring schedule`);
   if (resumo.cancelled) partes.push(`${resumo.cancelled} cancelled`);
   if (resumo.review) partes.push(`${resumo.review} to review`);
   return partes.length ? partes.join(' · ') : '';
