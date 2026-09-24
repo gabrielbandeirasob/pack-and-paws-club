@@ -57,8 +57,7 @@ export type RemoteEvent = {
   colorId?: string | null;
   /**
    * Etiqueta de cor do evento (`eventLabelId`, paleta NOVA do Google). Um evento pintado com a paleta
-   * nova NÃO traz `colorId` — a cor (e portanto o serviço) sai do TOM do hex da etiqueta. A API só
-   * devolve este campo quando a requisição leva `eventLabelVersion=1` (ver `calendarApi`).
+   * nova NÃO traz `colorId` — a cor (e portanto o serviço) sai do TOM do hex da etiqueta.
    */
   eventLabelId?: string | null;
   recurrence?: string[] | null;
@@ -94,19 +93,19 @@ function sameRecurrence(a?: string[] | null, b?: string[] | null): boolean {
 
 /** Compara o que esta no Google com o que o app quer publicar. */
 export function eventsEqual(desired: GoogleEventInput, remote: RemoteEvent): boolean {
-  // Etiqueta: só é cobrada quando o app QUER uma (`undefined` = "não mexe" — calendário sem etiqueta
-  // do serviço, ou etiquetas que não deram para ler). Assim o espelho adota a etiqueta na primeira
-  // passada sem entrar em briga com quem pinta o evento à mão.
-  const etiquetaOk = desired.eventLabelId === undefined || (desired.eventLabelId ?? null) === (remote.eventLabelId ?? null);
+  // Etiqueta SUPERA colorId na API. Com uma etiqueta desejada, o Google pode devolver colorId nulo:
+  // comparar também o legado causaria PATCH infinito. Sem etiqueta lida pelo app, preservamos uma
+  // etiqueta remota em vez de substituí-la por colorId; se nenhum lado usa etiqueta, vale o legado.
+  const corOk = desired.eventLabelId !== undefined
+    ? (desired.eventLabelId ?? null) === (remote.eventLabelId ?? null)
+    : remote.eventLabelId
+      ? true
+      : (desired.colorId ?? null) === (remote.colorId ?? null);
   return (
     desired.summary === remote.summary &&
     desired.start.date === remote.startDate &&
     desired.end.date === remote.endDate &&
-    // A cor é o contrato do serviço (verde boarding / azul daycare): evento do espelho que ficou sem
-    // cor (ou com a cor do outro serviço) precisa ser atualizado, senão a importação de volta lê o
-    // serviço errado. Evento antigo, criado antes desta regra, cai aqui e ganha a cor no 1º Sync.
-    (desired.colorId ?? null) === (remote.colorId ?? null) &&
-    etiquetaOk &&
+    corOk &&
     sameRecurrence(desired.recurrence, remote.recurrence)
   );
 }

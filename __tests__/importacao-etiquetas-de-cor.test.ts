@@ -3,10 +3,9 @@
  * recurso cru da API do Google -> `parseEvent` -> `planCalendarImport`, com as etiquetas do calendário.
  *
  * O defeito de produção (build 55): o escritório pintou o evento do cão `zara` com o tom "Cobalto"
- * (#4A86E8) — paleta NOVA do Google. A chamada não levava `eventLabelVersion=1`, então a API devolvia
- * o evento **sem `colorId`** e o parser (corretamente) não chutava serviço: o agendamento do cão
- * cadastrado caía em "cor não reconhecida" e não virava reserva. O evento `pietro`, pintado com a
- * paleta ANTIGA, entrou normalmente no mesmo Sync — a cor nova era a única coisa que falhava.
+ * (#4A86E8) — paleta NOVA do Google. O app não carregava o `eventLabelId` e as etiquetas do calendário,
+ * então o parser recebia o evento sem significado de cor: o agendamento do cão cadastrado caía em
+ * "cor não reconhecida". O evento `pietro`, na paleta ANTIGA, entrou no mesmo Sync.
  *
  * Vetores (o que o dono decidiu em 24/09 e continua valendo com etiqueta):
  *  - etiqueta VERDE -> boarding;
@@ -39,7 +38,7 @@ const ETIQUETAS: EventLabel[] = [
 
 const ZARA: DogForImport = { id: 'dog-zara', name: 'Zara', clientName: 'Zara kot' };
 
-/** Evento como a API devolve quando a chamada leva `eventLabelVersion=1` (dia inteiro). */
+/** Evento como events.list devolve na paleta nova (dia inteiro). */
 function recurso(eventNo: number, summary: string, extra: Record<string, unknown> = {}) {
   return {
     id: `ev-${eventNo}`,

@@ -18,8 +18,8 @@
  *    por calendário). O evento passa a ter `eventLabelId` e a cor vem do **hex** da etiqueta, então a
  *    classificação é por **TOM (matiz)**: verde = boarding, AZUL e a **FAMÍLIA ROXA** (lavanda, uva) =
  *    daycare, vermelho = cancelar — decisão do dono (24/09/2026): *"Lavanda/Uva conta como azul ->
- *    daycare"*. É o caso do "Cobalto" (#4A86E8) que o escritório pintou e o app não reconhecia (o
- *    evento chegava sem `colorId` porque a chamada não levava `eventLabelVersion=1` — ver
+ *    caso do "Cobalto" (#4A86E8) que o escritório pintou e o app não reconhecia: ele chegava sem
+ *    `colorId`, e o app ainda não interpretava `eventLabelId` + etiquetas do calendário.
  *    `calendarApi`).
  *
  * A ETIQUETA MANDA quando o evento tem uma (`eventLabelId`): um evento pintado na paleta nova não

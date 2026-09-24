@@ -431,7 +431,7 @@ describe('runCalendarImport', () => {
    * Aqui é o executor inteiro: a URL pede as etiquetas, a lista do cartão entra e o serviço sai certo
    * na porta que grava no banco.
    */
-  it('serviço vem da ETIQUETA do calendário (azul = daycare) e a URL pede `eventLabelVersion=1`', async () => {
+  it('serviço vem da ETIQUETA do calendário (azul = daycare) sem parâmetro inválido na listagem', async () => {
     const urls: string[] = [];
     const doFetch: CalendarFetch = async (url) => {
       urls.push(url);
@@ -452,7 +452,7 @@ describe('runCalendarImport', () => {
       labels: [{ id: 'lab-azul', name: 'Cobalto', backgroundColor: '#4A86E8' }],
     });
 
-    expect(urls[0]).toContain('eventLabelVersion=1');
+    expect(urls[0]).not.toContain('eventLabelVersion');
     expect(registro).toEqual(['reserva:e-zara:dog-zara:daycare']);
     expect(resumo.review).toEqual([]);
     expect(resumo.created).toBe(1);

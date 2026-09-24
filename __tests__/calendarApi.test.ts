@@ -165,11 +165,11 @@ describe('cliente do Google Calendar', () => {
   });
 
   /**
-   * BUG 56 — `eventLabelVersion=1`: sem este parâmetro a API do Google ignora as etiquetas de cor e,
-   * num evento pintado na paleta nova, o `colorId` legado vem NULO. Era isso que fazia o evento do
-   * cão `zara` (tom "Cobalto") chegar sem cor ao app. Tem que estar na LEITURA e na ESCRITA.
+   * A descoberta oficial da Calendar API (revision 20260826) NÃO aceita `eventLabelVersion` em
+   * events.list/get: o campo `eventLabelId` já faz parte do recurso retornado. O parâmetro existe só
+   * em insert/import/update/patch. Mandá-lo na listagem arrisca HTTP 400 por parâmetro desconhecido.
    */
-  it('a listagem pede as etiquetas (`eventLabelVersion=1`) — sem isso o evento da paleta nova vem sem cor', async () => {
+  it('a listagem NÃO manda o parâmetro de escrita `eventLabelVersion`', async () => {
     const urls: string[] = [];
     const doFetch: CalendarFetch = async (url) => {
       urls.push(url);
@@ -179,7 +179,7 @@ describe('cliente do Google Calendar', () => {
     await listAllEvents('t', range, doFetch);
 
     expect(EVENT_LABEL_VERSION_PARAM).toBe('eventLabelVersion=1');
-    for (const url of urls) expect(url).toContain('eventLabelVersion=1');
+    for (const url of urls) expect(url).not.toContain('eventLabelVersion');
   });
 
   it('as escritas do espelho também levam `eventLabelVersion=1`', async () => {
@@ -194,6 +194,22 @@ describe('cliente do Google Calendar', () => {
 
     expect(chamadas.map((item) => item.method)).toEqual(['POST', 'PATCH']);
     for (const chamada of chamadas) expect(chamada.url).toContain('eventLabelVersion=1');
+  });
+
+  it('fallback legado grava colorId SEM eventLabelVersion, pois versão 1 ignora colorId', async () => {
+    const chamadas: { url: string; body: Record<string, unknown> }[] = [];
+    const doFetch: CalendarFetch = async (url, init) => {
+      chamadas.push({ url, body: JSON.parse(init.body ?? '{}') as Record<string, unknown> });
+      return { ok: true, status: 200, json: async () => ({ id: 'g-legado' }) };
+    };
+    const legado = { summary: 'Daycare · Filó', start: { date: '2026-09-10' }, end: { date: '2026-09-11' }, colorId: '7' };
+    await createEvent('t', legado, doFetch);
+    await updateEvent('t', 'g-legado', legado, doFetch);
+
+    for (const chamada of chamadas) {
+      expect(chamada.url).not.toContain('eventLabelVersion');
+      expect(chamada.body).toMatchObject({ colorId: '7' });
+    }
   });
 
   it('o corpo do evento leva a etiqueta; `null` LIMPA (string vazia) e `undefined` não mexe', () => {

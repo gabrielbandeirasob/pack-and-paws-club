@@ -18,14 +18,13 @@ import { APP_KEY_PROPERTY, MIRROR_MARKER_PROPERTY, MIRROR_MARKER_VALUE, type Rem
 export const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 
 /**
- * `eventLabelVersion=1` — o parâmetro sem o qual a API do Google **ignora as etiquetas de cor**.
+ * `eventLabelVersion=1` — parâmetro das operações de ESCRITA com etiqueta.
  *
  * Bug 56 (produção, build 55): o Google trocou/ampliou o esquema de cor em junho/2026 (24 cores
  * padrão + até 200 personalizadas por calendário, via `labelProperties.eventLabels`; o evento passou
- * a ter `eventLabelId`). Sem este parâmetro a API assume a versão 0 do esquema: **não devolve
- * `eventLabelId`** e, para um evento pintado na paleta nova, o `colorId` legado vem **nulo** — o
- * evento chegava ao parser sem cor nenhuma e caía em "color not recognized" (o "Cobalto" do
- * cliente). Vale para leitura (`events.list`) e para escrita (`insert`/`patch`).
+ * a ter `eventLabelId`). Sem este parâmetro a API assume a versão 0 na ESCRITA e processa `colorId`.
+ * A descoberta oficial da API (revision 20260826) não aceita este parâmetro em `events.list/get`:
+ * nessas leituras `eventLabelId` já faz parte do recurso Event devolvido.
  *
  * Doc: https://developers.google.com/workspace/calendar/api/guides/labels
  */
@@ -40,7 +39,7 @@ type GoogleEventResource = {
   end?: { date?: string; dateTime?: string };
   /** Cor do evento na paleta antiga (1..11) — só aparece em evento pintado antes das etiquetas. */
   colorId?: string;
-  /** Etiqueta de cor do evento (paleta NOVA). Exige `eventLabelVersion=1` na requisição. */
+  /** Etiqueta de cor do evento (paleta NOVA). */
   eventLabelId?: string;
   recurrence?: string[];
   extendedProperties?: { private?: Record<string, string> };
@@ -86,7 +85,7 @@ export function parseEvent(resource: GoogleEventResource): RemoteEvent {
     endDate: fimExclusivoDoEvento(resource.end),
     // A cor acompanha o evento: é ela que diz o serviço na importação (não o título).
     colorId: resource.colorId ?? null,
-    // Paleta NOVA: a etiqueta do evento. Só vem quando a requisição levou `eventLabelVersion=1`.
+    // Paleta NOVA: a etiqueta já faz parte do recurso Event devolvido pela leitura.
     eventLabelId: resource.eventLabelId ?? null,
     recurrence: resource.recurrence ?? null,
   };
@@ -191,7 +190,7 @@ export async function listEvents(
 ): Promise<RemoteEvent[]> {
   const url =
     `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events` +
-    `?singleEvents=false&maxResults=2500&showDeleted=false&${EVENT_LABEL_VERSION_PARAM}` +
+    `?singleEvents=false&maxResults=2500&showDeleted=false` +
     `&timeMin=${encodeURIComponent(range.timeMin)}&timeMax=${encodeURIComponent(range.timeMax)}` +
     // O Google exige `nome=valor` (a chave sozinha devolve HTTP 400): por isso a marca fixa.
     `&privateExtendedProperty=${encodeURIComponent(`${MIRROR_MARKER_PROPERTY}=${MIRROR_MARKER_VALUE}`)}`;
@@ -219,7 +218,7 @@ export async function listAllEvents(
 ): Promise<RemoteEvent[]> {
   const url =
     `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events` +
-    `?singleEvents=false&maxResults=2500&showDeleted=false&${EVENT_LABEL_VERSION_PARAM}` +
+    `?singleEvents=false&maxResults=2500&showDeleted=false` +
     `&timeMin=${encodeURIComponent(range.timeMin)}&timeMax=${encodeURIComponent(range.timeMax)}`;
   const response = await doFetch(url, { method: 'GET', headers: authHeaders(accessToken) });
   const payload = await handle<{ items?: GoogleEventResource[] }>(response, 'listar todos os eventos');
@@ -232,10 +231,11 @@ export async function createEvent(
   doFetch: CalendarFetch,
   calendarId: string = DEFAULT_CALENDAR_ID,
 ): Promise<string> {
-  // `eventLabelVersion=1` também na escrita: sem ele a API ignora o `eventLabelId` que o espelho
-  // manda e o evento sai só com o `colorId` legado.
+  // Versão 1 só quando há etiqueta. Sem etiqueta, omitir é obrigatório para a API processar o
+  // `colorId` legado (com versão 1 o Google ignora colorId).
+  const sufixo = event.eventLabelId !== undefined ? `?${EVENT_LABEL_VERSION_PARAM}` : '';
   const response = await doFetch(
-    `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events?${EVENT_LABEL_VERSION_PARAM}`,
+    `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events${sufixo}`,
     {
       method: 'POST',
       headers: authHeaders(accessToken),
@@ -253,8 +253,9 @@ export async function updateEvent(
   doFetch: CalendarFetch,
   calendarId: string = DEFAULT_CALENDAR_ID,
 ): Promise<void> {
+  const sufixo = event.eventLabelId !== undefined ? `?${EVENT_LABEL_VERSION_PARAM}` : '';
   const response = await doFetch(
-    `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events/${encodeURIComponent(eventId)}?${EVENT_LABEL_VERSION_PARAM}`,
+    `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events/${encodeURIComponent(eventId)}${sufixo}`,
     {
       method: 'PATCH',
       headers: authHeaders(accessToken),

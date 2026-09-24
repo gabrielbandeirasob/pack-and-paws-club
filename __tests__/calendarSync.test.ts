@@ -115,13 +115,14 @@ describe('espelho e as etiquetas de cor do calendário', () => {
     { id: 'lab-amarela', name: 'Amarelo', backgroundColor: '#ffd666' },
   ];
 
-  it('usa a etiqueta do tom do serviço (azul = daycare, verde = boarding) e mantém o colorId', () => {
+  it('usa a etiqueta do tom do serviço (azul = daycare, verde = boarding)', () => {
     const manha = eventFor(daycare, { labels: ETIQUETAS });
     const noite = eventFor(boarding, { labels: ETIQUETAS });
 
     expect(manha.eventLabelId).toBe('lab-azul');
     expect(noite.eventLabelId).toBe('lab-verde');
-    // O `colorId` legado vai junto: é o que um cliente antigo do calendário entende.
+    // O objeto interno também guarda o fallback legado; na API, eventLabelVersion=1 faz a etiqueta
+    // prevalecer e o Google pode devolver `colorId` nulo.
     expect(manha.colorId).toBe('7');
     expect(noite.colorId).toBe('2');
   });
@@ -138,14 +139,19 @@ describe('espelho e as etiquetas de cor do calendário', () => {
   it('o espelho ADOTA a etiqueta no primeiro Sync e depois fica idempotente', () => {
     const remoto = remoteFrom(daycare, { colorId: '7' }); // evento criado antes desta correção
     expect(eventsEqual(eventFor(daycare, { labels: ETIQUETAS }), remoto)).toBe(false);
-    expect(eventsEqual(eventFor(daycare, { labels: ETIQUETAS }), remoteFrom(daycare, { colorId: '7', eventLabelId: 'lab-azul' }))).toBe(true);
+    expect(eventsEqual(eventFor(daycare, { labels: ETIQUETAS }), remoteFrom(daycare, { colorId: null, eventLabelId: 'lab-azul' }))).toBe(true);
   });
 
   it('sem etiqueta a cobrar, o que está no Google não vira atualização por causa da etiqueta', () => {
     // Evento pintado à mão com etiqueta e reserva nossa: `undefined` = "não mexe" (não brigamos com
     // quem pinta o calendário).
-    const remoto = remoteFrom(daycare, { eventLabelId: 'lab-azul' });
+    const remoto = remoteFrom(daycare, { colorId: null, eventLabelId: 'lab-azul' });
     expect(eventsEqual(eventFor(daycare), remoto)).toBe(true);
+  });
+
+  it('etiqueta diferente continua exigindo atualização, mesmo com colorId nulo', () => {
+    const remoto = remoteFrom(daycare, { colorId: null, eventLabelId: 'outra-etiqueta' });
+    expect(eventsEqual(eventFor(daycare, { labels: ETIQUETAS }), remoto)).toBe(false);
   });
 
   it('o plano manda a etiqueta do serviço no evento criado', () => {
