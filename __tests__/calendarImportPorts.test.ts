@@ -1,12 +1,12 @@
 /**
- * Ligação manual de um evento do Google a um cão (quando o título não casou sozinho).
+ * Portas de escrita da importação (o que a roda toca no banco).
  *
- * Regra travada aqui: se JÁ existe a mesma reserva no app, o certo é LIGAR o evento a ela — não
- * criar uma segunda reserva igual na agenda.
- *
- * Desde 24/09/2026 este arquivo também trava o CADASTRO que o Sync faz: `createDog` procura antes de
- * criar (era o cão duplicado a cada toque em "Sync now") e as portas de limpeza desfazem o cadastro
- * da rodada quando a reserva falha depois dele.
+ * Regra travada aqui:
+ *  - se JÁ existe a mesma reserva no app, o certo é LIGAR o evento a ela — não criar uma segunda;
+ *  - `skipRecurringDay` (evento VERMELHO sobre um dia de escala) grava UMA pausa daquele dia, sem
+ *    acumular linha repetida e sem desativar a série;
+ *  - as portas de CADASTRO (`createClient`/`createDog`) e a limpeza da rodada saíram: a regra nova do
+ *    dono (24/09/2026) é não criar cliente nem cão a partir do calendário.
  */
 import { escolhaDaRevisao, supabaseImportPorts } from '@/features/integrations/google/importPorts';
 import type { BookingForImport, ParsedBooking } from '@/features/integrations/google/importPlan';
@@ -52,8 +52,8 @@ function clienteFalso(respostas: Record<string, Resposta> = {}, chamadas: string
 
 const parsed: ParsedBooking = {
   serviceType: 'boarding',
+  cancels: false,
   dogName: 'Luna',
-  clientName: null,
   startDate: '2026-10-05',
   endDate: '2026-10-08',
   weekdays: [],
@@ -88,6 +88,11 @@ describe('escolhaDaRevisao', () => {
     expect(escolhaDaRevisao({ parsed, dogId: 'dog-outro', bookings: [existente] })).toEqual({ criar: true });
   });
 
+  it('reserva de OUTRO serviço não é a mesma reserva (o serviço vem da cor)', () => {
+    const daycare: ParsedBooking = { ...parsed, serviceType: 'daycare' };
+    expect(escolhaDaRevisao({ parsed: daycare, dogId: 'dog-luna', bookings: [existente] })).toEqual({ criar: true });
+  });
+
   it('data diferente não é a mesma reserva', () => {
     const outra = { ...existente, startDate: '2026-10-12', endDate: '2026-10-15' };
     expect(escolhaDaRevisao({ parsed, dogId: 'dog-luna', bookings: [outra] })).toEqual({ criar: true });
@@ -106,83 +111,74 @@ describe('escolhaDaRevisao', () => {
   });
 });
 
-/**
- * O cão duplicado da org do cliente (24/09/2026): 2 cães "dog pietro" para um cliente só, porque o
- * `createDog` inseria sem procurar e o gestor tocou "Sync now" duas vezes.
- */
-describe('createDog procura antes de criar', () => {
-  const consulta = 'dogs:select(id, name):eq(organization_id=org-1):eq(client_id=cli-1)';
+describe('createBooking grava o serviço que veio da COR', () => {
+  const clienteComInsert = (linhas: Record<string, unknown>[]) =>
+    ({
+      from: (tabela: string) => ({
+        insert: (linha: Record<string, unknown>) => {
+          linhas.push({ tabela, ...linha });
+          return { error: null, select: () => ({ single: async () => ({ data: { id: 'criado-1' }, error: null }) }) };
+        },
+      }),
+    }) as never;
 
-  it('reusa o cão do cadastro quando o nome normalizado bate (Filó = filo)', async () => {
-    const chamadas: string[] = [];
-    const client = clienteFalso({ [consulta]: { data: [{ id: 'dog-filo', name: 'Filó' }], error: null } }, chamadas);
-    const ports = supabaseImportPorts(client, 'org-1');
+  it('reserva avulsa entra com service_type da cor e transporte marcado', async () => {
+    const linhas: Record<string, unknown>[] = [];
+    const ports = supabaseImportPorts(clienteComInsert(linhas), 'org-1');
 
-    await expect(ports.createDog({ clientId: 'cli-1', name: 'filo' })).resolves.toEqual({ dogId: 'dog-filo', criadoAgora: false });
-    // O `ilike` do Postgres não enxerga acento (o cão existe como "Filó"), então a conta é feita no
-    // app — e o que importa é que NÃO houve insert.
-    expect(chamadas).toEqual([consulta]);
-    expect(chamadas.some((caminho) => caminho.startsWith('dogs:insert'))).toBe(false);
+    await ports.createBooking({ eventId: 'ev-pietro', dogId: 'dog-pietro', kind: 'reservation', parsed: { ...parsed, serviceType: 'daycare', dogName: 'Pietro', startDate: '2026-09-25', endDate: '2026-09-25' } });
+
+    expect(linhas).toHaveLength(1);
+    expect(linhas[0]).toMatchObject({
+      tabela: 'reservations',
+      organization_id: 'org-1',
+      dog_id: 'dog-pietro',
+      service_type: 'daycare',
+      start_date: '2026-09-25',
+      transport_required: true,
+      google_event_id: 'ev-pietro',
+      source: 'google',
+    });
   });
 
-  it('dois eventos do MESMO cão na mesma rodada criam um cão só', async () => {
-    const chamadas: string[] = [];
-    const client = clienteFalso({ 'dogs:insert': { data: { id: 'dog-novo' }, error: null } }, chamadas);
-    const ports = supabaseImportPorts(client, 'org-1');
+  it('verde (boarding) grava boarding — o mesmo caminho, o serviço é que muda', async () => {
+    const linhas: Record<string, unknown>[] = [];
+    const ports = supabaseImportPorts(clienteComInsert(linhas), 'org-1');
 
-    const primeiro = await ports.createDog({ clientId: 'cli-1', name: 'Kona' });
-    const segundo = await ports.createDog({ clientId: 'cli-1', name: 'KONA ' });
+    await ports.createBooking({ eventId: 'ev-verde', dogId: 'dog-pietro', kind: 'reservation', parsed });
 
-    expect(primeiro).toEqual({ dogId: 'dog-novo', criadoAgora: true });
-    expect(segundo).toEqual({ dogId: 'dog-novo', criadoAgora: false });
-    expect(chamadas.filter((caminho) => caminho.startsWith('dogs:insert'))).toHaveLength(1);
-  });
-
-  it('nome igual sob OUTRO cliente continua sendo outro cão (homônimo de outro tutor)', async () => {
-    const chamadas: string[] = [];
-    const client = clienteFalso(
-      {
-        'dogs:select(id, name):eq(organization_id=org-1):eq(client_id=cli-1)': { data: [{ id: 'dog-kona-1', name: 'Kona' }], error: null },
-        'dogs:select(id, name):eq(organization_id=org-1):eq(client_id=cli-2)': { data: [], error: null },
-        'dogs:insert': { data: { id: 'dog-kona-2' }, error: null },
-      },
-      chamadas,
-    );
-    const ports = supabaseImportPorts(client, 'org-1');
-
-    await expect(ports.createDog({ clientId: 'cli-1', name: 'Kona' })).resolves.toEqual({ dogId: 'dog-kona-1', criadoAgora: false });
-    await expect(ports.createDog({ clientId: 'cli-2', name: 'Kona' })).resolves.toEqual({ dogId: 'dog-kona-2', criadoAgora: true });
+    expect(linhas[0]).toMatchObject({ service_type: 'boarding', google_event_id: 'ev-verde' });
   });
 });
 
-describe('limpeza do cadastro da rodada que ficou sem reserva', () => {
-  it('removeDog apaga SÓ o cão indicado, dentro da organização', async () => {
+describe('skipRecurringDay (evento vermelho sobre um dia de escala)', () => {
+  const caminhoLimpeza = 'recurring_exceptions:delete:eq(recurring_schedule_id=serie-1):eq(action=skip):eq(start_date=2026-09-30)';
+
+  it('apaga a pausa do mesmo dia antes de gravar (não acumula linha repetida)', async () => {
     const chamadas: string[] = [];
     const ports = supabaseImportPorts(clienteFalso({}, chamadas), 'org-1');
 
-    await ports.removeDog?.({ dogId: 'dog-orfao' });
+    await ports.skipRecurringDay({ scheduleId: 'serie-1', date: '2026-09-30', eventId: 'ev-red' });
 
-    expect(chamadas).toEqual(['dogs:delete:eq(id=dog-orfao):eq(organization_id=org-1)']);
+    // A limpeza vem primeiro e sai pelo caminho exato (série + skip + data); a pausa entra depois.
+    expect(chamadas).toEqual([
+      caminhoLimpeza,
+      'recurring_exceptions:insert(' +
+        JSON.stringify({
+          organization_id: 'org-1',
+          recurring_schedule_id: 'serie-1',
+          action: 'skip',
+          start_date: '2026-09-30',
+          end_date: '2026-09-30',
+          reason: 'Cancelled in Google Calendar',
+        }) +
+        ')',
+    ]);
   });
 
-  it('removeClientIfEmpty NÃO apaga cliente que ainda tem cão', async () => {
-    const chamadas: string[] = [];
-    const client = clienteFalso({ 'dogs:select(id):eq(client_id=cli-1)': { data: [{ id: 'dog-1' }], error: null } }, chamadas);
-    const ports = supabaseImportPorts(client, 'org-1');
+  it('erro do banco na limpeza sobe (a tela mostra o motivo, não um sucesso falso)', async () => {
+    const ports = supabaseImportPorts(clienteFalso({ [caminhoLimpeza]: { error: { message: 'RLS negou a pausa' } } }), 'org-1');
 
-    await ports.removeClientIfEmpty?.({ clientId: 'cli-1' });
-
-    expect(chamadas).toEqual(['dogs:select(id):eq(client_id=cli-1):limit(1)']);
-    expect(chamadas.some((caminho) => caminho.startsWith('clients:delete'))).toBe(false);
-  });
-
-  it('removeClientIfEmpty apaga o cliente que ficou sem cão nenhum', async () => {
-    const chamadas: string[] = [];
-    const client = clienteFalso({ 'dogs:select(id):eq(client_id=cli-1)': { data: [], error: null } }, chamadas);
-    const ports = supabaseImportPorts(client, 'org-1');
-
-    await ports.removeClientIfEmpty?.({ clientId: 'cli-1' });
-
-    expect(chamadas).toContain('clients:delete:eq(id=cli-1):eq(organization_id=org-1)');
+    await expect(ports.skipRecurringDay({ scheduleId: 'serie-1', date: '2026-09-30', eventId: 'ev-red' })).rejects.toThrow('RLS negou a pausa');
   });
 });

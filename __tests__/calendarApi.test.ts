@@ -81,11 +81,12 @@ describe('cliente do Google Calendar', () => {
     });
   });
 
-  it('lê evento do Google no formato do planejador', () => {
+  it('lê evento do Google no formato do planejador (com a cor do serviço)', () => {
     expect(
       parseEvent({
         id: 'g-9',
         summary: 'Boarding · Bolt',
+        colorId: '2',
         start: { date: '2026-09-05' },
         end: { date: '2026-09-11' },
         recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO'],
@@ -97,8 +98,14 @@ describe('cliente do Google Calendar', () => {
       summary: 'Boarding · Bolt',
       startDate: '2026-09-05',
       endDate: '2026-09-11',
+      colorId: '2',
       recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO'],
     });
+  });
+
+  it('evento sem cor chega com colorId nulo (a importação não chuta serviço)', () => {
+    const parsed = parseEvent({ id: 'x', summary: 'Pietro', start: { date: '2026-09-10' }, end: { date: '2026-09-11' } });
+    expect(parsed.colorId).toBeNull();
   });
 
   it('aceita evento dateTime e mantém appKey nulo quando não é nosso', () => {

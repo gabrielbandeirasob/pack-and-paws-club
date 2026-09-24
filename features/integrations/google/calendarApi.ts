@@ -23,6 +23,8 @@ type GoogleEventResource = {
   summary?: string;
   start?: { date?: string; dateTime?: string };
   end?: { date?: string; dateTime?: string };
+  /** Cor do evento na paleta do Google (1..11) — é ela que diz o serviço (ver `googleColors`). */
+  colorId?: string;
   recurrence?: string[];
   extendedProperties?: { private?: Record<string, string> };
 };
@@ -65,6 +67,8 @@ export function parseEvent(resource: GoogleEventResource): RemoteEvent {
     summary: resource.summary ?? '',
     startDate: resource.start?.date ?? (resource.start?.dateTime ?? '').slice(0, 10),
     endDate: fimExclusivoDoEvento(resource.end),
+    // A cor acompanha o evento: é ela que diz o serviço na importação (não o título).
+    colorId: resource.colorId ?? null,
     recurrence: resource.recurrence ?? null,
   };
 }
@@ -73,6 +77,9 @@ export function toEventBody(event: GoogleEventInput): Record<string, unknown> {
   const body: Record<string, unknown> = { summary: event.summary, start: event.start, end: event.end };
   if (event.description) body.description = event.description;
   if (event.recurrence) body.recurrence = event.recurrence;
+  // `colorId` vai no corpo mesmo quando o evento é atualizado por PATCH: é assim que um evento antigo
+  // (sem cor) ganha a cor do serviço no próximo Sync.
+  if (event.colorId) body.colorId = event.colorId;
   if (event.extendedProperties) body.extendedProperties = event.extendedProperties;
   return body;
 }

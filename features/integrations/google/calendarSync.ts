@@ -48,6 +48,12 @@ export type RemoteEvent = {
    * (`eventsEqual`) e o que a importação recua um dia para virar o fim INCLUSIVO da reserva.
    */
   endDate: string;
+  /**
+   * `colorId` do evento na paleta fixa do Google (1..11) — é ele que diz o SERVIÇO na importação
+   * (verde boarding, azul daycare, vermelho cancelamento: `features/calendar/googleColors`). `null`
+   * quando o evento não tem cor marcada.
+   */
+  colorId?: string | null;
   recurrence?: string[] | null;
 };
 
@@ -85,6 +91,10 @@ export function eventsEqual(desired: GoogleEventInput, remote: RemoteEvent): boo
     desired.summary === remote.summary &&
     desired.start.date === remote.startDate &&
     desired.end.date === remote.endDate &&
+    // A cor é o contrato do serviço (verde boarding / azul daycare): evento do espelho que ficou sem
+    // cor (ou com a cor do outro serviço) precisa ser atualizado, senão a importação de volta lê o
+    // serviço errado. Evento antigo, criado antes desta regra, cai aqui e ganha a cor no 1º Sync.
+    (desired.colorId ?? null) === (remote.colorId ?? null) &&
     sameRecurrence(desired.recurrence, remote.recurrence)
   );
 }

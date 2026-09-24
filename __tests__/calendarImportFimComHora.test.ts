@@ -29,16 +29,19 @@ import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
 const HOJE = '2026-09-24';
 const JANELA = { from: HOJE, to: '2027-03-23' };
 
-const PIETRO: DogForImport = { id: 'dog-pietro', name: 'dog pietro', clientName: 'dog pietro', clientId: 'cli-pietro' };
+/** Cor azul (Peacock) = daycare: é a cor que estes eventos levam. */
+const AZUL = '7';
+
+const PIETRO: DogForImport = { id: 'dog-pietro', name: 'dog pietro', clientName: 'dog pietro' };
 
 /** Evento COM HORA, no formato CRU da API do Google (`dateTime` com fuso; fim INCLUSIVO). */
 function comHora(id: string, summary: string, inicio: string, fim: string, recurrence?: string[]): RemoteEvent {
-  return parseEvent({ id, summary, start: { dateTime: inicio }, end: { dateTime: fim }, recurrence });
+  return parseEvent({ id, summary, colorId: AZUL, start: { dateTime: inicio }, end: { dateTime: fim }, recurrence });
 }
 
 /** Evento de DIA INTEIRO, no formato cru da API (`end.date` é o primeiro dia FORA do evento). */
 function diaInteiro(id: string, summary: string, inicio: string, fimExclusivo: string, recurrence?: string[]): RemoteEvent {
-  return parseEvent({ id, summary, start: { date: inicio }, end: { date: fimExclusivo }, recurrence });
+  return parseEvent({ id, summary, colorId: AZUL, start: { date: inicio }, end: { date: fimExclusivo }, recurrence });
 }
 
 type Caso = { nome: string; evento: RemoteEvent; inicio: string; fim: string; weekdays?: number[] };
@@ -123,7 +126,9 @@ describe('fim do evento com hora x dia inteiro (bug de produção 24/09/2026)', 
 
     expect(plano.length).toBeGreaterThan(0);
     for (const item of plano) {
-      if (item.kind === 'review' || item.kind === 'cancel') continue;
+      // 'skip' (dia de série pulado pelo evento vermelho) não tem `parsed`; 'review'/'cancel' também não
+      // comparam data de reserva.
+      if (item.kind === 'review' || item.kind === 'cancel' || item.kind === 'skip') continue;
       expect(item.parsed.endDate >= item.parsed.startDate).toBe(true);
     }
   });
