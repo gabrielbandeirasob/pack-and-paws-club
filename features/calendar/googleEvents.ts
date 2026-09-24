@@ -1,4 +1,5 @@
 import { addDaysISO } from '@/features/calendar/dates';
+import { colorOfService } from '@/features/calendar/googleColors';
 
 export type GoogleEventInput = {
   summary: string;
@@ -6,6 +7,12 @@ export type GoogleEventInput = {
   start: { date: string };
   end: { date: string };
   recurrence?: string[];
+  /**
+   * Cor do evento na paleta fixa do Google (1..11). O app usa a cor como CONTRATO do serviço — verde
+   * boarding, azul daycare (ver `googleColors`): é ela que o escritório vê e a que a importação lê de
+   * volta, então o espelho PRECISA pintar o evento que cria/atualiza.
+   */
+  colorId?: string;
   /** Propriedades privadas do evento — usadas para idempotencia do sync (appKey = id da reserva). */
   extendedProperties?: { private: Record<string, string> };
 };
@@ -35,6 +42,9 @@ export function buildGoogleEvent(reservation: ReservationForSync): GoogleEventIn
   const effectiveEnd = reservation.endDate ?? reservation.startDate;
   const endDate = addDaysISO(effectiveEnd, 1);
   const event: GoogleEventInput = { summary, start: { date: reservation.startDate }, end: { date: endDate } };
+  // O evento sai PINTADO com a cor do serviço: é assim que o escritório enxerga o tipo no calendário
+  // e é o que a importação lê de volta quando o evento volta para o app.
+  event.colorId = colorOfService(reservation.serviceType);
   if (reservation.weekdays?.length) {
     const openEnded = !reservation.endDate || reservation.endDate === reservation.startDate;
     event.recurrence = [recurrenceRule(reservation.weekdays, openEnded ? undefined : reservation.endDate)];

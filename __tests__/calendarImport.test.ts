@@ -1,108 +1,129 @@
 /**
- * IMPORTACAO do Google Calendar para o app — pedido do dono (23/09/2026): "as datas que estao
- * marcadas no calendario do cliente fossem para o aplicativo".
+ * IMPORTACAO do Google Calendar para o app — REGRA NOVA do dono (24/09/2026).
  *
- * O que estes testes travam (é onde mora o risco):
- *  - o formato do titulo que o proprio app escreve tem de VOLTAR igual (round-trip);
- *  - todo evento do calendario dedicado entra, mesmo sem palavra de servico/operacao;
- *  - nome de cao desconhecido/ambíguo NAO cria cadastro: vai para revisao;
- *  - reserva que nasceu no Google muda quando o evento muda e e cancelada quando o evento some —
- *    mas so dentro da janela consultada;
- *  - nada de duplicar reserva que ja existe no app.
+ * O que estes testes travam (a regra INVERTE o cadastro automatico dos builds 52-54):
+ *  - o titulo do evento traz SO o nome do cao (tolerando o formato antigo na leitura do NOME);
+ *  - o SERVICO vem da COR do evento: verde (2/10) = boarding, azul (7/9) = daycare;
+ *  - VERMELHO (11) = cancelamento: cancela a reserva daquele cao NAQUELE dia; numa serie, pula o dia;
+ *  - cao fora do cadastro NAO e importado e NAO e cadastrado: vai para a lista "not registered";
+ *  - sem cor (ou cor fora do mapa, ex.: amarelo = 5) NAO se chuta servico: lista "color not recognized";
+ *  - vínculo por EVENTO, janela comecando HOJE, nada de duplicar reserva existente.
  */
 import { buildGoogleEvent } from '@/features/calendar/googleEvents';
-import { parseBookingEvent, parseBookingTitle, parseRecurrence, looksLikeBooking, looksLikeTransport, parseTransportTitle, planCalendarImport, kindOf, describeImport } from '@/features/integrations/google/importPlan';
+import {
+  describeImport,
+  dogNameFromTitle,
+  kindOf,
+  parseBookingEvent,
+  parseRecurrence,
+  planCalendarImport,
+  type BookingForImport,
+  type DogForImport,
+} from '@/features/integrations/google/importPlan';
+import { meaningOfColor } from '@/features/calendar/googleColors';
 import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
 
 const JANELA = { from: '2026-09-01', to: '2026-12-31' };
+const DA_JANELA = { from: '2026-09-24', to: '2027-03-23' };
+
+/** Ids da paleta fixa do Google (ver `googleColors`). */
+const VERDE = '2'; // Sage  -> boarding
+const VERDE2 = '10'; // Basil -> boarding
+const AZUL = '7'; // Peacock  -> daycare
+const AZUL2 = '9'; // Blueberry -> daycare
+const VERMELHO = '11'; // Tomato -> cancelamento
+const AMARELO = '5'; // Banana  -> fora do mapa (o dono citou amarelo e corrigiu para azul)
 
 function evento(parcial: Partial<RemoteEvent> & { id: string }): RemoteEvent {
-  return { summary: '', startDate: '2026-09-25', endDate: '2026-09-26', appKey: null, recurrence: null, ...parcial };
+  return { summary: '', startDate: '2026-09-25', endDate: '2026-09-26', appKey: null, colorId: AZUL, recurrence: null, ...parcial };
 }
 
-describe('leitura do titulo', () => {
-  it('reconhece o formato que o proprio app escreve', () => {
-    expect(parseBookingTitle('Boarding · Bella (Leigh Ann)')).toEqual({
-      serviceType: 'boarding',
-      dogName: 'Bella',
-      clientName: 'Leigh Ann',
-    });
+const CAES: DogForImport[] = [
+  { id: 'dog-bella', name: 'Bella', clientName: 'Leigh Ann' },
+  { id: 'dog-mowgli', name: 'Mowgli', clientName: 'Maria Silva' },
+  { id: 'dog-luna-a', name: 'Luna', clientName: 'Ana' },
+  { id: 'dog-luna-b', name: 'Luna', clientName: 'Bruno' },
+  { id: 'dog-pietro', name: 'Pietro', clientName: 'Carlos' },
+];
+
+function reservaExistente(over: Partial<BookingForImport> = {}): BookingForImport {
+  return {
+    id: 'r-bella',
+    kind: 'reservation',
+    dogId: 'dog-bella',
+    googleEventId: null,
+    source: 'app',
+    serviceType: 'boarding',
+    startDate: '2026-10-05',
+    endDate: '2026-10-08',
+    weekdays: null,
+    skipDates: null,
+    status: 'confirmed',
+    ...over,
+  };
+}
+
+describe('a COR do evento é o serviço (e o título é só o nome do cão)', () => {
+  it('traduz os ids da paleta: verde = boarding, azul = daycare, vermelho = cancelar', () => {
+    expect(meaningOfColor(VERDE)).toEqual({ kind: 'service', serviceType: 'boarding' });
+    expect(meaningOfColor(VERDE2)).toEqual({ kind: 'service', serviceType: 'boarding' });
+    expect(meaningOfColor(AZUL)).toEqual({ kind: 'service', serviceType: 'daycare' });
+    expect(meaningOfColor(AZUL2)).toEqual({ kind: 'service', serviceType: 'daycare' });
+    expect(meaningOfColor(VERMELHO)).toEqual({ kind: 'cancel' });
   });
 
-  it('aceita o que o escritorio digita à mão', () => {
-    expect(parseBookingTitle('Boarding - Bella')).toEqual({ serviceType: 'boarding', dogName: 'Bella', clientName: null });
-    expect(parseBookingTitle('Bella daycare')).toEqual({ serviceType: 'daycare', dogName: 'Bella', clientName: null });
-    expect(parseBookingTitle('creche: Mowgli')).toEqual({ serviceType: 'daycare', dogName: 'Mowgli', clientName: null });
+  it('NÃO adivinha serviço: sem cor e cores fora do mapa (amarelo/banana) devolvem null', () => {
+    expect(meaningOfColor(null)).toBeNull();
+    expect(meaningOfColor(undefined)).toBeNull();
+    expect(meaningOfColor('')).toBeNull();
+    expect(meaningOfColor(AMARELO)).toBeNull();
+    // Lavanda, uva, flamingo, tangerina e grafite também ficam de fora.
+    for (const id of ['1', '3', '4', '6', '8']) expect(meaningOfColor(id)).toBeNull();
   });
 
-  it('mantém o parser de formato estrito separado do fallback do calendário dedicado', () => {
-    expect(looksLikeBooking('Dentist 3pm')).toBe(false);
-    expect(looksLikeBooking('Almoço com o Carlos')).toBe(false);
-    expect(parseBookingTitle('Dentist 3pm')).toBeNull();
-    expect(looksLikeBooking('Boarding · Bella')).toBe(true);
+  it('lê o nome do cão de um título com apenas o nome', () => {
+    expect(dogNameFromTitle('Pietro')).toBe('Pietro');
+    expect(dogNameFromTitle('  Bella  ')).toBe('Bella');
   });
 
-  it('não aceita título sem nome de cão', () => {
-    expect(parseBookingTitle('Boarding ·')).toBeNull();
-  });
-});
-
-/**
- * "Pick filó" (print do dono, 23/09/2026, evento com HORA das 11h às 12h).
- *
- * Antes: sem palavra de serviço no título, o evento era descartado como compromisso pessoal — o dono
- * sincronizou e o app não trouxe a data. Agora título de operação (pick/drop/van) entra, com o cão
- * lido do resto do título. Como o calendário é exclusivo do serviço, qualquer outro título também
- * entra: se não casar com um cão, vai para revisão.
- */
-describe('título de operação (Pick/Drop) — o caso do print', () => {
-  it('le "Pick filó" e cria a reserva do dia (evento com hora, não de dia inteiro)', () => {
-    const lido = parseBookingEvent(evento({ id: 'ev-filo', summary: 'Pick filó', startDate: '2026-09-25', endDate: '2026-09-25' }));
-
-    expect(lido).toMatchObject({ serviceType: 'daycare', dogName: 'filó', clientName: null, startDate: '2026-09-25' });
+  it('continua lendo o NOME nos títulos do formato antigo (palavra de serviço, pick, tutor)', () => {
+    expect(dogNameFromTitle('Daycare · Bella (Leigh Ann)')).toBe('Bella');
+    expect(dogNameFromTitle('Boarding - Luna')).toBe('Luna');
+    expect(dogNameFromTitle('creche: Mowgli')).toBe('Mowgli');
+    expect(dogNameFromTitle('Pick filó')).toBe('filó');
+    expect(dogNameFromTitle('Drop off Bella (Amor)')).toBe('Bella');
+    // Dois nomes: ponto médio/barra -> o cão é o último; travessão -> o cão é o primeiro.
+    expect(dogNameFromTitle('Leigh Ann · Kona')).toBe('Kona');
+    expect(dogNameFromTitle('Kona — Leigh Ann')).toBe('Kona');
   });
 
-  it('aceita as variações que o escritório escreve', () => {
-    expect(looksLikeTransport('Pick filó')).toBe(true);
-    expect(parseTransportTitle('Pick up Mowgli')).toEqual({ dogName: 'Mowgli', clientName: null });
-    expect(parseTransportTitle('Drop off Bella (Amor)')).toEqual({ dogName: 'Bella', clientName: 'Amor' });
-    expect(parseTransportTitle('Van: Thor')).toEqual({ dogName: 'Thor', clientName: null });
+  it('título sem nome nenhum não vira cão', () => {
+    expect(dogNameFromTitle('')).toBeNull();
+    expect(dogNameFromTitle('   ')).toBeNull();
+    expect(dogNameFromTitle('Daycare')).toBeNull();
+    expect(dogNameFromTitle('Pick up')).toBeNull();
   });
 
-  it('importa qualquer título do calendário dedicado, mesmo sem palavra-chave', () => {
-    expect(looksLikeTransport('Dentist 3pm')).toBe(false);
-    expect(looksLikeTransport('Almoço com o Carlos')).toBe(false);
-    expect(parseBookingEvent(evento({ id: 'ev-bella', summary: 'Bella' }))).toMatchObject({
-      serviceType: 'daycare',
-      dogName: 'Bella',
-    });
-    expect(parseBookingEvent(evento({ id: 'ev-sem-palavra', summary: 'Filó banho' }))).toMatchObject({
-      serviceType: 'daycare',
-      dogName: 'Filó banho',
-    });
+  it('o serviço do agendamento sai da cor, NUNCA do título', () => {
+    // Título com a palavra "Boarding" e cor AZUL: quem manda é a cor.
+    const azulComPalavra = parseBookingEvent(evento({ id: 'e1', summary: 'Boarding · Bella', colorId: AZUL }));
+    expect(azulComPalavra).toMatchObject({ serviceType: 'daycare', cancels: false, dogName: 'Bella' });
+
+    // Título só com o nome e cor VERDE: boarding.
+    const verdeSemPalavra = parseBookingEvent(evento({ id: 'e2', summary: 'Bella', colorId: VERDE }));
+    expect(verdeSemPalavra).toMatchObject({ serviceType: 'boarding', cancels: false, dogName: 'Bella' });
+
+    // Vermelho: não é serviço, é cancelamento.
+    const vermelho = parseBookingEvent(evento({ id: 'e3', summary: 'Bella', colorId: VERMELHO }));
+    expect(vermelho).toMatchObject({ serviceType: null, cancels: true, dogName: 'Bella' });
+
+    // Sem cor: serviço indefinido (não se chuta).
+    const semCor = parseBookingEvent(evento({ id: 'e4', summary: 'Bella', colorId: null }));
+    expect(semCor).toMatchObject({ serviceType: null, cancels: false });
   });
 
-  it('o "Pick filó" entra no plano como reserva do cão Filó', () => {
-    const plano = planCalendarImport(
-      [evento({ id: 'ev-filo', summary: 'Pick filó', startDate: '2026-09-25', endDate: '2026-09-25' })],
-      [{ id: 'dog-filo', name: 'Filó', clientName: 'Amor' }],
-      [],
-      JANELA,
-    );
-
-    expect(plano).toHaveLength(1);
-    expect(plano[0]).toMatchObject({ kind: 'create', dogId: 'dog-filo', eventId: 'ev-filo' });
-  });
-
-  it('nome que não casa com o cadastro vira CADASTRO NOVO (cliente + cão), não pendência', () => {
-    const plano = planCalendarImport(
-      [evento({ id: 'ev-x', summary: 'Pick Zeus' })],
-      [{ id: 'dog-filo', name: 'Filó', clientName: 'Amor' }],
-      [],
-      JANELA,
-    );
-
-    expect(plano[0]).toMatchObject({ kind: 'create', eventId: 'ev-x', dogId: null, newDog: { name: 'Zeus', clientName: 'Zeus' } });
+  it('título sem nome não é lido (vai para a pendência "unreadable")', () => {
+    expect(parseBookingEvent(evento({ id: 'e5', summary: '   ' }))).toBeNull();
   });
 });
 
@@ -137,24 +158,33 @@ describe('leitura da recorrência', () => {
 });
 
 describe('ida e volta do formato', () => {
-  it('o evento que o app cria volta como a reserva original', () => {
+  it('o evento que o app cria volta como o agendamento original (serviço pela cor)', () => {
     const reserva = {
       dogName: 'Filó',
       clientName: 'Amor',
-      serviceType: 'daycare' as const,
+      serviceType: 'boarding' as const,
       startDate: '2026-09-28',
       endDate: '2026-10-31',
       weekdays: [1, 3],
       skipDates: ['2026-09-30'],
     };
     const enviado = buildGoogleEvent(reserva);
+    // O espelho PINTou o evento com a cor do serviço — é isso que faz a volta ler boarding.
+    expect(enviado.colorId).toBe(VERDE);
     const lido = parseBookingEvent(
-      evento({ id: 'e1', summary: enviado.summary, startDate: enviado.start.date, endDate: enviado.end.date, recurrence: enviado.recurrence ?? null }),
+      evento({
+        id: 'e1',
+        summary: enviado.summary,
+        startDate: enviado.start.date,
+        endDate: enviado.end.date,
+        colorId: enviado.colorId ?? null,
+        recurrence: enviado.recurrence ?? null,
+      }),
     );
     expect(lido).toEqual({
-      serviceType: 'daycare',
+      serviceType: 'boarding',
+      cancels: false,
       dogName: 'Filó',
-      clientName: 'Amor',
       startDate: '2026-09-28',
       endDate: '2026-10-31',
       weekdays: [1, 3],
@@ -164,165 +194,43 @@ describe('ida e volta do formato', () => {
   });
 });
 
-describe('plano da importação', () => {
-  const dogs = [
-    { id: 'dog-bella', name: 'Bella', clientName: 'Leigh Ann' },
-    { id: 'dog-mowgli', name: 'Mowgli', clientName: 'Maria Silva' },
-    { id: 'dog-luna-a', name: 'Luna', clientName: 'Ana' },
-    { id: 'dog-luna-b', name: 'Luna', clientName: 'Bruno' },
-  ];
+describe('plano da importação — o que entra', () => {
+  it('cão cadastrado + cor verde = reserva de BOARDING', () => {
+    const plano = planCalendarImport([evento({ id: 'e1', summary: 'Pietro', colorId: VERDE, startDate: '2026-10-05', endDate: '2026-10-09' })], CAES, [], JANELA);
 
-  it('cria reserva quando o cão casa com o cadastro', () => {
-    const plano = planCalendarImport([evento({ id: 'e1', summary: 'Boarding · Bella (Leigh Ann)', startDate: '2026-10-05', endDate: '2026-10-09' })], dogs, [], JANELA);
     expect(plano).toEqual([
       {
         kind: 'create',
         eventId: 'e1',
-        dogId: 'dog-bella',
-        parsed: expect.objectContaining({ serviceType: 'boarding', startDate: '2026-10-05', endDate: '2026-10-08' }),
+        dogId: 'dog-pietro',
+        parsed: expect.objectContaining({ serviceType: 'boarding', cancels: false, startDate: '2026-10-05', endDate: '2026-10-08' }),
       },
     ]);
+  });
+
+  it('cão cadastrado + cor azul = reserva de DAYCARE (mesmo com a palavra "Boarding" no título)', () => {
+    const plano = planCalendarImport([evento({ id: 'e2', summary: 'Boarding · Pietro', colorId: AZUL2 })], CAES, [], JANELA);
+
+    expect(plano[0]).toMatchObject({ kind: 'create', dogId: 'dog-pietro' });
+    if (plano[0].kind !== 'create') throw new Error('esperava create');
+    expect(plano[0].parsed.serviceType).toBe('daycare');
+  });
+
+  it('casa o nome tolerando caixa e acento (Filó = filo = FILO)', () => {
+    const cadastro: DogForImport[] = [{ id: 'dog-filo', name: 'Filó' }];
+    const plano = planCalendarImport([evento({ id: 'e3', summary: 'filo', colorId: AZUL })], cadastro, [], JANELA);
+    expect(plano[0]).toMatchObject({ kind: 'create', dogId: 'dog-filo' });
   });
 
   it('não toca no evento que é do espelho do app', () => {
-    const plano = planCalendarImport([evento({ id: 'e-nosso', summary: 'Daycare · Bella (Leigh Ann)', appKey: 'res:123' })], dogs, [], JANELA);
+    const plano = planCalendarImport([evento({ id: 'e-nosso', summary: 'Pietro', appKey: 'res:123' })], CAES, [], JANELA);
     expect(plano).toEqual([]);
   });
 
-  it('título do calendário dedicado sem cão no app também entra, criando o cadastro', () => {
-    const plano = planCalendarImport([evento({ id: 'e-dent', summary: 'Dentist 3pm' })], dogs, [], JANELA);
-    expect(plano).toEqual([
-      expect.objectContaining({ kind: 'create', eventId: 'e-dent', dogId: null, newDog: { name: 'Dentist 3pm', clientName: 'Dentist 3pm' } }),
-    ]);
-  });
-
-  it('cria reserva com título contendo somente o nome do cão', () => {
-    const plano = planCalendarImport([evento({ id: 'e-bella', summary: 'Bella' })], dogs, [], JANELA);
-    expect(plano[0]).toMatchObject({ kind: 'create', eventId: 'e-bella', dogId: 'dog-bella' });
-  });
-
-  it('evento sem título vai para revisão em vez de sumir — e não cria cadastro sem nome', () => {
-    const plano = planCalendarImport([evento({ id: 'e-sem-titulo', summary: '' })], dogs, [], JANELA);
-    expect(plano[0]).toMatchObject({ kind: 'review', eventId: 'e-sem-titulo', reason: 'unreadable' });
-    expect(plano.some((item) => item.kind === 'create')).toBe(false);
-  });
-
-  it('evento com cão desconhecido entra criando cliente e cão com o nome do título', () => {
-    const plano = planCalendarImport([evento({ id: 'e2', summary: 'Boarding · Rex' })], dogs, [], JANELA);
-    expect(plano[0]).toMatchObject({ kind: 'create', eventId: 'e2', dogId: null, newDog: { name: 'Rex', clientName: 'Rex' } });
-  });
-
-  it('dois cães com o mesmo nome: desempata pelo tutor e, sem tutor, cria o cadastro do título', () => {
-    const ambiguo = planCalendarImport([evento({ id: 'e3', summary: 'Daycare · Luna' })], dogs, [], JANELA);
-    expect(ambiguo[0]).toMatchObject({ kind: 'create', dogId: null, newDog: { name: 'Luna', clientName: 'Luna' } });
-
-    const desempatado = planCalendarImport([evento({ id: 'e4', summary: 'Daycare · Luna (Bruno)' })], dogs, [], JANELA);
-    expect(desempatado[0]).toMatchObject({ kind: 'create', dogId: 'dog-luna-b' });
-  });
-
-  it('atualiza a reserva que nasceu no Google quando o evento muda de data', () => {
-    const ligada = [
-      {
-        id: 'r1',
-        kind: 'reservation' as const,
-        dogId: 'dog-bella',
-        googleEventId: 'e5',
-        source: 'google' as const,
-        serviceType: 'boarding' as const,
-        startDate: '2026-10-05',
-        endDate: '2026-10-08',
-        weekdays: null,
-        skipDates: null,
-        status: 'confirmed',
-      },
-    ];
-    const plano = planCalendarImport([evento({ id: 'e5', summary: 'Boarding · Bella', startDate: '2026-10-07', endDate: '2026-10-09' })], dogs, ligada, JANELA);
-    expect(plano).toEqual([
-      { kind: 'update', eventId: 'e5', bookingKind: 'reservation', bookingId: 'r1', dogId: 'dog-bella', parsed: expect.objectContaining({ startDate: '2026-10-07', endDate: '2026-10-08' }) },
-    ]);
-  });
-
-  it('não faz nada quando o evento está igual à reserva ligada', () => {
-    const ligada = [
-      {
-        id: 'r1',
-        kind: 'reservation' as const,
-        dogId: 'dog-bella',
-        googleEventId: 'e5',
-        source: 'google' as const,
-        serviceType: 'boarding' as const,
-        startDate: '2026-10-05',
-        endDate: '2026-10-08',
-        weekdays: [],
-        skipDates: [],
-        status: 'confirmed',
-      },
-    ];
-    expect(planCalendarImport([evento({ id: 'e5', summary: 'Boarding · Bella', startDate: '2026-10-05', endDate: '2026-10-09' })], dogs, ligada, JANELA)).toEqual([]);
-  });
-
-  it('cancela a reserva do Google quando o evento some dentro da janela', () => {
-    const ligada = [
-      {
-        id: 'r1',
-        kind: 'reservation' as const,
-        dogId: 'dog-bella',
-        googleEventId: 'e5',
-        source: 'google' as const,
-        serviceType: 'boarding' as const,
-        startDate: '2026-10-05',
-        endDate: '2026-10-08',
-        weekdays: null,
-        skipDates: null,
-        status: 'confirmed',
-      },
-    ];
-    expect(planCalendarImport([], dogs, ligada, JANELA)).toEqual([{ kind: 'cancel', eventId: 'e5', bookingKind: 'reservation', bookingId: 'r1' }]);
-  });
-
-  it('não cancela quando a reserva está fora da janela consultada', () => {
-    const ligada = [
-      {
-        id: 'r1',
-        kind: 'reservation' as const,
-        dogId: 'dog-bella',
-        googleEventId: 'e5',
-        source: 'google' as const,
-        serviceType: 'boarding' as const,
-        startDate: '2027-03-05',
-        endDate: '2027-03-08',
-        weekdays: null,
-        skipDates: null,
-        status: 'confirmed',
-      },
-    ];
-    expect(planCalendarImport([], dogs, ligada, { from: '2026-09-01', to: '2026-09-30' })).toEqual([]);
-  });
-
-  it('não duplica reserva que já existe no app: manda para revisão', () => {
-    const existentes = [
-      {
-        id: 'r9',
-        kind: 'reservation' as const,
-        dogId: 'dog-bella',
-        googleEventId: null,
-        source: 'app' as const,
-        serviceType: 'boarding' as const,
-        startDate: '2026-10-05',
-        endDate: '2026-10-08',
-        weekdays: null,
-        skipDates: null,
-        status: 'confirmed',
-      },
-    ];
-    const plano = planCalendarImport([evento({ id: 'e6', summary: 'Boarding · Bella', startDate: '2026-10-05', endDate: '2026-10-09' })], dogs, existentes, JANELA);
-    expect(plano[0]).toMatchObject({ kind: 'review', reason: 'duplicate' });
-  });
-
-  it('série de dias da semana é do tipo recurring', () => {
+  it('série de dias da semana (RRULE) é do tipo recurring', () => {
     const plano = planCalendarImport(
-      [evento({ id: 'e7', summary: 'Daycare · Mowgli', startDate: '2026-09-28', endDate: '2026-09-29', recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO,WE'] })],
-      dogs,
+      [evento({ id: 'e7', summary: 'Mowgli', colorId: AZUL, startDate: '2026-09-28', endDate: '2026-09-29', recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO,WE'] })],
+      CAES,
       [],
       JANELA,
     );
@@ -331,174 +239,175 @@ describe('plano da importação', () => {
     if (item.kind !== 'create') throw new Error('esperava um create para a série');
     expect(kindOf(item.parsed)).toBe('recurring');
   });
-});
 
-/**
- * Pedido do dono (24/09/2026): "eu preciso que o aplicativo quando clicar para sincronizar puxe TODOS
- * os agendamentos do google calendar do cliente pro cliente".
- *
- * O que estes testes travam:
- *  - título que não casa com o cadastro NÃO fica pendente: o app cadastra cão + cliente com o nome do
- *    título (um nome = cão, cliente com o mesmo nome; dois nomes = cão e tutor);
- *  - título vazio (ou só espaços) é o único que não vira cadastro: vai para a revisão;
- *  - idempotência: o vínculo é por EVENTO, então o segundo Sync (e o cão renomeado) não cria nada;
- *  - janela começando HOJE: nada com data anterior é criado, alterado ou cancelado.
- */
-describe('cadastro automático do que veio do Google (24/09/2026)', () => {
-  const HOJE = '2026-09-24';
-  const DA_JANELA = { from: HOJE, to: '2027-03-23' };
-  const dogs = [{ id: 'dog-bella', name: 'Bella', clientName: 'Leigh Ann', clientId: 'cli-leigh' }];
-
-  it('título com um nome só: o nome é o cão e o cliente nasce com o mesmo nome', () => {
-    const plano = planCalendarImport([evento({ id: 'e-kona', summary: 'Kona', startDate: '2026-09-30', endDate: '2026-10-01' })], dogs, [], DA_JANELA);
-
+  it('atualiza a reserva que nasceu no Google quando o evento muda de data OU de cor', () => {
+    const ligada = [reservaExistente({ id: 'r1', dogId: 'dog-bella', googleEventId: 'e5', source: 'google', serviceType: 'daycare', startDate: '2026-10-05', endDate: '2026-10-08' })];
+    // Mudou de dia e ficou verde: o serviço do app passa a boarding.
+    const plano = planCalendarImport([evento({ id: 'e5', summary: 'Bella', colorId: VERDE, startDate: '2026-10-07', endDate: '2026-10-09' })], CAES, ligada, JANELA);
     expect(plano).toEqual([
-      {
-        kind: 'create',
-        eventId: 'e-kona',
-        dogId: null,
-        newDog: { name: 'Kona', clientName: 'Kona' },
-        parsed: expect.objectContaining({ dogName: 'Kona', clientName: null, startDate: '2026-09-30' }),
-      },
+      { kind: 'update', eventId: 'e5', bookingKind: 'reservation', bookingId: 'r1', dogId: 'dog-bella', parsed: expect.objectContaining({ serviceType: 'boarding', startDate: '2026-10-07', endDate: '2026-10-08' }) },
     ]);
   });
 
-  it('título com dois nomes ("Leigh Ann · Kona") usa os dois: cão e tutor', () => {
-    const plano = planCalendarImport([evento({ id: 'e-1', summary: 'Leigh Ann · Kona' })], dogs, [], DA_JANELA);
-    expect(plano[0]).toMatchObject({ kind: 'create', dogId: null, newDog: { name: 'Kona', clientName: 'Leigh Ann' } });
+  it('não faz nada quando o evento está igual à reserva ligada', () => {
+    const ligada = [reservaExistente({ id: 'r1', googleEventId: 'e5', source: 'google', serviceType: 'boarding', startDate: '2026-10-05', endDate: '2026-10-08' })];
+    const plano = planCalendarImport([evento({ id: 'e5', summary: 'Bella', colorId: VERDE, startDate: '2026-10-05', endDate: '2026-10-09' })], CAES, ligada, JANELA);
+    expect(plano).toEqual([]);
   });
 
-  it('título com travessão ("Kona — Leigh Ann") lê o cão antes do tutor', () => {
-    const plano = planCalendarImport([evento({ id: 'e-2', summary: 'Kona — Leigh Ann' })], dogs, [], DA_JANELA);
-    expect(plano[0]).toMatchObject({ kind: 'create', dogId: null, newDog: { name: 'Kona', clientName: 'Leigh Ann' } });
+  it('não duplica reserva que já existe no app: manda para revisão', () => {
+    const plano = planCalendarImport([evento({ id: 'e6', summary: 'Bella', colorId: VERDE, startDate: '2026-10-05', endDate: '2026-10-09' })], CAES, [reservaExistente()], JANELA);
+    expect(plano[0]).toMatchObject({ kind: 'review', reason: 'duplicate' });
   });
 
-  it('tutor que já tem cão no app: o cão novo entra NO cliente que existe (não duplica cliente)', () => {
-    const plano = planCalendarImport([evento({ id: 'e-3', summary: 'Zeus (Leigh Ann)' })], dogs, [], DA_JANELA);
-    expect(plano[0]).toMatchObject({ kind: 'create', dogId: null, newDog: { name: 'Zeus', clientName: 'Leigh Ann', clientId: 'cli-leigh' } });
+  it('cancela a reserva do Google quando o evento some dentro da janela', () => {
+    const ligada = [reservaExistente({ id: 'r1', googleEventId: 'e5', source: 'google' })];
+    expect(planCalendarImport([], CAES, ligada, JANELA)).toEqual([{ kind: 'cancel', eventId: 'e5', bookingKind: 'reservation', bookingId: 'r1' }]);
   });
 
-  it('título genérico com texto vira o nome do cadastro (decisão: trazer todos)', () => {
-    const plano = planCalendarImport([evento({ id: 'e-groom', summary: 'Grooming' })], dogs, [], DA_JANELA);
-    expect(plano[0]).toMatchObject({ kind: 'create', dogId: null, newDog: { name: 'Grooming', clientName: 'Grooming' } });
+  it('não cancela quando a reserva está fora da janela consultada', () => {
+    const ligada = [reservaExistente({ id: 'r1', googleEventId: 'e5', source: 'google', startDate: '2027-03-05', endDate: '2027-03-08' })];
+    expect(planCalendarImport([], CAES, ligada, { from: '2026-09-01', to: '2026-09-30' })).toEqual([]);
   });
+});
 
-  it('título vazio ou só espaços não cadastra nada: vai para a revisão com o motivo', () => {
-    const plano = planCalendarImport([evento({ id: 'e-vazio', summary: '   ' })], dogs, [], DA_JANELA);
+describe('plano da importação — cão que NÃO está no cadastro (não se cria ninguém)', () => {
+  it('nome desconhecido NÃO é importado e aparece na lista "not registered"', () => {
+    const plano = planCalendarImport([evento({ id: 'e-rex', summary: 'Rex', colorId: VERDE })], CAES, [], JANELA);
 
-    expect(plano).toEqual([expect.objectContaining({ kind: 'review', eventId: 'e-vazio', title: '   ', reason: 'unreadable' })]);
+    expect(plano).toEqual([
+      expect.objectContaining({ kind: 'review', eventId: 'e-rex', title: 'Rex', reason: 'unknown dog' }),
+    ]);
+    // O serviço continua conhecido (a cor é verde): o gestor pode cadastrar o cão e sincronizar.
+    expect(plano[0]).toMatchObject({ parsed: expect.objectContaining({ serviceType: 'boarding', dogName: 'Rex' }) });
+    // NADA de criar cadastro: este é o ponto que a regra nova revoga.
     expect(plano.some((item) => item.kind === 'create')).toBe(false);
   });
 
-  it('idempotência: evento já ligado no segundo Sync não cria nada, mesmo com o cão renomeado', () => {
-    const ligada = [
-      {
-        id: 'r-google',
-        kind: 'reservation' as const,
-        dogId: 'dog-novo',
-        googleEventId: 'e-kona',
-        source: 'google' as const,
-        serviceType: 'daycare' as const,
-        startDate: '2026-09-30',
-        endDate: '2026-09-30',
-        weekdays: null,
-        skipDates: null,
-        status: 'confirmed',
-      },
-    ];
-    // O cadastro que o primeiro Sync criou já está no app — com o cão RENOMEADO pelo gestor.
-    const cadastro = [{ id: 'dog-novo', name: 'Kona (renomeada)', clientName: 'Kona', clientId: 'cli-kona' }];
+  it('nome repetido em dois cães vai para a lista, com o motivo — o app não escolhe no chute', () => {
+    const plano = planCalendarImport([evento({ id: 'e3', summary: 'Luna', colorId: AZUL })], CAES, [], JANELA);
+    expect(plano[0]).toMatchObject({ kind: 'review', reason: 'ambiguous dog' });
+  });
 
-    const plano = planCalendarImport(
-      [evento({ id: 'e-kona', summary: 'Kona', startDate: '2026-09-30', endDate: '2026-10-01' })],
-      cadastro,
-      ligada,
-      DA_JANELA,
-    );
+  it('título SEM nome vai para a revisão (unreadable) em vez de sumir', () => {
+    const plano = planCalendarImport([evento({ id: 'e-sem-titulo', summary: '' })], CAES, [], JANELA);
+    expect(plano[0]).toMatchObject({ kind: 'review', eventId: 'e-sem-titulo', reason: 'unreadable' });
+    expect(plano.some((item) => item.kind === 'create')).toBe(false);
+  });
+});
 
+describe('plano da importação — cor não reconhecida', () => {
+  it('evento SEM cor não entra e cai na lista "color not recognized"', () => {
+    const plano = planCalendarImport([evento({ id: 'e-sem-cor', summary: 'Pietro', colorId: null })], CAES, [], JANELA);
+
+    expect(plano).toEqual([
+      expect.objectContaining({ kind: 'review', eventId: 'e-sem-cor', reason: 'unrecognized color' }),
+    ]);
+    expect(plano.some((item) => item.kind === 'create')).toBe(false);
+  });
+
+  it('cor fora do mapa (amarelo/banana) também não é importada — o dono corrigiu amarelo para azul', () => {
+    const plano = planCalendarImport([evento({ id: 'e-amarelo', summary: 'Bella', colorId: AMARELO })], CAES, [], JANELA);
+    expect(plano[0]).toMatchObject({ kind: 'review', reason: 'unrecognized color' });
+  });
+});
+
+describe('plano da importação — evento VERMELHO cancela o dia daquele cão', () => {
+  it('cancela a reserva avulsa daquele cão que cobre o dia', () => {
+    const existentes = [reservaExistente({ id: 'r-cobre', dogId: 'dog-pietro', serviceType: 'daycare', startDate: '2026-10-05', endDate: '2026-10-08' })];
+    const plano = planCalendarImport([evento({ id: 'e-red', summary: 'Pietro', colorId: VERMELHO, startDate: '2026-10-06', endDate: '2026-10-07' })], CAES, existentes, JANELA);
+
+    expect(plano).toEqual([{ kind: 'cancel', eventId: 'e-red', bookingKind: 'reservation', bookingId: 'r-cobre' }]);
+  });
+
+  it('num dia de SÉRIE, pula só o dia (nunca desativa a escala inteira)', () => {
+    const serie: BookingForImport = reservaExistente({
+      id: 'serie-pietro',
+      kind: 'recurring',
+      dogId: 'dog-pietro',
+      serviceType: 'daycare',
+      startDate: '2026-09-01',
+      endDate: null,
+      weekdays: [1, 3], // segunda e quarta
+      skipDates: [],
+      status: 'active',
+    });
+    // 2026-09-30 é uma QUARTA.
+    const plano = planCalendarImport([evento({ id: 'e-qua', summary: 'Pietro', colorId: VERMELHO, startDate: '2026-09-30', endDate: '2026-10-01' })], CAES, [serie], JANELA);
+
+    expect(plano).toEqual([{ kind: 'skip', eventId: 'e-qua', scheduleId: 'serie-pietro', date: '2026-09-30' }]);
+  });
+
+  it('dia de série JÁ pulado não gera trabalho de novo (idempotente)', () => {
+    const serie: BookingForImport = reservaExistente({
+      id: 'serie-pietro',
+      kind: 'recurring',
+      dogId: 'dog-pietro',
+      serviceType: 'daycare',
+      startDate: '2026-09-01',
+      endDate: null,
+      weekdays: [3],
+      skipDates: ['2026-09-30'],
+      status: 'active',
+    });
+    const plano = planCalendarImport([evento({ id: 'e-qua', summary: 'Pietro', colorId: VERMELHO, startDate: '2026-09-30', endDate: '2026-10-01' })], CAES, [serie], JANELA);
     expect(plano).toEqual([]);
   });
 
-  it('evento ligado cujo título passou a nomear outro cão do cadastro: a reserva muda de cão', () => {
-    const cadastro = [
-      { id: 'dog-bella', name: 'Bella', clientName: 'Leigh Ann', clientId: 'cli-leigh' },
-      { id: 'dog-mowgli', name: 'Mowgli', clientName: 'Maria Silva', clientId: 'cli-maria' },
-    ];
-    const ligada = [
-      {
-        id: 'r-google',
-        kind: 'reservation' as const,
-        dogId: 'dog-bella',
-        googleEventId: 'e-trocou',
-        source: 'google' as const,
-        serviceType: 'daycare' as const,
-        startDate: '2026-09-30',
-        endDate: '2026-09-30',
-        weekdays: null,
-        skipDates: null,
-        status: 'confirmed',
-      },
-    ];
-
-    const plano = planCalendarImport([evento({ id: 'e-trocou', summary: 'Mowgli', startDate: '2026-09-30', endDate: '2026-10-01' })], cadastro, ligada, DA_JANELA);
-
-    expect(plano).toEqual([expect.objectContaining({ kind: 'update', bookingId: 'r-google', dogId: 'dog-mowgli' })]);
+  it('sem nada para cancelar naquele dia, o plano fica vazio (vermelho em dia sem agendamento)', () => {
+    const existentes = [reservaExistente({ id: 'r-outro-dia', dogId: 'dog-pietro', serviceType: 'daycare', startDate: '2026-11-02', endDate: '2026-11-03' })];
+    const plano = planCalendarImport([evento({ id: 'e-red', summary: 'Pietro', colorId: VERMELHO, startDate: '2026-10-06', endDate: '2026-10-07' })], CAES, existentes, JANELA);
+    expect(plano).toEqual([]);
   });
 
-  it('idempotência: sem vínculo, o cão já cadastrado é usado em vez de cadastrar de novo', () => {
-    const cadastro = [{ id: 'dog-kona', name: 'Kona', clientName: 'Kona', clientId: 'cli-kona' }];
-    const plano = planCalendarImport([evento({ id: 'e-kona', summary: 'Kona' })], cadastro, [], DA_JANELA);
-    expect(plano).toEqual([
-      expect.objectContaining({ kind: 'create', eventId: 'e-kona', dogId: 'dog-kona' }),
-    ]);
+  it('vermelho de cão FORA do cadastro aparece na lista (não há reserva para cancelar)', () => {
+    const plano = planCalendarImport([evento({ id: 'e-red', summary: 'Rex', colorId: VERMELHO })], CAES, [], JANELA);
+    expect(plano[0]).toMatchObject({ kind: 'review', reason: 'unknown dog' });
   });
 
-  it('nada com data anterior a hoje é criado, alterado nem cancelado', () => {
+  it('vermelho sobre o evento que já está ligado cancela AQUELE agendamento', () => {
+    const ligada = [reservaExistente({ id: 'r-link', googleEventId: 'e-red', source: 'google', dogId: 'dog-pietro', serviceType: 'daycare' })];
+    const plano = planCalendarImport([evento({ id: 'e-red', summary: 'Pietro', colorId: VERMELHO, startDate: '2026-10-06', endDate: '2026-10-07' })], CAES, ligada, JANELA);
+    expect(plano).toEqual([{ kind: 'cancel', eventId: 'e-red', bookingKind: 'reservation', bookingId: 'r-link' }]);
+  });
+
+  it('vermelho sobre evento de SÉRIE pula o dia em vez de desativar a escala inteira', () => {
+    const serie: BookingForImport = reservaExistente({
+      id: 'serie-kona',
+      kind: 'recurring',
+      dogId: 'dog-pietro',
+      googleEventId: 'e-serie',
+      source: 'google',
+      serviceType: 'daycare',
+      startDate: '2026-09-01',
+      endDate: null,
+      weekdays: [1, 3],
+      skipDates: [],
+      status: 'active',
+    });
+    const plano = planCalendarImport([evento({ id: 'e-serie', summary: 'Pietro', colorId: VERMELHO, startDate: '2026-09-30', endDate: '2026-10-01' })], CAES, [serie], JANELA);
+
+    expect(plano).toEqual([{ kind: 'skip', eventId: 'e-serie', scheduleId: 'serie-kona', date: '2026-09-30' }]);
+    // Nada de `cancel` sobre a série: desativar a escala por causa de um dia apagaria o agendamento.
+    expect(plano.some((item) => item.kind === 'cancel')).toBe(false);
+  });
+});
+
+describe('janela da importação: nada do passado', () => {
+  it('evento de ontem não cria, não altera e não cancela — e nem vira pendência', () => {
     const ontem = '2026-09-23';
     const eventos = [
-      evento({ id: 'e-ontem', summary: 'Kona', startDate: ontem, endDate: ontem }),
-      evento({ id: 'e-hoje', summary: 'Kona', startDate: HOJE, endDate: HOJE }),
+      evento({ id: 'e-ontem', summary: 'Pietro', colorId: VERDE, startDate: ontem, endDate: ontem }),
+      evento({ id: 'e-ontem-sem-titulo', summary: '', colorId: VERDE, startDate: ontem, endDate: ontem }),
+      evento({ id: 'e-hoje', summary: 'Pietro', colorId: VERDE, startDate: '2026-09-24', endDate: '2026-09-24' }),
     ];
-    // Reserva de ONTEM vinda do Google cujo evento sumiu da consulta: não pode ser cancelada.
     const reservaDeOntem = [
-      {
-        id: 'r-ontem',
-        kind: 'reservation' as const,
-        dogId: 'dog-bella',
-        googleEventId: 'e-sumiu-ontem',
-        source: 'google' as const,
-        serviceType: 'daycare' as const,
-        startDate: ontem,
-        endDate: ontem,
-        weekdays: null,
-        skipDates: null,
-        status: 'confirmed',
-      },
+      reservaExistente({ id: 'r-ontem', kind: 'reservation', dogId: 'dog-bella', googleEventId: 'e-sumiu-ontem', source: 'google', startDate: ontem, endDate: ontem }),
     ];
 
-    const plano = planCalendarImport(eventos, [], reservaDeOntem, DA_JANELA);
+    const plano = planCalendarImport(eventos, CAES, reservaDeOntem, DA_JANELA);
 
     expect(plano).toEqual([expect.objectContaining({ kind: 'create', eventId: 'e-hoje' })]);
-  });
-
-  it('evento ligado que mudou para uma data passada não é atualizado', () => {
-    const ligada = [
-      {
-        id: 'r1',
-        kind: 'reservation' as const,
-        dogId: 'dog-bella',
-        googleEventId: 'e-volta',
-        source: 'google' as const,
-        serviceType: 'daycare' as const,
-        startDate: '2026-10-01',
-        endDate: '2026-10-01',
-        weekdays: null,
-        skipDates: null,
-        status: 'confirmed',
-      },
-    ];
-    const plano = planCalendarImport([evento({ id: 'e-volta', summary: 'Bella', startDate: '2026-09-10', endDate: '2026-09-10' })], dogs, ligada, DA_JANELA);
-    expect(plano).toEqual([]);
   });
 });
 

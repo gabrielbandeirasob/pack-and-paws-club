@@ -12,7 +12,7 @@ import { addMonthsISO, monthLabel, monthMatrixISO, summarizeRange, weekDatesISO 
 import { NewReservationForm, type NewReservationPayload } from '@/features/calendar/NewReservationForm';
 import { CalendarConnectionCard } from '@/features/integrations/google/CalendarConnectionCard';
 import type { BookingForImport } from '@/features/integrations/google/importPlan';
-import { toLocalReservations } from '@/features/integrations/google/localReservations';
+import { toLocalReservations, diasPausados } from '@/features/integrations/google/localReservations';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -141,11 +141,13 @@ export default function CalendarScreen() {
           startDate: serie.startDate,
           endDate: serie.endDate,
           weekdays: serie.weekdays,
-          skipDates: null,
+          // As pausas da série já gravadas: o evento VERMELHO usa isso para pular o dia sem repetir a
+          // pausa a cada Sync (mesma função que o espelho usa para escrever os EXDATE).
+          skipDates: diasPausados(serie, exceptions, addDaysISO(todayLocalISO(), 180)),
           status: 'active',
         })),
     ],
-    [reservations, recurring],
+    [reservations, recurring, exceptions],
   );
 
   const grid = useMemo(() => {
@@ -395,7 +397,7 @@ export default function CalendarScreen() {
             <CalendarConnectionCard
               reservations={reservasParaEspelhar}
               organizationId={organizationId ?? ''}
-              dogs={dogs.map((cao) => ({ id: cao.id, name: cao.dogName, clientName: cao.clientName, clientId: cao.clientId ?? null }))}
+              dogs={dogs.map((cao) => ({ id: cao.id, name: cao.dogName, clientName: cao.clientName }))}
               bookings={casosDaImportacao}
               onImported={() => void load({ silent: true })}
             />

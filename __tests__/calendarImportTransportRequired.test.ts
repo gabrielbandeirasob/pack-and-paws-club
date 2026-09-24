@@ -6,14 +6,17 @@
  * era descartado; (2) `transport_required` tem default **false** no banco, então mesmo uma reserva
  * importada não aparecia no Dispatch. A primeira mora em importPlan (coberta lá); esta aqui trava a
  * segunda: quem nasce do Google nasce com transporte marcado.
+ *
+ * O `service_type` que estes testes veem é o da COR do evento (verde boarding / azul daycare) — o
+ * título não decide mais o serviço.
  */
 import { supabaseImportPorts } from '@/features/integrations/google/importPorts';
 import type { ParsedBooking } from '@/features/integrations/google/importPlan';
 
 const parsed: ParsedBooking = {
   serviceType: 'daycare',
+  cancels: false,
   dogName: 'filó',
-  clientName: null,
   startDate: '2026-09-25',
   endDate: '2026-09-25',
   weekdays: [],

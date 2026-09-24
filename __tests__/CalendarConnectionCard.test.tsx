@@ -225,7 +225,7 @@ describe('CalendarConnectionCard', () => {
           title: '',
           date: '2026-10-05',
           reason: 'unreadable',
-          parsed: { serviceType: 'daycare', dogName: '(no title)', clientName: null, startDate: '2026-10-05', endDate: '2026-10-06', weekdays: [], skipDates: [], openEnded: false },
+          parsed: { serviceType: 'daycare', cancels: false, dogName: '(no title)', startDate: '2026-10-05', endDate: '2026-10-06', weekdays: [], skipDates: [], openEnded: false },
         },
       ],
     });
@@ -234,9 +234,66 @@ describe('CalendarConnectionCard', () => {
     await fireEvent.press(screen.getByTestId('google-calendar-sync'));
 
     await waitFor(() => expect(screen.getByTestId('google-calendar-revisao')).toBeTruthy());
+    expect(screen.getByText('From Google — not registered in the app')).toBeTruthy();
     expect(screen.getByText('(no title)')).toBeTruthy();
     expect(screen.getByText(/This event has no title — pick the dog and we save it/)).toBeTruthy();
     expect(screen.getByLabelText('Choose dog for ')).toBeTruthy();
+  });
+
+  it('cão não cadastrado aparece na lista de "not registered" com o motivo', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    runCalendarImport.mockResolvedValue({
+      created: 0,
+      updated: 0,
+      cancelled: 0,
+      failures: [],
+      review: [
+        {
+          eventId: 'e-rex',
+          title: 'Rex',
+          date: '2026-10-05',
+          reason: 'unknown dog',
+          parsed: { serviceType: 'boarding', cancels: false, dogName: 'Rex', startDate: '2026-10-05', endDate: '2026-10-06', weekdays: [], skipDates: [], openEnded: false },
+        },
+      ],
+    });
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+
+    await waitFor(() => expect(screen.getByTestId('google-calendar-revisao')).toBeTruthy());
+    expect(screen.getByText(/No dog with this name in the app — register the dog and sync again/)).toBeTruthy();
+    // O serviço veio da COR, então o gestor ainda pode ligar o evento a um cão daqui.
+    expect(screen.getByLabelText('Choose dog for Rex')).toBeTruthy();
+  });
+
+  it('cor não reconhecida aparece na lista própria e NÃO oferece escolher cão (sem serviço não há reserva)', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    runCalendarImport.mockResolvedValue({
+      created: 0,
+      updated: 0,
+      cancelled: 0,
+      failures: [],
+      review: [
+        {
+          eventId: 'e-sem-cor',
+          title: 'Pietro',
+          date: '2026-10-05',
+          reason: 'unrecognized color',
+          parsed: { serviceType: null, cancels: false, dogName: 'Pietro', startDate: '2026-10-05', endDate: '2026-10-06', weekdays: [], skipDates: [], openEnded: false },
+        },
+      ],
+    });
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+
+    await waitFor(() => expect(screen.getByTestId('google-calendar-cor-desconhecida')).toBeTruthy());
+    expect(screen.getByText('From Google — color not recognized')).toBeTruthy();
+    expect(screen.getByText(/No service in this color — green is boarding, blue is daycare/)).toBeTruthy();
+    // Sem cor o serviço é indefinido: nada de botão para gravar uma reserva sem `service_type`.
+    expect(screen.queryByTestId('google-calendar-revisao')).toBeNull();
+    expect(screen.queryByLabelText('Choose dog for Pietro')).toBeNull();
   });
 
   it('falha da importação mostra o MOTIVO da primeira falha, não só a contagem', async () => {
@@ -279,7 +336,7 @@ describe('CalendarConnectionCard', () => {
           title: 'Boarding · Rex',
           date: '2026-10-05',
           reason: 'duplicate',
-          parsed: { serviceType: 'boarding', dogName: 'Rex', clientName: null, startDate: '2026-10-05', endDate: '2026-10-07', weekdays: [], skipDates: [], openEnded: false },
+          parsed: { serviceType: 'boarding', cancels: false, dogName: 'Rex', startDate: '2026-10-05', endDate: '2026-10-07', weekdays: [], skipDates: [], openEnded: false },
         },
       ],
     });

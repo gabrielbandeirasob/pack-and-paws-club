@@ -25,6 +25,8 @@ function remoteFrom(reservation: LocalReservation, overrides: Partial<RemoteEven
     summary: event.summary,
     startDate: event.start.date,
     endDate: event.end.date,
+    // O que o Google devolve inclui a COR do evento — e é ela que o espelho compara.
+    colorId: event.colorId ?? null,
     recurrence: event.recurrence ?? null,
     ...overrides,
   };
@@ -59,6 +61,23 @@ describe('planCalendarSync', () => {
     expect(event.extendedProperties?.private.packpawsMirror).toBe('v1');
     expect(event.start.date).toBe('2026-09-10');
     expect(event.end.date).toBe('2026-09-11');
+  });
+
+  it('pinta o evento com a cor do serviço (verde boarding, azul daycare)', () => {
+    expect(eventFor(daycare).colorId).toBe('7'); // Peacock
+    expect(eventFor(boarding).colorId).toBe('2'); // Sage
+  });
+
+  it('evento do espelho SEM cor (criado antes desta regra) é atualizado para ganhar a cor', () => {
+    const semCor = remoteFrom(daycare, { colorId: null });
+    const actions = planCalendarSync([daycare], [semCor]);
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toMatchObject({ type: 'update', eventId: 'g-res-1' });
+  });
+
+  it('cor trocada (serviço mudou) também é atualização', () => {
+    const comCorErrada = remoteFrom(daycare, { colorId: '2' });
+    expect(eventsEqual(eventFor(daycare), comCorErrada)).toBe(false);
   });
 
   it('respeita a recorrencia semanal e o fim exclusivo no boarding', () => {

@@ -46,4 +46,16 @@ describe('buildGoogleEvent', () => {
     const event = buildGoogleEvent({ dogName: 'Bob', clientName: 'Maria', serviceType: 'daycare', startDate: '2026-09-08', endDate: '2026-09-08', skipDates: ['2026-09-08'] });
     expect(event.recurrence).toBeUndefined();
   });
+
+  // A COR é o contrato do serviço desde 24/09/2026: o escritório vê o tipo pela cor e a importação lê
+  // o serviço por ela. Se o espelho parar de pintar o evento, a volta perde o serviço.
+  it('paints the event with the service color (boarding green, daycare blue)', () => {
+    expect(buildGoogleEvent({ dogName: 'Bob', clientName: 'Maria', serviceType: 'boarding', startDate: '2026-09-05', endDate: '2026-09-10' }).colorId).toBe('2');
+    expect(buildGoogleEvent({ dogName: 'Bob', clientName: 'Maria', serviceType: 'daycare', startDate: '2026-09-08' }).colorId).toBe('7');
+  });
+
+  it('keeps the color on a recurring series too', () => {
+    const event = buildGoogleEvent({ dogName: 'Luna', clientName: 'John', serviceType: 'daycare', startDate: '2026-09-09', weekdays: [1, 3, 5] });
+    expect(event.colorId).toBe('7');
+  });
 });

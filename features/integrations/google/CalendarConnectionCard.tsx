@@ -8,12 +8,14 @@
  *    (e é cancelada) quando o evento muda/some; reserva que nasceu no app continua com o app.
  *    A janela desta via começa em HOJE (nada do passado entra nem é cancelado).
  *
- * Título que não casa com UM cão do cadastro NÃO fica pendente (decisão do dono, 24/09/2026: "puxe
- * todos os agendamentos do Google do cliente"): o app cria cliente + cão com o nome do título e a
- * reserva nasce em seguida, já ligada ao evento. O vínculo é por EVENTO, então o segundo Sync não
- * repete o cadastro e renomear o cão não cria outro. Só título sem nome nenhum vai para a lista de
- * REVISÃO ("From Google — needs a dog") — junto com a duplicata, que o gestor prefere ligar à
- * reserva que já existe.
+ * REGRA NOVA (dono, 24/09/2026 — inverte o cadastro automático dos builds 52-54): o escritório escreve
+ * no título SÓ o nome do cão e diz o serviço pela COR do evento (verde = boarding, azul = daycare,
+ * vermelho = cancelar aquele dia). O app importa apenas agendamento de cão que JÁ existe no cadastro —
+ * não cria cliente nem cão. Ficam aqui DUAS listas de pendência, para o escritório agir:
+ *   - "not registered in the app": nome que não casa (ou que casa com dois cães) — cadastrar o cão e
+ *     sincronizar de novo; o gestor também pode ligar o evento a um cão do cadastro na hora;
+ *   - "color not recognized": evento sem cor (ou com cor fora do mapa) — pintar o evento e sincronizar
+ *     de novo, porque o app não chuta serviço.
  *
  * CALENDÁRIO (24/09/2026): o escritório guarda os agendamentos num calendário secundário ("bot
  * venda"), então o app passou a LER e ESPELHAR o calendário escolhido pela organização — as duas
@@ -89,10 +91,11 @@ export function dentroDaJanela(reservas: LocalReservation[], janela: { timeMin: 
 
 /** Texto da lista de revisão, por motivo. */
 export function motivoDaRevisao(reason: ImportReviewItem['reason']): string {
-  if (reason === 'unknown dog') return 'No dog with this name in the app';
-  if (reason === 'ambiguous dog') return 'More than one dog with this name — pick the right one';
+  if (reason === 'unknown dog') return 'No dog with this name in the app — register the dog and sync again';
+  if (reason === 'ambiguous dog') return 'More than one dog with this name — the app does not guess which one';
   if (reason === 'duplicate') return 'A booking like this already exists in the app';
-  // Único caso que sobra sem cão: título sem nome nenhum (o resto o app cadastra sozinho).
+  if (reason === 'unrecognized color') return 'No service in this color — green is boarding, blue is daycare';
+  // Único caso que sobra sem nome: título sem nome nenhum (o resto o escritório resolve cadastrando).
   return 'This event has no title — pick the dog and we save it';
 }
 
@@ -136,6 +139,14 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     () => dogs.map((cao) => ({ id: cao.id, dogName: cao.name, clientName: cao.clientName ?? '' })),
     [dogs],
   );
+
+  /**
+   * As pendências em DUAS listas (regra nova): o que o escritório resolve cadastrando o cão — e o
+   * gestor até pode ligar o evento a um cão daqui — e o que só se resolve PINTANDO o evento no
+   * Google. Na segunda o app nem oferece botão: sem cor não existe serviço para gravar.
+   */
+  const naoCadastrados = useMemo(() => revisao.filter((item) => item.reason !== 'unrecognized color'), [revisao]);
+  const coresDesconhecidas = useMemo(() => revisao.filter((item) => item.reason === 'unrecognized color'), [revisao]);
 
   /** Papel de acesso do calendário escolhido (a lista da conta é quem sabe). */
   const acessoDoEscolhido = useMemo(
@@ -258,7 +269,9 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
 
   /** Liga o evento ao cão escolhido: aproveita reserva igual que já existe, senão cria. */
   const resolverRevisao = useCallback(async () => {
-    if (!escolhendo || !caoEscolhido) return;
+    // Sem serviço (cor não reconhecida) não há reserva para gravar: o evento nem mostra o botão, e
+    // esta guarda é a segunda linha de defesa.
+    if (!escolhendo || !caoEscolhido || !escolhendo.parsed.serviceType) return;
     setOcupado('sincronizando');
     setErro(null);
     try {
@@ -414,8 +427,9 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
 
           <Text style={styles.hint}>
             {paraEspelhar.length} booking(s) mirrored to Google. This is a business-only calendar, so every event
-            from today on comes back here — if the title names a dog that is not in the app yet, the dog (and its
-            owner) are created automatically. Only a title with no name at all waits for review.
+            from today on comes back here — the title is the dog's name and the COLOR of the event says the
+            service: green is boarding, blue is daycare, red cancels that day. A dog that is not registered in the
+            app is never created from here: it waits in the list below for you to register it and sync again.
           </Text>
 
           <View style={styles.row}>
@@ -448,10 +462,13 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
             </Text>
           ) : null}
 
-          {revisao.length > 0 ? (
+          {naoCadastrados.length > 0 ? (
             <View style={styles.revisao} testID="google-calendar-revisao">
-              <Text style={styles.revisaoTitulo}>From Google — needs a dog</Text>
-              {revisao.map((item) => (
+              <Text style={styles.revisaoTitulo}>From Google — not registered in the app</Text>
+              <Text style={styles.revisaoDica}>
+                Register the dog in the app and sync again — nothing is created from a Google event.
+              </Text>
+              {naoCadastrados.map((item) => (
                 <View key={item.eventId} style={styles.revisaoItem}>
                   <View style={styles.revisaoTexto}>
                     <Text style={styles.revisaoTituloEvento}>{item.title.trim() || '(no title)'}</Text>
@@ -459,17 +476,41 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
                       {item.date} · {motivoDaRevisao(item.reason)}
                     </Text>
                   </View>
-                  <Pressable
-                    accessibilityLabel={`Choose dog for ${item.title.trim()}`}
-                    accessibilityRole="button"
-                    onPress={() => {
-                      setEscolhendo(item);
-                      setCaoEscolhido(null);
-                    }}
-                    style={styles.revisaoBotao}
-                  >
-                    <Text style={styles.revisaoBotaoTexto}>Choose dog</Text>
-                  </Pressable>
+                  {/* Só oferece o botão quando o serviço é conhecido (a cor diz o serviço): sem isso a
+                      escolha do cão não teria o que gravar. */}
+                  {item.parsed.serviceType ? (
+                    <Pressable
+                      accessibilityLabel={`Choose dog for ${item.title.trim()}`}
+                      accessibilityRole="button"
+                      onPress={() => {
+                        setEscolhendo(item);
+                        setCaoEscolhido(null);
+                      }}
+                      style={styles.revisaoBotao}
+                    >
+                      <Text style={styles.revisaoBotaoTexto}>Choose dog</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {coresDesconhecidas.length > 0 ? (
+            <View style={styles.revisao} testID="google-calendar-cor-desconhecida">
+              <Text style={styles.revisaoTitulo}>From Google — color not recognized</Text>
+              <Text style={styles.revisaoDica}>
+                Paint the event green (boarding), blue (daycare) or red (cancel that day) in Google Calendar and
+                sync again. The app does not guess the service from the title.
+              </Text>
+              {coresDesconhecidas.map((item) => (
+                <View key={item.eventId} style={styles.revisaoItem}>
+                  <View style={styles.revisaoTexto}>
+                    <Text style={styles.revisaoTituloEvento}>{item.title.trim() || '(no title)'}</Text>
+                    <Text style={styles.revisaoData}>
+                      {item.date} · {motivoDaRevisao(item.reason)}
+                    </Text>
+                  </View>
                 </View>
               ))}
             </View>
@@ -642,6 +683,7 @@ const styles = StyleSheet.create({
   error: { color: colors.urgency, fontSize: 12, marginTop: 10 },
   revisao: { borderTopColor: colors.line, borderTopWidth: 1, marginTop: 12, paddingTop: 10 },
   revisaoTitulo: { color: colors.ink, fontSize: 13, fontWeight: '800' },
+  revisaoDica: { color: colors.muted, fontSize: 11, marginTop: 2 },
   revisaoItem: { alignItems: 'center', flexDirection: 'row', gap: 8, marginTop: 8 },
   revisaoTexto: { flex: 1 },
   revisaoTituloEvento: { color: colors.ink, fontSize: 13, fontWeight: '600' },
