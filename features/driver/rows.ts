@@ -9,8 +9,10 @@ export type DriverStopRow = {
   id: string;
   sequence: number;
   status: DriverStop['status'];
+  window_start?: string | null;
   window_end: string | null;
   exact_time: string | null;
+  priority?: 'normal' | 'priority';
   pickup_proof_path?: string | null;
   dropoff_proof_path?: string | null;
   /** marcos carimbados no SERVIDOR (migration 024): a jornada do motorista é deduzida daqui */
@@ -48,6 +50,7 @@ export type DriverStopRow = {
 export type DriverRouteRow = {
   id: string;
   organization_id: string;
+  lock_version: number;
   published_at: string | null;
   /** Configuração da creche (migration 020) - decide se a foto do comprovante é obrigatória. */
   organization: { proof_pickup_required: boolean; proof_dropoff_required: boolean } | null;
@@ -63,6 +66,7 @@ export function rowToStop(row: DriverStopRow): DriverStop {
   const client = dog?.client ?? null;
   return {
     id: row.id,
+    dogId: dog?.id ?? null,
     sequence: row.sequence,
     status: row.status,
     clientName: client?.name?.trim() || UNKNOWN_CLIENT,
@@ -81,7 +85,9 @@ export function rowToStop(row: DriverStopRow): DriverStop {
     skippedAt: row.skipped_at ?? null,
     latitude: client?.latitude ?? null,
     longitude: client?.longitude ?? null,
+    windowStart: row.window_start ? row.window_start.slice(0, 5) : null,
     windowEnd: row.window_end ? row.window_end.slice(0, 5) : null,
     exactTime: row.exact_time ? row.exact_time.slice(0, 5) : null,
+    priority: row.priority ?? 'normal',
   };
 }

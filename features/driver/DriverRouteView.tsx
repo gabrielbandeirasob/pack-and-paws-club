@@ -7,6 +7,8 @@ import { colors, radii } from '@/features/theme/tokens';
 
 export type DriverStop = {
   id: string;
+  /** Id estável usado para persistir a nova ordem da rota. Pode faltar se a RLS esconder o embed. */
+  dogId?: string | null;
   sequence: number;
   status: 'pending' | 'arrived' | 'picked_up' | 'completed' | 'skipped';
   clientName: string;
@@ -34,8 +36,10 @@ export type DriverStop = {
   skippedAt?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  windowStart?: string | null;
   windowEnd?: string | null;
   exactTime?: string | null;
+  priority?: 'normal' | 'priority';
 };
 
 export type DriverAction = 'navigate' | 'arrived' | 'picked_up' | 'completed' | 'problem';

@@ -4,8 +4,10 @@ const fullRow: DriverStopRow = {
   id: 'stop-1',
   sequence: 1,
   status: 'pending',
+  window_start: '07:45:00',
   window_end: '08:15:00',
   exact_time: null,
+  priority: 'priority',
   dog: {
     id: 'dog-1',
     name: 'Marcejamba',
@@ -29,6 +31,7 @@ describe('rowToStop', () => {
 
     expect(stop.clientName).toBe('Raphael Stefan');
     expect(stop.dogName).toBe('Marcejamba');
+    expect(stop.dogId).toBe('dog-1');
     expect(stop.address).toBe('Pier 39');
     expect(stop.city).toBe('San Francisco');
     // Notas de seguranca do cao: o motorista PRECISA ver (antes nao chegavam na tela).
@@ -37,8 +40,10 @@ describe('rowToStop', () => {
     expect(stop.dogPhotoUrl).toContain('/dog-photos/org-1/dog-1/marcejamba.jpg');
     expect(stop.instructions).toBe('Gate code 4321');
     expect(stop.latitude).toBe(37.8087);
+    expect(stop.windowStart).toBe('07:45');
     expect(stop.windowEnd).toBe('08:15'); // seconds trimmed for display
     expect(stop.exactTime).toBeNull();
+    expect(stop.priority).toBe('priority');
   });
 
   it('does not crash when RLS hides the dog embed (the bug from migration 013)', () => {
