@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
 import { DogPicker } from '@/features/calendar/DogPicker';
@@ -8,6 +8,7 @@ import { isPastDeadline, minutesAgo, nextStopEta } from '@/features/driver/eta';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
 import { colors, radii } from '@/features/theme/tokens';
 import { StopProofChips } from '@/features/dispatch/ProofViewer';
+import { showAlert } from '@/features/ui/alert';
 import { plural } from '@/lib/plural';
 
 export type DispatchConstraint = {
@@ -167,7 +168,7 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
 
   const confirmRemove = (route: DispatchRoute, stop: DispatchRouteStop) => {
     const label = `${stop.clientName} · ${stop.dogName}`;
-    Alert.alert('Remove stop', `Remove ${label} from the route?`, [
+    showAlert('Remove stop', `Remove ${label} from the route?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => { setSheet(null); void onRemoveStop(route.routeId, stop.dogId); } },
     ]);

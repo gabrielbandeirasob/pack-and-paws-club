@@ -6,9 +6,36 @@
  * com o tempo — e uma extensao errada so aparece como falha de upload em producao.
  */
 import { EncodingType, readAsStringAsync } from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
 
-/** Extensao normalizada a partir do caminho local (o padrao do iOS e .jpg). */
-export function extensionFor(uri: string): string {
+/** Tipo MIME -> extensao do arquivo. A politica do bucket so aceita imagem. */
+const EXTENSAO_POR_TIPO: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/heic': 'heic',
+  'image/heif': 'heic',
+  'image/webp': 'webp',
+};
+
+/**
+ * Extensao normalizada a partir do caminho local (o padrao do iOS e .jpg).
+ *
+ * Tres origens, nesta ordem:
+ *  1. o TIPO informado pelo seletor de fotos — no navegador o arquivo chega como `blob:` e nao
+ *     tem extensao nenhuma no caminho; sem isso uma foto PNG seria gravada como `.jpg`;
+ *  2. Data URL (`data:image/png;base64,...`) — o tipo esta dentro do proprio caminho;
+ *  3. o nome do arquivo (iOS/Android), com o padrao do iOS quando nao houver nada.
+ */
+export function extensionFor(uri: string, mimeType?: string | null): string {
+  const tipo = (mimeType ?? '').trim().toLowerCase();
+  if (EXTENSAO_POR_TIPO[tipo]) return EXTENSAO_POR_TIPO[tipo];
+
+  const tipoNoDataUrl = /^data:image\/([a-z0-9.+-]+)/i.exec(uri.trim())?.[1]?.toLowerCase();
+  if (tipoNoDataUrl) {
+    return EXTENSAO_POR_TIPO[`image/${tipoNoDataUrl}`] ?? (tipoNoDataUrl === 'jpeg' ? 'jpg' : tipoNoDataUrl);
+  }
+
   const match = /\.(jpe?g|png|heic|webp)$/i.exec(uri.split('?')[0] ?? '');
   if (!match) return 'jpg';
   const ext = match[1].toLowerCase();
@@ -52,10 +79,28 @@ export function isUsablePhoto(bytes: Uint8Array): boolean {
   return bytes.length > 1024; // abaixo disso é arquivo vazio/truncado
 }
 
+/** Bytes de um arquivo do aparelho (iOS/Android): o modulo nativo devolve base64. */
+async function bytesDoArquivo(localUri: string): Promise<Uint8Array> {
+  return base64ToBytes(await readAsStringAsync(localUri, { encoding: EncodingType.Base64 }));
+}
+
+/**
+ * Bytes de um arquivo do NAVEGADOR.
+ *
+ * O `expo-file-system` nao existe no web (o modulo web e vazio, `readAsStringAsync` lanca
+ * `UnavailabilityError`), mas la o caminho do seletor de fotos e um `blob:` do proprio
+ * navegador — e o `fetch` le esses bytes (vale tambem para `data:`). O `fetch` entra por
+ * parametro para o teste dirigir a resposta sem navegador de verdade.
+ */
+export async function readImageBytesWeb(localUri: string, buscar: typeof fetch = fetch): Promise<Uint8Array> {
+  const resposta = await buscar(localUri);
+  if (!resposta.ok) throw new Error('The photo could not be read on this device.');
+  return new Uint8Array(await resposta.arrayBuffer());
+}
+
 /** Le o arquivo local e devolve os bytes da imagem (recusa arquivo vazio/truncado). */
 export async function readImageBytes(localUri: string): Promise<Uint8Array> {
-  const base64 = await readAsStringAsync(localUri, { encoding: EncodingType.Base64 });
-  const bytes = base64ToBytes(base64);
+  const bytes = Platform.OS === 'web' ? await readImageBytesWeb(localUri) : await bytesDoArquivo(localUri);
   if (!isUsablePhoto(bytes)) throw new Error('The photo came out empty. Please take it again.');
   return bytes;
 }

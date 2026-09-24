@@ -13,7 +13,7 @@
  * CARTAO por nome digitado, para o gestor poder anexar a foto antes mesmo de salvar.
  */
 import { useRef, useState } from 'react';
-import { Alert, Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import {
   clientDeletePlan,
@@ -33,6 +33,7 @@ import {
   smsUrl,
 } from '@/features/clients/contactActions';
 import { dogPhotoError, isLocalPhoto, pickDogPhoto, type DogPhotoChoice } from '@/features/dogs/dogPhoto';
+import { showAlert } from '@/features/ui/alert';
 import { navigationOptions } from '@/features/maps/links';
 import { loadPreferredNavApp } from '@/features/maps/preferences';
 import { navigationUrlFor } from '@/features/maps/navigation';
@@ -72,7 +73,7 @@ type Props = {
 async function openDirections(client: EditableClient) {
   const target = directionsTarget(client);
   if (!target) {
-    Alert.alert('No address', 'Add the street and city first — the driver route needs them.');
+    showAlert('No address', 'Add the street and city first — the driver route needs them.');
     return;
   }
   const preferred = await loadPreferredNavApp();
@@ -81,7 +82,7 @@ async function openDirections(client: EditableClient) {
     return;
   }
   const options = navigationOptions(target);
-  Alert.alert('Open route in', undefined, [
+  showAlert('Open route in', undefined, [
     { text: options[0].label, onPress: () => void Linking.openURL(options[0].url) },
     { text: options[1].label, onPress: () => void Linking.openURL(options[1].url) },
     { text: 'Cancel', style: 'cancel' },
@@ -109,7 +110,7 @@ async function escolherFotoDaGaleria(choice: DogPhotoChoice): Promise<string | n
   try {
     return await pickDogPhoto(choice);
   } catch (reason) {
-    Alert.alert('Photo not attached', dogPhotoError(reason));
+    showAlert('Photo not attached', dogPhotoError(reason));
     return null;
   }
 }
@@ -133,7 +134,7 @@ function DogCard({ name, photo, values, removed, isNew, editable = true, onChang
   const podeEditar = editable && !removed;
 
   const escolher = () => {
-    Alert.alert(
+    showAlert(
       photo ? `Change ${apelido}'s photo` : `Add ${apelido}'s photo`,
       'The photo is how the driver recognizes the dog at the door.',
       [
@@ -224,7 +225,7 @@ export function EditClientForm({ current, dogs, instructions, active, impact, sa
       setRemovedDogIds((prev) => prev.filter((id) => id !== dog.id));
       return;
     }
-    Alert.alert(
+    showAlert(
       `Remove ${dog.name || 'this dog'}?`,
       dogRemovalMessage(dog.name),
       [

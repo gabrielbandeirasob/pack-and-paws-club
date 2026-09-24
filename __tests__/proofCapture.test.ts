@@ -6,12 +6,14 @@ import {
   isUsablePhoto,
   proofColumn,
   proofErrorMessage,
+  proofFailureHandling,
   proofKindForAction,
   proofPath,
   proofRequired,
   readProofBytes,
   uploadProof,
 } from '@/features/driver/proofCapture';
+import { readImageBytesWeb } from '@/features/media/imageFile';
 
 jest.mock('expo-file-system/legacy', () => ({
   EncodingType: { Base64: 'base64' },
@@ -95,6 +97,32 @@ describe('caminho do arquivo no bucket', () => {
     expect(contentTypeFor('png')).toBe('image/png');
     expect(contentTypeFor('jpg')).toBe('image/jpeg');
   });
+
+  // O seletor do NAVEGADOR entrega a foto como `blob:` — sem extensao nenhuma no caminho.
+  // Sem olhar o tipo informado, uma foto PNG era gravada como `.jpg`.
+  it('usa o TIPO informado pelo seletor quando o caminho nao tem extensao', () => {
+    expect(extensionFor('blob:http://127.0.0.1:8791/9f0a-2', 'image/png')).toBe('png');
+    expect(extensionFor('blob:http://127.0.0.1:8791/9f0a-2', 'image/jpeg')).toBe('jpg');
+    expect(extensionFor('blob:http://127.0.0.1:8791/9f0a-2', 'image/heic')).toBe('heic');
+  });
+
+  it('le o tipo dentro do data URL', () => {
+    expect(extensionFor('data:image/png;base64,QUI=')).toBe('png');
+    expect(extensionFor('data:image/jpeg;base64,QUI=')).toBe('jpg');
+    expect(extensionFor('data:image/webp;base64,QUI=')).toBe('webp');
+  });
+
+  it('o caminho do APARELHO continua mandando quando nao ha tipo (iOS nao muda)', () => {
+    expect(extensionFor('file:///var/mobile/foto.HEIC', null)).toBe('heic');
+    expect(extensionFor('file:///var/mobile/foto.png', null)).toBe('png');
+    expect(extensionFor('file:///var/mobile/foto')).toBe('jpg');
+  });
+
+  it('o caminho no bucket acompanha o tipo (blob do navegador vira .png)', () => {
+    const caminho = proofPath('org-1', 'stop-1', 'pickup', 'blob:http://x/9f0a', new Date('2026-09-12T14:31:07.123Z'), 'image/png');
+    expect(caminho.endsWith('.png')).toBe(true);
+    expect(caminho).toContain('pickup-2026-09-12T14-31-07-123Z');
+  });
 });
 
 describe('conversao da foto (base64 -> bytes)', () => {
@@ -149,6 +177,16 @@ describe('upload', () => {
     await expect(uploadProof(cliente, 'file:///tmp/foto.jpg', 'x.jpg')).rejects.toThrow(/empty/i);
     expect(upload).not.toHaveBeenCalled();
   });
+
+  it('o tipo do arquivo acompanha a foto (blob PNG nao sobe como image/jpeg)', async () => {
+    fileSystem.readAsStringAsync.mockResolvedValue(fotoGrande);
+    const { cliente, upload } = clienteFalso({ error: null });
+    await uploadProof(cliente, 'blob:http://127.0.0.1:8791/9f0a-2', 'org/stop/pickup-x.png', 'image/png');
+    expect(upload).toHaveBeenCalledWith('org/stop/pickup-x.png', expect.any(Uint8Array), {
+      contentType: 'image/png',
+      upsert: false,
+    });
+  });
 });
 
 describe('captura pela camera ou galeria', () => {
@@ -163,17 +201,26 @@ describe('captura pela camera ou galeria', () => {
     expect(await captureProofPhoto('camera')).toBeNull();
   });
 
-  it('camera devolve o caminho local do arquivo', async () => {
+  it('camera devolve o caminho local do arquivo e o tipo informado', async () => {
     picker.requestCameraPermissionsAsync.mockResolvedValue({ granted: true });
-    picker.launchCameraAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///tmp/nova.jpg' }] });
-    expect(await captureProofPhoto('camera')).toBe('file:///tmp/nova.jpg');
+    picker.launchCameraAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///tmp/nova.jpg', mimeType: 'image/jpeg' }] });
+    expect(await captureProofPhoto('camera')).toEqual({ uri: 'file:///tmp/nova.jpg', mimeType: 'image/jpeg' });
   });
 
-  it('galeria pede a permissao certa', async () => {
+  it('na galeria do APARELHO o caminho ja traz a extensao', async () => {
     picker.requestMediaLibraryPermissionsAsync.mockResolvedValue({ granted: true });
     picker.launchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///tmp/antiga.png' }] });
-    expect(await captureProofPhoto('library')).toBe('file:///tmp/antiga.png');
+    expect(await captureProofPhoto('library')).toEqual({ uri: 'file:///tmp/antiga.png', mimeType: null });
     expect(picker.requestMediaLibraryPermissionsAsync).toHaveBeenCalled();
+  });
+
+  it('no NAVEGADOR a foto vem como blob e o tipo e o unico sinal da extensao', async () => {
+    picker.requestMediaLibraryPermissionsAsync.mockResolvedValue({ granted: true });
+    picker.launchImageLibraryAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'blob:http://127.0.0.1:8791/9f0a-2', mimeType: 'image/png' }],
+    });
+    expect(await captureProofPhoto('library')).toEqual({ uri: 'blob:http://127.0.0.1:8791/9f0a-2', mimeType: 'image/png' });
   });
 });
 
@@ -187,5 +234,40 @@ describe('mensagem para o motorista', () => {
   it('sem erro conhecido, mostra a mensagem original (nunca vazia)', () => {
     expect(proofErrorMessage(new Error('Storage full'))).toBe('Storage full');
     expect(proofErrorMessage(null)).toBe('Could not attach the proof photo.');
+  });
+});
+
+describe('leitura da foto no NAVEGADOR (o caminho do blob)', () => {
+  const bytes = new Uint8Array([1, 2, 3, 4]);
+
+  it('le os bytes do arquivo escolhido no navegador', async () => {
+    const buscar = jest.fn().mockResolvedValue({ ok: true, arrayBuffer: async () => bytes.buffer });
+    expect(Array.from(await readImageBytesWeb('blob:http://127.0.0.1:8791/9f0a-2', buscar as unknown as typeof fetch))).toEqual([1, 2, 3, 4]);
+    expect(buscar).toHaveBeenCalledWith('blob:http://127.0.0.1:8791/9f0a-2');
+  });
+
+  it('arquivo que nao pode ser lido vira erro explicavel (e NAO "sem conexao")', async () => {
+    const buscar = jest.fn().mockResolvedValue({ ok: false, arrayBuffer: async () => new ArrayBuffer(0) });
+    await expect(readImageBytesWeb('blob:http://127.0.0.1:8791/sumiu', buscar as unknown as typeof fetch)).rejects.toThrow(/could not be read/i);
+  });
+});
+
+describe('o que fazer quando o passo NAO grava', () => {
+  it('falha de rede: fila local (o passo e a foto sobem depois)', () => {
+    expect(proofFailureHandling({ networkError: true, hasProof: true, proofRequired: true })).toBe('queue');
+    expect(proofFailureHandling({ networkError: true, hasProof: false, proofRequired: false })).toBe('queue');
+  });
+
+  it('foto OPCIONAL que nao subiu: grava o passo sem ela (o motorista podia ter pulado)', () => {
+    expect(proofFailureHandling({ networkError: false, hasProof: true, proofRequired: false })).toBe('without-photo');
+  });
+
+  it('foto OBRIGATORIA que nao subiu: o cartao volta ao estado do banco', () => {
+    expect(proofFailureHandling({ networkError: false, hasProof: true, proofRequired: true })).toBe('revert');
+  });
+
+  it('falha de escrita sem foto: tambem volta (nada de "Completed" que o banco nao tem)', () => {
+    expect(proofFailureHandling({ networkError: false, hasProof: false, proofRequired: false })).toBe('revert');
+    expect(proofFailureHandling({ networkError: false, hasProof: false, proofRequired: true })).toBe('revert');
   });
 });

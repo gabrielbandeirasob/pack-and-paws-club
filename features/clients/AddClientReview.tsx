@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radii } from '@/features/theme/tokens';
 import { dogPhotoKey, splitDogNames, type ExistingContactClient } from '@/features/clients/clientsService';
 import { dogPhotoError, pickDogPhoto, type DogPhotoChoice } from '@/features/dogs/dogPhoto';
+import { showAlert } from '@/features/ui/alert';
 import type { NewClientInput } from '@/features/clients/types';
 
 type Props = {
@@ -47,10 +48,10 @@ export function AddClientReview({ initial, existingClient = null, initialDogName
         const uri = await pickDogPhoto(choice);
         if (uri) setDogPhotos((prev) => ({ ...prev, [dogPhotoKey(nome)]: uri }));
       } catch (reason) {
-        Alert.alert('Photo not attached', dogPhotoError(reason));
+        showAlert('Photo not attached', dogPhotoError(reason));
       }
     };
-    Alert.alert(
+    showAlert(
       atual ? `Change ${nome}'s photo` : `Add ${nome}'s photo`,
       'The photo is how the driver recognizes the dog at the door.',
       [

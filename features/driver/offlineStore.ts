@@ -17,6 +17,8 @@ export type DriverEvent = {
     localUri: string;
     path: string;
     capturedAt: string;
+    /** Tipo do arquivo informado pelo seletor (no navegador o caminho e um `blob:` sem extensao). */
+    mimeType?: string | null;
   };
 };
 

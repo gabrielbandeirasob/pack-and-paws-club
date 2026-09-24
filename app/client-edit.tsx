@@ -5,7 +5,7 @@
  * que vai junto — reservas e passagem pelas rotas somem em cascata no banco).
  */
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
@@ -27,6 +27,7 @@ import {
   deleteDogPhoto,
   storeDogPhoto,
 } from '@/features/dogs/dogPhoto';
+import { showAlert } from '@/features/ui/alert';
 import { colors } from '@/features/theme/tokens';
 import { fillClientCoordinates } from '@/features/maps/geocodeService';
 import { supabase } from '@/lib/supabase';
@@ -229,7 +230,7 @@ export default function ClientEditScreen() {
       setDeleting(false);
       if (deleteError) { setError(deleteError.message); return; }
       if (!podeDesfazer) { router.back(); return; }
-      Alert.alert(
+      showAlert(
         'Client deleted',
         `${loaded.current.name} was removed. Nothing else was linked to this client, so it can still be put back exactly as it was.`,
         [
@@ -239,7 +240,7 @@ export default function ClientEditScreen() {
       );
     };
 
-    const botoes: Parameters<typeof Alert.alert>[2] = [{ text: 'Cancel', style: 'cancel' }];
+    const botoes: Parameters<typeof showAlert>[2] = [{ text: 'Cancel', style: 'cancel' }];
     if (plan.offerArchive) {
       botoes.push({ text: 'Keep history (inactive)', onPress: () => void arquivarCliente() });
     }
@@ -248,7 +249,7 @@ export default function ClientEditScreen() {
       style: 'destructive',
       onPress: () => {
         if (!plan.hasHistory) { void apagarDeVerdade(); return; }
-        Alert.alert(
+        showAlert(
           'Last check',
           `Permanently delete “${loaded.current.name}” and the history of ${loaded.impact.reservations} booking(s) and ${loaded.impact.routeStops} route stop(s)?`,
           [
@@ -260,7 +261,7 @@ export default function ClientEditScreen() {
       },
     });
 
-    Alert.alert(plan.title, plan.message, botoes);
+    showAlert(plan.title, plan.message, botoes);
   };
 
   /** Reinsere cliente, caes e instrucoes com os MESMOS ids. */
