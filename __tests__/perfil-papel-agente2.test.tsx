@@ -22,17 +22,22 @@ jest.mock('@/features/auth/AuthProvider', () => ({
 
 jest.mock('expo-router', () => ({ router: { push: jest.fn(), replace: jest.fn() } }));
 
-jest.mock('@/lib/supabase', () => ({
-  supabase: {
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          maybeSingle: async () => ({ data: { full_name: 'Alex Rivera' }, error: null }),
-        }),
-      }),
-    }),
-  },
-}));
+jest.mock('@/lib/supabase', () => {
+  // Cadeia tolerante: o perfil faz DUAS consultas (profiles e organization_members) com filtros diferentes.
+  const cadeia = (resultado: unknown) => {
+    const no: Record<string, unknown> = {};
+    for (const metodo of ['select', 'eq', 'order', 'limit']) no[metodo] = () => no;
+    no.maybeSingle = async () => ({ data: resultado, error: null });
+    return no;
+  };
+  return {
+    supabase: {
+      from: (tabela: string) => cadeia(tabela === 'organization_members'
+        ? { created_at: '2026-03-14T12:00:00Z' }
+        : { full_name: 'Alex Rivera' }),
+    },
+  };
+});
 
 import PerfilDaConta from '../app/(tabs)/profile';
 
@@ -45,6 +50,8 @@ it('perfil do GESTOR mostra Manager e NUNCA Driver', async () => {
   expect(tela.getByText('PACK & PAWS CLUB · MANAGER')).toBeTruthy();
   expect(tela.queryByText('Driver')).toBeNull();
   expect(tela.queryByText('PACK & PAWS CLUB · DRIVER')).toBeNull();
+  // Melhoria 4: o perfil mostra desde quando a conta existe na organização.
+  await waitFor(() => expect(tela.getByText('Member since March 2026')).toBeTruthy());
 });
 
 it('perfil do MOTORISTA mostra Driver', async () => {

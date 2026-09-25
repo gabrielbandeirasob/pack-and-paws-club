@@ -4,7 +4,7 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
 import { DogPicker } from '@/features/calendar/DogPicker';
 import type { DogRef } from '@/features/calendar/dayMath';
-import { isPastDeadline, minutesAgo, nextStopEta } from '@/features/driver/eta';
+import { frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
 import { colors, radii } from '@/features/theme/tokens';
 import { StopProofChips } from '@/features/dispatch/ProofViewer';
@@ -198,6 +198,9 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
           const route = routesByDriver.get(driver.id);
           const stops = route ? [...route.stops].sort((a, b) => a.sequence - b.sequence) : [];
           const location = driverLocations[driver.id];
+          // Idade da última posição: a tela avisa quando fica velha e ESCONDE o ETA quando é antiga
+          // demais (melhoria 3 da revisão das contas) — número calculado de posição velha engana.
+          const frescor = location ? frescorDaPosicao(location.updatedAt) : null;
           const eta = route && stops.length > 0
             ? nextStopEta(
                 stops.map((stop) => ({
@@ -226,9 +229,12 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
                     <Text style={styles.driverName}>{driver.name}</Text>
                     <Text style={styles.muted}>{stops.length} stop{stops.length === 1 ? '' : 's'}{route?.status === 'published' ? ' · Published' : route ? ' · Draft' : ''}</Text>
                     {route && stops.length > 0 ? (
-                      <Text style={[styles.muted, eta?.lateMinutes ? styles.lateText : null]}>
-                        {location ? `📍 ${minutesAgo(location.updatedAt)} min ago` : '📍 not sharing'}
-                        {eta ? ` · ~${eta.minutes} min to ${eta.dogName}` : ''}
+                      <Text style={[styles.muted, eta?.lateMinutes || frescor?.velha ? styles.lateText : null]}>
+                        {location && frescor
+                          ? `📍 ${frescor.texto}${frescor.muitoVelha ? ' · ⚠️ position stale' : frescor.velha ? ' · ⚠️ going stale' : ''}`
+                          : '📍 not sharing'}
+                        {eta && !frescor?.muitoVelha ? ` · ~${eta.minutes} min to ${eta.dogName}` : ''}
+                        {eta && frescor?.muitoVelha ? ' · ETA hidden (position too old)' : ''}
                         {eta && eta.lateMinutes > 0 ? ` · ⚠️ ${eta.lateMinutes} min late` : ''}
                       </Text>
                     ) : null}
