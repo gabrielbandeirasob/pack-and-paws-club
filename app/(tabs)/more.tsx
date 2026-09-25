@@ -7,9 +7,13 @@ import { colors, radii } from '@/features/theme/tokens';
 import { appVersionLabel, supportMailUrl } from '@/features/common/support';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 
 export default function MoreScreen() {
   const { session } = useAuth();
+  const { role } = useOrganizationRole();
+  /** Só o gestor vê "Team" e "Activity" (ver o comentário na lista). */
+  const papel = role;
   const version = appVersionLabel({
     version: Constants.expoConfig?.version,
     build: Constants.expoConfig?.ios?.buildNumber,
@@ -25,10 +29,21 @@ export default function MoreScreen() {
         <Text style={styles.title}>More</Text>
       </View>
       <View style={styles.list}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Team" onPress={() => router.push('/drivers')} style={styles.row}>
-          <View><Text style={styles.rowTitle}>Team</Text><Text style={styles.rowHint}>Invite drivers and managers, and remove whoever left</Text></View>
-          <Text style={styles.chevron}>›</Text>
-        </Pressable>
+        {/* "Team" e "Activity" são do GESTOR: até 25/09/2026 o motorista também via "Team" (com o texto
+            "invite drivers and managers") no próprio menu — a tela não fazia nada por RLS, mas o convite
+            errado no menu confundia e não é assunto dele. */}
+        {papel === 'manager' ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Team" onPress={() => router.push('/drivers')} style={styles.row}>
+            <View><Text style={styles.rowTitle}>Team</Text><Text style={styles.rowHint}>Invite drivers and managers, and remove whoever left</Text></View>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
+        ) : null}
+        {papel === 'manager' ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Activity" onPress={() => router.push('/activity')} style={styles.row}>
+            <View><Text style={styles.rowTitle}>Activity</Text><Text style={styles.rowHint}>Who did what — clients, bookings, routes and shifts</Text></View>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
+        ) : null}
         <Pressable accessibilityRole="button" accessibilityLabel="Route history" onPress={() => router.push('/route-history')} style={styles.row}>
           <View><Text style={styles.rowTitle}>Route history</Text><Text style={styles.rowHint}>Past routes, what was done and what was missed</Text></View>
           <Text style={styles.chevron}>›</Text>
