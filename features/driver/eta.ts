@@ -96,6 +96,11 @@ export function frescorDaPosicao(isoTimestamp: string, agora: Date = new Date())
   };
 }
 
+/** Acima disso o ETA do motorista não ajuda ninguém: vira "~23324 min away" (16 dias!) quando o
+ *  aparelho está longe das paradas (ex.: demo no Brasil com clientes nos EUA). Defeito visto no
+ *  print do dono em 25/09/2026 — acima de 4 h a tela passa a dizer que está longe, sem inventar número. */
+export const ETA_MAXIMO_PLAUSIVEL_MIN = 240;
+
 /**
  * Atraso projetado para UMA parada: quanto a chegada passaria da janela/horário exato.
  * Mesma conta do banner da próxima parada, usada no botão "avisar o tutor" (âmbar quando atrasa).

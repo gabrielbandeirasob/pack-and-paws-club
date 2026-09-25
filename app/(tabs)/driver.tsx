@@ -8,7 +8,7 @@ import { DriverRouteView, type DriverAction, type DriverStop } from '@/features/
 import { DriverRouteOptimizerCard } from '@/features/driver/DriverRouteOptimizerCard';
 import { resolveDriverOptimizationOrigin } from '@/features/driver/driverRouteLocation';
 import { optimizeDriverRoute, type DriverRouteStop } from '@/features/driver/driverRouteOptimizer';
-import { lateMinutesForStop, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
+import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
 import { etaMessageText, etaNoticeError, messengerLink, phaseForStop, type Messenger } from '@/features/driver/etaMessage';
 import { NotifyOwnerSheet } from '@/features/driver/NotifyOwnerSheet';
 import { savePendingWrites, enqueuePending, flushPendingWrites, loadPendingWrites, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
@@ -807,7 +807,7 @@ export default function DriverTodayScreen() {
           <Text style={[styles.etaText, eta.lateMinutes > 0 && styles.etaTextLate]}>
             {eta.lateMinutes > 0
               ? `⚠️ Running ${eta.lateMinutes} min late for ${eta.clientName} · ${eta.dogName}`
-              : `Next: ${eta.clientName} · ${eta.dogName} — ~${eta.minutes} min away${position ? '' : ' (sharing location…)'}`}
+              : `Next: ${eta.clientName} · ${eta.dogName} — ${eta.minutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${eta.minutes} min away` : 'far from your stops'}${position ? '' : ' (sharing location…)'}`}
           </Text>
         </View>
       ) : null}

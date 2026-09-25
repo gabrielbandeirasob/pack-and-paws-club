@@ -1,6 +1,7 @@
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { notifyButtonState } from '@/features/driver/etaMessage';
+import { ETA_MAXIMO_PLAUSIVEL_MIN } from '@/features/driver/eta';
 import { clockText } from '@/features/driver/shift';
 import { agruparEmTarefas, posicoesDasParadas } from '@/features/driver/tasks';
 import { RouteMap } from '@/features/maps/RouteMap';
@@ -146,7 +147,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
             {stop.exactTime ? <Text style={styles.deadline}>⏱ Must arrive by {stop.exactTime}</Text> : stop.windowEnd ? <Text style={styles.deadline}>⏱ Window until {stop.windowEnd}</Text> : null}
             {!done && stop.etaMinutes != null ? (
               <Text style={[styles.eta, (stop.lateMinutes ?? 0) > 0 && styles.etaLate]}>
-                ~{stop.etaMinutes} min away{(stop.lateMinutes ?? 0) > 0 ? ` · ${stop.lateMinutes} min late` : ''}
+                {stop.etaMinutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${stop.etaMinutes} min away` : 'far from your stops'}{(stop.lateMinutes ?? 0) > 0 ? ` · ${stop.lateMinutes} min late` : ''}
               </Text>
             ) : null}
             {stop.etaNoticeAt ? <Text style={styles.notified}>Owner notified at {clockText(stop.etaNoticeAt)}</Text> : null}
