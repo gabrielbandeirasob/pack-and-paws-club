@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, View, type AlertButton } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, type AlertButton } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -796,80 +796,100 @@ export default function DriverTodayScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.eyebrow}>PACK & PAWS CLUB · DRIVER</Text>
-        <Text style={styles.title}>Today&apos;s Route</Text>
-        {publishedAt || stops.length > 0 ? <Text style={styles.date}>{todayLocalISO()}</Text> : null}
-      </View>
-      {offline || pendingSync + pendingWrites.length > 0 ? (
-        <View style={styles.offlineBanner} accessibilityRole="alert">
-          <Text style={styles.offlineText}>
-            {offline ? '📡 Offline — showing the saved route. ' : ''}
-            {pendingSync + pendingWrites.length > 0
-              ? `${pendingSync + pendingWrites.length} change${pendingSync + pendingWrites.length === 1 ? '' : 's'} waiting to sync.`
-              : 'Changes will sync when you are back online.'}
-          </Text>
+      {/*
+       * ROLAGEM ÚNICA vertical — defeito relatado pelo dono em 25/09/2026 ("ainda não estou
+       * conseguindo arrastar a página pra baixo"). Antes desta mudança o ÚNICO componente rolável
+       * da tela era o ScrollView de dentro do DriverRouteView (mapa + lista de paradas): o
+       * cabeçalho, a linha "Next:" e os cartões SMART ROUTE / JOURNEY / NEXT STOP ficavam presos no
+       * topo e o conteúdo de baixo não era alcançável. Agora cabeçalho + avisos + cartões +
+       * DriverRouteView rolam JUNTOS neste único ScrollView (o scroller interno virou View).
+       * A tab bar do expo-router vive fora desta árvore, então não é empurrada nem quebra.
+       */}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+      >
+        <View style={styles.header}>
+          <Text style={styles.eyebrow}>PACK & PAWS CLUB · DRIVER</Text>
+          <Text style={styles.title}>Today&apos;s Route</Text>
+          {publishedAt || stops.length > 0 ? <Text style={styles.date}>{todayLocalISO()}</Text> : null}
         </View>
-      ) : null}
-      {eta ? (
-        <View style={[styles.etaBanner, eta.lateMinutes > 0 && styles.etaBannerLate]} accessibilityRole="alert">
-          <Text style={[styles.etaText, eta.lateMinutes > 0 && styles.etaTextLate]}>
-            {eta.lateMinutes > 0
-              ? `⚠️ Running ${eta.lateMinutes} min late for ${eta.clientName} · ${eta.dogName}`
-              : `Next: ${eta.clientName} · ${eta.dogName} — ${eta.minutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${eta.minutes} min away` : 'far from your stops'}${position ? '' : ' (sharing location…)'}`}
-          </Text>
-        </View>
-      ) : null}
-      <View style={styles.body}>
-        {loading ? <ActivityIndicator style={styles.center} color={colors.gold} size="large" /> : stops.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyEmoji}>🚚</Text>
-            <Text style={styles.emptyTitle}>No published route today</Text>
-            <Text style={styles.emptyText}>When the manager publishes your route, it will appear here with every stop and instruction.</Text>
+        {offline || pendingSync + pendingWrites.length > 0 ? (
+          <View style={styles.offlineBanner} accessibilityRole="alert">
+            <Text style={styles.offlineText}>
+              {offline ? '📡 Offline — showing the saved route. ' : ''}
+              {pendingSync + pendingWrites.length > 0
+                ? `${pendingSync + pendingWrites.length} change${pendingSync + pendingWrites.length === 1 ? '' : 's'} waiting to sync.`
+                : 'Changes will sync when you are back online.'}
+            </Text>
           </View>
-        ) : (
-          <>
-            {/* A rota nasce onde o motorista está; o gestor continua decidindo QUAIS cães entram. */}
-            <View style={styles.routeTools}>
-              <DriverRouteOptimizerCard
-                pendingStops={stops.filter((stop) => stop.status === 'pending').length}
-                busy={optimizeBusy}
-                hasLocation={position !== null}
-                onOptimize={optimizeFromCurrentLocation}
-              />
-            </View>
-            {/* Jornada do dia (deduzida da rota; manual só na exceção) */}
-            <View style={styles.jornada}>
-              <ShiftCard
-                state={journey}
-                pendingCount={pendingWrites.length}
-                busy={shiftBusy}
-                error={shiftError}
-                onClockIn={(motivo) => void clockIn(motivo)}
-                onClockOut={(motivo) => void clockOut(motivo)}
-              />
-            </View>
-            {/* NEXT STOP: a próxima parada e as 3 ações primárias (navegar / cheguei / foto),
-                sempre no mesmo lugar — logo abaixo do otimizador e ACIMA da lista de paradas.
-                Nenhuma lógica de gravação nova: os callbacks chamam o `act` que já existe. */}
-            <View style={styles.nextStop}>
-              <NextStopCard
-                stop={proximaParada}
-                nextAction={proximaParada ? nextActionForStatus(proximaParada.status) : null}
-                proofAction={proximaParada ? proofActionForStatus(proximaParada.status) : null}
-                onNavigate={(stop) => void act(stop.id, 'navigate')}
-                onAction={(stopId, action) => void act(stopId, action)}
-              />
-            </View>
-            <DriverRouteView stops={stopsComEta} onAction={act} onNotifyOwner={(stop) => setNotifyStop(stop)} />
-          </>
-        )}
-        {message ? (
-          <Pressable accessibilityRole="button" onPress={() => setMessage(null)} style={styles.message}>
-            <Text style={styles.messageText}>{message}</Text>
-          </Pressable>
         ) : null}
-      </View>
+        {eta ? (
+          <View style={[styles.etaBanner, eta.lateMinutes > 0 && styles.etaBannerLate]} accessibilityRole="alert">
+            <Text style={[styles.etaText, eta.lateMinutes > 0 && styles.etaTextLate]}>
+              {eta.lateMinutes > 0
+                ? `⚠️ Running ${eta.lateMinutes} min late for ${eta.clientName} · ${eta.dogName}`
+                : `Next: ${eta.clientName} · ${eta.dogName} — ${eta.minutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${eta.minutes} min away` : 'far from your stops'}${position ? '' : ' (sharing location…)'}`}
+            </Text>
+          </View>
+        ) : null}
+        <View style={styles.body}>
+          {loading ? <ActivityIndicator style={styles.center} color={colors.gold} size="large" /> : stops.length === 0 ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyEmoji}>🚚</Text>
+              <Text style={styles.emptyTitle}>No published route today</Text>
+              <Text style={styles.emptyText}>When the manager publishes your route, it will appear here with every stop and instruction.</Text>
+            </View>
+          ) : (
+            <>
+              {/* A rota nasce onde o motorista está; o gestor continua decidindo QUAIS cães entram. */}
+              <View style={styles.routeTools}>
+                <DriverRouteOptimizerCard
+                  pendingStops={stops.filter((stop) => stop.status === 'pending').length}
+                  busy={optimizeBusy}
+                  hasLocation={position !== null}
+                  onOptimize={optimizeFromCurrentLocation}
+                />
+              </View>
+              {/* Jornada do dia (deduzida da rota; manual só na exceção) */}
+              <View style={styles.jornada}>
+                <ShiftCard
+                  state={journey}
+                  pendingCount={pendingWrites.length}
+                  busy={shiftBusy}
+                  error={shiftError}
+                  onClockIn={(motivo) => void clockIn(motivo)}
+                  onClockOut={(motivo) => void clockOut(motivo)}
+                />
+              </View>
+              {/* NEXT STOP: a próxima parada e as 3 ações primárias (navegar / cheguei / foto),
+                  sempre no mesmo lugar — logo abaixo do otimizador e ACIMA da lista de paradas.
+                  Nenhuma lógica de gravação nova: os callbacks chamam o `act` que já existe. */}
+              <View style={styles.nextStop}>
+                <NextStopCard
+                  stop={proximaParada}
+                  nextAction={proximaParada ? nextActionForStatus(proximaParada.status) : null}
+                  proofAction={proximaParada ? proofActionForStatus(proximaParada.status) : null}
+                  onNavigate={(stop) => void act(stop.id, 'navigate')}
+                  onAction={(stopId, action) => void act(stopId, action)}
+                />
+              </View>
+              <DriverRouteView stops={stopsComEta} onAction={act} onNotifyOwner={(stop) => setNotifyStop(stop)} />
+            </>
+          )}
+        </View>
+      </ScrollView>
+      {/* Aviso flutuante: fica FORA do ScrollView para continuar colado no rodapé da TELA (antes
+          vivia no corpo, que tinha flex:1 e ocupava a tela inteira). Dentro do scroller ele herdaria
+          a altura do conteúdo e rolaria embora do campo de visão do motorista. */}
+      {message ? (
+        <Pressable accessibilityRole="button" onPress={() => setMessage(null)} style={styles.message}>
+          <Text style={styles.messageText}>{message}</Text>
+        </Pressable>
+      ) : null}
       <NavigationSheet
         visible={navTarget !== null}
         target={navTarget?.target ?? null}
@@ -896,6 +916,10 @@ export default function DriverTodayScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.forest700 },
+  /** ScrollView externo = o ÚNICO scroller vertical da tela do motorista. */
+  scroll: { flex: 1 },
+  /** flexGrow: 1 deixa o conteúdo curto (loading / rota vazia) preencher a tela com o fundo creme. */
+  scrollContent: { flexGrow: 1 },
   header: { backgroundColor: colors.forest700, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 24, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
   eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
   title: { color: 'white', fontFamily: 'serif', fontSize: 28, fontWeight: '800', marginTop: 6 },
@@ -906,7 +930,8 @@ const styles = StyleSheet.create({
   etaBannerLate: { backgroundColor: '#FBEAE6' },
   etaText: { color: colors.forest900, fontSize: 12, fontWeight: '800', textAlign: 'center' },
   etaTextLate: { color: colors.urgency },
-  body: { flex: 1, backgroundColor: colors.cream },
+  /** flexGrow (não flex) = o corpo flui junto no ScrollView único; flex: 1 aqui prenderia a rolagem. */
+  body: { flexGrow: 1, backgroundColor: colors.cream },
   routeTools: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 2 },
   jornada: { paddingHorizontal: 16, paddingTop: 2, paddingBottom: 2 },
   /** Espaço do painel NEXT STOP: mesmo respiro horizontal do otimizador e da jornada. */
