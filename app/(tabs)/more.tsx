@@ -44,6 +44,15 @@ export default function MoreScreen() {
             <Text style={styles.chevron}>›</Text>
           </Pressable>
         ) : null}
+        {/* Sede/van por organização (pedido da operação, 25/09/2026): é aqui que o gestor diz onde
+            cada driver começa e termina — e onde o clock in abre. Só o gestor: o motorista não
+            cadastra a própria van. */}
+        {papel === 'manager' ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Van & yard" onPress={() => router.push('/van-locations')} style={styles.row}>
+            <View><Text style={styles.rowTitle}>Van &amp; yard</Text><Text style={styles.rowHint}>Where each driver starts and ends — and where the clock in opens</Text></View>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
+        ) : null}
         <Pressable accessibilityRole="button" accessibilityLabel="Route history" onPress={() => router.push('/route-history')} style={styles.row}>
           <View><Text style={styles.rowTitle}>Route history</Text><Text style={styles.rowHint}>Past routes, what was done and what was missed</Text></View>
           <Text style={styles.chevron}>›</Text>

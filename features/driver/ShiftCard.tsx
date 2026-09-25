@@ -17,11 +17,16 @@ type Props = {
   pendingCount?: number;
   busy?: boolean;
   error?: string | null;
+  /**
+   * Onde o clock in abre (sede/van cadastrada pelo gestor — migration 034). Nulo = organização sem
+   * sede: o cartão fica exatamente como sempre foi, sem nenhuma menção a van.
+   */
+  gateHint?: string | null;
   onClockIn: (reason: string) => void;
   onClockOut: (reason: string) => void;
 };
 
-export function ShiftCard({ state, pendingCount = 0, busy = false, error, onClockIn, onClockOut }: Props) {
+export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHint = null, onClockIn, onClockOut }: Props) {
   const [pedindo, setPedindo] = useState<'in' | 'out' | null>(null);
   const [motivo, setMotivo] = useState('');
 
@@ -54,6 +59,7 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, onCloc
             ? 'Manual journey (exception): this one was entered by hand.'
             : 'Manual record for today.'}
       </Text>
+      {gateHint ? <Text style={styles.gateHint}>{gateHint}</Text> : null}
 
       <View style={styles.acoes}>
         <Pressable
@@ -113,6 +119,8 @@ const styles = StyleSheet.create({
   pendente: { color: colors.muted, fontSize: 11, fontWeight: '800' },
   titulo: { color: colors.forest900, fontFamily: 'serif', fontSize: 17, fontWeight: '800', marginTop: 5 },
   dica: { color: colors.muted, fontSize: 12, marginTop: 4, lineHeight: 17 },
+  /** Onde o clock in abre (só existe quando a organização cadastrou a sede/van). */
+  gateHint: { color: '#7A5B12', backgroundColor: '#FBF0D9', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, fontSize: 12, fontWeight: '800', marginTop: 8, lineHeight: 17, overflow: 'hidden' },
   acoes: { flexDirection: 'row', gap: 8, marginTop: 11 },
   botao: { flex: 1, borderWidth: 1.5, borderColor: colors.forest700, borderRadius: 12, paddingVertical: 11, alignItems: 'center' },
   botaoPrincipal: { backgroundColor: colors.forest700, borderColor: colors.forest700 },

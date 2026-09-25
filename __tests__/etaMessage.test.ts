@@ -2,11 +2,19 @@
  * AVISO DE ETA AO TUTOR — pedido do cliente em áudio (16/09/2026): "abre seu messenger pra
  * mandar o ETA... sem ser pelo Twilio, sem ser um disparo".
  *
+ * Ajuste da operação (áudios de 25/09/2026): o aviso passou de "about N minutes" para uma FAIXA de
+ * ~30 min (5 antes / 25 depois) no texto EXATO que o cliente mandou — este bloco de texto foi
+ * atualizado por isso (o resto do arquivo continua igual).
+ *
  * O que estes testes travam:
- *  - a frase muda de verdade entre BUSCA e ENTREGA, e a de atraso é outra frase;
- *  - o ETA vai arredondado de 5 em 5 e como "about" (não promete precisão que não existe);
+ *  - a frase da BUSCA e a da ENTREGA são as do cliente, com a faixa em horário de relógio;
+ *  - o ETA vai arredondado de 5 em 5 (a faixa nunca promete minuto exato);
+ *  - a ENTREGA nunca anuncia antes das 14:00;
+ *  - a frase do atraso continua existindo (e agora vem com a faixa);
  *  - cliente sem telefone utilizável NÃO gera botão ativo;
- *  - o link do SMS e o do WhatsApp levam o texto pronto.
+ *  - o link do SMS e o do WhatsApp levam o texto pronto (assinaturas preservadas).
+ *
+ * As horas de referência são FIXAS (new Date(...) em hora local): nada aqui lê o relógio da máquina.
  */
 import {
   aboutMinutes,
@@ -19,6 +27,11 @@ import {
   smsLink,
   whatsappLink,
 } from '@/features/driver/etaMessage';
+
+/** 25/09/2026 08:55 — com um ETA de 12 min a previsão arredonda para 09:05. */
+const REF_BUSCA = new Date(2026, 8, 25, 8, 55, 0);
+/** 25/09/2026 13:55 — previsão 14:10 (depois das 2, então a faixa não é empurrada). */
+const REF_ENTREGA = new Date(2026, 8, 25, 13, 55, 0);
 
 describe('fase da parada', () => {
   it('busca antes de embarcar; entrega depois', () => {
@@ -40,33 +53,34 @@ describe('arredondamento do ETA', () => {
   });
 });
 
-describe('texto da mensagem', () => {
-  it('busca: "on my way to pick up" com o tempo aproximado', () => {
-    expect(etaMessageText({ clientName: 'Maria', dogName: 'Thor', phase: 'pickup', minutes: 12 })).toBe(
-      "Hi Maria! I'm on my way to pick up Thor — about 10 minutes away.",
+describe('texto da mensagem (faixa de ~30 min)', () => {
+  it('busca: "I\'ll be there between 9:00 and 9:30 AM to pick up"', () => {
+    expect(
+      etaMessageText({ clientName: 'Maria', driverName: 'Alex', dogName: 'Thor', phase: 'pickup', minutes: 12, now: REF_BUSCA }),
+    ).toBe(
+      "Good morning, Maria! This is Alex from Pack & Paws Club. I'll be there between 9:00 and 9:30 AM to pick up Thor. Looking forward to another great day with them! 🐶🐾",
     );
   });
 
-  it('entrega: "on my way to drop off"', () => {
-    expect(etaMessageText({ clientName: 'Maria', dogName: 'Thor', phase: 'dropoff', minutes: 8 })).toBe(
-      "Hi Maria! I'm on my way to drop off Thor — about 10 minutes away.",
+  it('entrega: "I\'ll be dropping off ... between 2:05 and 2:35 PM"', () => {
+    expect(
+      etaMessageText({ clientName: 'Maria', driverName: 'Alex', dogName: 'Thor', phase: 'dropoff', minutes: 15, now: REF_ENTREGA }),
+    ).toBe(
+      "Good afternoon, Maria! This is Alex from Pack & Paws Club 😊 I'll be dropping off Thor between 2:05 and 2:35 PM. They had a great day with us! 🐶🐾",
     );
   });
 
-  it('atraso: a frase É outra (o tutor precisa saber que vai atrasar)', () => {
-    expect(etaMessageText({ clientName: 'Maria', dogName: 'Thor', phase: 'pickup', minutes: 20, lateMinutes: 10 })).toBe(
-      "Hi Maria! I'm running about 10 minutes late to pick up Thor.",
-    );
-    expect(etaMessageText({ clientName: 'Maria', dogName: 'Thor', phase: 'dropoff', minutes: 5, lateMinutes: 5 })).toBe(
-      "Hi Maria! I'm running about 5 minutes late to drop off Thor.",
-    );
+  it('atraso: a frase do atraso continua E a faixa vai junto', () => {
+    const atrasado = etaMessageText({ clientName: 'Maria', driverName: 'Alex', dogName: 'Thor', phase: 'pickup', minutes: 12, lateMinutes: 10, now: REF_BUSCA });
+    expect(atrasado).toContain("I'm running about 10 minutes late.");
+    expect(atrasado).toContain('between 9:00 and 9:30 AM');
   });
 
   it('cliente sem nome ou cão sem nome não gera frase quebrada', () => {
-    expect(etaMessageText({ clientName: null, dogName: 'Thor', phase: 'pickup', minutes: 12 })).toBe(
-      "Hi! I'm on my way to pick up Thor — about 10 minutes away.",
-    );
-    expect(etaMessageText({ clientName: 'Maria', dogName: '   ', phase: 'pickup', minutes: 12 })).toContain('your dog');
+    const semNome = etaMessageText({ clientName: null, dogName: 'Thor', phase: 'pickup', minutes: 12, now: REF_BUSCA });
+    expect(semNome.startsWith('Good morning! ')).toBe(true);
+    expect(semNome).not.toContain(', !');
+    expect(etaMessageText({ clientName: 'Maria', dogName: '   ', phase: 'pickup', minutes: 12, now: REF_BUSCA })).toContain('to pick up your dog');
   });
 });
 

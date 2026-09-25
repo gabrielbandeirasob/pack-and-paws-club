@@ -70,9 +70,39 @@ export function lastCompletion(stops: StopMilestones[]): string | null {
   return marcas.length > 0 ? new Date(marcas[marcas.length - 1]).toISOString() : null;
 }
 
-/** Jornada que os eventos da rota contam sozinhos. null = a rota ainda não começou. */
-export function deduceShift(stops: StopMilestones[]): { startedAt: string; endedAt: string | null } | null {
-  const startedAt = firstArrival(stops);
+/** Instante ISO, ou null quando o valor não é data. */
+function isoOuNull(valor: string | null | undefined): string | null {
+  const t = quando(valor);
+  return t === null ? null : new Date(t).toISOString();
+}
+
+export type ShiftOptions = {
+  /**
+   * Momento em que o motorista chegou NA VAN (sede da organização — migration 034).
+   *
+   * Pedido da operação em áudio (25/09/2026): "só quando eu chegar na van que eu sou apto a dar o
+   * clock in"; a jornada deve começar na van, não no primeiro cão. PARÂMETRO OPCIONAL de propósito:
+   * sem ele (organização sem sede — todo mundo em produção hoje) a dedução é idêntica à de antes,
+   * e com ele a jornada passa a começar na van. `null` = ainda não houve chegada à van observada,
+   * e aí vale a primeira parada (nunca deixa o motorista sem jornada).
+   */
+  vanArrivalAt?: string | null;
+};
+
+/**
+ * Jornada que os eventos da rota contam sozinhos. null = a rota ainda não começou.
+ *
+ * Com `vanArrivalAt` (sede cadastrada e chegada à van observada), o começo é o mais cedo entre a
+ * chegada à van e a primeira parada — na prática, a van. Sem ele, vale a primeira chegada, como
+ * sempre valeu.
+ */
+export function deduceShift(
+  stops: StopMilestones[],
+  vanArrivalAt?: string | null,
+): { startedAt: string; endedAt: string | null } | null {
+  const naVan = isoOuNull(vanArrivalAt);
+  const primeiraParada = firstArrival(stops);
+  const startedAt = naVan && primeiraParada ? (naVan < primeiraParada ? naVan : primeiraParada) : naVan ?? primeiraParada;
   if (!startedAt) return null;
   return { startedAt, endedAt: lastCompletion(stops) };
 }
@@ -97,7 +127,12 @@ export function shiftMinutes(startedAt: string | null, endedAt: string | null, n
  * manual aberta, vale a dedução dos eventos da rota — e, se a dedução já fechou (última parada
  * concluída), a jornada é considerada fechada mesmo sem registro manual de saída.
  */
-export function shiftState(stops: StopMilestones[], shifts: ManualShift[], now: Date = new Date()): ShiftState {
+export function shiftState(
+  stops: StopMilestones[],
+  shifts: ManualShift[],
+  now: Date = new Date(),
+  options: ShiftOptions = {},
+): ShiftState {
   const manual = openManualShift(shifts);
   if (manual) {
     return {
@@ -111,7 +146,7 @@ export function shiftState(stops: StopMilestones[], shifts: ManualShift[], now: 
   }
 
   const maisRecente = [...shifts].sort((a, b) => (quando(b.startedAt) ?? 0) - (quando(a.startedAt) ?? 0))[0] ?? null;
-  const deduzida = deduceShift(stops);
+  const deduzida = deduceShift(stops, options.vanArrivalAt);
 
   if (deduzida && (!maisRecente || (quando(deduzida.startedAt) ?? 0) >= (quando(maisRecente.startedAt) ?? 0))) {
     return {

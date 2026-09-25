@@ -1,13 +1,36 @@
 /**
- * Escolha do mensageiro para avisar o tutor (SMS ou WhatsApp), com o texto JÁ PRONTO.
+ * Escolha do mensageiro para avisar o tutor, com o texto JÁ PRONTO.
  *
  * Nada sai daqui: o app abre o mensageiro do aparelho do motorista com a mensagem escrita e ele
  * aperta enviar (decisão do cliente: "sem ser pelo Twilio, sem ser um disparo").
+ *
+ * AJUSTE DA OPERAÇÃO (áudio de 25/09/2026): "remover a opção de WhatsApp, a gente sempre usa
+ * Messenger aqui". A lista oferecida ficou com UM mensageiro só (SMS) — e, com um só, escolher não
+ * é escolha: `messengerChoiceNeeded()` diz que o app deve ir DIRETO para o mensageiro, sem abrir
+ * esta folha. A folha continua existindo (e testada) para o dia em que houver mais de um.
  */
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { messengerLink, type Messenger } from '@/features/driver/etaMessage';
 import { colors, radii } from '@/features/theme/tokens';
+
+/** Mensageiros que o app OFERECE na interface (WhatsApp saiu a pedido do cliente). */
+export const OFFERED_MESSENGERS: Messenger[] = ['sms'];
+
+/** Com um mensageiro só não há escolha a fazer: o app abre o mensageiro direto. */
+export function messengerChoiceNeeded(messengers: Messenger[] = OFFERED_MESSENGERS): boolean {
+  return messengers.length > 1;
+}
+
+/** Mensageiro usado no envio direto (sem folha de escolha). */
+export function defaultMessenger(messengers: Messenger[] = OFFERED_MESSENGERS): Messenger {
+  return messengers[0] ?? 'sms';
+}
+
+/** Rótulo do mensageiro (o mesmo texto que o motorista lê na folha). */
+function messengerLabel(messenger: Messenger): string {
+  return messenger === 'whatsapp' ? 'WhatsApp' : 'Messages (SMS)';
+}
 
 type Props = {
   visible: boolean;
@@ -15,15 +38,18 @@ type Props = {
   phone: string | null;
   /** texto que vai preenchido no mensageiro */
   message: string;
+  /** mensageiros oferecidos (default: os da interface — hoje só SMS) */
+  messengers?: Messenger[];
   onChoose: (messenger: Messenger) => void;
   onClose: () => void;
 };
 
-export function NotifyOwnerSheet({ visible, phone, message, onChoose, onClose }: Props) {
-  const opcoes: { chave: Messenger; rotulo: string; icone: string }[] = [
-    { chave: 'sms', rotulo: 'Messages (SMS)', icone: '💬' },
-    { chave: 'whatsapp', rotulo: 'WhatsApp', icone: '🟢' },
-  ];
+export function NotifyOwnerSheet({ visible, phone, message, messengers = OFFERED_MESSENGERS, onChoose, onClose }: Props) {
+  const opcoes = messengers.map((chave) => ({
+    chave,
+    rotulo: messengerLabel(chave),
+    icone: chave === 'whatsapp' ? '🟢' : '💬',
+  }));
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>

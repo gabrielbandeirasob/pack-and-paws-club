@@ -40,6 +40,8 @@ function RootNavigator(){
       <Stack.Screen name="client-edit" options={{ headerShown: false }} />
       <Stack.Screen name="reservation-edit" options={{ headerShown: false }} />
       <Stack.Screen name="route-history" options={{ headerShown: false }} />
+      {/* Sede/van da organização (migration 034) — só o gestor chega aqui (app/(tabs)/more.tsx). */}
+      <Stack.Screen name="van-locations" options={{ headerShown: false }} />
       <Stack.Screen name="password" options={{ headerShown: false }} />
     </Stack.Protected>
     <Stack.Screen name="+not-found"/>
