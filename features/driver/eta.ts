@@ -54,6 +54,48 @@ export function minutesAgo(isoTimestamp: string, now: Date = new Date()): number
   return Math.max(0, Math.round((now.getTime() - then) / 60_000));
 }
 
+/** Posição do motorista com mais tempo que isto já merece aviso no Dispatch (minutos). */
+export const POSICAO_VELHA_MINUTOS = 15;
+/** Posição com mais tempo que isto: o ETA deixa de ser mostrado (número velho engana o escritório). */
+export const POSICAO_MUITO_VELHA_MINUTOS = 45;
+
+export type FrescorDaPosicao = {
+  minutos: number;
+  /** Texto pronto: "just now" · "8 min ago" · "1 h 12 min ago". */
+  texto: string;
+  /** Passou de POSICAO_VELHA_MINUTOS: vale avisar que está ficando velha. */
+  velha: boolean;
+  /** Passou de POSICAO_MUITO_VELHA_MINUTOS: não mostrar ETA como se fosse agora. */
+  muitoVelha: boolean;
+};
+
+/**
+ * Idade da última posição publicada pelo motorista, pronta para a tela.
+ *
+ * Motivo (melhoria 3 da revisão das contas, 25/09/2026): o Dispatch escrevia sempre "📍 N min ago" — com
+ * 4 horas de silêncio aparecia "240 min ago" e o ETA continuava sendo calculado e mostrado como se a
+ * posição fosse de agora. Aqui a idade vem legível E com o aviso de que está velha; quem decide esconder o
+ * ETA é a tela (ver DispatchBoard).
+ */
+export function frescorDaPosicao(isoTimestamp: string, agora: Date = new Date()): FrescorDaPosicao {
+  // Sem data confiável não se afirma idade NEM se mostra ETA: "time unknown" e tratada como velha.
+  if (Number.isNaN(new Date(isoTimestamp).getTime())) {
+    return { minutos: 0, texto: 'time unknown', velha: true, muitoVelha: true };
+  }
+  const minutos = minutesAgo(isoTimestamp, agora);
+  const texto = minutos < 1
+    ? 'just now'
+    : minutos < 60
+      ? `${minutos} min ago`
+      : `${Math.floor(minutos / 60)} h ${minutos % 60} min ago`;
+  return {
+    minutos,
+    texto,
+    velha: minutos > POSICAO_VELHA_MINUTOS,
+    muitoVelha: minutos > POSICAO_MUITO_VELHA_MINUTOS,
+  };
+}
+
 /**
  * Atraso projetado para UMA parada: quanto a chegada passaria da janela/horário exato.
  * Mesma conta do banner da próxima parada, usada no botão "avisar o tutor" (âmbar quando atrasa).

@@ -18,12 +18,28 @@ export default function AccountProfileScreen() {
    * revisão das contas). Enquanto o papel não chega, o cabeçalho não afirma nada.
    */
   const papel = role === 'manager' ? 'Manager' : role === 'driver' ? 'Driver' : 'Account';
+  const [membroDesde, setMembroDesde] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
       if (!session?.user) return;
       const { data } = await supabase.from('profiles').select('full_name').eq('id', session.user.id).maybeSingle();
       setFullName((data as { full_name: string | null } | null)?.full_name ?? null);
+
+      // Desde quando a conta existe na organização (o vínculo, não o login): melhoria 4 da revisão das
+      // contas — o perfil vira a "carteira de trabalho" da pessoa, não só nome e e-mail.
+      const { data: vinculo } = await supabase
+        .from('organization_members')
+        .select('created_at')
+        .eq('user_id', session.user.id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      const desde = (vinculo as { created_at: string | null } | null)?.created_at ?? null;
+      setMembroDesde(desde
+        ? new Date(desde).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+        : null);
     };
     load();
   }, [session?.user?.id]);
@@ -41,7 +57,7 @@ export default function AccountProfileScreen() {
           <View style={styles.list}>
             <View style={styles.card}>
               <View style={styles.avatar}><Text style={styles.avatarText}>{(fullName ?? 'D')[0]}</Text></View>
-              <View style={styles.info}><Text style={styles.name}>{fullName}</Text><Text style={styles.email}>{session?.user.email}</Text><Text style={styles.role}>{papel}</Text></View>
+              <View style={styles.info}><Text style={styles.name}>{fullName}</Text><Text style={styles.email}>{session?.user.email}</Text><Text style={styles.role}>{papel}</Text>{membroDesde ? <Text style={styles.desde}>Member since {membroDesde}</Text> : null}</View>
             </View>
             <Pressable accessibilityRole="button" accessibilityLabel="Change password" onPress={() => router.push('/password')} style={styles.changePassword}>
               <Text style={styles.changePasswordText}>Change password</Text>
@@ -71,6 +87,7 @@ const styles = StyleSheet.create({
   name: { color: colors.ink, fontWeight: '900', fontSize: 17 },
   email: { color: colors.muted, fontSize: 13, marginTop: 3 },
   role: { color: colors.forest700, fontSize: 12, fontWeight: '800', marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  desde: { color: colors.muted, fontSize: 11, marginTop: 4 },
   signOut: { backgroundColor: '#FBEAE6', borderRadius: radii.medium, padding: 15, alignItems: 'center', marginTop: 18 },
   changePassword: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.medium, padding: 15, alignItems: 'center', marginTop: 18 },
   changePasswordText: { color: colors.forest700, fontWeight: '900', fontSize: 14 },
