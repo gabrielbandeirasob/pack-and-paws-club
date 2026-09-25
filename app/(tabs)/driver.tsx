@@ -49,6 +49,7 @@ import {
 } from '@/features/driver/offlineStore';
 import { colors, radii } from '@/features/theme/tokens';
 import { showAlert } from '@/features/ui/alert';
+import { escolherMotivoDoProblema } from '@/features/driver/problemReason';
 import { NavigationSheet } from '@/features/maps/NavigationSheet';
 import type { NavTarget } from '@/features/maps/links';
 import { navigationUrlFor, type NavApp } from '@/features/maps/navigation';
@@ -511,6 +512,14 @@ export default function DriverTodayScreen() {
     const status = statusMap[action];
     if (!status) return;
 
+    // PROBLEMA pergunta o motivo ANTES de gravar, para o aviso ao gestor já sair com a explicação
+    // (defeito corrigido em 25/09/2026: antes o escritório só sabia que "houve um problema").
+    let notaDoProblema: string | null = null;
+    if (action === 'problem') {
+      notaDoProblema = await escolherMotivoDoProblema();
+      if (notaDoProblema === null) return; // desistiu: a parada NÃO é marcada como problema
+    }
+
     // Comprovante de entrega (migration 020): a foto é tirada ANTES de marcar o passo.
     // Obrigatório bloqueia, opcional só oferece, e sem configuração carregada o motorista
     // nunca fica preso num passo.
@@ -551,6 +560,8 @@ export default function DriverTodayScreen() {
     /** Grava o passo no banco (com a foto, quando houver). Lança em QUALQUER falha. */
     const gravarPasso = async (comProva: boolean) => {
       const atualizacao: Record<string, unknown> = { status };
+      // O motivo do problema entra na MESMA escrita: o push do gestor (trigger 033) sai com ele.
+      if (notaDoProblema) atualizacao.proof_note = notaDoProblema;
       if (proof && comProva) {
         // Sobe a foto e grava o caminho junto do status: uma única escrita no banco.
         const caminho = await uploadProof(supabase, proof.localUri, proof.path, proof.mimeType);
