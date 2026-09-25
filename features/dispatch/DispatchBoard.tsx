@@ -233,7 +233,9 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
                         {location && frescor
                           ? `📍 ${frescor.texto}${frescor.muitoVelha ? ' · ⚠️ position stale' : frescor.velha ? ' · ⚠️ going stale' : ''}`
                           : '📍 not sharing'}
-                        {eta && !frescor?.muitoVelha ? ` · ~${eta.minutes} min to ${eta.dogName}` : ''}
+                        {/* ETA só com posição do motorista: sem posição, "~0 min" é número inventado
+                            (achado no print de 25/09/2026, com o motorista em "not sharing"). */}
+                        {eta && location && !frescor?.muitoVelha ? ` · ~${eta.minutes} min to ${eta.dogName}` : ''}
                         {eta && frescor?.muitoVelha ? ' · ETA hidden (position too old)' : ''}
                         {eta && eta.lateMinutes > 0 ? ` · ⚠️ ${eta.lateMinutes} min late` : ''}
                       </Text>
