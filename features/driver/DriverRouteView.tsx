@@ -2,6 +2,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { notifyButtonState } from '@/features/driver/etaMessage';
 import { clockText } from '@/features/driver/shift';
+import { agruparEmTarefas, posicoesDasParadas } from '@/features/driver/tasks';
 import { RouteMap } from '@/features/maps/RouteMap';
 import { colors, radii } from '@/features/theme/tokens';
 
@@ -9,6 +10,11 @@ export type DriverStop = {
   id: string;
   /** Id estável usado para persistir a nova ordem da rota. Pode faltar se a RLS esconder o embed. */
   dogId?: string | null;
+  /**
+   * Parada agrupada por cliente (migration 029): paradas do MESMO cliente na MESMA rota compartilham
+   * este id, e a tela mostra "1 parada, N cães" (cada cão com seu status e seu comprovante).
+   */
+  groupId?: string | null;
   sequence: number;
   status: 'pending' | 'arrived' | 'picked_up' | 'completed' | 'skipped';
   clientName: string;
@@ -59,25 +65,44 @@ function addressLine(stop: DriverStop): string | null {
 export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
   const fire = (stop: DriverStop, action: DriverAction) => onAction(stop.id, action);
   const ordered = [...stops].sort((a, b) => a.sequence - b.sequence);
+  /**
+   * TAREFAS do dia: paradas do MESMO cliente viram UMA parada com N cães (migration 029) — o motorista
+   * para uma vez e resolve cão por cão, cada um com seu status e seu comprovante (decisão do dono).
+   */
+  const tarefas = agruparEmTarefas(ordered);
+  const posicoes = posicoesDasParadas(tarefas);
+  /**
+   * Ordem de RENDERIZAÇÃO: parada por parada (não a sequência crua do banco). Os cães da mesma casa
+   * ficam vizinhos, embaixo do cabeçalho da parada — senão o "irmão" apareceria depois da casa seguinte.
+   */
+  const naOrdemDasParadas = tarefas.flatMap((tarefa) => tarefa.stops);
 
   return (
     <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-      {ordered.length > 0 ? (
+      {tarefas.length > 0 ? (
         <RouteMap
-          stops={ordered.map((stop, index) => ({
-            id: stop.id,
-            sequence: index + 1,
-            dogName: stop.dogName,
-            address: addressLine(stop),
-            status: stop.status,
-            latitude: stop.latitude,
-            longitude: stop.longitude,
-          }))}
+          stops={tarefas.map((tarefa, index) => {
+            // UM ponto por PARADA (não por cão): dois cães da mesma casa são a mesma parada no mapa.
+            const primeiro = tarefa.stops[0];
+            const pendente = tarefa.stops.find((stop) => stop.status !== 'completed' && stop.status !== 'skipped');
+            return {
+              id: tarefa.id,
+              sequence: index + 1,
+              dogName: tarefa.stops.map((stop) => stop.dogName).join(' · '),
+              address: addressLine(primeiro),
+              status: (pendente ?? primeiro).status,
+              latitude: primeiro.latitude,
+              longitude: primeiro.longitude,
+            };
+          })}
         />
       ) : null}
-      {ordered.map((stop, index) => {
+      {naOrdemDasParadas.map((stop, index) => {
         const done = stop.status === 'completed' || stop.status === 'skipped';
         const address = addressLine(stop);
+        const posicao = posicoes.get(stop.id);
+        // Cabeçalho da PARADA: só quando ela tem mais de um cão (mesmo cliente, mesmo endereço).
+        const cabecalhoDaParada = Boolean(posicao && posicao.primeiraDoGrupo && posicao.totalNaTarefa > 1);
         // Aviso de ETA: só faz sentido enquanto a parada está viva e o cliente tem telefone.
         const aviso = notifyButtonState({ phone: stop.clientPhone, lateMinutes: stop.lateMinutes, done });
         // O cartao inteiro abre a navegacao. Relato do dono (12/09/2026): "ao clicar nao direciona a
@@ -85,8 +110,18 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
         // estava concluida (o bloco de acoes ficava atras de `!done`). Perder a navegacao numa parada
         // concluida e pior: e justamente quando o motorista precisa reconferir o local.
         return (
+          <View key={stop.id}>
+            {cabecalhoDaParada && posicao ? (
+              <View style={styles.groupHeader}>
+                <Text style={styles.groupTitle}>
+                  Stop {posicao.numero} · {posicao.clientName} · {posicao.totalNaTarefa} dogs
+                </Text>
+                <Text style={styles.groupHint}>
+                  Same address · {posicao.resolvidos}/{posicao.totalNaTarefa} done
+                </Text>
+              </View>
+            ) : null}
           <Pressable
-            key={stop.id}
             accessibilityRole="button"
             accessibilityLabel={`Open navigation for ${stop.dogName}`}
             onPress={() => fire(stop, 'navigate')}
@@ -104,7 +139,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
               ) : null}
               {/* Numera pela posicao na rota (1, 2, 3...). O painel do Dispatch ja fazia assim;
                   aqui saia o campo cru do banco, que pode vir 0 ("0. Maria Silva"). */}
-              <Text style={styles.title}>{index + 1}. {stop.clientName} · {stop.dogName}</Text>
+              <Text style={styles.title}>{posicao?.numero ?? index + 1}. {stop.clientName} · {stop.dogName}</Text>
               <StatusBadge status={stop.status} />
             </View>
             {address ? <Text style={styles.address}>{address}</Text> : null}
@@ -157,6 +192,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
               ) : null}
             </View>
           </Pressable>
+          </View>
         );
       })}
     </ScrollView>
@@ -178,6 +214,10 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, padding: 15, marginBottom: 12 },
   cardDone: { opacity: 0.55 },
   cardPressed: { opacity: 0.9 },
+  /** Cabeçalho da PARADA com mais de um cão (mesmo cliente): "Stop 2 · Ana · 2 dogs". */
+  groupHeader: { marginTop: 2, marginBottom: 6 },
+  groupTitle: { fontFamily: 'serif', fontSize: 13, fontWeight: '900', color: colors.forest700, letterSpacing: 0.2 },
+  groupHint: { color: colors.muted, fontSize: 11, marginTop: 2 },
   rowTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   dogPhoto: { width: 46, height: 46, borderRadius: 12, backgroundColor: colors.sage },
   title: { fontFamily: 'serif', fontSize: 17, fontWeight: '800', color: colors.forest900, flex: 1 },
