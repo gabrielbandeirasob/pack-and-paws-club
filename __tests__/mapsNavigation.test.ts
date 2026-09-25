@@ -15,13 +15,14 @@ describe('navegação (Google/Apple)', () => {
   });
 
   it('rotula os apps e mantém a ordem de exibição', () => {
-    expect(NAV_APPS.map(labelFor)).toEqual(['Google Maps', 'Apple Maps']);
+    expect(NAV_APPS.map(labelFor)).toEqual(['Google Maps', 'Apple Maps', 'Waze']);
   });
 
   it('normaliza a preferência guardada (lixo → perguntar de novo)', () => {
     expect(parseNavApp('google')).toBe('google');
     expect(parseNavApp('apple')).toBe('apple');
-    expect(parseNavApp('waze')).toBeNull();
+    expect(parseNavApp('waze')).toBe('waze');
+    expect(parseNavApp('bing')).toBeNull();
     expect(parseNavApp(null)).toBeNull();
     expect(parseNavApp(undefined)).toBeNull();
   });
