@@ -41,6 +41,14 @@ export function RouteMap({ stops, height = 210 }: Props) {
         provider={isMapsConfigured() ? PROVIDER_GOOGLE : PROVIDER_DEFAULT}
         style={StyleSheet.absoluteFill}
         initialRegion={region}
+        /**
+         * scrollEnabled={false} — DEFEITO relatado pelo dono em 25/09/2026 ("não consigo arrastar a
+         * página pra baixo"): com o pan ligado, um dedo sobre o mapa movia o MAPA e a lista de paradas
+         * (que fica num ScrollView) não rolava — o motorista não alcançava as paradas abaixo do mapa.
+         * O mapa aqui é só uma prévia; a navegação de verdade é pelos botões (Google/Apple/Waze).
+         * O zoom por pinça continua funcionando.
+         */
+        scrollEnabled={false}
         showsUserLocation
         showsMyLocationButton={false}
         toolbarEnabled={false}
