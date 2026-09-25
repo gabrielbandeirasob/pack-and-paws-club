@@ -1,4 +1,4 @@
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { notifyButtonState } from '@/features/driver/etaMessage';
 import { ETA_MAXIMO_PLAUSIVEL_MIN } from '@/features/driver/eta';
@@ -79,7 +79,18 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
   const naOrdemDasParadas = tarefas.flatMap((tarefa) => tarefa.stops);
 
   return (
-    <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+    /*
+     * View, NÃO ScrollView: a rolagem ÚNICA da tela do motorista é o ScrollView de
+     * app/(tabs)/driver.tsx (defeito relatado pelo dono em 25/09/2026: "ainda não estou conseguindo
+     * arrastar a página pra baixo"). Com dois scrollers aninhados, o de dentro engolia o gesto e o
+     * conteúdo acima dele (cabeçalho/cartões) ficava preso no topo. Sem rolagem própria aqui, o
+     * mapa e as paradas passam a rolar junto com o resto da página.
+     * O antigo contentContainerStyle virou `style` normal e as props exclusivas de ScrollView
+     * (showsVerticalScrollIndicator / contentInsetAdjustmentBehavior / automaticallyAdjustContentInsets)
+     * saíram daqui — se precisarem existir, existem só no scroller externo. O `scrollEnabled={false}`
+     * do mapa (features/maps/RouteMap.tsx) continua igual.
+     */
+    <View style={styles.list}>
       {tarefas.length > 0 ? (
         <RouteMap
           stops={tarefas.map((tarefa, index) => {
@@ -196,7 +207,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
           </View>
         );
       })}
-    </ScrollView>
+    </View>
   );
 }
 
@@ -211,6 +222,7 @@ function StatusBadge({ status }: { status: DriverStop['status'] }) {
 }
 
 const styles = StyleSheet.create({
+  /** Estilo de CONTEÚDO da lista (antes era contentContainerStyle do ScrollView interno). */
   list: { padding: 16, paddingBottom: 40 },
   card: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, padding: 15, marginBottom: 12 },
   cardDone: { opacity: 0.55 },
