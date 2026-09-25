@@ -6,10 +6,18 @@ import { router } from 'expo-router';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/features/auth/AuthProvider';
+import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 
-export default function DriverProfileScreen() {
+export default function AccountProfileScreen() {
   const { session } = useAuth();
+  const { role } = useOrganizationRole();
   const [fullName, setFullName] = useState<string | null>(null);
+  /**
+   * O papel é o do VÍNCULO ativo (`organization_members.role`), não um rótulo fixo: até 25/09/2026 a tela
+   * escrevia "DRIVER" na mão e o GESTOR via "PACK & PAWS CLUB · DRIVER" no próprio perfil (achado da
+   * revisão das contas). Enquanto o papel não chega, o cabeçalho não afirma nada.
+   */
+  const papel = role === 'manager' ? 'Manager' : role === 'driver' ? 'Driver' : 'Account';
 
   useEffect(() => {
     const load = async () => {
@@ -25,7 +33,7 @@ export default function DriverProfileScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>PACK & PAWS CLUB · DRIVER</Text>
+        <Text style={styles.eyebrow}>PACK & PAWS CLUB · {papel.toUpperCase()}</Text>
         <Text style={styles.title}>Profile</Text>
       </View>
       <View style={styles.body}>
@@ -33,7 +41,7 @@ export default function DriverProfileScreen() {
           <View style={styles.list}>
             <View style={styles.card}>
               <View style={styles.avatar}><Text style={styles.avatarText}>{(fullName ?? 'D')[0]}</Text></View>
-              <View style={styles.info}><Text style={styles.name}>{fullName}</Text><Text style={styles.email}>{session?.user.email}</Text><Text style={styles.role}>Driver</Text></View>
+              <View style={styles.info}><Text style={styles.name}>{fullName}</Text><Text style={styles.email}>{session?.user.email}</Text><Text style={styles.role}>{papel}</Text></View>
             </View>
             <Pressable accessibilityRole="button" accessibilityLabel="Change password" onPress={() => router.push('/password')} style={styles.changePassword}>
               <Text style={styles.changePasswordText}>Change password</Text>
