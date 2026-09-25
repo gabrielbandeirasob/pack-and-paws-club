@@ -7,10 +7,11 @@ import { todayLocalISO } from '@/features/calendar/dates';
 import { DriverRouteView, type DriverAction, type DriverStop } from '@/features/driver/DriverRouteView';
 import { DriverRouteOptimizerCard } from '@/features/driver/DriverRouteOptimizerCard';
 import { resolveDriverOptimizationOrigin } from '@/features/driver/driverRouteLocation';
+import { clockInGate, distanceText, estaNaVan, loadVanLocationForDriver, type OrganizationLocation } from '@/features/organization/locations';
 import { optimizeDriverRoute, type DriverRouteStop } from '@/features/driver/driverRouteOptimizer';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
 import { etaMessageText, etaNoticeError, messengerLink, phaseForStop, type Messenger } from '@/features/driver/etaMessage';
-import { NotifyOwnerSheet } from '@/features/driver/NotifyOwnerSheet';
+import { NotifyOwnerSheet, defaultMessenger, messengerChoiceNeeded } from '@/features/driver/NotifyOwnerSheet';
 import { NextStopCard, nextActionForStatus, nextStopFor, proofActionForStatus } from '@/features/driver/NextStopCard';
 import { savePendingWrites, enqueuePending, flushPendingWrites, loadPendingWrites, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
 import { ShiftCard } from '@/features/driver/ShiftCard';
@@ -124,15 +125,32 @@ export default function DriverTodayScreen() {
   const [eta, setEta] = useState<EtaResult | null>(null);
   /** Configuração da creche (migration 020): o comprovante é obrigatório em cada etapa? */
   const [proofSettings, setProofSettings] = useState<ProofSettings | null>(null);
+  /**
+   * SEDE/VAN da organização (migration 034) — pedido da operação em áudio (25/09/2026):
+   * "só quando eu chegar na van que eu sou apto a dar o clock in (...) no raio lá".
+   *
+   * `null` = a organização NÃO cadastrou sede: o clock in continua liberado de qualquer lugar,
+   * exatamente como sempre foi. A trava existe SÓ quando este valor tem algo (opt-in).
+   */
+  const [vanLocation, setVanLocation] = useState<OrganizationLocation | null>(null);
+  /** Chegada à van observada (a jornada deduzida passa a começar aqui, e não no primeiro cão). */
+  const [vanArrivalAt, setVanArrivalAt] = useState<string | null>(null);
+  const vanArrivalRef = useRef<string | null>(null);
   /** Jornadas manuais de hoje (a deduzida sai dos eventos da rota). */
   const [shifts, setShifts] = useState<ManualShift[]>([]);
   /** Escritas que ficaram na fila local (jornada manual / registro de aviso de ETA). */
   const [pendingWrites, setPendingWrites] = useState<PendingWrite[]>([]);
   const [shiftBusy, setShiftBusy] = useState(false);
   const [shiftError, setShiftError] = useState<string | null>(null);
-  /** Parada escolhida para avisar o tutor (abre a folha do mensageiro). */
-  const [notifyStop, setNotifyStop] = useState<DriverStop | null>(null);
+  /**
+   * Aviso ao tutor: a parada escolhida + o TEXTO já montado no toque (a faixa de horário fica
+   * congelada enquanto o motorista decide). Só existe quando há MAIS de um mensageiro: com um só o
+   * app abre o mensageiro direto, sem folha de escolha.
+   */
+  const [notifyDraft, setNotifyDraft] = useState<{ stop: DriverStop; text: string } | null>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
+  /** Nome do motorista que assina o aviso ao tutor ("This is {MOTORISTA} from Pack & Paws Club"). */
+  const [driverName, setDriverName] = useState<string | null>(null);
   const [optimizeBusy, setOptimizeBusy] = useState(false);
   const locationHandle = useRef<LocationHandle | null>(null);
   const realtimeRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -149,6 +167,32 @@ export default function DriverTodayScreen() {
   useEffect(() => {
     envioRef.current = { organizationId, driverId, routeId };
   }, [organizationId, driverId, routeId]);
+
+  /**
+   * Nome do motorista para assinar o aviso ao tutor. Best-effort, uma vez só: os metadados da conta
+   * (o convite já grava `full_name`) e, se faltar, o perfil. Sem nome a mensagem continua correta
+   * ("This is your driver from Pack & Paws Club") — nada aqui pode travar o motorista.
+   */
+  useEffect(() => {
+    let ativo = true;
+    void (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        const dosMetadados = typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name.trim() : '';
+        if (dosMetadados) {
+          if (ativo) setDriverName(dosMetadados);
+          return;
+        }
+        if (!user?.id) return;
+        const { data } = await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle();
+        const nome = (data as { full_name?: unknown } | null)?.full_name;
+        if (ativo && typeof nome === 'string' && nome.trim().length > 0) setDriverName(nome.trim());
+      } catch {
+        // Sem o nome, a mensagem sai igual: o motorista não pode ficar sem avisar o tutor por isso.
+      }
+    })();
+    return () => { ativo = false; };
+  }, []);
 
   const syncOutbox = useCallback(async (): Promise<boolean> => {
     // Escritas da jornada/aviso que ficaram na fila local (sem sinal) sobem antes do resto: são
@@ -243,7 +287,7 @@ export default function DriverTodayScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       const { data: routes, error } = await supabase
         .from('routes')
-        .select('id, organization_id, lock_version, published_at, organization:organizations(proof_pickup_required, proof_dropoff_required), route_stops(id, sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, status_updated_at, eta_notice_at, eta_notice_kind, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
+        .select('id, organization_id, lock_version, published_at, start_location_id, end_location_id, organization:organizations(proof_pickup_required, proof_dropoff_required), route_stops(id, sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, status_updated_at, eta_notice_at, eta_notice_kind, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
         .eq('driver_id', user?.id ?? '')
         .eq('route_date', todayLocalISO())
         .eq('status', 'published')
@@ -260,6 +304,15 @@ export default function DriverTodayScreen() {
         setRouteVersion(route.lock_version);
         setOrganizationId(route.organization_id);
       setProofSettings(route.organization ?? null);
+        // Sede/van da organização (migration 034). Best-effort: sem resposta, fica null — e null
+        // significa "sem trava" (o motorista nunca fica preso por causa de uma consulta que falhou).
+        // A sede escolhida NA ROTA tem prioridade sobre a padrão da organização.
+        setVanLocation(
+          await loadVanLocationForDriver(supabase, {
+            organizationId: route.organization_id,
+            startLocationId: route.start_location_id ?? null,
+          }),
+        );
         setOffline(false);
       } else {
         // Route finished/not published: drop the cached copy (sensitive instructions must not linger).
@@ -267,6 +320,7 @@ export default function DriverTodayScreen() {
         setRouteId(null);
         setRouteVersion(null);
         setOrganizationId(null);
+        setVanLocation(null);
       }
       // Retention: prune stale positions opportunistically.
       void supabase.rpc('cleanup_driver_locations');
@@ -649,7 +703,43 @@ export default function DriverTodayScreen() {
   );
 
   /** Jornada mostrada na tela: manual (exceção) quando existe, senão deduzida dos eventos. */
-  const journey = useMemo(() => shiftState(stops, [...shifts, ...jornadasLocais]), [stops, shifts, jornadasLocais]);
+  const journey = useMemo(
+    () => shiftState(stops, [...shifts, ...jornadasLocais], new Date(), { vanArrivalAt }),
+    [stops, shifts, jornadasLocais, vanArrivalAt],
+  );
+
+  /**
+   * Chegada à VAN observada pelo GPS (migration 034).
+   *
+   * Com sede cadastrada, o primeiro ponto DENTRO do raio marca a partida da jornada — é o "cheguei
+   * na van" do áudio, e é o que faz a jornada começar na van em vez de no primeiro cão. Quando esse
+   * ponto não existe (GPS sem fix, dia começado antes desta atualização), a dedução pelos eventos
+   * da rota continua valendo: ninguém fica sem jornada.
+   */
+  useEffect(() => {
+    if (!vanLocation || !position || vanArrivalRef.current) return;
+    if (estaNaVan(vanLocation, position)) {
+      const agora = new Date().toISOString();
+      vanArrivalRef.current = agora;
+      setVanArrivalAt(agora);
+    }
+  }, [vanLocation, position]);
+
+  /**
+   * Onde o clock in abre — `null` quando a organização NÃO tem sede (opt-in: o cartão da jornada
+   * fica exatamente como sempre foi). O texto é o mesmo em PT-BR do motivo da trava, porque é o
+   * motorista da operação brasileira que lê.
+   */
+  const gateHint = useMemo(() => {
+    if (!vanLocation) return null;
+    if (!position) return `O clock in abre na van "${vanLocation.name}" (raio de ${vanLocation.radiusMeters} m).`;
+    const trava = clockInGate({ location: vanLocation, position });
+    if (trava.kind === 'inside') return `Você está na van "${vanLocation.name}" — o clock in está aberto.`;
+    if (trava.kind === 'outside') {
+      return `O clock in abre na van "${vanLocation.name}" — você está a ${distanceText(trava.distanceKm ?? 0)} (raio de ${vanLocation.radiusMeters} m).`;
+    }
+    return `O clock in abre na van "${vanLocation.name}" (raio de ${vanLocation.radiusMeters} m).`;
+  }, [vanLocation, position]);
 
   const recarregarJornadas = async (motorista: string) => {
     setShifts(await loadDriverShifts(supabase, { driverId: motorista, dayStart: startOfToday(), dayEnd: startOfTomorrow() }));
@@ -669,13 +759,40 @@ export default function DriverTodayScreen() {
     const startedAt = new Date().toISOString();
     try {
       if (!organizationId || !driverId) throw new Error('Organization not found for this account.');
+
+      /*
+       * TRAVA DA VAN (opt-in) — pedido da operação em áudio (25/09/2026).
+       *
+       * Sem sede cadastrada (`vanLocation` nulo) a resposta é `allowed` na hora e o fluxo segue
+       * idêntico ao de antes. Com sede: posição fresca do GPS (com o último ponto do
+       * compartilhamento como reserva) e a distância em linha reta até a van; fora do raio o
+       * registro NÃO acontece e o motivo aparece no cartão da jornada. Sem posição (web, permissão
+       * negada, GPS sem fix) também não trava — o motorista não fica sem conseguir trabalhar — mas
+       * fica avisado de que não deu para conferir.
+       */
+      const trava = clockInGate({
+        location: vanLocation,
+        position: await resolveDriverOptimizationOrigin(getCurrentDriverLocation, position),
+      });
+      if (!trava.allowed) {
+        setShiftError(trava.message);
+        return;
+      }
+      if (trava.kind === 'inside') {
+        // Chegou na van: é aqui que a jornada passa a começar (ver `journey` e migration 034).
+        vanArrivalRef.current = startedAt;
+        setVanArrivalAt(startedAt);
+      }
+
       const resultado = await startManualShift(supabase, { organizationId, driverId, routeId, reason: motivo, startedAt });
       if (resultado.mode === 'already-open') {
         setShiftError('You already have a journey open.');
         return;
       }
       await recarregarJornadas(driverId);
-      setMessage('Journey started — manual record.');
+      // Sem posição, o registro vale (não travamos), mas o motorista fica sabendo que não deu
+      // para conferir a van — o gestor não é avisado de nada porque não houve recusa.
+      setMessage(trava.kind === 'no-position' ? trava.message : 'Journey started — manual record.');
     } catch (causa) {
       if (isNetworkError(causa)) {
         await guardarNaFila({ kind: 'shift', startedAt, endedAt: null, startReason: motivo, endReason: null, routeId, queuedAt: startedAt });
@@ -734,23 +851,24 @@ export default function DriverTodayScreen() {
    * AVISO DE ETA AO TUTOR — mensagem pronta no mensageiro do motorista
    * ------------------------------------------------------------------ */
 
-  const avisoDe = (stop: DriverStop) => {
-    const phase = phaseForStop(stop.status);
-    return etaMessageText({
+  /**
+   * Texto do aviso: FAIXA de ~30 min (5 antes / 25 depois) montada com a hora do TOQUE.
+   * O `now` entra explícito porque a faixa é horário de relógio ("2:05 and 2:35 PM").
+   */
+  const avisoDe = (stop: DriverStop) =>
+    etaMessageText({
       clientName: stop.clientName,
+      driverName,
       dogName: stop.dogName,
-      phase,
+      phase: phaseForStop(stop.status),
       minutes: stop.etaMinutes ?? 0,
       lateMinutes: stop.lateMinutes ?? 0,
+      now: new Date(),
     });
-  };
 
   /** Abre o mensageiro do motorista com o texto pronto e registra o aviso no histórico da parada. */
-  const enviarAviso = async (messenger: Messenger) => {
-    const stop = notifyStop;
-    setNotifyStop(null);
-    if (!stop) return;
-    const texto = avisoDe(stop);
+  const enviarAviso = async (stop: DriverStop, texto: string, messenger: Messenger) => {
+    setNotifyDraft(null);
     const link = messengerLink(messenger, stop.clientPhone ?? null, texto);
     if (!link) {
       setMessage('This client has no usable phone number to send the ETA.');
@@ -774,6 +892,20 @@ export default function DriverTodayScreen() {
         setMessage(etaNoticeError(causa));
       }
     }
+  };
+
+  /**
+   * Toque no "Notify owner". Com UM mensageiro só (SMS — o WhatsApp saiu da interface a pedido do
+   * cliente) não existe escolha a fazer: o app monta o texto e vai DIRETO para o app de mensagens.
+   * A folha de escolha só abre quando a lista de mensageiros tiver mais de um.
+   */
+  const avisarTutor = (stop: DriverStop) => {
+    const texto = avisoDe(stop);
+    if (!messengerChoiceNeeded()) {
+      void enviarAviso(stop, texto, defaultMessenger());
+      return;
+    }
+    setNotifyDraft({ stop, text: texto });
   };
 
   /** Paradas com o ETA de cada uma (o botão de avisar mostra "~12 min" e fica âmbar se atrasar). */
@@ -861,6 +993,7 @@ export default function DriverTodayScreen() {
                   pendingCount={pendingWrites.length}
                   busy={shiftBusy}
                   error={shiftError}
+                  gateHint={gateHint}
                   onClockIn={(motivo) => void clockIn(motivo)}
                   onClockOut={(motivo) => void clockOut(motivo)}
                 />
@@ -877,7 +1010,7 @@ export default function DriverTodayScreen() {
                   onAction={(stopId, action) => void act(stopId, action)}
                 />
               </View>
-              <DriverRouteView stops={stopsComEta} onAction={act} onNotifyOwner={(stop) => setNotifyStop(stop)} />
+              <DriverRouteView stops={stopsComEta} onAction={act} onNotifyOwner={avisarTutor} />
             </>
           )}
         </View>
@@ -902,13 +1035,17 @@ export default function DriverTodayScreen() {
           await Linking.openURL(navigationUrlFor(app, target));
         }}
       />
-      {/* Aviso de ETA ao tutor: o texto vai pronto, quem envia é o motorista (pedido do cliente) */}
+      {/* Aviso de ETA ao tutor: o texto vai pronto, quem envia é o motorista (pedido do cliente).
+          A folha só aparece se houver MAIS de um mensageiro; com um só o aviso vai direto (avisarTutor). */}
       <NotifyOwnerSheet
-        visible={notifyStop !== null}
-        phone={notifyStop?.clientPhone ?? null}
-        message={notifyStop ? avisoDe(notifyStop) : ''}
-        onChoose={(messenger) => void enviarAviso(messenger)}
-        onClose={() => setNotifyStop(null)}
+        visible={notifyDraft !== null}
+        phone={notifyDraft?.stop.clientPhone ?? null}
+        message={notifyDraft?.text ?? ''}
+        onChoose={(messenger) => {
+          const rascunho = notifyDraft;
+          if (rascunho) void enviarAviso(rascunho.stop, rascunho.text, messenger);
+        }}
+        onClose={() => setNotifyDraft(null)}
       />
     </SafeAreaView>
   );

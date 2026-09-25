@@ -183,6 +183,23 @@ export function splitDogNames(raw: string): string[] {
 }
 
 /**
+ * Texto do campo de nomes depois do atalho "+ Add another dog".
+ *
+ * A operacao reclamou na EDICAO DO CLIENTE ("a opcao de adicionar um cachorro nao tem mais") e
+ * depois se corrigiu: a funcao existe (nomes separados por virgula), mas nao era descobrivel —
+ * "embaixo tem 'adicione dogs', botando uma virgula; voce escreve um nome, poe uma virgula e o dog
+ * aparece". Este atalho so prepara o campo: mantem o que ja foi digitado, poe a virgula que o
+ * gestor teria de lembrar de digitar e deixa o cursor no fim, pronto para o proximo nome.
+ * Campo vazio continua vazio (nada de virgula solta), e o formato atual nao muda.
+ */
+export function seedNextDogName(current: string): string {
+  // Espaço/vírgula sobrando no fim não viram vírgula dupla: normaliza e põe a separação.
+  const texto = current.trim().replace(/[,\s]+$/, '');
+  if (texto.length === 0) return '';
+  return `${texto}, `;
+}
+
+/**
  * Chave para casar a FOTO escolhida com o nome do cao (ignora caixa e acento).
  *
  * No "Add from Contacts" o cao ainda NAO existe no banco quando o gestor escolhe a foto (o

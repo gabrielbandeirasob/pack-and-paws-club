@@ -54,6 +54,9 @@ export type DriverRouteRow = {
   organization_id: string;
   lock_version: number;
   published_at: string | null;
+  /** Sede escolhida pelo gestor para ESTA rota (migration 034). Nulo = vale a sede padrão da organização. */
+  start_location_id?: string | null;
+  end_location_id?: string | null;
   /** Configuração da creche (migration 020) - decide se a foto do comprovante é obrigatória. */
   organization: { proof_pickup_required: boolean; proof_dropoff_required: boolean } | null;
   route_stops: DriverStopRow[];

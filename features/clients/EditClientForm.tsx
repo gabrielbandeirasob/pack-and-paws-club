@@ -11,6 +11,10 @@
  * FOTO DO CAO (23/09/2026): a creche identifica o cao pela foto na porta do cliente.
  * Cada cao tem foto (tirar agora ou escolher da galeria); "Add dogs" agora cria um
  * CARTAO por nome digitado, para o gestor poder anexar a foto antes mesmo de salvar.
+ *
+ * ATALHO "+ ADD ANOTHER DOG" (25/09/2026): a operacao nao achava que dava para cadastrar outro cao
+ * nesta tela — a funcao existia (nomes separados por virgula), mas nao era descobrivel. O botao
+ * fica logo abaixo do campo dos nomes: insere a virgula e deixa o cursor pronto para o proximo.
  */
 import { useRef, useState } from 'react';
 import { Image, KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
@@ -19,6 +23,7 @@ import {
   clientDeletePlan,
   dogRemovalMessage,
   normalizeForSearch,
+  seedNextDogName,
   splitContactName,
   splitDogNames,
   type ClientFormValues,
@@ -89,11 +94,22 @@ async function openDirections(client: EditableClient) {
   ]);
 }
 
-function Field({ label, value, onChangeText, ...rest }: { label: string; value: string; onChangeText: (t: string) => void } & Partial<React.ComponentProps<typeof TextInput>>) {
+/**
+ * Campo do formulario. `inputRef` existe para o atalho "+ Add another dog" conseguir focar o campo
+ * dos nomes (o resto das props vai direto para o TextInput, como sempre foi).
+ */
+function Field({
+  label,
+  value,
+  onChangeText,
+  inputRef,
+  ...rest
+}: { label: string; value: string; onChangeText: (t: string) => void; inputRef?: React.Ref<TextInput> } & Partial<React.ComponentProps<typeof TextInput>>) {
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        ref={inputRef}
         accessibilityLabel={label}
         value={value}
         onChangeText={onChangeText}
@@ -212,6 +228,13 @@ export function EditClientForm({ current, dogs, instructions, active, impact, sa
   const [isActive, setIsActive] = useState(active);
   /** contador de identidade local dos cartoes novos (nao vai para o banco) */
   const proximoNovo = useRef(1);
+  /**
+   * Atalho "+ Add another dog": o campo dos nomes fica no fim da tela e a operacao nao achava que
+   * dava para cadastrar outro cao ("a opcao de adicionar um cachorro nao tem mais"). O botao so
+   * poe a virgula e foca o campo — `dogCursor` e a posicao forçada UMA vez (null = cursor normal).
+   */
+  const nomeDoCaoInput = useRef<TextInput>(null);
+  const [dogCursor, setDogCursor] = useState<number | null>(null);
 
   const set = (key: keyof ClientFormValues) => (text: string) => setForm((prev) => ({ ...prev, [key]: text }));
 
@@ -255,6 +278,17 @@ export function EditClientForm({ current, dogs, instructions, active, impact, sa
     }
     if (cartoes.length > 0) setNovoRows((prev) => [...prev, ...cartoes]);
     setNovoNome('');
+  };
+
+  /**
+   * "+ Add another dog": mantem o que ja foi digitado, insere a virgula que separa os nomes e
+   * devolve o cursor para o fim, pronto para o proximo. O formato que ja funciona (virgula) nao muda.
+   */
+  const adicionarOutroCao = () => {
+    const proximo = seedNextDogName(novoNome);
+    setNovoNome(proximo);
+    setDogCursor(proximo.length);
+    nomeDoCaoInput.current?.focus();
   };
 
   // Nome que veio do contato com o cachorro colado: "Leigh Ann(Mowgli)".
@@ -362,15 +396,22 @@ export function EditClientForm({ current, dogs, instructions, active, impact, sa
       <Field
         label="Add dogs (comma separated)"
         value={novoNome}
-        onChangeText={setNovoNome}
+        onChangeText={(texto) => { setNovoNome(texto); if (dogCursor !== null) setDogCursor(null); }}
+        inputRef={nomeDoCaoInput}
+        selection={dogCursor === null ? undefined : { start: dogCursor, end: dogCursor }}
+        onSelectionChange={() => { if (dogCursor !== null) setDogCursor(null); }}
         autoCapitalize="words"
         onSubmitEditing={adicionarNovos}
         returnKeyType="done"
       />
+      {/* Atalho visivel pedido pela operacao: a funcao existia (virgula) mas nao era descobrivel. */}
+      <Pressable accessibilityRole="button" accessibilityLabel="+ Add another dog" onPress={adicionarOutroCao} style={({ pressed }) => [styles.addDogButton, pressed && styles.pressed]}>
+        <Text style={styles.addDogText}>+ Add another dog</Text>
+      </Pressable>
       <Pressable accessibilityRole="button" accessibilityLabel="Add dogs to the list" onPress={adicionarNovos} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
         <Text style={styles.secondaryText}>Add to the list (photo, breed and notes)</Text>
       </Pressable>
-      <Text style={styles.photoHint}>Two dogs? Separate with a comma — then attach each photo above and save.</Text>
+      <Text style={styles.photoHint}>Type one name, tap “+ Add another dog” and the comma is added for you — then tap “Add to the list” to attach each photo, breed and notes. Two or more dogs? Repeat it.</Text>
 
       <View style={styles.switchRow}>
         <View style={styles.switchText}>
@@ -423,6 +464,8 @@ const styles = StyleSheet.create({
   hintText: { color: colors.forest700, fontWeight: '800', fontSize: 12, lineHeight: 17 },
   secondaryButton: { borderWidth: 1, borderColor: colors.forest700, borderRadius: 12, paddingVertical: 11, alignItems: 'center', marginTop: 12 },
   secondaryText: { color: colors.forest700, fontWeight: '800', fontSize: 13 },
+  addDogButton: { borderWidth: 1.5, borderColor: colors.gold, backgroundColor: colors.sage, borderRadius: 12, paddingVertical: 11, alignItems: 'center', marginTop: 12 },
+  addDogText: { color: colors.forest900, fontWeight: '900', fontSize: 13 },
   dogCard: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.medium, padding: 12, marginTop: 10 },
   dogCardRemoved: { opacity: 0.55, borderStyle: 'dashed' },
   dogHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
