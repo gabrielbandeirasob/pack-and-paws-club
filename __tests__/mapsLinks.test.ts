@@ -25,8 +25,8 @@ describe('links de navegacao', () => {
     expect(url).toContain('destination=Ferry%20Building');
   });
 
-  it('devolve Google antes do Apple', () => {
+  it('devolve Google, Apple e Waze nesta ordem', () => {
     const ids = navigationOptions({ address: 'A' }).map((option) => option.id);
-    expect(ids).toEqual(['google', 'apple']);
+    expect(ids).toEqual(['google', 'apple', 'waze']);
   });
 });

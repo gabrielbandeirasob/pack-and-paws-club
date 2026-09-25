@@ -11,7 +11,7 @@ export type NavTarget = {
   longitude?: number | null;
 };
 
-export type NavigationOption = { id: 'google' | 'apple'; label: string; url: string };
+export type NavigationOption = { id: 'google' | 'apple' | 'waze'; label: string; url: string };
 
 function hasCoords(target: NavTarget): boolean {
   return typeof target.latitude === 'number' && typeof target.longitude === 'number';
@@ -38,6 +38,18 @@ export function appleMapsUrl(target: NavTarget): string {
 }
 
 /**
+ * Waze: app de motorista (pedido do dono em 25/09/2026 - "pode adicionar Waze tbm").
+ * Universal link (abre o Waze instalado; sem o app, cai no navegador). Com coordenadas usa `ll`
+ * (navegacao direta), so com endereco usa `q` (busca).
+ */
+export function wazeUrl(target: NavTarget): string {
+  if (hasCoords(target)) {
+    return `https://waze.com/ul?ll=${target.latitude},${target.longitude}&navigate=yes`;
+  }
+  return `https://waze.com/ul?q=${encode(target.address ?? '')}&navigate=yes`;
+}
+
+/**
  * Opcoes de navegacao na ordem em que devem aparecer pro motorista:
  * Google primeiro (pedido do produto), Apple como alternativa nativa.
  */
@@ -45,5 +57,6 @@ export function navigationOptions(target: NavTarget): NavigationOption[] {
   return [
     { id: 'google', label: 'Google Maps', url: googleMapsUrl(target) },
     { id: 'apple', label: 'Apple Maps', url: appleMapsUrl(target) },
+    { id: 'waze', label: 'Waze', url: wazeUrl(target) },
   ];
 }

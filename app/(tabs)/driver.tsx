@@ -11,6 +11,7 @@ import { optimizeDriverRoute, type DriverRouteStop } from '@/features/driver/dri
 import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
 import { etaMessageText, etaNoticeError, messengerLink, phaseForStop, type Messenger } from '@/features/driver/etaMessage';
 import { NotifyOwnerSheet } from '@/features/driver/NotifyOwnerSheet';
+import { NextStopCard, nextActionForStatus, nextStopFor, proofActionForStatus } from '@/features/driver/NextStopCard';
 import { savePendingWrites, enqueuePending, flushPendingWrites, loadPendingWrites, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
 import { ShiftCard } from '@/features/driver/ShiftCard';
 import { shiftErrorMessage, shiftState, type ManualShift } from '@/features/driver/shift';
@@ -785,6 +786,14 @@ export default function DriverTodayScreen() {
     [stops, position],
   );
 
+  /**
+   * NEXT STOP (o herói do topo da tela) — pedido do dono em 25/09/2026: depois de otimizar a rota ele
+   * não achava mais "o próximo cachorro" nem o botão de informar a chegada no meio da lista. A parada
+   * vem da MESMA lista já enriquecida com ETA (stopsComEta), e a ação sai do mesmo mapa de status que os
+   * botões da lista usam (features/driver/NextStopCard) — o painel só chama o `act` que já existe.
+   */
+  const proximaParada = useMemo(() => nextStopFor(stopsComEta), [stopsComEta]);
+
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
@@ -840,6 +849,18 @@ export default function DriverTodayScreen() {
                 onClockOut={(motivo) => void clockOut(motivo)}
               />
             </View>
+            {/* NEXT STOP: a próxima parada e as 3 ações primárias (navegar / cheguei / foto),
+                sempre no mesmo lugar — logo abaixo do otimizador e ACIMA da lista de paradas.
+                Nenhuma lógica de gravação nova: os callbacks chamam o `act` que já existe. */}
+            <View style={styles.nextStop}>
+              <NextStopCard
+                stop={proximaParada}
+                nextAction={proximaParada ? nextActionForStatus(proximaParada.status) : null}
+                proofAction={proximaParada ? proofActionForStatus(proximaParada.status) : null}
+                onNavigate={(stop) => void act(stop.id, 'navigate')}
+                onAction={(stopId, action) => void act(stopId, action)}
+              />
+            </View>
             <DriverRouteView stops={stopsComEta} onAction={act} onNotifyOwner={(stop) => setNotifyStop(stop)} />
           </>
         )}
@@ -888,6 +909,8 @@ const styles = StyleSheet.create({
   body: { flex: 1, backgroundColor: colors.cream },
   routeTools: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 2 },
   jornada: { paddingHorizontal: 16, paddingTop: 2, paddingBottom: 2 },
+  /** Espaço do painel NEXT STOP: mesmo respiro horizontal do otimizador e da jornada. */
+  nextStop: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 2 },
   center: { marginTop: 80 },
   empty: { alignItems: 'center', paddingHorizontal: 34, marginTop: 90 },
   emptyEmoji: { fontSize: 44 },
