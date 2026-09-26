@@ -1,9 +1,10 @@
 import { AppState, Platform } from 'react-native';
 import 'react-native-url-polyfill/auto';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
 
 import { getSupabaseConfig } from '@/lib/supabaseConfig';
+import { criarFetchComRetryDeSessao } from '@/lib/fetchComSessao';
 
 // ATENÇÃO: o Expo/Metro só EMBUTE variáveis EXPO_PUBLIC_* no bundle quando o acesso é
 // ESTÁTICO (process.env.EXPO_PUBLIC_X). Passar o objeto `process.env` inteiro NÃO é
@@ -19,6 +20,10 @@ const secureStoreAdapter = {
   removeItem: (key: string) => SecureStore.deleteItemAsync(key),
 };
 
+// Referência tardia: o retry de sessão precisa do PRÓPRIO cliente para ler o token, e citá-lo
+// diretamente no inicializador deixa o TypeScript sem tipo (circularidade).
+let clienteAtual: SupabaseClient | null = null;
+
 export const supabase = createClient(config.url, config.publishableKey, {
   auth: {
     storage: secureStoreAdapter,
@@ -26,7 +31,15 @@ export const supabase = createClient(config.url, config.publishableKey, {
     persistSession: true,
     detectSessionInUrl: false,
   },
+  // No boot o cliente pode ainda não ter o token: 401 ganha UMA segunda tentativa (lib/fetchComSessao.ts).
+  global: {
+    fetch: criarFetchComRetryDeSessao(fetch as any, async (): Promise<string | null> => {
+      const { data } = await clienteAtual!.auth.getSession();
+      return data.session?.access_token ?? null;
+    }),
+  },
 });
+clienteAtual = supabase;
 
 if (Platform.OS !== 'web') {
   AppState.addEventListener('change', (state) => {
