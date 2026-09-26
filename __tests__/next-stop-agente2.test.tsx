@@ -3,9 +3,15 @@
  * "depois de otimizada a rota tenha um lugar mostrando o próximo cachorro e o botão pra dar a
  * localização... botão pra informar que cheguei... e tirar foto do cachorro".
  *
- * Estes testes são escritos para o REQUISITO (e não para a implementação): o painel mostra a parada de
- * menor `sequence` ainda não resolvida, as três ações primárias existem com rótulo acessível, e cada
- * toque cai no callback que a tela passa (o MESMO `act` da lista) com a ação certa.
+ * ATUALIZAÇÃO DE ESPECIFICAÇÃO (26/09/2026). O dono mandou tirar o passo da foto do app do
+ * motorista: "pelas imagens vi que ainda não removeu a necessidade de tirar fotos quando pegar e
+ * deixar os cachorros" → o painel ficou com DUAS ações (navegar e o próximo passo do dia) e o
+ * comprovante saiu do fluxo. Os testes abaixo foram ajustados para o contrato novo, com um caso
+ * explícito que trava a REGRESSÃO (nenhum botão de foto volta sem pedido).
+ *
+ * Os testes são escritos para o REQUISITO (e não para a implementação): o painel mostra a parada de
+ * menor `sequence` ainda não resolvida, as ações existem com rótulo acessível, e cada toque cai no
+ * callback que a tela passa (o MESMO `act` da lista) com a ação certa.
  */
 import { fireEvent, render } from '@testing-library/react-native';
 
@@ -14,7 +20,6 @@ import {
   NextStopCard,
   nextActionForStatus,
   nextStopFor,
-  proofActionForStatus,
 } from '@/features/driver/NextStopCard';
 import type { DriverStop } from '@/features/driver/DriverRouteView';
 
@@ -40,7 +45,6 @@ async function painel(stop: DriverStop | null) {
     <NextStopCard
       stop={stop}
       nextAction={stop ? nextActionForStatus(stop.status) : null}
-      proofAction={stop ? proofActionForStatus(stop.status) : null}
       onNavigate={onNavigate}
       onAction={onAction}
     />,
@@ -78,13 +82,6 @@ describe('mapa de ações do dia (mesmo caminho da lista)', () => {
     expect(nextActionForStatus('completed')).toBeNull();
     expect(nextActionForStatus('skipped')).toBeNull();
   });
-
-  it('só o embarque e a entrega têm foto (mesma regra de proofKindForAction)', () => {
-    expect(proofActionForStatus('pending')).toBeNull();
-    expect(proofActionForStatus('arrived')).toBe('picked_up');
-    expect(proofActionForStatus('picked_up')).toBe('completed');
-    expect(proofActionForStatus('completed')).toBeNull();
-  });
 });
 
 describe('NextStopCard', () => {
@@ -111,29 +108,29 @@ describe('NextStopCard', () => {
     expect(onAction).toHaveBeenCalledWith('stop-1', 'arrived');
   });
 
-  it('parada pending ainda não tem foto: o botão aparece desativado e não grava nada', async () => {
-    const { tela, onAction } = await painel(parada());
-    const foto = tela.getByLabelText('Next stop: proof photo for Bob — available after you arrive');
-    expect(foto.props.accessibilityState).toEqual(expect.objectContaining({ disabled: true }));
-
-    await fireEvent.press(foto);
-    expect(onAction).not.toHaveBeenCalled();
-  });
-
-  it('parada arrived mostra "Dog picked up" e a foto ativa com a MESMA ação', async () => {
+  it('parada arrived mostra "Dog picked up" (a ação que marca a coleta)', async () => {
     const { tela, onAction } = await painel(parada({ status: 'arrived' }));
     expect(tela.getByText('Dog picked up')).toBeTruthy();
 
-    await fireEvent.press(tela.getByLabelText('Next stop: proof photo for Bob'));
+    await fireEvent.press(tela.getByLabelText('Next stop: Dog picked up for Bob'));
     expect(onAction).toHaveBeenCalledWith('stop-1', 'picked_up');
   });
 
-  it('parada picked_up mostra "Complete" (com foto de entrega)', async () => {
+  it('parada picked_up mostra "Complete" (a ação que marca a entrega)', async () => {
     const { tela, onAction } = await painel(parada({ status: 'picked_up' }));
     expect(tela.getByText('Complete')).toBeTruthy();
 
     await fireEvent.press(tela.getByLabelText('Next stop: Complete for Bob'));
     expect(onAction).toHaveBeenCalledWith('stop-1', 'completed');
+  });
+
+  it('REGRESSÃO: nenhum botão de foto no painel (o comprovante saiu do app em 26/09/2026)', async () => {
+    for (const status of ['pending', 'arrived', 'picked_up'] as const) {
+      const { tela } = await painel(parada({ status }));
+      const rotulos = tela.getAllByRole('button').map((b) => String(b.props.accessibilityLabel ?? ''));
+      expect(rotulos.some((r) => /photo|foto|proof/i.test(r))).toBe(false);
+      expect(tela.queryByText('Photo')).toBeNull();
+    }
   });
 
   it('rota terminada: avisa e NÃO oferece botão nenhum', async () => {
@@ -147,7 +144,7 @@ describe('NextStopCard', () => {
   it('todo botão tem papel e rótulo acessível (a varredura de acessibilidade depende disso)', async () => {
     const { tela } = await painel(parada({ status: 'arrived' }));
     const botoes = tela.getAllByRole('button');
-    expect(botoes).toHaveLength(3);
+    expect(botoes).toHaveLength(2); // navegar + o próximo passo do dia (a foto saiu)
     for (const botao of botoes) {
       expect(typeof botao.props.accessibilityLabel).toBe('string');
       expect(botao.props.accessibilityLabel.length).toBeGreaterThan(0);

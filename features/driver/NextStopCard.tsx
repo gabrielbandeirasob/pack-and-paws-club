@@ -39,18 +39,6 @@ export const NEXT_ACTION_LABEL: Partial<Record<DriverAction, string>> = {
 };
 
 /**
- * Ação cuja foto o passo carrega — mesma regra de `proofKindForAction` (features/driver/proofCapture):
- * só o embarque (pickup) e a entrega (dropoff) pedem comprovante. `null` significa "neste estado ainda
- * não há foto a tirar", e nesse caso o botão de foto do painel fica desativado (nada de inventar um
- * passo de foto que o banco não conhece).
- */
-export function proofActionForStatus(status: DriverStop['status']): DriverAction | null {
-  if (status === 'arrived') return 'picked_up';
-  if (status === 'picked_up') return 'completed';
-  return null;
-}
-
-/**
  * Próxima parada do dia: a de MENOR `sequence` que ainda não foi resolvida.
  *
  * "Resolvida" usa a MESMA definição do resto do app (ver `nextStopEta` em features/driver/eta e
@@ -71,15 +59,13 @@ type Props = {
   stop: DriverStop | null;
   /** Próxima ação do dia para esta parada (`nextActionForStatus`). */
   nextAction: DriverAction | null;
-  /** Ação que carrega a foto (`proofActionForStatus`); null = sem foto neste estado. */
-  proofAction: DriverAction | null;
   /** Abre o seletor de app de mapa do sistema — MESMO handler do "Navigate" da lista. */
   onNavigate: (stop: DriverStop) => void;
   /** Executa a ação no MESMO `act` da tela do motorista (status, foto e fila offline saem de lá). */
   onAction: (stopId: string, action: DriverAction) => void;
 };
 
-export function NextStopCard({ stop, nextAction, proofAction, onNavigate, onAction }: Props) {
+export function NextStopCard({ stop, nextAction, onNavigate, onAction }: Props) {
   // Sem parada pendente: o painel continua no topo (o motorista não procura botão que não existe mais),
   // mas sem nenhuma ação — nada de oferecer passo para uma rota que acabou.
   if (!stop) {
@@ -128,27 +114,7 @@ export function NextStopCard({ stop, nextAction, proofAction, onNavigate, onActi
             <Text style={styles.actionGoldText}>{NEXT_ACTION_LABEL[nextAction] ?? nextAction}</Text>
           </Pressable>
         ) : null}
-        {/* 3) FOTO — mesmo fluxo de comprovante (a foto é tirada DENTRO da ação pickup/dropoff). */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: proofAction === null }}
-          disabled={proofAction === null}
-          accessibilityLabel={
-            proofAction
-              ? `Next stop: proof photo for ${stop.dogName}`
-              : `Next stop: proof photo for ${stop.dogName} — available after you arrive`
-          }
-          onPress={() => {
-            if (proofAction) onAction(stop.id, proofAction);
-          }}
-          style={[styles.action, styles.actionPhoto, proofAction === null && styles.actionDisabled]}
-        >
-          <Text style={styles.actionPhotoText}>Photo</Text>
-        </Pressable>
       </View>
-      {proofAction === null ? (
-        <Text style={styles.hint}>The proof photo is attached when you pick up or drop off the dog.</Text>
-      ) : null}
     </View>
   );
 }
