@@ -448,7 +448,17 @@ const styles = StyleSheet.create({
   rotulo: { color: colors.muted, fontSize: 11, fontWeight: '900', letterSpacing: 0.6, marginTop: 10, textTransform: 'uppercase' },
   campo: { backgroundColor: colors.cream, borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 11, color: colors.ink, fontSize: 15, marginTop: 6 },
   linha: { flexDirection: 'row', gap: 8 },
-  meia: { flex: 1 },
+  /*
+   * Meia largura na linha dos dois campos (latitude/longitude).
+   *
+   * DEFEITO do build 69 (achado na verificação de 26/09/2026, medindo a tela no navegador com a
+   * largura do iPhone): `flex: 1` sozinho NÃO encolhe um <input> do react-native-web abaixo do
+   * tamanho intrínseco dele (~227 px, os 20 caracteres padrão do input) — o `min-width` do item
+   * flex é `auto`. Resultado: o campo de longitude começava em 266 px e terminava em 493 px numa
+   * tela de 393 px, ou seja, FORA da tela (o gestor não via o campo). `minWidth: 0` devolve o
+   * encolhimento e cada campo fica com metade da linha.
+   */
+  meia: { flex: 1, minWidth: 0 },
   tipos: { flexDirection: 'row', gap: 8, marginTop: 6 },
   tipoOpcao: { flex: 1, borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingVertical: 9, alignItems: 'center', backgroundColor: colors.cream },
   tipoAtivo: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
