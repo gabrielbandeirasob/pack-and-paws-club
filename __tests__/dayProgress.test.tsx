@@ -32,9 +32,11 @@ jest.mock('@/lib/supabase', () => {
         driver_id: 'd1',
         status: 'published',
         route_stops: [
-          { id: 's1', sequence: 1, status: 'completed', updated_at: '2026-09-22T14:05:00.000Z', dog: { name: 'Bella' } },
-          { id: 's2', sequence: 2, status: 'picked_up', updated_at: '2026-09-22T14:20:00.000Z', dog: { name: 'Thor' } },
-          { id: 's3', sequence: 3, status: 'pending', updated_at: null, dog: { name: 'Mel' } },
+          // `updated_at` (metadado da LINHA) é velho de propósito: é o valor que a tela lia por
+          // engano antes da correção de 26/09/2026. `status_updated_at` é o carimbo do estado.
+          { id: 's1', sequence: 1, status: 'completed', updated_at: '2026-09-25T16:06:00.000Z', status_updated_at: '2026-09-22T14:05:00.000Z', dog: { name: 'Bella' } },
+          { id: 's2', sequence: 2, status: 'picked_up', updated_at: '2026-09-25T16:06:00.000Z', status_updated_at: '2026-09-22T14:20:00.000Z', dog: { name: 'Thor' } },
+          { id: 's3', sequence: 3, status: 'pending', updated_at: '2026-09-25T16:06:00.000Z', status_updated_at: null, dog: { name: 'Mel' } },
         ],
       },
     ],
@@ -77,5 +79,17 @@ describe("Today's progress", () => {
     expect(tela.getByText('Waiting')).toBeTruthy();
     // resumo do dia: 1 concluído de 3 (o "picked up" ainda não conta como resolvido)
     expect(tela.getByText('1 of 3 dogs done · 2 left')).toBeTruthy();
+  });
+
+  it('a hora mostrada é a da MARCAÇÃO (status_updated_at), não a última alteração da linha', async () => {
+    // DEFEITO de 26/09/2026: a tela lia `updated_at` (metadado da linha, congelado em 25/09 16:06) e
+    // o gestor via "16:06" em toda parada, mesmo com o motorista marcando às 13:23. O carimbo certo
+    // é o `status_updated_at` que o trigger do banco mantém.
+    const Tela = require('../app/day-progress').default;
+    const tela = await render(<Tela />);
+
+    await waitFor(() => expect(tela.getByText('14:05')).toBeTruthy());
+    expect(tela.getByText('14:20')).toBeTruthy();
+    expect(tela.queryByText('16:06')).toBeNull();
   });
 });

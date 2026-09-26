@@ -14,7 +14,16 @@ type StopRow = {
   id: string;
   sequence: number;
   status: 'pending' | 'arrived' | 'picked_up' | 'completed' | 'skipped';
-  updated_at: string | null;
+  /**
+   * Carimbo OFICIAL da mudança de estado (trigger `route_stops_stamp`, hora do SERVIDOR).
+   *
+   * DEFEITO corrigido aqui em 26/09/2026: a tela lia `updated_at` — que é "última alteração da
+   * LINHA", não do estado. Como o app grava só `status` (e o trigger grava `status_updated_at`),
+   * `updated_at` fica parado: na verificação de 26/09 as três paradas apareciam como marcadas às
+   * "16:06" (valor de 25/09) enquanto o motorista havia marcado às 13:23/13:24. `status_updated_at`
+   * é exatamente "a última mudança de estado" que o comentário desta tela promete.
+   */
+  status_updated_at: string | null;
   dog: { name: string };
 };
 type RouteRow = { id: string; driver_id: string; status: 'draft' | 'published'; route_stops: StopRow[] };
@@ -59,7 +68,7 @@ export default function DayProgressScreen() {
     const [rotasResult, motoristasResult] = await Promise.all([
       supabase
         .from('routes')
-        .select('id, driver_id, status, route_stops(id, sequence, status, updated_at, dog:dogs(name))')
+        .select('id, driver_id, status, route_stops(id, sequence, status, status_updated_at, dog:dogs(name))')
         .eq('organization_id', organizationId)
         .eq('route_date', todayLocalISO()),
       supabase
@@ -86,7 +95,7 @@ export default function DayProgressScreen() {
         status: row.status,
         stops: [...row.route_stops]
           .sort((a, b) => a.sequence - b.sequence)
-          .map((stop) => ({ status: stop.status, dogName: stop.dog.name, at: stop.updated_at })),
+          .map((stop) => ({ status: stop.status, dogName: stop.dog.name, at: stop.status_updated_at })),
       })),
     );
     setLoading(false);
