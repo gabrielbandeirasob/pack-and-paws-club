@@ -7,6 +7,8 @@ import { render, waitFor } from '@testing-library/react-native';
  */
 jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: () => undefined, push: () => undefined, back: () => undefined }),
+  // A tela lê o dia de `?day=` (navegação por dia, 27/09/2026); sem parâmetro ela cai em hoje.
+  useLocalSearchParams: () => ({ day: '2026-09-26' }),
   useFocusEffect: (callback: () => void | (() => void)) => {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     (require('react') as typeof React).useEffect(() => {

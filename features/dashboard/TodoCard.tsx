@@ -5,9 +5,12 @@
  * vai incluir uma to-do list que vai ser editável: o cara vai clicar, vai escrever o que ele tem que
  * fazer no dia e vai gerar tipo aquela bolinha para você clicar no menu".
  *
- * Decisões: a lista é DO DIA (a tela carrega o dia de hoje; ontem continua guardado no histórico) e
+ * Decisões: a lista é DO DIA (a tela carrega o dia escolhido no cabeçalho; ontem continua guardado no histórico) e
  * é do gestor (o banco só deixa gestor escrever — o motorista lê). A bolinha do menu conta os itens
  * ainda ABERTOS.
+ *
+ * `title` existe por causa da navegação por dia (27/09/2026): quando o gestor arrasta o cabeçalho
+ * para amanhã, "Today's to-do" seria mentira.
  */
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -16,6 +19,8 @@ import { colors, radii } from '@/features/theme/tokens';
 import { pendingTodos, sortTodos, TODO_TEXTO_MAX, type DailyTodo } from './dayOperation';
 
 type Props = {
+  /** Título do cartão; padrão "Today's to-do" (a Home passa "<dia>'s to-do"). */
+  title?: string;
   todos: DailyTodo[];
   busy?: boolean;
   onAdd: (text: string) => void;
@@ -24,7 +29,7 @@ type Props = {
   onRemove: (id: string) => void;
 };
 
-export function TodoCard({ todos, busy = false, onAdd, onToggle, onEdit, onRemove }: Props) {
+export function TodoCard({ title = "Today's to-do", todos, busy = false, onAdd, onToggle, onEdit, onRemove }: Props) {
   const [novo, setNovo] = useState('');
   const [editando, setEditando] = useState<string | null>(null);
   const [rascunho, setRascunho] = useState('');
@@ -48,7 +53,7 @@ export function TodoCard({ todos, busy = false, onAdd, onToggle, onEdit, onRemov
   return (
     <View style={styles.cartao}>
       <View style={styles.topo}>
-        <Text style={styles.titulo}>Today&apos;s to-do</Text>
+        <Text style={styles.titulo}>{title}</Text>
         <View style={[styles.selo, abertos === 0 && styles.seloOk]}>
           <Text style={[styles.seloTexto, abertos === 0 && styles.seloTextoOk]}>
             {abertos === 0 ? 'all done' : `${abertos} open`}

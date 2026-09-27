@@ -1,12 +1,20 @@
 /**
- * FECHAMENTO DO DIA — os dois campos que o gestor escreve no fim do dia.
+ * PLANO DO DIA — os dois campos que o gestor escreve ANTES do dia acontecer: onde é a caminhada e
+ * qual é a ideia da foto.
  *
  * Pedido da operação (26/09/2026): "na dashboard principal, também o administrador tem que ter, no
- * final do dia, dois locais que ele consiga digitar: um vai ser IDÉIA DA FOTO DO DIA e o outro vai
- * ser LOCAL DA CAMINHADA, onde ele vai ser capaz de escrever também um local para a caminhada".
+ * final do dia, dois locais que ele consiga digitar: um vai ser IDEIA DA FOTO DO DIA e o outro vai
+ * ser LOCAL DA CAMINHADA".
  *
- * Decisão: "foto do dia" fica como TEXTO (a ideia/legenda do dia) — anexar arquivo no fim do dia
- * não foi pedido e o app não guarda binário hoje. Se o cliente quiser a foto de verdade, é um passo
+ * NOME CORRIGIDO em 27/09/2026 (áudio do dono): o cartão se chamava "End of the day" e o dono
+ * recusou o nome — "a foto, o jeito que vai ser tirada a foto e o local é decidido no dia ANTERIOR
+ * com base no clima e tudo mais. Então, ele não é o End of the Day... eu quero que o administrador
+ * seja capaz de arrastar pro lado e dia por dia... acessar o próximo dia e digitar o local e como
+ * vai ser a foto". Os campos NÃO mudaram (continuam por dia, em `daily_plans`); o que mudou é o
+ * enquadramento: é o plano do dia, escrito antes — navegando para amanhã pelo cabeçalho.
+ *
+ * Decisão de 26/09 mantida: "foto do dia" é TEXTO (a ideia/legenda do dia). Anexar arquivo no fim do
+ * dia não foi pedido e o app não guarda binário; se o cliente quiser a foto de verdade, é um passo
  * novo (upload), combinado depois.
  */
 import { useEffect, useState } from 'react';
@@ -24,11 +32,12 @@ type Props = {
   onSave: (values: { walkLocation: string; photoIdea: string }) => void;
 };
 
-export function EndOfDayCard({ walkLocation, photoIdea, busy = false, saved = null, onSave }: Props) {
+export function DayPlanCard({ walkLocation, photoIdea, busy = false, saved = null, onSave }: Props) {
   const [local, setLocal] = useState(walkLocation ?? '');
   const [foto, setFoto] = useState(photoIdea ?? '');
 
-  // O que veio do banco manda quando a tela recarrega (outro gestor pode ter salvo).
+  // O que veio do banco manda quando a tela recarrega (outro gestor pode ter salvo, ou o gestor
+  // acabou de arrastar para outro dia).
   useEffect(() => setLocal(walkLocation ?? ''), [walkLocation]);
   useEffect(() => setFoto(photoIdea ?? ''), [photoIdea]);
 
@@ -36,13 +45,13 @@ export function EndOfDayCard({ walkLocation, photoIdea, busy = false, saved = nu
 
   return (
     <View style={styles.cartao}>
-      <Text style={styles.titulo}>End of the day</Text>
-      <Text style={styles.sub}>Write it down and it stays saved with the day.</Text>
+      <Text style={styles.titulo}>Day plan</Text>
+      <Text style={styles.sub}>Photo and walk location — decided the day before.</Text>
 
       <Text style={styles.rotulo}>Walk location</Text>
       <TextInput
         accessibilityLabel="Walk location of the day"
-        placeholder="Where the walk happened…"
+        placeholder="Where the walk will be…"
         placeholderTextColor={colors.muted}
         value={local}
         onChangeText={setLocal}
@@ -53,7 +62,7 @@ export function EndOfDayCard({ walkLocation, photoIdea, busy = false, saved = nu
       <Text style={styles.rotulo}>Photo of the day — idea</Text>
       <TextInput
         accessibilityLabel="Photo of the day idea"
-        placeholder="What today's photo is about…"
+        placeholder="What the photo is about…"
         placeholderTextColor={colors.muted}
         value={foto}
         onChangeText={setFoto}
@@ -67,7 +76,7 @@ export function EndOfDayCard({ walkLocation, photoIdea, busy = false, saved = nu
           accessibilityRole="button"
           accessibilityState={{ disabled: busy || !mudou }}
           disabled={busy || !mudou}
-          accessibilityLabel="Save the end of the day"
+          accessibilityLabel="Save the day plan"
           onPress={() => onSave({ walkLocation: local, photoIdea: foto })}
           style={[styles.salvar, (busy || !mudou) && styles.salvarOff]}
         >

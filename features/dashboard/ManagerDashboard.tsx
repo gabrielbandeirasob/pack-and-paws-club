@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, radii } from '@/features/theme/tokens';
-import { EndOfDayCard } from './EndOfDayCard';
+import { DayPlanCard } from './DayPlanCard';
 import { PackSheet } from './PackSheet';
 import { TodoCard } from './TodoCard';
 import { formatCents, parseMoneyToCents, type DailyTodo } from './dayOperation';
@@ -55,6 +55,8 @@ export type DashboardDaySection = {
 
 type Props = {
   dateLabel: string;
+  /** Navegação por dia: swipe no cabeçalho verde + setas + "Back to today". */
+  dayNav: DashboardDayNav;
   greeting: string;
   initials: string;
   daycare: number;
@@ -72,13 +74,55 @@ type Props = {
   onOpenDriverHours: () => void;
 };
 
-export function ManagerDashboard({ dateLabel, greeting, initials, daycare, boarding, progress, routes, day, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours }: Props) {
+/**
+ * Navegação por dia (pedido do dono, áudio de 27/09/2026): o gestor ARRASTA O CABEÇALHO VERDE para
+ * o lado e o painel inteiro passa a mostrar aquele dia — para trás ou para frente. É assim que ele
+ * planeja o dia SEGUINTE (local da caminhada e ideia da foto), que é quando essa decisão acontece:
+ * "a foto, o jeito que vai ser tirada a foto e o local é decidido no dia anterior".
+ */
+export type DashboardDayNav = {
+  /** "Today" / "Tomorrow" / "Yesterday" / "Monday" — deixa os títulos dos cartões honestos. */
+  prefix: string;
+  isToday: boolean;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onPreviousDay: () => void;
+  onNextDay: () => void;
+  onToday: () => void;
+};
+
+/** Quanto o dedo precisa andar para valer como "arrastou para o lado" (não é toque, não é scroll). */
+const ARRASTO_MINIMO = 60;
+
+export function ManagerDashboard({ dateLabel, dayNav, greeting, initials, daycare, boarding, progress, routes, day, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours }: Props) {
   const [folhaAberta, setFolhaAberta] = useState(false);
+
+  /**
+   * O cabo do swipe: arrastar para a ESQUERDA vai para o dia seguinte, para a DIREITA volta um dia
+   * (é o sentido de um calendário que rola por baixo do dedo). O gesto só é capturado quando é
+   * claramente horizontal — assim a rolagem da tela (vertical) continua funcionando em cima do
+   * cabeçalho.
+   */
+  const diaNav = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_evento, gesto) =>
+          Math.abs(gesto.dx) > 12 && Math.abs(gesto.dx) > Math.abs(gesto.dy),
+        onMoveShouldSetPanResponderCapture: (_evento, gesto) =>
+          Math.abs(gesto.dx) > 12 && Math.abs(gesto.dx) > Math.abs(gesto.dy),
+        onPanResponderRelease: (_evento, gesto) => {
+          if (gesto.dx <= -ARRASTO_MINIMO) dayNav.onNextDay();
+          else if (gesto.dx >= ARRASTO_MINIMO) dayNav.onPreviousDay();
+        },
+      }),
+    [dayNav],
+  );
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.hero}>
+        {/* CABEÇALHO VERDE — aqui mora a navegação por dia: arrastar para o lado troca o dia. */}
+        <View style={styles.hero} {...diaNav.panHandlers}>
           <View style={styles.brandRow}>
             <View style={styles.brandBlock}>
               <Image source={require('../../assets/images/pack-paws-logo.jpg')} style={styles.logo} />
@@ -86,7 +130,43 @@ export function ManagerDashboard({ dateLabel, greeting, initials, daycare, board
             </View>
             <View style={styles.avatar}><Text style={styles.avatarText}>{initials}</Text></View>
           </View>
-          <Text style={styles.date}>{dateLabel}</Text>
+          <View style={styles.dayNavRow}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Previous day"
+              accessibilityState={{ disabled: !dayNav.canGoBack }}
+              disabled={!dayNav.canGoBack}
+              onPress={dayNav.onPreviousDay}
+              style={[styles.dayArrow, !dayNav.canGoBack && styles.dayArrowOff]}
+            >
+              <Text style={styles.dayArrowText}>‹</Text>
+            </Pressable>
+            <View style={styles.dayCenter}>
+              <Text style={styles.date}>{dateLabel}</Text>
+              {dayNav.isToday ? (
+                <Text style={styles.dayHint}>swipe sideways for the next day</Text>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to today"
+                  onPress={dayNav.onToday}
+                  style={styles.dayPill}
+                >
+                  <Text style={styles.dayPillText}>Back to today</Text>
+                </Pressable>
+              )}
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Next day"
+              accessibilityState={{ disabled: !dayNav.canGoForward }}
+              disabled={!dayNav.canGoForward}
+              onPress={dayNav.onNextDay}
+              style={[styles.dayArrow, !dayNav.canGoForward && styles.dayArrowOff]}
+            >
+              <Text style={styles.dayArrowText}>›</Text>
+            </Pressable>
+          </View>
           <Text style={styles.greeting}>{greeting}</Text>
         </View>
 
@@ -127,18 +207,21 @@ export function ManagerDashboard({ dateLabel, greeting, initials, daycare, board
         */}
         <Pressable accessibilityRole="button" accessibilityLabel="See today's progress" style={styles.progressCard} onPress={onOpenProgress}>
           <View style={styles.progressLeft}>
-            <Text style={styles.progressTitle}>Today&apos;s progress</Text>
+            <Text style={styles.progressTitle}>{`${dayNav.prefix}'s progress`}</Text>
             <Text style={styles.muted}>
               {progress.total === 0
-                ? 'Nothing scheduled for today'
+                ? dayNav.isToday
+                  ? 'Nothing scheduled for today'
+                  : 'Nothing scheduled for this day'
                 : `${progress.done} of ${progress.total} dogs done`}
             </Text>
           </View>
           <Text style={styles.link}>See all ›</Text>
         </Pressable>
 
-        {/* TO-DO LIST do dia (operação, 26/09/2026) — dentro do "Today's progress". */}
+        {/* TO-DO LIST do dia (operação, 26/09/2026) — dentro do progresso do dia. */}
         <TodoCard
+          title={`${dayNav.prefix}'s to-do`}
           todos={day.todos}
           busy={day.todosBusy}
           onAdd={day.onAddTodo}
@@ -147,8 +230,9 @@ export function ManagerDashboard({ dateLabel, greeting, initials, daycare, board
           onRemove={day.onRemoveTodo}
         />
 
-        {/* FECHAMENTO DO DIA: local da caminhada + ideia da foto (operação, 26/09/2026). */}
-        <EndOfDayCard
+        {/* PLANO DO DIA: local da caminhada + ideia da foto (operação, 26/09/2026; nome corrigido em
+            27/09/2026 — é decidido no dia ANTERIOR, então não é "fim do dia"). */}
+        <DayPlanCard
           walkLocation={day.plan.walkLocation}
           photoIdea={day.plan.photoIdea}
           busy={day.planBusy}
@@ -157,7 +241,7 @@ export function ManagerDashboard({ dateLabel, greeting, initials, daycare, board
         />
 
         <View style={styles.sectionTitleRow}>
-          <Text style={styles.sectionTitleInline}>Today&apos;s routes</Text>
+          <Text style={styles.sectionTitleInline}>{`${dayNav.prefix}'s routes`}</Text>
           <Pressable accessibilityRole="button" accessibilityLabel="View all routes" onPress={onOpenDispatch}>
             <Text style={styles.link}>View all</Text>
           </Pressable>
@@ -165,7 +249,7 @@ export function ManagerDashboard({ dateLabel, greeting, initials, daycare, board
 
         {routes.length === 0 ? (
           <View style={styles.routeCard}>
-            <Text style={styles.emptyTitle}>No routes yet today</Text>
+            <Text style={styles.emptyTitle}>{dayNav.isToday ? 'No routes yet today' : 'No routes yet for this day'}</Text>
             <Text style={styles.muted}>Assign the dogs that need transport in Dispatch and publish the route — it appears here and in the driver&apos;s app instantly.</Text>
           </View>
         ) : (
@@ -271,7 +355,16 @@ function Stat({ value, label, hint, destaque = false }: { value: string; label: 
 }
 
 const styles = StyleSheet.create({
-  screen:{flex:1,backgroundColor:colors.forest700},content:{paddingBottom:28},scroll:{flex:1,backgroundColor:colors.cream},hero:{backgroundColor:colors.forest700,paddingHorizontal:20,paddingTop:12,paddingBottom:50,borderBottomLeftRadius:radii.hero,borderBottomRightRadius:radii.hero},brandRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},brandBlock:{flexDirection:'row',alignItems:'center',gap:10},logo:{width:44,height:44,borderRadius:12,borderWidth:1,borderColor:colors.gold},brand:{color:'white',fontFamily:'serif',fontSize:15,fontWeight:'700',letterSpacing:.4},avatar:{width:38,height:38,borderRadius:19,backgroundColor:'#F0DB9C',alignItems:'center',justifyContent:'center'},avatarText:{color:colors.forest700,fontWeight:'800'},date:{color:'#D7E1D4',fontSize:12,letterSpacing:.7,marginTop:24},greeting:{color:'white',fontFamily:'serif',fontSize:29,fontWeight:'700',lineHeight:34,marginTop:6,maxWidth:310},statsRow:{flexDirection:'row',gap:9,paddingHorizontal:18,marginTop:-27},statsRow2:{flexDirection:'row',gap:9,paddingHorizontal:18,marginTop:9},stat:{flex:1,backgroundColor:colors.paper,borderRadius:radii.medium,padding:14,shadowColor:colors.forest900,shadowOpacity:.08,shadowRadius:14,shadowOffset:{width:0,height:6},elevation:2},statValue:{color:colors.forest700,fontFamily:'serif',fontWeight:'800',fontSize:23},muted:{color:colors.muted,fontSize:11},sectionTitleRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:20,marginTop:24,marginBottom:11},sectionTitle:{fontFamily:'serif',fontWeight:'800',fontSize:18,color:colors.ink,marginHorizontal:20,marginTop:22,marginBottom:11},link:{color:colors.forest700,fontWeight:'800'},routeCard:{backgroundColor:colors.paper,borderWidth:1,borderColor:colors.line,borderRadius:radii.large,padding:16,marginHorizontal:18,marginBottom:11},routeTop:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},driverBlock:{flexDirection:'row',alignItems:'center',gap:11},driverAvatar:{width:38,height:38,borderRadius:12,backgroundColor:colors.sage,alignItems:'center',justifyContent:'center'},driverInitial:{color:colors.forest700,fontWeight:'900'},driverName:{fontWeight:'800',color:colors.ink},statusPill:{backgroundColor:'#E3F1DF',borderRadius:20,paddingHorizontal:9,paddingVertical:6},statusText:{color:'#2E6334',fontSize:11,fontWeight:'800'},routeBottom:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginTop:15},dogs:{fontSize:18},quickRow:{flexDirection:'row',gap:10,paddingHorizontal:18},quickCard:{flex:1,backgroundColor:colors.paper,borderRadius:radii.medium,borderWidth:1,borderColor:colors.line,padding:15,minHeight:92},quickIcon:{color:colors.forest700,fontSize:25,fontWeight:'500'},quickText:{color:colors.ink,fontWeight:'800',fontSize:13,marginTop:8},
+  screen:{flex:1,backgroundColor:colors.forest700},content:{paddingBottom:28},scroll:{flex:1,backgroundColor:colors.cream},hero:{backgroundColor:colors.forest700,paddingHorizontal:20,paddingTop:12,paddingBottom:50,borderBottomLeftRadius:radii.hero,borderBottomRightRadius:radii.hero},brandRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},brandBlock:{flexDirection:'row',alignItems:'center',gap:10},logo:{width:44,height:44,borderRadius:12,borderWidth:1,borderColor:colors.gold},brand:{color:'white',fontFamily:'serif',fontSize:15,fontWeight:'700',letterSpacing:.4},avatar:{width:38,height:38,borderRadius:19,backgroundColor:'#F0DB9C',alignItems:'center',justifyContent:'center'},avatarText:{color:colors.forest700,fontWeight:'800'},date:{color:'#D7E1D4',fontSize:12,letterSpacing:.7,textAlign:'center'},
+  /** Navegação por dia: setas nas pontas, data no meio (o gestor também pode arrastar). */
+  dayNavRow:{flexDirection:'row',alignItems:'center',gap:10,marginTop:20},
+  dayArrow:{width:38,height:38,borderRadius:19,borderWidth:1,borderColor:'rgba(255,255,255,.35)',alignItems:'center',justifyContent:'center'},
+  dayArrowOff:{opacity:.3},
+  dayArrowText:{color:'white',fontSize:22,fontWeight:'700',lineHeight:24},
+  dayCenter:{flex:1,alignItems:'center'},
+  dayHint:{color:'#A9BFA6',fontSize:10.5,marginTop:3},
+  dayPill:{marginTop:5,borderWidth:1,borderColor:colors.gold,borderRadius:20,paddingHorizontal:12,paddingVertical:5},
+  dayPillText:{color:colors.gold,fontSize:11,fontWeight:'800'},greeting:{color:'white',fontFamily:'serif',fontSize:29,fontWeight:'700',lineHeight:34,marginTop:6,maxWidth:310},statsRow:{flexDirection:'row',gap:9,paddingHorizontal:18,marginTop:-27},statsRow2:{flexDirection:'row',gap:9,paddingHorizontal:18,marginTop:9},stat:{flex:1,backgroundColor:colors.paper,borderRadius:radii.medium,padding:14,shadowColor:colors.forest900,shadowOpacity:.08,shadowRadius:14,shadowOffset:{width:0,height:6},elevation:2},statValue:{color:colors.forest700,fontFamily:'serif',fontWeight:'800',fontSize:23},muted:{color:colors.muted,fontSize:11},sectionTitleRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:20,marginTop:24,marginBottom:11},sectionTitle:{fontFamily:'serif',fontWeight:'800',fontSize:18,color:colors.ink,marginHorizontal:20,marginTop:22,marginBottom:11},link:{color:colors.forest700,fontWeight:'800'},routeCard:{backgroundColor:colors.paper,borderWidth:1,borderColor:colors.line,borderRadius:radii.large,padding:16,marginHorizontal:18,marginBottom:11},routeTop:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},driverBlock:{flexDirection:'row',alignItems:'center',gap:11},driverAvatar:{width:38,height:38,borderRadius:12,backgroundColor:colors.sage,alignItems:'center',justifyContent:'center'},driverInitial:{color:colors.forest700,fontWeight:'900'},driverName:{fontWeight:'800',color:colors.ink},statusPill:{backgroundColor:'#E3F1DF',borderRadius:20,paddingHorizontal:9,paddingVertical:6},statusText:{color:'#2E6334',fontSize:11,fontWeight:'800'},routeBottom:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginTop:15},dogs:{fontSize:18},quickRow:{flexDirection:'row',gap:10,paddingHorizontal:18},quickCard:{flex:1,backgroundColor:colors.paper,borderRadius:radii.medium,borderWidth:1,borderColor:colors.line,padding:15,minHeight:92},quickIcon:{color:colors.forest700,fontSize:25,fontWeight:'500'},quickText:{color:colors.ink,fontWeight:'800',fontSize:13,marginTop:8},
   sectionTitleInline:{fontFamily:'serif',fontWeight:'800',fontSize:18,color:colors.ink},
   emptyTitle:{fontFamily:'serif',fontWeight:'800',fontSize:15,color:colors.forest900,marginBottom:5},
   statDestaque:{backgroundColor:colors.gold},

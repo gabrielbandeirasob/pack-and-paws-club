@@ -29,6 +29,12 @@ import {
   type DayPlan,
 } from '@/features/dashboard/dayService';
 import { registrarTodosPendentes } from '@/features/dashboard/dayTodosStore';
+import {
+  dayHeadline,
+  dayPrefix,
+  dentroDaJanela,
+  shiftDay,
+} from '@/features/dashboard/dayNavigation';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { landingRouteForRole } from '@/features/navigation/roleTabs';
 import { haversineKm } from '@/features/dispatch/routeOptimizer';
@@ -76,13 +82,6 @@ function salutation(date: Date): string {
   if (hour < 12) return 'Good morning';
   if (hour < 18) return 'Good afternoon';
   return 'Good evening';
-}
-
-function todayLabel(date: Date): string {
-  return date
-    .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-    .toUpperCase()
-    .replace(',', ' ·');
 }
 
 function initialsOf(name: string): string {
@@ -187,6 +186,25 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * DIA MOSTRADO NO PAINEL (pedido do dono, áudio de 27/09/2026: "arrastar pro lado, pra ir pro
+   * próximo dia"). Começa em hoje; o cabeçalho verde navega e TODO o painel (indicadores, pack,
+   * to-do, plano do dia e rotas) passa a ler esse dia.
+   */
+  const [selectedDay, setSelectedDay] = useState<string>(() => todayLocalISO());
+  const hojeISO = todayLocalISO();
+  const isToday = selectedDay === hojeISO;
+
+  /** Arrasta o painel para o lado: -1 = dia anterior, +1 = dia seguinte (limite: ±30 dias). */
+  const irParaDia = useCallback((passo: number) => {
+    setSelectedDay((atual) => {
+      const alvo = shiftDay(atual, passo);
+      return dentroDaJanela(alvo) ? alvo : atual;
+    });
+  }, []);
+
+  const irParaHoje = useCallback(() => setSelectedDay(todayLocalISO()), []);
+
   const load = useCallback(async () => {
     setError(null);
     const { data: { user } } = await supabase.auth.getUser();
@@ -209,7 +227,7 @@ export default function HomeScreen() {
       return;
     }
 
-    const today = todayLocalISO();
+    const dia = selectedDay;
     const [profileResult, driverResult, memberResult, reservationResult, recurringResult, exceptionResult, routeResult, locationResult, planResult, todoResult, packResult] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle(),
       supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).eq('role', 'driver').eq('status', 'active'),
@@ -222,12 +240,12 @@ export default function HomeScreen() {
         .from('routes')
         .select('id, driver_id, status, route_stops(id, sequence, status, window_end, exact_time, updated_at, dog:dogs(name, client:clients(latitude, longitude)))')
         .eq('organization_id', organizationId)
-        .eq('route_date', today),
+        .eq('route_date', dia),
       supabase.from('driver_locations').select('driver_id, latitude, longitude, updated_at').eq('organization_id', organizationId),
-      // Fechamento do dia, to-do list e pack do dia (migração 035).
-      supabase.from('daily_plans').select('revenue_cents, walk_location, photo_idea').eq('organization_id', organizationId).eq('day', today).maybeSingle(),
-      supabase.from('daily_todos').select('id, text, done, position').eq('organization_id', organizationId).eq('day', today).order('position', { ascending: true }),
-      supabase.from('pack_entries').select('dog_id, in_pack, walker_id').eq('organization_id', organizationId).eq('day', today),
+      // Plano do dia, to-do list e pack do dia (migração 035) — sempre do dia escolhido.
+      supabase.from('daily_plans').select('revenue_cents, walk_location, photo_idea').eq('organization_id', organizationId).eq('day', dia).maybeSingle(),
+      supabase.from('daily_todos').select('id, text, done, position').eq('organization_id', organizationId).eq('day', dia).order('position', { ascending: true }),
+      supabase.from('pack_entries').select('dog_id, in_pack, walker_id').eq('organization_id', organizationId).eq('day', dia),
     ]);
 
     const firstError =
@@ -275,7 +293,7 @@ export default function HomeScreen() {
       startDate: row.start_date,
       endDate: row.end_date,
     }));
-    const day = buildDay(today, reservations, recurring, exceptions);
+    const day = buildDay(dia, reservations, recurring, exceptions);
     setCounts({ daycare: day.daycare.length, boarding: day.boarding.length });
 
     // Cães do dia: os indicadores e o pack saem da MESMA conta do calendário (`buildDay`).
@@ -294,7 +312,8 @@ export default function HomeScreen() {
 
     const listaTodos = ((todoResult.data as DailyTodo[] | null) ?? []);
     setTodos(listaTodos);
-    registrarTodosPendentes(today, pendingTodos(listaTodos));
+    // A bolinha do menu é sobre HOJE: olhando outro dia, não se mexe nela.
+    if (dia === hojeISO) registrarTodosPendentes(dia, pendingTodos(listaTodos));
 
     setPackEntries(
       ((packResult.data as { dog_id: string; in_pack: boolean; walker_id: string | null }[] | null) ?? []).map((linha) => ({
@@ -324,11 +343,10 @@ export default function HomeScreen() {
     setTotalPack(contarPack(packRoutes));
     setProgress(packProgress(packRoutes));
     setLoading(false);
-  }, []);
+  }, [hojeISO, selectedDay]);
 
   /* -------------------- dia da operação: indicadores, pack, to-do (26/09/2026) -------------------- */
 
-  const diaDeHoje = todayLocalISO();
   const linhasDoPack = packRows(dayDogs, packEntries);
   const indicadores = dayIndicatorsFrom({
     daycareCount: counts.daycare,
@@ -361,11 +379,11 @@ export default function HomeScreen() {
       ]);
       setPackBusy(true);
       await comTratamento(async () => {
-        await setPackFlag(supabase, { organizationId, day: diaDeHoje, dogId, inPack });
+        await setPackFlag(supabase, { organizationId, day: selectedDay, dogId, inPack });
       });
       setPackBusy(false);
     },
-    [comTratamento, diaDeHoje, organizationId, packEntries, load],
+    [comTratamento, selectedDay, organizationId, packEntries, load],
   );
 
   /** Quem CAMINHA com o cão hoje (pode ser diferente de quem pega na rota). */
@@ -378,11 +396,11 @@ export default function HomeScreen() {
       ]);
       setPackBusy(true);
       await comTratamento(async () => {
-        await setPackWalker(supabase, { organizationId, day: diaDeHoje, dogId, walkerId });
+        await setPackWalker(supabase, { organizationId, day: selectedDay, dogId, walkerId });
       });
       setPackBusy(false);
     },
-    [comTratamento, diaDeHoje, organizationId],
+    [comTratamento, selectedDay, organizationId],
   );
 
   const salvarFaturamento = useCallback(
@@ -390,10 +408,10 @@ export default function HomeScreen() {
       if (!organizationId) return;
       setPlan((atual) => ({ ...atual, revenueCents: cents }));
       await comTratamento(async () => {
-        await saveDayPlan(supabase, { organizationId, day: diaDeHoje, revenueCents: cents });
+        await saveDayPlan(supabase, { organizationId, day: selectedDay, revenueCents: cents });
       });
     },
-    [comTratamento, diaDeHoje, organizationId],
+    [comTratamento, selectedDay, organizationId],
   );
 
   const salvouAviso = useCallback(() => {
@@ -406,30 +424,30 @@ export default function HomeScreen() {
       if (!organizationId) return;
       setTodosBusy(true);
       await comTratamento(async () => {
-        const item = await addTodo(supabase, { organizationId, day: diaDeHoje, text, position: nextTodoPosition(todos) });
+        const item = await addTodo(supabase, { organizationId, day: selectedDay, text, position: nextTodoPosition(todos) });
         setTodos((atual) => {
           const lista = [...atual, item];
-          registrarTodosPendentes(diaDeHoje, pendingTodos(lista));
+          if (selectedDay === hojeISO) registrarTodosPendentes(selectedDay, pendingTodos(lista));
           return lista;
         });
       });
       setTodosBusy(false);
     },
-    [comTratamento, diaDeHoje, organizationId, todos],
+    [comTratamento, hojeISO, selectedDay, organizationId, todos],
   );
 
   const marcarTodo = useCallback(
     async (id: string, done: boolean) => {
       setTodos((atual) => {
         const lista = atual.map((item) => (item.id === id ? { ...item, done } : item));
-        registrarTodosPendentes(diaDeHoje, pendingTodos(lista));
+        if (selectedDay === hojeISO) registrarTodosPendentes(selectedDay, pendingTodos(lista));
         return lista;
       });
       await comTratamento(async () => {
         await setTodoDone(supabase, id, done);
       });
     },
-    [comTratamento, diaDeHoje],
+    [comTratamento, hojeISO, selectedDay],
   );
 
   const editarTodo = useCallback(
@@ -446,14 +464,14 @@ export default function HomeScreen() {
     async (id: string) => {
       setTodos((atual) => {
         const lista = atual.filter((item) => item.id !== id);
-        registrarTodosPendentes(diaDeHoje, pendingTodos(lista));
+        if (selectedDay === hojeISO) registrarTodosPendentes(selectedDay, pendingTodos(lista));
         return lista;
       });
       await comTratamento(async () => {
         await removeTodo(supabase, id);
       });
     },
-    [comTratamento, diaDeHoje],
+    [comTratamento, hojeISO, selectedDay],
   );
 
   const salvarPlano = useCallback(
@@ -461,13 +479,13 @@ export default function HomeScreen() {
       if (!organizationId) return;
       setPlanBusy(true);
       await comTratamento(async () => {
-        await saveDayPlan(supabase, { organizationId, day: diaDeHoje, walkLocation: values.walkLocation, photoIdea: values.photoIdea });
+        await saveDayPlan(supabase, { organizationId, day: selectedDay, walkLocation: values.walkLocation, photoIdea: values.photoIdea });
       });
       setPlan((atual) => ({ ...atual, walkLocation: values.walkLocation || null, photoIdea: values.photoIdea || null }));
       setPlanBusy(false);
       salvouAviso();
     },
-    [comTratamento, diaDeHoje, organizationId, salvouAviso],
+    [comTratamento, selectedDay, organizationId, salvouAviso],
   );
 
   useFocusEffect(
@@ -477,8 +495,14 @@ export default function HomeScreen() {
   );
 
   const header = useMemo(
-    () => ({ dateLabel: todayLabel(new Date()), greeting: `${salutation(new Date())}, ${managerName || 'there'}`, initials: initialsOf(managerName) }),
-    [managerName],
+    () => ({
+      // O rótulo é do DIA ESCOLHIDO: arrastando para amanhã, o cabeçalho diz "TOMORROW · …".
+      dateLabel: dayHeadline(selectedDay, hojeISO),
+      prefix: dayPrefix(selectedDay, hojeISO),
+      greeting: `${salutation(new Date())}, ${managerName || 'there'}`,
+      initials: initialsOf(managerName),
+    }),
+    [hojeISO, managerName, selectedDay],
   );
 
   // Motorista nao tem painel de gestao (nem "Add from Contacts"/"New reservation"):
@@ -507,6 +531,15 @@ export default function HomeScreen() {
         // Embrulhar de novo pintava uma faixa creme atras da status bar (bug do topo).
         <ManagerDashboard
           dateLabel={header.dateLabel}
+          dayNav={{
+            prefix: header.prefix,
+            isToday,
+            canGoBack: dentroDaJanela(shiftDay(selectedDay, -1), hojeISO),
+            canGoForward: dentroDaJanela(shiftDay(selectedDay, 1), hojeISO),
+            onPreviousDay: () => irParaDia(-1),
+            onNextDay: () => irParaDia(1),
+            onToday: irParaHoje,
+          }}
           greeting={header.greeting}
           initials={header.initials}
           daycare={counts.daycare}
@@ -535,7 +568,7 @@ export default function HomeScreen() {
             onSavePlan: (values) => void salvarPlano(values),
             onOpenDaySummary: () => router.push('/day-summary'),
           }}
-          onOpenProgress={() => router.push('/day-progress')}
+          onOpenProgress={() => router.push({ pathname: '/day-progress', params: { day: selectedDay } })}
           onOpenDispatch={() => router.push('/dispatch')}
           onOpenClients={() => router.push('/clients')}
           onNewReservation={() => router.push('/calendar')}

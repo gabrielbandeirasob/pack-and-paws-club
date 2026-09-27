@@ -121,7 +121,9 @@ export default function DaySummaryScreen() {
             </View>
 
             <View style={styles.cartao}>
-              <Text style={styles.cartaoTitulo}>End of the day</Text>
+              {/* Nome corrigido em 27/09/2026 (áudio do dono): não é "fim do dia" — a foto e o local
+                  são decididos no dia anterior. Mesmo nome do cartão da Home. */}
+              <Text style={styles.cartaoTitulo}>Day plan</Text>
               <Text style={styles.rotulo}>Walk location</Text>
               <Text style={styles.valor}>{plan.walkLocation ?? '—'}</Text>
               <Text style={styles.rotulo}>Photo of the day — idea</Text>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { todayLocalISO } from '@/features/calendar/dates';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
@@ -45,6 +45,16 @@ export default function DayProgressScreen() {
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
 
+  /**
+   * O dia vem da Home (`?day=YYYY-MM-DD`): o gestor pode ter arrastado o cabeçalho para amanhã e
+   * tocar em "Tomorrow's progress" — mostrar hoje ali seria dado errado. Sem parâmetro, é hoje.
+   */
+  const parametros = useLocalSearchParams<{ day?: string }>();
+  const dia = useMemo(() => {
+    const valor = parametros.day;
+    return typeof valor === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(valor) ? valor : todayLocalISO();
+  }, [parametros.day]);
+
   const carregar = useCallback(async () => {
     setErro(null);
     const { data: { user } } = await supabase.auth.getUser();
@@ -70,7 +80,7 @@ export default function DayProgressScreen() {
         .from('routes')
         .select('id, driver_id, status, route_stops(id, sequence, status, status_updated_at, dog:dogs(name))')
         .eq('organization_id', organizationId)
-        .eq('route_date', todayLocalISO()),
+        .eq('route_date', dia),
       supabase
         .from('organization_members')
         .select('user_id, profiles(full_name)')
@@ -99,7 +109,7 @@ export default function DayProgressScreen() {
       })),
     );
     setLoading(false);
-  }, []);
+  }, [dia]);
 
   useFocusEffect(
     useCallback(() => {

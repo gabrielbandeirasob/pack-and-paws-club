@@ -41,10 +41,22 @@ async function setup(overrides: Partial<React.ComponentProps<typeof ManagerDashb
   const onNewReservation = jest.fn();
   const onOpenProgress = jest.fn();
   const onOpenDriverHours = jest.fn();
+  const onPreviousDay = jest.fn();
+  const onNextDay = jest.fn();
+  const onToday = jest.fn();
   const day = dia();
   const screen = await render(
     <ManagerDashboard
       dateLabel="MONDAY · SEPTEMBER 8"
+      dayNav={{
+        prefix: 'Today',
+        isToday: true,
+        canGoBack: true,
+        canGoForward: true,
+        onPreviousDay,
+        onNextDay,
+        onToday,
+      }}
       greeting="Good morning, Alexandra"
       initials="AM"
       daycare={18}
@@ -60,7 +72,7 @@ async function setup(overrides: Partial<React.ComponentProps<typeof ManagerDashb
       {...overrides}
     />,
   );
-  return { screen, day, onOpenDispatch, onOpenClients, onNewReservation, onOpenProgress, onOpenDriverHours };
+  return { screen, day, onOpenDispatch, onOpenClients, onNewReservation, onOpenProgress, onOpenDriverHours, onPreviousDay, onNextDay, onToday };
 }
 
 describe('ManagerDashboard', () => {
@@ -199,12 +211,73 @@ describe('ManagerDashboard', () => {
     expect(screen.getByRole('button', { name: 'Mark Pagar Wisiwash as done' })).toBeTruthy();
   });
 
-  it('o fim do dia mostra os dois campos já salvos', async () => {
+  it('o plano do dia mostra os dois campos já salvos', async () => {
     const { screen } = await setup();
 
-    expect(screen.getByText('End of the day')).toBeTruthy();
+    // Nome corrigido em 27/09/2026 (áudio do dono): não é "fim do dia" — é o plano, escrito antes.
+    expect(screen.getByText('Day plan')).toBeTruthy();
+    expect(screen.getByText('Photo and walk location — decided the day before.')).toBeTruthy();
+    expect(screen.queryByText('End of the day')).toBeNull();
     expect(screen.getByLabelText('Walk location of the day').props.value).toBe('Yard — Goiânia');
     expect(screen.getByLabelText('Photo of the day idea').props.value).toBe('Turma do dia');
+  });
+
+  /* ------------------ navegação por dia (áudio do dono, 27/09/2026) ------------------ */
+
+  it('o cabeçalho verde leva as setas de dia e o swipe para o dia seguinte', async () => {
+    const { screen, onNextDay, onPreviousDay } = await setup();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Next day' }));
+    expect(onNextDay).toHaveBeenCalledTimes(1);
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Previous day' }));
+    expect(onPreviousDay).toHaveBeenCalledTimes(1);
+
+    // Em hoje, o cabeçalho convida a arrastar em vez de oferecer "voltar para hoje".
+    expect(screen.getByText('swipe sideways for the next day')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Back to today' })).toBeNull();
+  });
+
+  it('olhando outro dia, os títulos dizem o dia e aparece o "back to today"', async () => {
+    const onToday = jest.fn();
+    const { screen } = await setup({
+      dateLabel: 'TOMORROW · TUESDAY · SEPTEMBER 9',
+      dayNav: {
+        prefix: 'Tomorrow',
+        isToday: false,
+        canGoBack: true,
+        canGoForward: true,
+        onPreviousDay: jest.fn(),
+        onNextDay: jest.fn(),
+        onToday,
+      },
+    });
+
+    expect(screen.getByText("Tomorrow's progress")).toBeTruthy();
+    expect(screen.getByText("Tomorrow's to-do")).toBeTruthy();
+    expect(screen.getByText("Tomorrow's routes")).toBeTruthy();
+    expect(screen.queryByText("Today's progress")).toBeNull();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Back to today' }));
+    expect(onToday).toHaveBeenCalledTimes(1);
+  });
+
+  it('no limite da janela, a seta do lado impossível fica desabilitada', async () => {
+    const { screen } = await setup({
+      dateLabel: 'FRIDAY · OCTOBER 30',
+      dayNav: {
+        prefix: 'Friday',
+        isToday: false,
+        canGoBack: true,
+        canGoForward: false,
+        onPreviousDay: jest.fn(),
+        onNextDay: jest.fn(),
+        onToday: jest.fn(),
+      },
+    });
+
+    expect(screen.getByRole('button', { name: 'Next day' }).props.accessibilityState.disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Previous day' }).props.accessibilityState.disabled).toBe(false);
   });
 
   it('leva para o histórico do dia', async () => {
