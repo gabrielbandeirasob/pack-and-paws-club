@@ -39,7 +39,7 @@ describe('TOM da cor -> servico (o caso real: azul Cobalto = daycare)', () => {
     ['#dbadff', 'Uva (ROXO) -> alteracao de dia fixo', 'alteracao'],
     ['#8e24aa', 'Uva profunda (ROXO)', 'alteracao'],
     ['#e67c73', 'Tomate (vermelho)', 'cancel'],
-    ['#fbd75b', 'Banana (amarelo)', null],
+    ['#fbd75b', 'Banana (amarelo) -> boarding', 'boarding'],
     ['#ff7537', 'Tangerina (laranja)', null],
     ['#e1e1e1', 'Grafite (cinza)', null],
     ['', 'vazio', null],
@@ -107,14 +107,11 @@ describe('plano com etiqueta (paleta nova)', () => {
     expect(item?.kind).toBe('cancel');
   });
 
-  it('etiqueta amarela NAO vira servico (vai para a lista)', () => {
+  it('etiqueta amarela vira BOARDING — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {
     const plano = planCalendarImport([evento('ev-amarelo', 'zara', { eventLabelId: AMARELO.id })], [ZARA], [], JANELA, {
       labels: [AMARELO],
     });
-    expect(plano.some((x) => x.kind === 'create' || x.kind === 'update')).toBe(false);
-    const item = plano[0];
-    if (item?.kind !== 'review') throw new Error('esperava review');
-    expect(item.reason).toBe('unrecognized color');
+    expect(plano[0]).toMatchObject({ kind: 'create', parsed: { serviceType: 'boarding' } });
   });
 });
 

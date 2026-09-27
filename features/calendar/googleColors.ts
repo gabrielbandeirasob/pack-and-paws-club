@@ -50,7 +50,9 @@ export type ColorMeaning =
  * mesmo corte de tom (265°) que a classificação por etiqueta usa.
  */
 export const GOOGLE_COLOR_IDS = {
-  boarding: ['2', '10'],
+  // 2 Sage (verde), 10 Basil (verde) e **5 Banana (amarelo)** — o dono confirmou em 27/09/2026:
+  // *"a cor amarela e os tons que lembram ela é boarding"*.
+  boarding: ['2', '5', '10'],
   daycare: ['1', '7', '9'],
   schedule_change: ['3'],
   cancel: ['11'],
@@ -130,12 +132,21 @@ export type EventLabel = {
  *    (24/09/2026): *"Roxo - Alteração de cliente dia fixo/cliente fora de ordem, para não ficar
  *    serviço solto"*;
  *  - VERMELHO 340..360 e 0..12 (Tomato #e67c73 ≈ 5) → cancelamento.
+ *  - **AMARELO 35..70 (Banana #f6bf26 ≈ 44, Citron #e4c441 ≈ 48, Mango #f09300 ≈ 37, Avocado #c0ca33
+ *    ≈ 64) → boarding**, confirmado pelo dono em 27/09/2026: *"a cor amarela e os tons que lembram ela
+ *    é boarding"*. É a cor que o escritório mais usa (marcador do dia, Scarlet, Maui, Penny) e antes
+ *    caía em "cor não reconhecida".
  * O teto em 300° é de propósito: daí para cima já é rosa/magenta (o magenta puro #ff00ff dá exatamente
  * 300° e fica FORA), que o dono não citou.
- * Fora disso o app NÃO chuta serviço (amarelo, laranja — Tangerine #f4511e ≈ 14 fica de fora —,
- * marrom, rosa/magenta, cinza). O limite do vermelho é estreito de propósito: laranja não cancela.
+ * Fora disso o app NÃO chuta serviço: **laranja/marrom entre 12° e 35°** (Tangerine #f4511e ≈ 14,
+ * Pumpkin #ef6c00 ≈ 27, Cocoa #795548 ≈ 16, Birch #a79b8e ≈ 31 — este é bege), rosa/magenta e cinza.
+ * O limite do vermelho é estreito de propósito: laranja não cancela. O do amarelo também: quem está
+ * entre 12° e 35° é laranja, não amarelo — se o escritório disser que laranja também é boarding, é só
+ * baixar `TOM_AMARELO.de`.
  */
 export const TOM_VERDE = { de: 70, ate: 170 } as const;
+/** Amarelo/âmbar = boarding (decisão do dono, 27/09/2026). */
+export const TOM_AMARELO = { de: 35, ate: 70 } as const;
 export const TOM_AZUL = { de: 170, ate: 265 } as const;
 export const TOM_ROXO = { de: 265, ate: 300 } as const;
 export const TONS_VERMELHOS = [
@@ -172,6 +183,7 @@ export function hueOfHex(hex?: string | null): number | null {
 export function meaningOfLabelColor(hex?: string | null): ColorMeaning | null {
   const tom = hueOfHex(hex);
   if (tom === null) return null;
+  if (tom >= TOM_AMARELO.de && tom < TOM_AMARELO.ate) return { kind: 'service', serviceType: 'boarding' };
   if (tom >= TOM_VERDE.de && tom < TOM_VERDE.ate) return { kind: 'service', serviceType: 'boarding' };
   if (tom >= TOM_AZUL.de && tom < TOM_AZUL.ate) return { kind: 'service', serviceType: 'daycare' };
   if (tom >= TOM_ROXO.de && tom < TOM_ROXO.ate) return { kind: 'schedule_change' };
@@ -180,7 +192,7 @@ export function meaningOfLabelColor(hex?: string | null): ColorMeaning | null {
 }
 
 /**
- * Etiqueta do calendário que representa o serviço (mesmo TOM de verde/azul).
+ * Etiqueta do calendário que representa o serviço (mesmo TOM de verde, amarelo ou azul).
  *
  * Determinística: quando o calendário tem mais de uma etiqueta do mesmo tom — o caso normal, porque a
  * paleta nova traz várias variações — vale a de menor `id`. É a etiqueta que o ESPELHO aplica no

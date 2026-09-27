@@ -7,7 +7,8 @@
  *    lavanda (1) e uva (3) tambem contam como azul -> daycare (decisao do dono, 24/09/2026);
  *  - VERMELHO (11) = cancelamento: cancela a reserva daquele cao NAQUELE dia; numa serie, pula o dia;
  *  - cao fora do cadastro NAO e importado e NAO e cadastrado: vai para a lista "not registered";
- *  - sem cor (ou cor fora do mapa, ex.: amarelo = 5) NAO se chuta servico: lista "color not recognized";
+ *  - sem cor NAO se chuta servico: vai para a lista "color not recognized" (o AMARELO, id 5, virou
+ *    BOARDING em 27/09/2026);
  *  - vínculo por EVENTO, janela comecando HOJE, nada de duplicar reserva existente.
  */
 import { buildGoogleEvent } from '@/features/calendar/googleEvents';
@@ -33,7 +34,7 @@ const VERDE2 = '10'; // Basil -> boarding
 const AZUL = '7'; // Peacock  -> daycare
 const AZUL2 = '9'; // Blueberry -> daycare
 const VERMELHO = '11'; // Tomato -> cancelamento
-const AMARELO = '5'; // Banana  -> fora do mapa (o dono citou amarelo e corrigiu para azul)
+const AMARELO = '5'; // Banana (amarelo) -> BOARDING: o dono confirmou em 27/09/2026: "a cor amarela e os tons que lembram ela é boarding"
 
 function evento(parcial: Partial<RemoteEvent> & { id: string }): RemoteEvent {
   return { summary: '', startDate: '2026-09-25', endDate: '2026-09-26', appKey: null, colorId: AZUL, recurrence: null, ...parcial };
@@ -73,11 +74,11 @@ describe('a COR do evento é o serviço (e o título é só o nome do cão)', ()
     expect(meaningOfColor(VERMELHO)).toEqual({ kind: 'cancel' });
   });
 
-  it('NÃO adivinha serviço: sem cor e cores fora do mapa (amarelo/banana) devolvem null', () => {
+  it('NÃO adivinha serviço: sem cor devolve null — e o AMARELO (banana) virou boarding', () => {
     expect(meaningOfColor(null)).toBeNull();
     expect(meaningOfColor(undefined)).toBeNull();
     expect(meaningOfColor('')).toBeNull();
-    expect(meaningOfColor(AMARELO)).toBeNull();
+    expect(meaningOfColor(AMARELO)).toEqual({ kind: 'service', serviceType: 'boarding' });
     // Flamingo (4), tangerina (6) e grafite (8) seguem de fora.
     for (const id of ['4', '6', '8']) expect(meaningOfColor(id)).toBeNull();
   });
@@ -318,9 +319,9 @@ describe('plano da importação — cor não reconhecida', () => {
     expect(plano.some((item) => item.kind === 'create')).toBe(false);
   });
 
-  it('cor fora do mapa (amarelo/banana) também não é importada — o dono corrigiu amarelo para azul', () => {
+  it('o AMARELO (banana) importa como BOARDING — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {
     const plano = planCalendarImport([evento({ id: 'e-amarelo', summary: 'Bella', colorId: AMARELO })], CAES, [], JANELA);
-    expect(plano[0]).toMatchObject({ kind: 'review', reason: 'unrecognized color' });
+    expect(plano[0]).toMatchObject({ kind: 'create', parsed: { serviceType: 'boarding' } });
   });
 });
 

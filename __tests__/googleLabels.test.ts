@@ -33,7 +33,7 @@ function resposta(etiquetas: { id: string; name?: string; backgroundColor: strin
 const COBALTO = '#4A86E8'; // o tom que o cliente escolheu no print
 const SAGE = '#33b679'; // verde da paleta antiga (id 2)
 const TOMATO = '#e67c73'; // vermelho da paleta antiga (id 11)
-const BANANA = '#ffd666'; // amarelo: NÃO vira serviço
+const BANANA = '#ffd666'; // amarelo: virou BOARDING (o dono confirmou em 27/09/2026: "a cor amarela e os tons que lembram ela é boarding")
 const LAVANDA = '#a4bdfc'; // roxo/lavanda — conta como AZUL (decisão do dono, 24/09/2026)
 const UVA = '#8e24aa'; // roxo "uva" (Grape) — conta como AZUL (mesma decisão)
 
@@ -85,11 +85,20 @@ describe('tom (hue) do hex da etiqueta', () => {
     }
   });
 
-  it('tom fora de verde/azul-roxo/vermelho NÃO vira serviço (o app não chuta)', () => {
-    // amarelo, laranja (Tangerine #f4511e ≈ 14°, de propósito FORA do vermelho), marrom, rosa/vinho e
-    // cinza. O ROXO saiu desta lista em 24/09/2026 (virou daycare) — ver o teste acima.
-    for (const hex of [BANANA, '#f4511e', '#795548', '#ad1457', '#808080']) {
+  it('tom fora de verde/amarelo/azul-roxo/vermelho NÃO vira serviço (o app não chuta)', () => {
+    // laranja (Tangerine #f4511e ≈ 14° e Pumpkin #ef6c00 ≈ 27°, de propósito FORA do vermelho E do
+    // amarelo), marrom, rosa/vinho e cinza. O ROXO saiu desta lista em 24/09/2026 (virou daycare) e o
+    // AMARELO em 27/09/2026 (virou boarding) — ver os testes acima.
+    for (const hex of ['#f4511e', '#ef6c00', '#795548', '#ad1457', '#808080']) {
       expect([hex, meaningOfLabelColor(hex)]).toEqual([hex, null]);
+    }
+  });
+
+  it('AMARELO (Banana #ffd666 ≈ 44°) vira BOARDING — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {
+    expect(meaningOfLabelColor(BANANA)).toEqual({ kind: 'service', serviceType: 'boarding' });
+    // Os outros amarelos da grade nova do Google.
+    for (const hex of ['#e4c441' /* Citron 48° */, '#f09300' /* Mango 37° */, '#c0ca33' /* Avocado 64° */]) {
+      expect([hex, meaningOfLabelColor(hex)]).toEqual([hex, { kind: 'service', serviceType: 'boarding' }]);
     }
   });
 
@@ -133,7 +142,7 @@ describe('etiquetas do calendário', () => {
     ];
     expect(labelForService(duasVerdes, 'boarding')?.id).toBe('a-verde');
     expect(labelForService(duasVerdes, 'daycare')?.id).toBe('azul');
-    expect(labelForService([{ id: 'x', name: 'Amarelo', backgroundColor: BANANA }], 'boarding')).toBeNull();
+    expect(labelForService([{ id: 'x', name: 'Amarelo', backgroundColor: BANANA }], 'boarding')?.id).toBe('x');
     expect(labelForService([], 'daycare')).toBeNull();
     expect(labelForService(undefined, 'daycare')).toBeNull();
   });
@@ -166,10 +175,11 @@ describe('o que foi LIDO do evento (o que a tela mostra)', () => {
     expect(describeEventColor(lido)).toBe('colorId 2 (Sage)');
   });
 
-  it('etiqueta com tom não mapeado (amarelo) não vira serviço — e não cai no colorId', () => {
+  it('etiqueta AMARELA vira boarding e a ETIQUETA manda (não cai no colorId)', () => {
     const lido = readEventColor({ eventLabelId: 'lab-amarela', colorId: '2' }, etiquetas);
     expect(lido.labelName).toBe('Amarelo');
-    expect(lido.meaning).toBeNull();
+    expect(lido.source).toBe('label');
+    expect(lido.meaning).toEqual({ kind: 'service', serviceType: 'boarding' });
     expect(describeEventColor(lido)).toBe('Amarelo (#ffd666) · colorId 2 (Sage)');
   });
 
