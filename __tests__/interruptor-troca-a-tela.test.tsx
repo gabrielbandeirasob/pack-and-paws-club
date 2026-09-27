@@ -119,7 +119,9 @@ it('Home liga; rota desliga: troca cabeçalhos, abas e destino sem remontar as a
   for (const aba of ['driver', 'schedule', 'assigned', 'profile']) expect(tela.getByTestId(`aba-${aba}`)).toBeTruthy();
   expect(tela.queryByTestId('aba-index')).toBeNull();
   expect(tela.getByLabelText('Drive today').props.value).toBe(true);
-  expect(tela.getByText(/Turn off to go back to the office view/)).toBeTruthy();
+  // O interruptor passou a ser UMA linha (dono, 27/09/2026: "tomando muito espaço"): no lugar do par de
+  // frases de ajuda ficou a legenda de duas palavras — o comportamento é o mesmo.
+  expect(tela.getByText('driver view')).toBeTruthy();
   expect(mockReplace).not.toHaveBeenCalledWith('/(tabs)');
 
   await fireEvent(tela.getByLabelText('Drive today'), 'valueChange', false);

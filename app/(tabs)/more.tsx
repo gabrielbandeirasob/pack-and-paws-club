@@ -30,8 +30,8 @@ export default function MoreScreen() {
         <Text style={styles.title}>More</Text>
       </View>
       <View style={styles.list}>
-        {/* O mesmo interruptor da Home e da rota, também disponível no menu. */}
-        <DriveSwitchRow />
+        {/* O mesmo interruptor da Home e da rota, aqui em linha fina (sem caixa), como as outras linhas. */}
+        <DriveSwitchRow dentroDeLista />
         {/* "Team" e "Activity" são do GESTOR: até 25/09/2026 o motorista também via "Team" (com o texto
             "invite drivers and managers") no próprio menu — a tela não fazia nada por RLS, mas o convite
             errado no menu confundia e não é assunto dele. */}
