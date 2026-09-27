@@ -89,6 +89,37 @@ const PALAVRAS_DE_SERVICO_E_OPERACAO = /\b(boarding|hospedagem|pernoite|hotel|da
 const EH_PALAVRA_DE_SERVICO = /\b(boarding|hospedagem|pernoite|hotel|day\s*care|daycare|creche|di[áa]ria|pick\s*up|pickup|drop\s*off|dropoff|pick|drop|buscar|pegar|levar|van|walk)\b/i;
 
 /** Limpa separadores que sobram depois de tirar a palavra de servico. */
+/**
+ * Palavras de MARCADOR/OPERAÇÃO do calendário do escritório: títulos que NÃO são cão nenhum.
+ *
+ * Medido no calendário do cliente (26/09/2026): `Rotas`, `ROTAS FIXAS`, `Mentoria + Consulta` e o typo
+ * `BOADING` (de "boarding") apareciam no cartão do Google Calendar como "cão não cadastrado", poluindo
+ * a lista de pendências do gestor. Não é dado faltando: é evento que não representa cão.
+ * `BOARDING 🐶` cai pela outra porta — depois de tirar a palavra de serviço não sobra LETRA.
+ */
+const PALAVRAS_DE_OPERACAO = /\b(rotas?|rotas?\s+fixas?|mentoria|consulta|boading|bording|baording)\b/i;
+
+/** Nome só é nome de cão se tiver LETRA: resto de "BOARDING 🐶" é emoji e não vira cão. */
+const TEM_LETRA = /[a-zA-ZÀ-ÿ]/;
+
+/**
+ * Evento de marcador/operação do escritório — não é cão e **não é pendência** para o gestor.
+ *
+ * Duas portas, as duas MEDIDAS no calendário do cliente (26/09/2026):
+ *  1. o título traz palavra de operação (`ROTAS FIXAS`, `Mentoria + Consulta`, `BOADING`);
+ *  2. o título é palavra de SERVIÇO e não sobra letra nenhuma (`BOARDING 🐶`, o marcador do dia).
+ * Título vazio NÃO entra aqui: continua indo para revisão, como decidido pelo dono ("o calendário é
+ * exclusivo do negócio" — evento ilegível precisa aparecer). Cuidado com regex com `/g`: só `replace`.
+ */
+export function ehEventoDeOperacao(title: string): boolean {
+  const texto = limpar(title);
+  if (texto.length === 0) return false;
+  if (PALAVRAS_DE_OPERACAO.test(texto)) return true;
+  if (!EH_PALAVRA_DE_SERVICO.test(texto)) return false;
+  const semServico = limpar(texto.replace(PALAVRAS_DE_SERVICO_E_OPERACAO, ' '));
+  return !TEM_LETRA.test(semServico);
+}
+
 function limpar(valor: string): string {
   return valor.replace(/^[\s·\-–—:,;|]+/, '').replace(/[\s·\-–—:,;|]+$/, '').trim();
 }
@@ -154,6 +185,8 @@ export function dogNamesFromTitle(title: string): string[] {
     const resto = limpar(parenteses ? parenteses[1] ?? '' : parte);
     if (!resto) continue;
     const nome = nomeEntreDois(resto) ?? resto;
+    // "BOARDING 🐶" sobra emoji: emoji não é nome de cão.
+    if (!TEM_LETRA.test(nome)) continue;
     if (!nomes.some((ja) => normalizar(ja) === normalizar(nome))) nomes.push(nome);
   }
   return nomes;
@@ -439,6 +472,13 @@ export function planCalendarImport(
     // Um evento pode trazer DOIS cães ("Cão A/Cão B", regra do dono 26/09/2026): cada cão é
     // decidido por si e vira uma reserva própria; a parada é UMA só porque o agrupamento por
     // cliente é do banco (`route_stops.stop_group_id`).
+    // 1. Marcador do escritório ("ROTAS FIXAS", "BOARDING 🐶", "Mentoria + Consulta", o typo "BOADING")
+    //    não é cão e não é pendência: some da tela EM SILÊNCIO, sem poluir "not registered in the app".
+    if (ehEventoDeOperacao(evento.summary)) {
+      vistos.add(evento.id);
+      continue;
+    }
+
     const parsedTodos = parseBookingEvents(evento, labels);
     const primeiro = parsedTodos[0] ?? null;
     // 2. Até evento sem título precisa aparecer para revisão; o calendário é exclusivo do negócio.
