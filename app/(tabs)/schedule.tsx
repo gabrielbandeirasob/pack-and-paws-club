@@ -13,7 +13,7 @@ type RouteRow = { id: string; route_date: string; status: string; route_stops: {
 
 function Section({ titulo, rotas, onOpen }: { titulo: string; rotas: RouteRow[]; onOpen: (id: string) => void }) {
   if (rotas.length === 0) return null;
-  return (
+ return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{titulo}</Text>
       {rotas.map((rota) => (
@@ -68,7 +68,7 @@ export default function DriverScheduleScreen() {
     [router],
   );
 
-  return (
+ return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.eyebrow}>PACK & PAWS CLUB · DRIVER</Text>

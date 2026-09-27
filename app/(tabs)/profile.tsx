@@ -47,7 +47,7 @@ export default function AccountProfileScreen() {
 
   const signOut = async () => { await supabase.auth.signOut(); };
 
-  return (
+ return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.eyebrow}>PACK & PAWS CLUB · {papel.toUpperCase()}</Text>

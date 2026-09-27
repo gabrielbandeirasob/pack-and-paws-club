@@ -44,6 +44,7 @@ import type { NavTarget } from '@/features/maps/links';
 import { navigationUrlFor, type NavApp } from '@/features/maps/navigation';
 import { loadPreferredNavApp, savePreferredNavApp } from '@/features/maps/preferences';
 import { rowToStop, type DriverRouteRow, type DriverStopRow } from '@/features/driver/rows';
+import { useRoleGuard } from '@/features/auth/useRoleGuard';
 import { supabase } from '@/lib/supabase';
 
 type StopRow = DriverStopRow;
@@ -813,7 +814,19 @@ export default function DriverTodayScreen() {
    */
   const proximaParada = useMemo(() => nextStopFor(stopsComEta), [stopsComEta]);
 
-  return (
+  // TRAVA DE PAPEL (print do dono, 27/09/2026): esta tela é do MOTORISTA. Se o papel for gestor, o app
+  // devolve ele para o painel — antes dava para ficar aqui, com a barra de abas do gestor e "No published
+  // route today", sem nada fazer a troca.
+  const { liberado } = useRoleGuard('driver');
+  if (!liberado) {
+    return (
+      <SafeAreaView style={styles.screen} edges={['top']}>
+        <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
+      </SafeAreaView>
+    );
+  }
+
+ return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       {/*
        * ROLAGEM ÚNICA vertical — defeito relatado pelo dono em 25/09/2026 ("ainda não estou

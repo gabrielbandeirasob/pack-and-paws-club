@@ -395,6 +395,11 @@ jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 
+jest.mock('@/features/auth/useOrganizationRole', () => ({
+  // A tela "Today's Route" tem TRAVA DE PAPEL (27/09/2026): só abre para motorista.
+  useOrganizationRole: () => ({ role: 'driver', isLoading: false }),
+}));
+
 jest.mock('expo-router', () => ({
   useFocusEffect: (callback: () => void | (() => void)) => {
     // executa no mount, como o expo-router faz quando a tela ganha foco
