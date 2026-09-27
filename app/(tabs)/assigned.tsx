@@ -44,7 +44,7 @@ export default function DriverAssignedScreen() {
 
   const feitas = stops.filter((stop) => stop.status === 'completed').length;
 
-  return (
+ return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.eyebrow}>PACK & PAWS CLUB · DRIVER</Text>
