@@ -3,7 +3,7 @@ import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { todayLocalISO } from '@/features/calendar/dates';
+import { todayLocalISO, weekdayOfISO } from '@/features/calendar/dates';
 import {
   buildDay,
   type RecurringExceptionRecord,
@@ -194,6 +194,8 @@ export default function HomeScreen() {
   const [selectedDay, setSelectedDay] = useState<string>(() => todayLocalISO());
   const hojeISO = todayLocalISO();
   const isToday = selectedDay === hojeISO;
+  /** Sábado (6) é o dia em que a semana fecha — o atalho do resumo diz isso. */
+  const ehSabado = weekdayOfISO(hojeISO) === 6;
 
   /** Arrasta o painel para o lado: -1 = dia anterior, +1 = dia seguinte (limite: ±30 dias). */
   const irParaDia = useCallback((passo: number) => {
@@ -573,6 +575,10 @@ export default function HomeScreen() {
           onOpenClients={() => router.push('/clients')}
           onNewReservation={() => router.push('/calendar')}
           onOpenDriverHours={() => router.push('/driver-hours')}
+          onOpenWeekSummary={() => router.push('/week-summary')}
+          weekSummaryHint={
+            ehSabado ? 'The week is closed — check who came' : 'Monday to Saturday — who came day by day'
+          }
         />
       )}
     </>

@@ -72,6 +72,10 @@ type Props = {
   onNewReservation: () => void;
   /** Jornada/horas dos motoristas (pedido do cliente, 16/09/2026). */
   onOpenDriverHours: () => void;
+  /** Resumo da semana (áudio do dono, 27/09/2026): quem veio de segunda a sábado. */
+  onOpenWeekSummary: () => void;
+  /** Texto de apoio do atalho — no sábado a semana fechou, e a frase muda. */
+  weekSummaryHint: string;
 };
 
 /**
@@ -94,7 +98,7 @@ export type DashboardDayNav = {
 /** Quanto o dedo precisa andar para valer como "arrastou para o lado" (não é toque, não é scroll). */
 const ARRASTO_MINIMO = 60;
 
-export function ManagerDashboard({ dateLabel, dayNav, greeting, initials, daycare, boarding, progress, routes, day, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours }: Props) {
+export function ManagerDashboard({ dateLabel, dayNav, greeting, initials, daycare, boarding, progress, routes, day, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours, onOpenWeekSummary, weekSummaryHint }: Props) {
   const [folhaAberta, setFolhaAberta] = useState(false);
 
   /**
@@ -283,6 +287,21 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, initials, daycar
           <Text style={styles.dayLinkSeta}>›</Text>
         </Pressable>
 
+        {/* RESUMO DA SEMANA (áudio do dono, 27/09/2026): "sempre que chegar no sábado, vai ter essa
+            checagem da semana" — a lista dos cães que vieram, com os dias de cada um. */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Weekly summary — Monday to Saturday"
+          style={styles.dayLink}
+          onPress={onOpenWeekSummary}
+        >
+          <View style={styles.dayLinkBloco}>
+            <Text style={styles.dayLinkTexto}>Weekly summary</Text>
+            <Text style={styles.muted}>{weekSummaryHint}</Text>
+          </View>
+          <Text style={styles.dayLinkSeta}>›</Text>
+        </Pressable>
+
         <Text style={styles.sectionTitle}>Quick actions</Text>
         <View style={styles.quickRow}>
           <Pressable accessibilityRole="button" accessibilityLabel="Add from contacts" style={styles.quickCard} onPress={onOpenClients}>
@@ -384,5 +403,6 @@ const styles = StyleSheet.create({
   /** Atalho para o histórico do dia (indicadores de um dia passado). */
   dayLink:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:colors.paper,borderWidth:1,borderColor:colors.line,borderRadius:radii.large,paddingHorizontal:16,paddingVertical:14,marginHorizontal:18,marginTop:16},
   dayLinkTexto:{color:colors.forest700,fontWeight:'800',fontSize:13.5},
+  dayLinkBloco:{flex:1},
   dayLinkSeta:{color:colors.forest700,fontWeight:'800',fontSize:16},
 });

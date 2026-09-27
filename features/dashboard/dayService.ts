@@ -199,7 +199,58 @@ export async function loadDayDogs(client: SupabaseClient, organizationId: string
   const erro = reservas.error ?? series.error ?? excecoes.error;
   if (erro) throw new Error(erro.message);
 
-  const reservasMapeadas: ReservationRecord[] = ((reservas.data as unknown as ReservationRow[]) ?? []).map((row) => ({
+  const { reservas: reservasMapeadas, series: seriesMapeadas, excecoes: excecoesMapeadas } = paraRegistros(reservas.data, series.data, excecoes.data);
+  const dia = buildDay(isoDay, reservasMapeadas, seriesMapeadas, excecoesMapeadas);
+  return dogsOfDaySummary(dia);
+}
+
+/**
+ * Os cães de VÁRIOS dias de uma vez (o resumo da semana, 27/09/2026) — três consultas em vez de
+ * três por dia, e a mesma conta do calendário por dia (`buildDay`).
+ *
+ * As reservas são as que CRUZAM o período (começa antes do fim e termina depois do começo): uma
+ * hospedagem de dez dias precisa aparecer em cada um deles.
+ */
+export async function loadWeekDogs(
+  client: SupabaseClient,
+  organizationId: string,
+  isoDays: string[],
+): Promise<Record<string, DayDog[]>> {
+  if (isoDays.length === 0) return {};
+  const inicio = isoDays[0];
+  const fim = isoDays[isoDays.length - 1];
+  const [reservas, series, excecoes] = await Promise.all([
+    client
+      .from('reservations')
+      .select('id, service_type, start_date, end_date, transport_required, dog:dogs(id, name, client:clients(name))')
+      .eq('organization_id', organizationId)
+      .eq('status', 'confirmed')
+      .lte('start_date', fim)
+      .gte('end_date', inicio),
+    client
+      .from('recurring_schedules')
+      .select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))')
+      .eq('organization_id', organizationId)
+      .eq('active', true)
+      .lte('start_date', fim),
+    client.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', organizationId),
+  ]);
+  const erro = reservas.error ?? series.error ?? excecoes.error;
+  if (erro) throw new Error(erro.message);
+
+  const registros = paraRegistros(reservas.data, series.data, excecoes.data);
+  return Object.fromEntries(
+    isoDays.map((dia) => [dia, dogsOfDaySummary(buildDay(dia, registros.reservas, registros.series, registros.excecoes))]),
+  );
+}
+
+/** Linhas do banco -> registros que `buildDay` entende (o dia e a semana passam por aqui). */
+function paraRegistros(
+  reservas: unknown,
+  series: unknown,
+  excecoes: unknown,
+): { reservas: ReservationRecord[]; series: RecurringScheduleRecord[]; excecoes: RecurringExceptionRecord[] } {
+  const reservasMapeadas: ReservationRecord[] = ((reservas as ReservationRow[] | null) ?? []).map((row) => ({
     id: row.id,
     dog: { id: row.dog.id, dogName: row.dog.name, clientName: row.dog.client.name },
     serviceType: row.service_type,
@@ -207,7 +258,7 @@ export async function loadDayDogs(client: SupabaseClient, organizationId: string
     endDate: row.end_date,
     transportRequired: row.transport_required,
   }));
-  const seriesMapeadas: RecurringScheduleRecord[] = ((series.data as unknown as RecurringRow[]) ?? []).map((row) => ({
+  const seriesMapeadas: RecurringScheduleRecord[] = ((series as RecurringRow[] | null) ?? []).map((row) => ({
     id: row.id,
     dog: { id: row.dog.id, dogName: row.dog.name, clientName: row.dog.client.name },
     weekdays: row.weekdays,
@@ -216,16 +267,14 @@ export async function loadDayDogs(client: SupabaseClient, organizationId: string
     active: row.active,
     transportRequired: row.transport_required,
   }));
-  const excecoesMapeadas: RecurringExceptionRecord[] = ((excecoes.data as unknown as ExceptionRow[]) ?? []).map((row) => ({
+  const excecoesMapeadas: RecurringExceptionRecord[] = ((excecoes as ExceptionRow[] | null) ?? []).map((row) => ({
     id: row.id,
     scheduleId: row.recurring_schedule_id,
     action: row.action,
     startDate: row.start_date,
     endDate: row.end_date,
   }));
-
-  const dia = buildDay(isoDay, reservasMapeadas, seriesMapeadas, excecoesMapeadas);
-  return dogsOfDaySummary(dia);
+  return { reservas: reservasMapeadas, series: seriesMapeadas, excecoes: excecoesMapeadas };
 }
 
 /**

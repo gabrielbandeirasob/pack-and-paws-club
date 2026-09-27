@@ -44,6 +44,7 @@ async function setup(overrides: Partial<React.ComponentProps<typeof ManagerDashb
   const onPreviousDay = jest.fn();
   const onNextDay = jest.fn();
   const onToday = jest.fn();
+  const onOpenWeekSummary = jest.fn();
   const day = dia();
   const screen = await render(
     <ManagerDashboard
@@ -69,10 +70,12 @@ async function setup(overrides: Partial<React.ComponentProps<typeof ManagerDashb
       onOpenClients={onOpenClients}
       onNewReservation={onNewReservation}
       onOpenDriverHours={onOpenDriverHours}
+      onOpenWeekSummary={onOpenWeekSummary}
+      weekSummaryHint="Monday to Saturday — who came day by day"
       {...overrides}
     />,
   );
-  return { screen, day, onOpenDispatch, onOpenClients, onNewReservation, onOpenProgress, onOpenDriverHours, onPreviousDay, onNextDay, onToday };
+  return { screen, day, onOpenDispatch, onOpenClients, onNewReservation, onOpenProgress, onOpenDriverHours, onPreviousDay, onNextDay, onToday, onOpenWeekSummary };
 }
 
 describe('ManagerDashboard', () => {
@@ -286,6 +289,16 @@ describe('ManagerDashboard', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'See another day' }));
 
     expect(day.onOpenDaySummary).toHaveBeenCalledTimes(1);
+  });
+
+  it('o atalho do resumo da semana leva para a tela da semana (áudio do dono, 27/09/2026)', async () => {
+    const { screen, onOpenWeekSummary } = await setup({ weekSummaryHint: 'The week is closed — check who came' });
+
+    expect(screen.getByText('Weekly summary')).toBeTruthy();
+    expect(screen.getByText('The week is closed — check who came')).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Weekly summary — Monday to Saturday' }));
+    expect(onOpenWeekSummary).toHaveBeenCalledTimes(1);
   });
 
   it('abre a tela de horas dos motoristas pelo atalho (pedido do cliente)', async () => {
