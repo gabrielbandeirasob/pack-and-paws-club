@@ -133,20 +133,42 @@ function nomeEntreDois(valor: string): string | null {
 }
 
 /**
+ * NOMES dos cães lidos do título — regra do dono (26/09/2026) para casa com DOIS cães.
+ *
+ * O escritório escreve **"Cão A/Cão B"** (barra, colada ou com espaços) quando os DOIS vão no mesmo
+ * dia; quando só um deles vai, escreve **um nome só**. A barra separa CÃES — o `·` continua sendo
+ * separador de CAMPO da convenção do app ("Daycare · Bella (Leigh Ann)" é UM cão). O tutor entre
+ * parênteses e as palavras de serviço/operação continuam sendo descartados, como na regra antiga.
+ *
+ * Devolve [] quando não sobra nome nenhum (título vazio ou só palavra de serviço).
+ */
+export function dogNamesFromTitle(title: string): string[] {
+  const semServico = limpar(title.replace(PALAVRAS_DE_SERVICO_E_OPERACAO, ' '));
+  if (!semServico) return [];
+  const nomes: string[] = [];
+  for (const pedaco of semServico.split('/')) {
+    const parte = limpar(pedaco);
+    if (!parte) continue;
+    // "Bella (Leigh Ann)" / "Milo (Daycare)": o parêntese não é o cão.
+    const parenteses = parte.match(/^(.*?)[\s]*\(([^)]+)\)\s*$/);
+    const resto = limpar(parenteses ? parenteses[1] ?? '' : parte);
+    if (!resto) continue;
+    const nome = nomeEntreDois(resto) ?? resto;
+    if (!nomes.some((ja) => normalizar(ja) === normalizar(nome))) nomes.push(nome);
+  }
+  return nomes;
+}
+
+/**
  * Nome do cao lido do titulo do evento — a unica coisa que o titulo carrega na regra nova.
  *
  * Tolerante de propósito com o formato ANTIGO (palavra de serviço, "Pick", tutor entre parênteses),
  * porque esses eventos continuam no calendário do escritório: o que interessa é o NOME. Devolve
  * `null` quando não sobra nome nenhum (título vazio, só espaços ou só palavra de serviço).
+ * Título com DOIS cães devolve o primeiro — quem precisa de todos usa `dogNamesFromTitle`.
  */
 export function dogNameFromTitle(title: string): string | null {
-  const semServico = limpar(title.replace(PALAVRAS_DE_SERVICO_E_OPERACAO, ' '));
-  if (!semServico) return null;
-  // "Bella (Leigh Ann)": o tutor entre parênteses não é o cão.
-  const parenteses = semServico.match(/^(.*?)[\s]*\(([^)]+)\)\s*$/);
-  const resto = limpar(parenteses ? parenteses[1] ?? '' : semServico);
-  if (!resto) return null;
-  return nomeEntreDois(resto) ?? resto;
+  return dogNamesFromTitle(title)[0] ?? null;
 }
 
 /**
@@ -206,26 +228,36 @@ export function parseRecurrence(
 }
 
 /**
- * Evento do Google -> agendamento lido. Só um evento SEM NOME utilizável retorna null (aí o plano
+ * Evento do Google -> agendamento lido. Só um evento SEM NOME utilizável retorna [] (aí o plano
  * monta a pendência "unreadable"). O serviço sai da COR — etiqueta da paleta nova (tom do hex) ou,
  * na falta dela, o `colorId` legado —; o nome sai do TÍTULO.
  *
  * `labels` são as etiquetas do calendário escolhido: sem elas um evento pintado na paleta nova não
  * tem como dizer serviço (ele chega sem `colorId`) e vira pendência "cor não reconhecida".
+ *
+ * O evento pode trazer MAIS DE UM cão ("Cão A/Cão B" — casa com dois cães, pedido do dono em
+ * 26/09/2026): devolve um `ParsedBooking` por cão, todos com a MESMA cor/recorrência. O agrupamento
+ * em UMA parada não é feito aqui — o banco já agrupa paradas do mesmo cliente na mesma rota
+ * (`route_stops.stop_group_id`), então dois cães da mesma casa caem na mesma parada sozinhos.
  */
-export function parseBookingEvent(event: RemoteEvent, labels: EventLabel[] = []): ParsedBooking | null {
-  const dogName = dogNameFromTitle(event.summary);
-  if (!dogName) return null;
+export function parseBookingEvents(event: RemoteEvent, labels: EventLabel[] = []): ParsedBooking[] {
+  const nomes = dogNamesFromTitle(event.summary);
+  if (nomes.length === 0) return [];
   const color = readEventColor(event, labels);
   const recorrencia = parseRecurrence(event.recurrence, event.startDate, event.endDate);
-  return {
+  return nomes.map((dogName) => ({
     serviceType: color.meaning?.kind === 'service' ? color.meaning.serviceType : null,
     color,
     cancels: color.meaning?.kind === 'cancel',
     dogName,
     startDate: event.startDate,
     ...recorrencia,
-  };
+  }));
+}
+
+/** Primeiro cão do evento (o caso de um nome só, que é quase sempre). */
+export function parseBookingEvent(event: RemoteEvent, labels: EventLabel[] = []): ParsedBooking | null {
+  return parseBookingEvents(event, labels)[0] ?? null;
 }
 
 /* ------------------------------- plano da importação ------------------------------- */
@@ -404,11 +436,15 @@ export function planCalendarImport(
     // 1. Evento com marca do app é o nosso espelho: o espelho cuida dele, não a importação.
     if (evento.appKey) continue;
 
-    const parsed = parseBookingEvent(evento, labels);
+    // Um evento pode trazer DOIS cães ("Cão A/Cão B", regra do dono 26/09/2026): cada cão é
+    // decidido por si e vira uma reserva própria; a parada é UMA só porque o agrupamento por
+    // cliente é do banco (`route_stops.stop_group_id`).
+    const parsedTodos = parseBookingEvents(evento, labels);
+    const primeiro = parsedTodos[0] ?? null;
     // 2. Até evento sem título precisa aparecer para revisão; o calendário é exclusivo do negócio.
     //    Exceção: evento que COMEÇOU antes de hoje não gera nada — nem reserva, nem pendência
     //    (senão uma hospedagem em curso criaria/alteraria/cancelaria data passada).
-    if (!parsed) {
+    if (!primeiro) {
       if (antesDaJanela(evento.startDate, window)) continue;
       const color = readEventColor(evento, labels);
       const recorrencia = parseRecurrence(evento.recurrence, evento.startDate, evento.endDate);
@@ -430,126 +466,129 @@ export function planCalendarImport(
       continue;
     }
 
-    if (antesDaJanela(parsed.startDate, window)) continue;
+    if (antesDaJanela(primeiro.startDate, window)) continue;
 
     // 3. O serviço vem da COR (etiqueta da paleta nova pelo TOM do hex, senão `colorId` legado). Sem
     //    cor (ou cor fora do mapa) NÃO se chuta serviço: o evento entra na lista "color not recognized"
     //    — que mostra o que foi lido (nome da etiqueta + hex + colorId) — e o escritório pinta e
     //    sincroniza de novo.
-    const cor: ColorMeaning | null = parsed.color.meaning;
+    const cor: ColorMeaning | null = primeiro.color.meaning;
     if (!cor) {
-      resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'unrecognized color' });
+      resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed: primeiro, reason: 'unrecognized color' });
       continue;
     }
 
-    // 4. Casa o cao pelo NOME do titulo (normalizado). Nome repetido em dois cadastros nao e
-    //    desempatado por tutor: a regra nova nao traz tutor no titulo, entao isso e pendencia.
-    const alvo = normalizar(parsed.dogName);
-    const candidatos = dogs.filter((cao) => normalizar(cao.name) === alvo);
-    const dogDoTitulo = candidatos.length === 1 ? candidatos[0].id : null;
+    // 4 a 8 valem POR CÃO: um evento com dois nomes gera uma decisão (e uma reserva) para cada um.
+    for (const parsed of parsedTodos) {
+      // 4. Casa o cao pelo NOME do titulo (normalizado). Nome repetido em dois cadastros nao e
+      //    desempatado por tutor: a regra nova nao traz tutor no titulo, entao isso e pendencia.
+      const alvo = normalizar(parsed.dogName);
+      const candidatos = dogs.filter((cao) => normalizar(cao.name) === alvo);
+      const dogDoTitulo = candidatos.length === 1 ? candidatos[0].id : null;
 
-    // 5. Vínculo por EVENTO (não por nome): se o evento já tem reserva no app, ela é a referência.
-    //    Título que não aponta para nenhum cão do cadastro (o caso do cão RENOMEADO no app depois da
-    //    importação) NÃO cria cadastro novo: a reserva segue com o cão dela, que é o mesmo evento.
-    const ligada = porEvento.get(evento.id) ?? null;
+      // 5. Vínculo por EVENTO (não por nome): se o evento já tem reserva no app, ela é a referência.
+      //    Título que não aponta para nenhum cão do cadastro (o caso do cão RENOMEADO no app depois da
+      //    importação) NÃO cria cadastro novo: a reserva segue com o cão dela, que é o mesmo evento.
+      const ligada = porEvento.get(evento.id) ?? null;
 
-    // 6. Evento VERMELHO = cancelamento do dia daquele cão.
-    if (cor.kind === 'cancel') {
-      vistos.add(evento.id);
-      const alvo2 = alvoDoCancelamento(evento.id, ligada, dogDoTitulo, evento.startDate, reservations);
-      if (alvo2) {
-        resultados.push(alvo2);
-      } else if (!dogDoTitulo) {
-        // Não há o que cancelar E o cão não está no cadastro: o escritório precisa saber disso.
-        resultados.push({
-          kind: 'review',
-          eventId: evento.id,
-          title: evento.summary,
-          date: evento.startDate,
-          parsed,
-          reason: candidatos.length > 1 ? 'ambiguous dog' : 'unknown dog',
-        });
+      // 6. Evento VERMELHO = cancelamento do dia daquele cão.
+      if (cor.kind === 'cancel') {
+        vistos.add(evento.id);
+        const alvo2 = alvoDoCancelamento(evento.id, ligada, dogDoTitulo, evento.startDate, reservations);
+        if (alvo2) {
+          resultados.push(alvo2);
+        } else if (!dogDoTitulo) {
+          // Não há o que cancelar E o cão não está no cadastro: o escritório precisa saber disso.
+          resultados.push({
+            kind: 'review',
+            eventId: evento.id,
+            title: evento.summary,
+            date: evento.startDate,
+            parsed,
+            reason: candidatos.length > 1 ? 'ambiguous dog' : 'unknown dog',
+          });
+        }
+        continue;
       }
-      continue;
-    }
 
-    // 6.1 Evento ROXO = alteração de cliente de DIA FIXO (dia extra/alterado, cliente fora da ordem).
-    //     O dia entra na ESCALA daquele cão como dia extra — não vira reserva avulsa: é literalmente o
-    //     "não ficar serviço solto" do dono (24/09/2026). Sem escala ativa não há onde encaixar, e o
-    //     app não inventa escala: vai para a lista de revisão do cartão.
-    if (cor.kind === 'schedule_change') {
-      vistos.add(evento.id);
-      const dogId = dogDoTitulo ?? ligada?.dogId ?? null;
-      const escala =
-        ligada?.kind === 'recurring' && ligada.status === 'active'
-          ? ligada
-          : dogId
-            ? (reservations.find((item) => item.kind === 'recurring' && item.dogId === dogId && item.status === 'active') ?? null)
-            : null;
-      if (!escala) {
+      // 6.1 Evento ROXO = alteração de cliente de DIA FIXO (dia extra/alterado, cliente fora da ordem).
+      //     O dia entra na ESCALA daquele cão como dia extra — não vira reserva avulsa: é literalmente o
+      //     "não ficar serviço solto" do dono (24/09/2026). Sem escala ativa não há onde encaixar, e o
+      //     app não inventa escala: vai para a lista de revisão do cartão.
+      if (cor.kind === 'schedule_change') {
+        vistos.add(evento.id);
+        const dogId = dogDoTitulo ?? ligada?.dogId ?? null;
+        const escala =
+          ligada?.kind === 'recurring' && ligada.status === 'active'
+            ? ligada
+            : dogId
+              ? (reservations.find((item) => item.kind === 'recurring' && item.dogId === dogId && item.status === 'active') ?? null)
+              : null;
+        if (!escala) {
+          resultados.push({
+            kind: 'review',
+            eventId: evento.id,
+            title: evento.summary,
+            date: evento.startDate,
+            parsed,
+            reason: dogId ? 'purple without schedule' : candidatos.length > 1 ? 'ambiguous dog' : 'unknown dog',
+          });
+          continue;
+        }
         resultados.push({
-          kind: 'review',
+          kind: 'extraDay',
           eventId: evento.id,
-          title: evento.summary,
+          dogId: escala.dogId,
+          scheduleId: escala.id,
           date: evento.startDate,
-          parsed,
-          reason: dogId ? 'purple without schedule' : candidatos.length > 1 ? 'ambiguous dog' : 'unknown dog',
+          looseBookingId: ligada?.kind === 'reservation' ? ligada.id : null,
         });
         continue;
       }
-      resultados.push({
-        kind: 'extraDay',
-        eventId: evento.id,
-        dogId: escala.dogId,
-        scheduleId: escala.id,
-        date: evento.startDate,
-        looseBookingId: ligada?.kind === 'reservation' ? ligada.id : null,
-      });
-      continue;
-    }
 
-    if (ligada) {
-      vistos.add(evento.id);
-      const dogId = dogDoTitulo ?? ligada.dogId;
-      const servico: ParsedBooking = { ...parsed, serviceType: cor.serviceType };
-      if (ligada.source === 'google' && precisaAtualizar(ligada, servico, dogId)) {
-        resultados.push({ kind: 'update', eventId: evento.id, bookingKind: ligada.kind, bookingId: ligada.id, dogId, parsed: servico });
+      if (ligada) {
+        vistos.add(evento.id);
+        const dogId = dogDoTitulo ?? ligada.dogId;
+        const servico: ParsedBooking = { ...parsed, serviceType: cor.serviceType };
+        if (ligada.source === 'google' && precisaAtualizar(ligada, servico, dogId)) {
+          resultados.push({ kind: 'update', eventId: evento.id, bookingKind: ligada.kind, bookingId: ligada.id, dogId, parsed: servico });
+        }
+        continue;
       }
-      continue;
-    }
 
-    // 7. Cão que não está no cadastro (nenhum ou mais de um) NÃO é importado — e não se cadastra
-    //    ninguém: o evento aparece na lista "not registered in the app" para o escritório cadastrar.
-    if (candidatos.length === 0) {
-      resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'unknown dog' });
-      continue;
-    }
-    if (candidatos.length > 1) {
-      resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'ambiguous dog' });
-      continue;
-    }
+      // 7. Cão que não está no cadastro (nenhum ou mais de um) NÃO é importado — e não se cadastra
+      //    ninguém: o evento aparece na lista "not registered in the app" para o escritório cadastrar.
+      if (candidatos.length === 0) {
+        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'unknown dog' });
+        continue;
+      }
+      if (candidatos.length > 1) {
+        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'ambiguous dog' });
+        continue;
+      }
 
-    const dogId = candidatos[0].id;
-    const servico: ParsedBooking = { ...parsed, serviceType: cor.serviceType };
-    vistos.add(evento.id);
+      const dogId = candidatos[0].id;
+      const servico: ParsedBooking = { ...parsed, serviceType: cor.serviceType };
+      vistos.add(evento.id);
 
-    // 8. Igual a uma reserva que o app ja tem = duplicata: o gestor decide (liga o evento a ela).
-    const tipo = kindOf(servico);
-    const gemea = reservations.find(
-      (reserva) =>
-        reserva.kind === tipo &&
-        reserva.dogId === dogId &&
-        reserva.serviceType === servico.serviceType &&
-        reserva.startDate === servico.startDate &&
-        (tipo === 'recurring' ? mesmosDias(reserva.weekdays, servico.weekdays) : reserva.endDate === servico.endDate) &&
-        reserva.status === 'confirmed',
-    );
-    if (gemea) {
-      resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed: servico, reason: 'duplicate' });
-      continue;
+      // 8. Igual a uma reserva que o app ja tem = duplicata: o gestor decide (liga o evento a ela).
+      const tipo = kindOf(servico);
+      const gemea = reservations.find(
+        (reserva) =>
+          reserva.kind === tipo &&
+          reserva.dogId === dogId &&
+          reserva.serviceType === servico.serviceType &&
+          reserva.startDate === servico.startDate &&
+          (tipo === 'recurring' ? mesmosDias(reserva.weekdays, servico.weekdays) : reserva.endDate === servico.endDate) &&
+          reserva.status === 'confirmed',
+      );
+      if (gemea) {
+        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed: servico, reason: 'duplicate' });
+        continue;
+      }
+
+      resultados.push({ kind: 'create', eventId: evento.id, dogId, parsed: servico });
     }
-
-    resultados.push({ kind: 'create', eventId: evento.id, dogId, parsed: servico });
   }
 
   // 9. Reserva vinda do Google cujo evento sumiu: cancelar — so dentro da janela consultada.

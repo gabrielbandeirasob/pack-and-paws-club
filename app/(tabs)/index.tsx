@@ -10,8 +10,25 @@ import {
   type RecurringScheduleRecord,
   type ReservationRecord,
 } from '@/features/calendar/dayMath';
-import { ManagerDashboard, type DashboardRoute } from '@/features/dashboard/ManagerDashboard';
+import { ManagerDashboard, type DashboardMember, type DashboardRoute } from '@/features/dashboard/ManagerDashboard';
 import { packProgress, totalPack as contarPack, type PackRoute } from '@/features/dashboard/packProgress';
+import { dayIndicatorsFrom, nextTodoPosition, packRows, pendingTodos, type DailyTodo, type DayDog, type PackEntry } from '@/features/dashboard/dayOperation';
+import {
+  addTodo,
+  dogsOfDaySummary,
+  loadDayPlan,
+  loadPackEntries,
+  loadTodos,
+  PLANO_VAZIO,
+  removeTodo,
+  saveDayPlan,
+  setPackFlag,
+  setPackWalker,
+  setTodoDone,
+  updateTodoText,
+  type DayPlan,
+} from '@/features/dashboard/dayService';
+import { registrarTodosPendentes } from '@/features/dashboard/dayTodosStore';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { landingRouteForRole } from '@/features/navigation/roleTabs';
 import { haversineKm } from '@/features/dispatch/routeOptimizer';
@@ -155,6 +172,18 @@ export default function HomeScreen() {
   const [totalPack, setTotalPack] = useState(0);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
 
+  // DIA DA OPERAÇÃO (operação, 26/09/2026): 5 indicadores, pack (caminhada), to-do e fechamento.
+  const [dayDogs, setDayDogs] = useState<DayDog[]>([]);
+  const [packEntries, setPackEntries] = useState<PackEntry[]>([]);
+  const [plan, setPlan] = useState<DayPlan>(PLANO_VAZIO);
+  const [todos, setTodos] = useState<DailyTodo[]>([]);
+  const [members, setMembers] = useState<DashboardMember[]>([]);
+  const [organizationId, setOrganizationId] = useState<string | null>(null);
+  const [packBusy, setPackBusy] = useState(false);
+  const [todosBusy, setTodosBusy] = useState(false);
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planSaved, setPlanSaved] = useState<string | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -173,6 +202,7 @@ export default function HomeScreen() {
       .eq('status', 'active')
       .limit(1);
     const organizationId = (memberships as MembershipRow[] | null)?.[0]?.organization_id ?? null;
+    setOrganizationId(organizationId);
     if (!organizationId) {
       setError('Your account is not linked to an organization yet.');
       setLoading(false);
@@ -180,9 +210,11 @@ export default function HomeScreen() {
     }
 
     const today = todayLocalISO();
-    const [profileResult, driverResult, reservationResult, recurringResult, exceptionResult, routeResult, locationResult] = await Promise.all([
+    const [profileResult, driverResult, memberResult, reservationResult, recurringResult, exceptionResult, routeResult, locationResult, planResult, todoResult, packResult] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle(),
       supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).eq('role', 'driver').eq('status', 'active'),
+      // Quem pode CAMINHAR com um cão (operação, 26/09): qualquer membro ativo, não só o motorista da rota.
+      supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).eq('status', 'active'),
       supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('status', 'confirmed'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', organizationId),
@@ -192,9 +224,23 @@ export default function HomeScreen() {
         .eq('organization_id', organizationId)
         .eq('route_date', today),
       supabase.from('driver_locations').select('driver_id, latitude, longitude, updated_at').eq('organization_id', organizationId),
+      // Fechamento do dia, to-do list e pack do dia (migração 035).
+      supabase.from('daily_plans').select('revenue_cents, walk_location, photo_idea').eq('organization_id', organizationId).eq('day', today).maybeSingle(),
+      supabase.from('daily_todos').select('id, text, done, position').eq('organization_id', organizationId).eq('day', today).order('position', { ascending: true }),
+      supabase.from('pack_entries').select('dog_id, in_pack, walker_id').eq('organization_id', organizationId).eq('day', today),
     ]);
 
-    const firstError = profileResult.error ?? driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? routeResult.error;
+    const firstError =
+      profileResult.error ??
+      driverResult.error ??
+      memberResult.error ??
+      reservationResult.error ??
+      recurringResult.error ??
+      exceptionResult.error ??
+      routeResult.error ??
+      planResult.error ??
+      todoResult.error ??
+      packResult.error;
     if (firstError) {
       setError(firstError.message);
       setLoading(false);
@@ -232,6 +278,32 @@ export default function HomeScreen() {
     const day = buildDay(today, reservations, recurring, exceptions);
     setCounts({ daycare: day.daycare.length, boarding: day.boarding.length });
 
+    // Cães do dia: os indicadores e o pack saem da MESMA conta do calendário (`buildDay`).
+    setDayDogs(dogsOfDaySummary(day));
+    const membros = ((memberResult.data as unknown as DriverRow[]) ?? [])
+      .map((row) => ({ id: row.user_id, name: row.profiles?.full_name?.trim() || 'Team member' }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    setMembers(membros);
+
+    const planoLinha = planResult.data as { revenue_cents: number | null; walk_location: string | null; photo_idea: string | null } | null;
+    setPlan({
+      revenueCents: planoLinha?.revenue_cents ?? null,
+      walkLocation: planoLinha?.walk_location ?? null,
+      photoIdea: planoLinha?.photo_idea ?? null,
+    });
+
+    const listaTodos = ((todoResult.data as DailyTodo[] | null) ?? []);
+    setTodos(listaTodos);
+    registrarTodosPendentes(today, pendingTodos(listaTodos));
+
+    setPackEntries(
+      ((packResult.data as { dog_id: string; in_pack: boolean; walker_id: string | null }[] | null) ?? []).map((linha) => ({
+        dogId: linha.dog_id,
+        inPack: linha.in_pack,
+        walkerId: linha.walker_id,
+      })),
+    );
+
     const driversById = Object.fromEntries(
       ((driverResult.data as unknown as DriverRow[]) ?? []).map((row) => [row.user_id, row.profiles?.full_name?.trim() || 'Driver']),
     );
@@ -253,6 +325,150 @@ export default function HomeScreen() {
     setProgress(packProgress(packRoutes));
     setLoading(false);
   }, []);
+
+  /* -------------------- dia da operação: indicadores, pack, to-do (26/09/2026) -------------------- */
+
+  const diaDeHoje = todayLocalISO();
+  const linhasDoPack = packRows(dayDogs, packEntries);
+  const indicadores = dayIndicatorsFrom({
+    daycareCount: counts.daycare,
+    boardingCount: counts.boarding,
+    dogs: dayDogs,
+    entries: packEntries,
+    revenueCents: plan.revenueCents,
+  });
+
+  /** Toda escrita do dia volta pelo banco: se falhar, a tela se recarrega em vez de mentir. */
+  const comTratamento = useCallback(
+    async (acao: () => Promise<void>) => {
+      try {
+        await acao();
+      } catch {
+        void load();
+      }
+    },
+    [load],
+  );
+
+  /** X do pack: tira/põe o cão na caminhada do dia (nada de apagar reserva ou evento). */
+  const alternarPack = useCallback(
+    async (dogId: string, inPack: boolean) => {
+      if (!organizationId) return;
+      const anterior = packEntries;
+      setPackEntries((atual) => [
+        ...atual.filter((item) => item.dogId !== dogId),
+        { dogId, inPack, walkerId: atual.find((item) => item.dogId === dogId)?.walkerId ?? null },
+      ]);
+      setPackBusy(true);
+      await comTratamento(async () => {
+        await setPackFlag(supabase, { organizationId, day: diaDeHoje, dogId, inPack });
+      });
+      setPackBusy(false);
+    },
+    [comTratamento, diaDeHoje, organizationId, packEntries, load],
+  );
+
+  /** Quem CAMINHA com o cão hoje (pode ser diferente de quem pega na rota). */
+  const escolherCaminhante = useCallback(
+    async (dogId: string, walkerId: string | null) => {
+      if (!organizationId) return;
+      setPackEntries((atual) => [
+        ...atual.filter((item) => item.dogId !== dogId),
+        { dogId, inPack: atual.find((item) => item.dogId === dogId)?.inPack ?? true, walkerId },
+      ]);
+      setPackBusy(true);
+      await comTratamento(async () => {
+        await setPackWalker(supabase, { organizationId, day: diaDeHoje, dogId, walkerId });
+      });
+      setPackBusy(false);
+    },
+    [comTratamento, diaDeHoje, organizationId],
+  );
+
+  const salvarFaturamento = useCallback(
+    async (cents: number | null) => {
+      if (!organizationId) return;
+      setPlan((atual) => ({ ...atual, revenueCents: cents }));
+      await comTratamento(async () => {
+        await saveDayPlan(supabase, { organizationId, day: diaDeHoje, revenueCents: cents });
+      });
+    },
+    [comTratamento, diaDeHoje, organizationId],
+  );
+
+  const salvouAviso = useCallback(() => {
+    setPlanSaved('Saved');
+    setTimeout(() => setPlanSaved(null), 2500);
+  }, []);
+
+  const adicionarTodo = useCallback(
+    async (text: string) => {
+      if (!organizationId) return;
+      setTodosBusy(true);
+      await comTratamento(async () => {
+        const item = await addTodo(supabase, { organizationId, day: diaDeHoje, text, position: nextTodoPosition(todos) });
+        setTodos((atual) => {
+          const lista = [...atual, item];
+          registrarTodosPendentes(diaDeHoje, pendingTodos(lista));
+          return lista;
+        });
+      });
+      setTodosBusy(false);
+    },
+    [comTratamento, diaDeHoje, organizationId, todos],
+  );
+
+  const marcarTodo = useCallback(
+    async (id: string, done: boolean) => {
+      setTodos((atual) => {
+        const lista = atual.map((item) => (item.id === id ? { ...item, done } : item));
+        registrarTodosPendentes(diaDeHoje, pendingTodos(lista));
+        return lista;
+      });
+      await comTratamento(async () => {
+        await setTodoDone(supabase, id, done);
+      });
+    },
+    [comTratamento, diaDeHoje],
+  );
+
+  const editarTodo = useCallback(
+    async (id: string, text: string) => {
+      setTodos((atual) => atual.map((item) => (item.id === id ? { ...item, text } : item)));
+      await comTratamento(async () => {
+        await updateTodoText(supabase, id, text);
+      });
+    },
+    [comTratamento],
+  );
+
+  const apagarTodo = useCallback(
+    async (id: string) => {
+      setTodos((atual) => {
+        const lista = atual.filter((item) => item.id !== id);
+        registrarTodosPendentes(diaDeHoje, pendingTodos(lista));
+        return lista;
+      });
+      await comTratamento(async () => {
+        await removeTodo(supabase, id);
+      });
+    },
+    [comTratamento, diaDeHoje],
+  );
+
+  const salvarPlano = useCallback(
+    async (values: { walkLocation: string; photoIdea: string }) => {
+      if (!organizationId) return;
+      setPlanBusy(true);
+      await comTratamento(async () => {
+        await saveDayPlan(supabase, { organizationId, day: diaDeHoje, walkLocation: values.walkLocation, photoIdea: values.photoIdea });
+      });
+      setPlan((atual) => ({ ...atual, walkLocation: values.walkLocation || null, photoIdea: values.photoIdea || null }));
+      setPlanBusy(false);
+      salvouAviso();
+    },
+    [comTratamento, diaDeHoje, organizationId, salvouAviso],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -295,9 +511,30 @@ export default function HomeScreen() {
           initials={header.initials}
           daycare={counts.daycare}
           boarding={counts.boarding}
-          totalPack={totalPack}
           progress={progress}
           routes={routes}
+          day={{
+            totalDogs: indicadores.totalDogs,
+            pack: indicadores.pack,
+            revenueCents: plan.revenueCents,
+            packRows: linhasDoPack,
+            members,
+            packBusy,
+            onTogglePack: (dogId, inPack) => void alternarPack(dogId, inPack),
+            onSetWalker: (dogId, walkerId) => void escolherCaminhante(dogId, walkerId),
+            onSaveRevenue: (cents) => void salvarFaturamento(cents),
+            todos,
+            todosBusy,
+            onAddTodo: (text) => void adicionarTodo(text),
+            onToggleTodo: (id, done) => void marcarTodo(id, done),
+            onEditTodo: (id, text) => void editarTodo(id, text),
+            onRemoveTodo: (id) => void apagarTodo(id),
+            plan: { walkLocation: plan.walkLocation, photoIdea: plan.photoIdea },
+            planBusy,
+            planSaved,
+            onSavePlan: (values) => void salvarPlano(values),
+            onOpenDaySummary: () => router.push('/day-summary'),
+          }}
           onOpenProgress={() => router.push('/day-progress')}
           onOpenDispatch={() => router.push('/dispatch')}
           onOpenClients={() => router.push('/clients')}
