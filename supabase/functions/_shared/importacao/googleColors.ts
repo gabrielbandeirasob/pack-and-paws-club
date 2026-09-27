@@ -58,7 +58,11 @@ export const GOOGLE_COLOR_IDS = {
   boarding: ['2', '5', '10'],
   daycare: ['1', '7', '9'],
   schedule_change: ['3'],
-  cancel: ['11'],
+  // 11 Tomato e **4 Flamingo** (vermelho brando): o dono confirmou em 27/09/2026 que *"vermelho é
+  // cancelamento mesmo"*, e o levantamento do calendario dele lista Flamingo entre os vermelhos de
+  // cancelar. Achado pelo CALENDARIO DE TESTE (27/09/2026): Flamingo caia em "cor nao reconhecida" e
+  // a cancelacao do escritorio se perdia na lista de revisao.
+  cancel: ['4', '11'],
 } as const;
 
 /**

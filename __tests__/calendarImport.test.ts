@@ -80,7 +80,10 @@ describe('a COR do evento é o serviço (e o título é só o nome do cão)', ()
     expect(meaningOfColor('')).toBeNull();
     expect(meaningOfColor(AMARELO)).toEqual({ kind: 'service', serviceType: 'boarding' });
     // Flamingo (4), tangerina (6) e grafite (8) seguem de fora.
-    for (const id of ['4', '6', '8']) expect(meaningOfColor(id)).toBeNull();
+    // 4 (Flamingo) SAIU desta lista em 27/09/2026: o dono confirmou "vermelho é cancelamento mesmo" e o
+    // Flamingo é o vermelho brando que o escritório usa — achado do calendário de teste. Seguem sem
+    // significado o laranja (6, Tangerine) e o cinza (8, Graphite).
+    for (const id of ['6', '8']) expect(meaningOfColor(id)).toBeNull();
   });
 
   it('lavanda (1) = AZUL -> daycare; uva (3) = ROXO -> alteracao de dia fixo (decisao do dono)', () => {
