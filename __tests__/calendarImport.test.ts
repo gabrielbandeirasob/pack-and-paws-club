@@ -197,6 +197,10 @@ describe('ida e volta do formato', () => {
       // O que foi lido na cor (paleta antiga): o cartão mostra `colorId 2 (Sage)`.
       color: { source: 'colorId', labelId: null, labelName: null, backgroundColor: null, colorId: VERDE, meaning: { kind: 'service', serviceType: 'boarding' } },
       cancels: false,
+      // VERDE = dia de hotel (escritório, 27/09/2026): quem entra na van é o dia de CHEGADA/SAÍDA
+      // (amarelo/verde-claro). Como este evento é o espelho do PRÓPRIO app, a reserva dele é ligada
+      // pelo `google_event_id` e o `updateBooking` não mexe no transporte — o que o gestor marcou fica.
+      transportRequired: false,
       dogName: 'Filó',
       startDate: '2026-09-28',
       endDate: '2026-10-31',

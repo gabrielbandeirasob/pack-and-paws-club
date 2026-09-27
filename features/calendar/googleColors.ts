@@ -112,6 +112,30 @@ export function colorOfService(serviceType: BookingServiceType): string {
 
 /* ------------------------------- etiquetas (paleta nova) ------------------------------- */
 
+/**
+ * O DIA É DE CHEGADA/SAÍDA da hospedagem? (o cão anda de van — pick up na chegada, drop off na saída)
+ *
+ * Regra do escritório (27/09/2026, áudio): *"verde claro, que a cor aqui no calendário chama avocado,
+ * indica chegada e saída"*, *"verde escuro, que a cor chama Basil"* são os dias do meio (o cão está no
+ * hotel, não anda). Traduzido em tom: **amarelo/verde-claro (35°..70°) = anda; verde (70°..170°) = hotel**.
+ * Devolve `null` quando o evento não é hospedagem (aí a pergunta não se aplica) — o chamador decide o
+ * padrão. Na paleta antiga, o amarelo é o `colorId` 5 (Banana).
+ */
+export function movimentaOCao(read: EventColorRead | null | undefined): boolean | null {
+  const significado = read?.meaning;
+  if (!significado || significado.kind !== 'service' || significado.serviceType !== 'boarding') return null;
+  if (read?.source === 'label') return tomDeMovimento(read.backgroundColor);
+  if (read?.colorId) return ehDaPaleta(read.colorId, GOOGLE_COLOR_IDS_MOVIMENTO);
+  return null;
+}
+
+/** Tom (hex da etiqueta) no amarelo/verde-claro = dia de chegada ou saída. */
+export function tomDeMovimento(hex?: string | null): boolean {
+  const tom = hueOfHex(hex);
+  if (tom === null) return false;
+  return tom >= TOM_AMARELO.de && tom < TOM_AMARELO.ate;
+}
+
 /** Etiqueta de cor de um calendário (`labelProperties.eventLabels` da API do Google). */
 export type EventLabel = {
   id: string;
@@ -145,8 +169,14 @@ export type EventLabel = {
  * baixar `TOM_AMARELO.de`.
  */
 export const TOM_VERDE = { de: 70, ate: 170 } as const;
-/** Amarelo/âmbar = boarding (decisão do dono, 27/09/2026). */
+/**
+ * Amarelo/âmbar = boarding **e dia de CHEGADA/SAÍDA** da hospedagem (dono, 27/09/2026):
+ * *"é verde claro, que a cor aqui no calendário chama avocado — indica chegada e saída"*. Verde (tom
+ * acima de 70) é o dia do MEIO: o cão está no hotel. Quem decide van/transporte é `movimentaOCao`.
+ */
 export const TOM_AMARELO = { de: 35, ate: 70 } as const;
+/** Ids da paleta ANTIGA que significam dia de chegada/saída (5 = Banana, amarelo). */
+export const GOOGLE_COLOR_IDS_MOVIMENTO = ['5'] as const;
 export const TOM_AZUL = { de: 170, ate: 265 } as const;
 export const TOM_ROXO = { de: 265, ate: 300 } as const;
 export const TONS_VERMELHOS = [

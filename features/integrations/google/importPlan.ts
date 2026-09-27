@@ -32,7 +32,7 @@
  *     e derruba o insert inteiro (era o defeito de producao de 24/09/2026).
  */
 import { addDaysISO, weekdayOfISO } from '@/features/calendar/dates';
-import { readEventColor, type BookingServiceType, type ColorMeaning, type EventColorRead, type EventLabel } from '@/features/calendar/googleColors';
+import { movimentaOCao, readEventColor, type BookingServiceType, type ColorMeaning, type EventColorRead, type EventLabel } from '@/features/calendar/googleColors';
 import type { RemoteEvent } from './calendarSync';
 
 export type { BookingServiceType };
@@ -59,6 +59,13 @@ export type ParsedBooking = {
   skipDates: string[];
   /** Serie sem data de fim (RRULE sem UNTIL). */
   openEnded: boolean;
+  /**
+   * O cao ANDA nesse dia (entra na van)? Day care: `true` sempre. HOSPEDAGEM: **true** no dia de
+   * CHEGADA/SAIDA (amarelo/verde-claro — o "avocado" do escritorio) e **false** no dia do meio, com o
+   * cao no hotel (verde). Quem confirma o `false` e o PLANO: so vale quando aquele cao tem chegada/saida
+   * marcada na janela (calendario que ainda nao usa a convencao continua entrando na van).
+   */
+  transportRequired?: boolean;
 };
 
 const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
@@ -278,10 +285,15 @@ export function parseBookingEvents(event: RemoteEvent, labels: EventLabel[] = []
   if (nomes.length === 0) return [];
   const color = readEventColor(event, labels);
   const recorrencia = parseRecurrence(event.recurrence, event.startDate, event.endDate);
+  // Chegada/saida de hospedagem manda na van; day care sempre pede (`movimentaOCao` devolve null fora
+  // de hospedagem, e aí vale `true`).
+  const transportRequired = movimentaOCao(color) ?? true;
+
   return nomes.map((dogName) => ({
     serviceType: color.meaning?.kind === 'service' ? color.meaning.serviceType : null,
     color,
     cancels: color.meaning?.kind === 'cancel',
+    transportRequired,
     dogName,
     startDate: event.startDate,
     ...recorrencia,
@@ -458,6 +470,18 @@ export function planCalendarImport(
 ): ImportOutcome[] {
   const labels = options.labels ?? [];
   const porEvento = new Map<string, BookingForImport>();
+
+  // GUARDA DA CONVENCAO NOVA (escritorio, 27/09/2026): dia de hotel (verde) perde a van SOMENTE quando
+  // aquele cao tem um dia de CHEGADA/SAIDA (amarelo/verde-claro) na janela. Calendario que ainda nao
+  // adotou a marcacao segue exatamente como antes — nenhum cao some da van por causa desta regra.
+  const caesComChegadaOuSaida = new Set<string>();
+  for (const evento of events) {
+    if (ehEventoDeOperacao(evento.summary)) continue;
+    for (const lido of parseBookingEvents(evento, labels)) {
+      if (antesDaJanela(lido.startDate, window)) continue;
+      if (lido.transportRequired === true) caesComChegadaOuSaida.add(normalizar(lido.dogName));
+    }
+  }
   for (const reserva of reservations) {
     if (reserva.googleEventId) porEvento.set(reserva.googleEventId, reserva);
   }
@@ -525,6 +549,13 @@ export function planCalendarImport(
       const alvo = normalizar(parsed.dogName);
       const candidatos = dogs.filter((cao) => normalizar(cao.name) === alvo);
       const dogDoTitulo = candidatos.length === 1 ? candidatos[0].id : null;
+
+      // 4.1 Dia de hotel (verde) sem chegada/saída marcada para este cão na janela: mantém a van
+      //     (comportamento antigo). Com a marcação, o dia do meio fica FORA da van — é o pedido do
+      //     escritório ("um cão hospedado não pode aparecer na rota nos dias em que ninguém busca").
+      if (parsed.transportRequired === false && !caesComChegadaOuSaida.has(alvo)) {
+        parsed.transportRequired = true;
+      }
 
       // 5. Vínculo por EVENTO (não por nome): se o evento já tem reserva no app, ela é a referência.
       //    Título que não aponta para nenhum cão do cadastro (o caso do cão RENOMEADO no app depois da
