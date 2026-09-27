@@ -78,6 +78,11 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
    * calendário e o cão não entrava na fila da van. Num negócio de creche COM transporte, a van é a
    * regra; se aquele cão não precisar, o gestor desmarca na própria reserva (e a importação não
    * mexe mais nesse campo depois — a escolha dele fica).
+   *
+   * EXCEÇÃO (escritório, 27/09/2026): dia de HOSPEDAGEM no meio da estadia (verde — o cão está no
+   * hotel) entra **sem** transporte, porque ninguém busca nem leva aquele dia. Quem decide é o plano
+   * (`parsed.transportRequired`), que só manda `false` quando o cão tem chegada/saída marcada na
+   * janela. Aqui o padrão segue `true` para tudo que não veio decidido.
    */
   return {
     createBooking: async ({ eventId, dogId, kind, parsed }) => {
@@ -91,7 +96,7 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
             start_date: parsed.startDate,
             end_date: fimDaSerie(parsed),
             active: true,
-            transport_required: true,
+            transport_required: parsed.transportRequired ?? true,
             google_event_id: eventId,
             source: 'google',
           })
@@ -109,7 +114,7 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
         service_type: parsed.serviceType,
         start_date: parsed.startDate,
         end_date: parsed.endDate,
-        transport_required: true,
+        transport_required: parsed.transportRequired ?? true,
         google_event_id: eventId,
         source: 'google',
       });
