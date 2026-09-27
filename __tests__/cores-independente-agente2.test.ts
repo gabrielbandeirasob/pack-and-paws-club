@@ -68,10 +68,9 @@ describe('cor do evento define o servico (vetores do agente2)', () => {
     }
   });
 
-  it('AMARELO (Banana, id 5) NAO vira daycare — nao chuta servico', () => {
+  it('AMARELO (Banana, id 5) vira BOARDING — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {
     const saida = plano([evento('e5', 'Pietro', '5')], [PIETRO]);
-    expect(saida.some((x) => x.kind === 'create' || x.kind === 'update')).toBe(false);
-    expect(saida[0]?.kind).toBe('review');
+    expect(saida[0]).toMatchObject({ kind: 'create', parsed: { serviceType: 'boarding' } });
   });
 
   it('VERMELHO (id 11) CANCELA a reserva do dia daquele cao', () => {

@@ -494,9 +494,10 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
           <Text style={styles.hint}>
             {paraEspelhar.length} booking(s) mirrored to Google. This is a business-only calendar, so every event
             from today on comes back here — the title is the dog's name and the COLOR of the event says the
-            service: green is boarding, blue is daycare, red cancels that day. If the office paints the event with
-            one of Google's new color labels, its color tone is what counts. A dog that is not registered in the
-            app is never created from here: it waits in the list below for you to register it and sync again.
+            service: green or yellow is boarding, blue is daycare, red cancels that day. If the office paints the
+            event with one of Google's new color labels, its color tone is what counts. A dog that is not
+            registered in the app is never created from here: it waits in the list below for you to register it
+            and sync again.
           </Text>
 
           <View style={styles.row}>

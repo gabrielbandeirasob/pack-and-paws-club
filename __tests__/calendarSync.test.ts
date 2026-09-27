@@ -115,16 +115,26 @@ describe('espelho e as etiquetas de cor do calendário', () => {
     { id: 'lab-amarela', name: 'Amarelo', backgroundColor: '#ffd666' },
   ];
 
-  it('usa a etiqueta do tom do serviço (azul = daycare, verde = boarding)', () => {
+  it('usa a etiqueta do tom do serviço (azul = daycare, verde OU amarelo = boarding)', () => {
     const manha = eventFor(daycare, { labels: ETIQUETAS });
     const noite = eventFor(boarding, { labels: ETIQUETAS });
 
     expect(manha.eventLabelId).toBe('lab-azul');
-    expect(noite.eventLabelId).toBe('lab-verde');
+    // AMARELO virou boarding em 27/09/2026 (dono: "a cor amarela e os tons que lembram ela é boarding") e
+    // entre duas etiquetas do mesmo tom vale a de MENOR id — aqui 'lab-amarela' < 'lab-verde'.
+    expect(noite.eventLabelId).toBe('lab-amarela');
     // O objeto interno também guarda o fallback legado; na API, eventLabelVersion=1 faz a etiqueta
     // prevalecer e o Google pode devolver `colorId` nulo.
     expect(manha.colorId).toBe('7');
     expect(noite.colorId).toBe('2');
+  });
+
+  it('entre etiquetas de boarding vale a de MENOR id (não é "amarelo sempre")', () => {
+    const etiquetas = [
+      { id: 'a-verde', name: 'Verde', backgroundColor: '#33b679' },
+      { id: 'z-amarela', name: 'Amarelo', backgroundColor: '#ffd666' },
+    ];
+    expect(eventFor(boarding, { labels: etiquetas }).eventLabelId).toBe('a-verde');
   });
 
   it('sem etiqueta do serviço no calendário, o evento sai só com o colorId (não pode quebrar o espelho)', () => {

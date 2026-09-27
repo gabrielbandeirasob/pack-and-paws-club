@@ -11,7 +11,8 @@
  *  - etiqueta VERDE -> boarding;
  *  - etiqueta AZUL (o "Cobalto" do cliente) -> daycare;
  *  - etiqueta VERMELHA -> cancela a reserva daquele dia;
- *  - etiqueta de tom NÃO mapeado (amarelo) -> "cor não reconhecida", sem chute;
+ *  - etiqueta de tom NÃO mapeado (laranja, marrom, rosa) -> "cor não reconhecida", sem chute (o
+ *    amarelo saiu desta lista em 27/09/2026: virou BOARDING);
  *  - evento sem etiqueta E sem `colorId` -> "cor não reconhecida";
  *  - paleta ANTIGA (`colorId`) continua funcionando como fallback;
  *  - a pendência carrega o que foi LIDO (nome da etiqueta + hex) para o suporte.
@@ -26,7 +27,7 @@ const JANELA = { from: HOJE, to: '2027-03-24' };
 const COBALTO = '#4A86E8'; // azul — o tom do print do cliente
 const SAGE = '#33b679'; // verde
 const TOMATO = '#e67c73'; // vermelho
-const BANANA = '#ffd666'; // amarelo (não mapeado)
+const BANANA = '#ffd666'; // amarelo -> BOARDING (o dono confirmou em 27/09/2026: "a cor amarela e os tons que lembram ela é boarding")
 
 /** Etiquetas do calendário do escritório, como a API devolve. */
 const ETIQUETAS: EventLabel[] = [
@@ -94,13 +95,12 @@ describe('etiqueta de cor -> serviço da reserva (paleta NOVA do Google)', () =>
     expect(soUm(saida, 'cancel').bookingId).toBe('res-zara');
   });
 
-  it('etiqueta de tom NÃO mapeado (amarelo) não chuta serviço e volta para a lista, com o que foi lido', () => {
+  it('etiqueta AMARELA importa como BOARDING — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {
     const saida = plano([recurso(4, 'Zara', { eventLabelId: 'lab-banana' })]);
-    const pendencia = soUm(saida, 'review');
+    const criado = soUm(saida, 'create');
 
-    expect(pendencia.reason).toBe('unrecognized color');
-    expect(pendencia.parsed.serviceType).toBeNull();
-    expect(pendencia.parsed.color).toMatchObject({ labelName: 'Amarelo', backgroundColor: BANANA });
+    expect(criado.parsed.serviceType).toBe('boarding');
+    expect(criado.parsed.color).toMatchObject({ labelName: 'Amarelo', backgroundColor: BANANA });
   });
 
   it('evento SEM etiqueta e SEM colorId (o "sem cor" de sempre) também vai para a lista', () => {

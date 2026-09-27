@@ -87,9 +87,9 @@ describe('cor do evento -> serviço da reserva (caminho real: API -> parseEvent 
     expect(plano[0]).toMatchObject({ kind: 'review', reason: 'unrecognized color' });
   });
 
-  it('cor fora do mapa (amarelo) também não importa', () => {
+  it('o AMARELO (id 5) importa como boarding — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {
     const plano = planoDoRecurso(recurso('ev-amarelo', 'Pietro', '5'));
-    expect(plano[0]).toMatchObject({ kind: 'review', reason: 'unrecognized color' });
+    expect(plano[0]).toMatchObject({ kind: 'create', parsed: { serviceType: 'boarding' } });
   });
 });
 
