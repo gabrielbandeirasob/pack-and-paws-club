@@ -66,7 +66,7 @@ export default function ClientEditScreen() {
     setError(null);
     const { data, error: loadError } = await supabase
       .from('clients')
-      .select('id, organization_id, source_contact_identifier, name, phone, address_line_1, address_line_2, city, state, postal_code, notes, special_scheduling_instructions, latitude, longitude, active, dogs(id, name, breed, behavior_notes, medical_notes, photo_url), client_instructions(id, pickup_access_instructions)')
+      .select('id, organization_id, source_contact_identifier, name, phone, second_owner_name, second_owner_phone, address_line_1, address_line_2, city, state, postal_code, notes, special_scheduling_instructions, latitude, longitude, active, dogs(id, name, breed, behavior_notes, medical_notes, photo_url), client_instructions(id, pickup_access_instructions)')
       .eq('id', id)
       .single();
     if (loadError || !data) {

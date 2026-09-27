@@ -210,6 +210,8 @@ export function EditClientForm({ current, dogs, instructions, active, impact, sa
   const [form, setForm] = useState<ClientFormValues>({
     name: current.name ?? '',
     phone: current.phone ?? '',
+    second_owner_name: current.second_owner_name ?? '',
+    second_owner_phone: current.second_owner_phone ?? '',
     address_line_1: current.address_line_1 ?? '',
     address_line_2: current.address_line_2 ?? '',
     city: current.city ?? '',
@@ -332,6 +334,23 @@ export function EditClientForm({ current, dogs, instructions, active, impact, sa
         </Pressable>
       ) : null}
       <Field label="Phone" value={phone} onChangeText={set('phone')} keyboardType="phone-pad" />
+      {/*
+        SEGUNDO TUTOR (áudio do dono, 27/09/2026): "existe cachorro que tem pai e mãe… os pais têm a
+        exigência de receber mensagem nos dois números". Os dois campos são opcionais; preenchidos, o
+        aviso de ETA sai numa conversa com os dois números.
+      */}
+      <Field
+        label="Second owner (name)"
+        value={form.second_owner_name as unknown as string}
+        onChangeText={set('second_owner_name')}
+        autoCapitalize="words"
+      />
+      <Field
+        label="Second owner phone"
+        value={form.second_owner_phone as unknown as string}
+        onChangeText={set('second_owner_phone')}
+        keyboardType="phone-pad"
+      />
       {callUrl || textUrl ? (
         <View style={styles.quickRow}>
           {callUrl ? (

@@ -11,7 +11,7 @@
  */
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { messengerLink, type Messenger } from '@/features/driver/etaMessage';
+import { messengerLink, recipientsFor, type Messenger } from '@/features/driver/etaMessage';
 import { colors, radii } from '@/features/theme/tokens';
 
 /** Mensageiros que o app OFERECE na interface (WhatsApp saiu a pedido do cliente). */
@@ -34,8 +34,11 @@ function messengerLabel(messenger: Messenger): string {
 
 type Props = {
   visible: boolean;
-  /** telefone do tutor (quem recebe) */
-  phone: string | null;
+  /**
+   * Telefones que recebem (o do cadastro e o do SEGUNDO dono, quando houver). A mensagem sai em UMA
+   * conversa com os dois — pedido do dono (27/09/2026): "não de forma separada, mas num grupo".
+   */
+  phones: Array<string | null>;
   /** texto que vai preenchido no mensageiro */
   message: string;
   /** mensageiros oferecidos (default: os da interface — hoje só SMS) */
@@ -44,7 +47,8 @@ type Props = {
   onClose: () => void;
 };
 
-export function NotifyOwnerSheet({ visible, phone, message, messengers = OFFERED_MESSENGERS, onChoose, onClose }: Props) {
+export function NotifyOwnerSheet({ visible, phones, message, messengers = OFFERED_MESSENGERS, onChoose, onClose }: Props) {
+  const destinatarios = recipientsFor(...phones);
   const opcoes = messengers.map((chave) => ({
     chave,
     rotulo: messengerLabel(chave),
@@ -56,7 +60,13 @@ export function NotifyOwnerSheet({ visible, phone, message, messengers = OFFERED
       <View style={styles.fundo}>
         <View style={styles.folha}>
           <Text style={styles.titulo}>Notify the owner</Text>
-          <Text style={styles.sub}>{phone ? `${phone} · you send it from your own number` : 'Client without a phone number'}</Text>
+          <Text style={styles.sub}>
+            {destinatarios.length === 0
+              ? 'Client without a phone number'
+              : destinatarios.length > 1
+                ? `${phones.filter(Boolean).join(' + ')} · one group message, sent from your own number`
+                : `${phones.find(Boolean)} · you send it from your own number`}
+          </Text>
 
           <View style={styles.previa}>
             <Text style={styles.previaTexto}>{message}</Text>
@@ -90,8 +100,12 @@ export function NotifyOwnerSheet({ visible, phone, message, messengers = OFFERED
 }
 
 /** Link do mensageiro escolhido, já com o texto (null quando o telefone não serve). */
-export function linkForChoice(messenger: Messenger, phone: string | null, message: string): string | null {
-  return messengerLink(messenger, phone, message);
+export function linkForChoice(
+  messenger: Messenger,
+  phones: Array<string | null> | string | null,
+  message: string,
+): string | null {
+  return messengerLink(messenger, phones, message);
 }
 
 const styles = StyleSheet.create({

@@ -40,6 +40,9 @@ export type DriverStopRow = {
               address_line_1: string | null;
               city: string | null;
               phone?: string | null;
+              /** Segundo tutor (migration 037): o aviso de ETA sai numa conversa com os dois números. */
+              second_owner_name?: string | null;
+              second_owner_phone?: string | null;
               latitude: number | null;
               longitude: number | null;
               client_instructions: { pickup_access_instructions: string | null } | null;
@@ -84,6 +87,8 @@ export function rowToStop(row: DriverStopRow): DriverStop {
     medicalNotes: dog?.medical_notes ?? null,
     dogPhotoUrl: dog?.photo_url ?? null,
     clientPhone: client?.phone ?? null,
+    clientPhone2: client?.second_owner_phone ?? null,
+    secondOwnerName: client?.second_owner_name ?? null,
     etaNoticeAt: row.eta_notice_at ?? null,
     arrivedAt: row.arrived_at ?? null,
     pickedUpAt: row.picked_up_at ?? null,

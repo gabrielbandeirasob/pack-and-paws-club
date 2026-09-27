@@ -9,6 +9,12 @@
 export type EditableClient = {
   name: string;
   phone: string | null;
+  /**
+   * SEGUNDO TUTOR (migration 037, áudio do dono 27/09/2026): cão que tem pai e mãe, no mesmo
+   * endereço. Os dois recebem o aviso de ETA — numa conversa só.
+   */
+  second_owner_name?: string | null;
+  second_owner_phone?: string | null;
   address_line_1: string | null;
   address_line_2: string | null;
   city: string | null;
@@ -23,6 +29,9 @@ export type EditableClient = {
 export type ClientFormValues = {
   name: string;
   phone: string | null;
+  /** Segundo tutor (pai/mãe do mesmo cão) — o aviso de ETA vai para os dois números. */
+  second_owner_name?: string | null;
+  second_owner_phone?: string | null;
   address_line_1: string | null;
   address_line_2: string | null;
   city: string | null;
@@ -81,6 +90,8 @@ export function clientUpdatePayload(current: EditableClient, values: ClientFormV
   const payload: ClientUpdatePayload = {
     name,
     phone: normalizeText(values.phone),
+    second_owner_name: normalizeText(values.second_owner_name ?? null),
+    second_owner_phone: normalizeText(values.second_owner_phone ?? null),
     address_line_1: normalizeText(values.address_line_1),
     address_line_2: normalizeText(values.address_line_2),
     city: normalizeText(values.city),
@@ -543,6 +554,8 @@ export type ClientSnapshot = {
     id: string;
     name: string;
     phone?: string | null;
+    second_owner_name?: string | null;
+    second_owner_phone?: string | null;
     address_line_1?: string | null;
     address_line_2?: string | null;
     city?: string | null;
@@ -579,6 +592,8 @@ export function clientRestoreRows(snapshot: ClientSnapshot): ClientRestoreRows {
       organization_id: organizationId,
       name: client.name,
       phone: client.phone ?? null,
+      second_owner_name: client.second_owner_name ?? null,
+      second_owner_phone: client.second_owner_phone ?? null,
       address_line_1: client.address_line_1 ?? null,
       address_line_2: client.address_line_2 ?? null,
       city: client.city ?? null,

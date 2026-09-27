@@ -10,6 +10,9 @@ export type ClientWithDogs = {
   id: string;
   name: string;
   phone: string | null;
+  /** Segundo tutor (migration 037): o aviso de ETA sai numa conversa com os dois números. */
+  second_owner_name?: string | null;
+  second_owner_phone?: string | null;
   address_line_1: string | null;
   city: string | null;
   state: string | null;
@@ -35,6 +38,8 @@ export type PhoneContactCandidate = {
 export type NewClientInput = {
   name: string;
   phone: string | null;
+  second_owner_name?: string | null;
+  second_owner_phone?: string | null;
   address_line_1: string | null;
   address_line_2: string | null;
   city: string | null;

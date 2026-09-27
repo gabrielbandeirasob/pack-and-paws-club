@@ -55,6 +55,30 @@ export function phaseForStop(status: string): EtaPhase {
   return status === 'picked_up' || status === 'completed' ? 'dropoff' : 'pickup';
 }
 
+/**
+ * Todos os números que recebem o aviso, na ordem: o do cadastro primeiro, o do segundo dono depois.
+ * Vazio/inválido é descartado (o cadastro pode ter só um dos dois) e repetido não entra duas vezes.
+ */
+export function recipientsFor(...phones: Array<string | null | undefined>): string[] {
+  const unicos = new Set<string>();
+  for (const bruto of phones) {
+    const digits = digitsForPhone(bruto);
+    if (digits) unicos.add(digits);
+  }
+  return [...unicos];
+}
+
+/**
+ * Nomes que entram na saudação. Com dois tutores, "Sarah and Mike": a mensagem sai numa conversa só
+ * (pedido do dono, 27/09/2026), então a saudação cumprimenta os dois.
+ */
+export function nomesDoAviso(clientName?: string | null, secondOwnerName?: string | null): string {
+  const primeiro = (clientName ?? '').trim();
+  const segundo = (secondOwnerName ?? '').trim();
+  if (primeiro && segundo) return `${primeiro} and ${segundo}`;
+  return primeiro || segundo;
+}
+
 /** Arredonda de 5 em 5 minutos, nunca abaixo de 5 (nada de "about 0 minutes"). */
 export function roundToFive(minutes: number): number {
   if (!Number.isFinite(minutes)) return 5;
@@ -136,6 +160,12 @@ export function greetingForWindow(window: AvisoWindow): 'Good morning' | 'Good a
 
 export type EtaMessageInput = {
   clientName?: string | null;
+  /**
+   * Segundo tutor (pai/mãe do mesmo cão) — áudio de 27/09/2026: "existe cachorro que tem pai e mãe…
+   * os pais têm a exigência de receber mensagem nos dois números". Com os dois nomes, a saudação
+   * cumprimenta os dois ("Good morning, Sarah and Mike!") porque a mensagem vai em UMA conversa.
+   */
+  secondOwnerName?: string | null;
   /** nome do motorista que assina o aviso ("This is {MOTORISTA} from Pack & Paws Club") */
   driverName?: string | null;
   dogName: string;
@@ -154,6 +184,7 @@ export type EtaMessageInput = {
  */
 export function etaMessageText({
   clientName,
+  secondOwnerName,
   driverName,
   dogName,
   phase,
@@ -161,7 +192,7 @@ export function etaMessageText({
   lateMinutes = 0,
   now = new Date(),
 }: EtaMessageInput): string {
-  const nome = (clientName ?? '').trim();
+  const nome = nomesDoAviso(clientName, secondOwnerName);
   const cao = dogName.trim() || 'your dog';
   const motorista = (driverName ?? '').trim();
 
@@ -213,10 +244,15 @@ export function notifyButtonState(input: { phone: string | null | undefined; lat
 }
 
 /** Link do SMS com o texto pronto (o mesmo padrão do lado do gestor). */
-export function smsLink(phone: string | null | undefined, text: string): string | null {
-  const digits = digitsForPhone(phone);
-  if (!digits) return null;
-  return `sms:${digits}&body=${encodeURIComponent(text)}`;
+export function smsLink(
+  phones: Array<string | null | undefined> | string | null | undefined,
+  text: string,
+): string | null {
+  const lista = Array.isArray(phones) ? recipientsFor(...phones) : recipientsFor(phones);
+  if (lista.length === 0) return null;
+  // Vários números SEPARADOS POR VÍRGULA abrem UMA conversa em grupo no iOS (é o pedido do dono:
+  // "não de forma separada, mas num grupo"). Com um número só, o link é o de sempre.
+  return `sms:${lista.join(',')}&body=${encodeURIComponent(text)}`;
 }
 
 /** Link do WhatsApp (wa.me) com o texto pronto. */
@@ -227,8 +263,17 @@ export function whatsappLink(phone: string | null | undefined, text: string): st
 }
 
 /** Link do mensageiro escolhido (null = número inválido). */
-export function messengerLink(messenger: Messenger, phone: string | null | undefined, text: string): string | null {
-  return messenger === 'whatsapp' ? whatsappLink(phone, text) : smsLink(phone, text);
+export function messengerLink(
+  messenger: Messenger,
+  phones: Array<string | null | undefined> | string | null | undefined,
+  text: string,
+): string | null {
+  // O WhatsApp recebe UM número: com dois tutores ele cai no primeiro (o app hoje só oferece SMS).
+  if (messenger === 'whatsapp') {
+    const lista = Array.isArray(phones) ? recipientsFor(...phones) : recipientsFor(phones);
+    return whatsappLink(lista[0] ?? null, text);
+  }
+  return smsLink(phones, text);
 }
 
 /** O que gravar no histórico da parada (a fase do aviso). */

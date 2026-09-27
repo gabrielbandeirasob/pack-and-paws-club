@@ -224,7 +224,7 @@ describe('(e) sem WhatsApp: um mensageiro só é envio direto', () => {
 
   it('a folha, se aberta, não oferece WhatsApp (só o SMS)', async () => {
     const tela = await render(
-      createElement(NotifyOwnerSheet, { visible: true, phone: telefone, message: mensagem, onChoose: () => {}, onClose: () => {} }),
+      createElement(NotifyOwnerSheet, { visible: true, phones: [telefone], message: mensagem, onChoose: () => {}, onClose: () => {} }),
     );
 
     expect(tela.queryByLabelText('WhatsApp')).toBeNull();

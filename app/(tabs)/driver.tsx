@@ -740,6 +740,9 @@ export default function DriverTodayScreen() {
   const avisoDe = (stop: DriverStop) =>
     etaMessageText({
       clientName: stop.clientName,
+      // Segundo tutor (migration 037): a mensagem vai numa conversa com os dois, então cumprimenta
+      // os dois ("Good morning, Sarah and Mike!").
+      secondOwnerName: stop.secondOwnerName ?? null,
       driverName,
       dogName: stop.dogName,
       phase: phaseForStop(stop.status),
@@ -751,7 +754,9 @@ export default function DriverTodayScreen() {
   /** Abre o mensageiro do motorista com o texto pronto e registra o aviso no histórico da parada. */
   const enviarAviso = async (stop: DriverStop, texto: string, messenger: Messenger) => {
     setNotifyDraft(null);
-    const link = messengerLink(messenger, stop.clientPhone ?? null, texto);
+    // Os DOIS números, numa conversa só (SMS em grupo no iOS) — pedido do dono, 27/09/2026:
+    // "não de forma separada, mas num grupo".
+    const link = messengerLink(messenger, [stop.clientPhone ?? null, stop.clientPhone2 ?? null], texto);
     if (!link) {
       setMessage('This client has no usable phone number to send the ETA.');
       return;
@@ -920,7 +925,7 @@ export default function DriverTodayScreen() {
           A folha só aparece se houver MAIS de um mensageiro; com um só o aviso vai direto (avisarTutor). */}
       <NotifyOwnerSheet
         visible={notifyDraft !== null}
-        phone={notifyDraft?.stop.clientPhone ?? null}
+        phones={[notifyDraft?.stop.clientPhone ?? '', notifyDraft?.stop.clientPhone2 ?? '']}
         message={notifyDraft?.text ?? ''}
         onChoose={(messenger) => {
           const rascunho = notifyDraft;

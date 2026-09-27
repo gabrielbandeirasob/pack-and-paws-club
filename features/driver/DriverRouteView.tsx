@@ -30,6 +30,10 @@ export type DriverStop = {
   dogPhotoUrl?: string | null;
   /** Telefone do tutor: sem ele o botão de avisar não aparece (nada de mandar mensagem no vácuo). */
   clientPhone?: string | null;
+  /** Telefone do segundo tutor (migration 037): o aviso de ETA sai numa conversa com os dois números. */
+  clientPhone2?: string | null;
+  /** Nome do segundo tutor — entra na saudação da mensagem junto com o do cadastro. */
+  secondOwnerName?: string | null;
   /** Minutos até esta parada (o mesmo ETA que a tela mostra); null quando não há posição. */
   etaMinutes?: number | null;
   /** Minutos de atraso em relação à janela (0 = no prazo). */
@@ -116,7 +120,8 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
         // Cabeçalho da PARADA: só quando ela tem mais de um cão (mesmo cliente, mesmo endereço).
         const cabecalhoDaParada = Boolean(posicao && posicao.primeiraDoGrupo && posicao.totalNaTarefa > 1);
         // Aviso de ETA: só faz sentido enquanto a parada está viva e o cliente tem telefone.
-        const aviso = notifyButtonState({ phone: stop.clientPhone, lateMinutes: stop.lateMinutes, done });
+        // O botão existe se QUALQUER um dos dois tutores tem telefone — o aviso vai para os dois.
+        const aviso = notifyButtonState({ phone: stop.clientPhone ?? stop.clientPhone2, lateMinutes: stop.lateMinutes, done });
         // O cartao inteiro abre a navegacao. Relato do dono (12/09/2026): "ao clicar nao direciona a
         // aplicativo algum" - antes so o botao Navigate fazia isso, e ele SUMIA quando a parada
         // estava concluida (o bloco de acoes ficava atras de `!done`). Perder a navegacao numa parada
