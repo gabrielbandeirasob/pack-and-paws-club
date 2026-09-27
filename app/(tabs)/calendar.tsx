@@ -400,6 +400,7 @@ export default function CalendarScreen() {
               dogs={dogs.map((cao) => ({ id: cao.id, name: cao.dogName, clientName: cao.clientName }))}
               bookings={casosDaImportacao}
               onImported={() => void load({ silent: true })}
+              autoImport
             />
           </ScrollView>
         )}

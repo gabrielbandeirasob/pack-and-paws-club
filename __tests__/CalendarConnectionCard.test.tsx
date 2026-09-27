@@ -5,6 +5,7 @@ import { CalendarConnectionCard, dentroDaJanela, janelaDeEspelho, janelaDeImport
 import { TEXTO_FALTA_DE_ESCOPO, TEXTO_FALTA_DE_ESCOPO_CORES, TEXTO_SOMENTE_LEITURA } from '@/features/integrations/google/calendarChoice';
 import type { LocalReservation } from '@/features/integrations/google/calendarSync';
 import type { BookingForImport, DogForImport } from '@/features/integrations/google/importPlan';
+import { esquecerSincronizacao, marcarSincronizacao } from '@/features/integrations/google/lastSyncStore';
 
 jest.mock('@/features/integrations/google/useCalendarConnection');
 jest.mock('@/features/integrations/google/sync', () => ({
@@ -109,11 +110,13 @@ async function esperandoEscolha(screen: Awaited<ReturnType<typeof render>>, nome
 }
 
 describe('CalendarConnectionCard', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
     insercoes.length = 0;
     atualizacoes.length = 0;
     mockOrganizacao = { google_calendar_id: null, google_calendar_summary: null };
+    // A marca da sincronização automática vive fora do React: sem zerar, um teste contaminaria o outro.
+    await esquecerSincronizacao();
     runCalendarSync.mockResolvedValue({ created: 2, updated: 0, deleted: 1, failures: [] });
     runCalendarImport.mockResolvedValue({ created: 0, updated: 0, cancelled: 0, review: [], failures: [] });
     listCalendars.mockResolvedValue(contaCalendarios);
@@ -144,6 +147,35 @@ describe('CalendarConnectionCard', () => {
 
     await fireEvent.press(screen.getByTestId('google-calendar-connect'));
     await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
+  });
+
+  /* ---------------- sincronização automática (áudio do dono, 27/09/2026) ---------------- */
+
+  it('com autoImport, importa SOZINHO ao abrir o cartão — sem tocar em Sync', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    runCalendarImport.mockResolvedValue({ created: 0, updated: 0, cancelled: 1, review: [], failures: [] });
+    const screen = await render(<CalendarConnectionCard {...props()} autoImport />);
+
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+    // O espelho ESCREVE no calendário do cliente: continua sendo um toque de gente.
+    expect(runCalendarSync).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByText(/Auto · 1 cancelled/)).toBeTruthy());
+  });
+
+  it('sem autoImport, o cartão NÃO sincroniza sozinho (comportamento antigo preservado)', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    const tela = await render(<CalendarConnectionCard {...props()} />);
+    await waitFor(() => expect(tela.getByTestId('google-calendar-sync')).toBeTruthy());
+    expect(runCalendarImport).not.toHaveBeenCalled();
+  });
+
+  it('não repete o automático quando a última sincronização foi há pouco (trava de 10 min)', async () => {
+    await marcarSincronizacao(Date.now());
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    const tela = await render(<CalendarConnectionCard {...props()} autoImport />);
+
+    await waitFor(() => expect(tela.getByTestId('google-calendar-sync')).toBeTruthy());
+    expect(runCalendarImport).not.toHaveBeenCalled();
   });
 
   it('com a conta conectada, espelha SO a janela e resume o resultado', async () => {

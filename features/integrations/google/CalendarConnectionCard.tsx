@@ -31,7 +31,7 @@
  *
  * Só o gestor chega nesta aba (a lista de abas por papel está em `app/(tabs)/_layout.tsx`).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
@@ -63,6 +63,7 @@ import type { LocalReservation } from './calendarSync';
 import { escolhaDaRevisao, supabaseImportPorts } from './importPorts';
 import { describeImport, describeImportFailure, kindOf, type BookingForImport, type DogForImport } from './importPlan';
 import { runCalendarImport, type ImportReviewItem, type ImportSummary } from './importService';
+import { JANELA_AUTO_MS, lerUltimaSincronizacao, marcarSincronizacao, precisaSincronizar } from './lastSyncStore';
 import { describeSummary, runCalendarSync } from './sync';
 import { useCalendarConnection } from './useCalendarConnection';
 
@@ -120,9 +121,15 @@ type Props = {
   bookings: BookingForImport[];
   /** Chamado depois de importar, para a agenda recarregar e já mostrar o que veio. */
   onImported?: () => void;
+  /**
+   * Importa SOZINHO ao abrir o cartão (pedido do dono, áudio de 27/09/2026: "o cliente cancelou no
+   * dia, ou um dia antes… altera lá"). Roda só a IMPORTAÇÃO — o espelho escreve no calendário do
+   * cliente e continua no botão. Ligado pela tela da Agenda; desligado por padrão (testes e web).
+   */
+  autoImport?: boolean;
 };
 
-export function CalendarConnectionCard({ reservations, organizationId, dogs, bookings, onImported }: Props) {
+export function CalendarConnectionCard({ reservations, organizationId, dogs, bookings, onImported, autoImport = false }: Props) {
   const { status, email, connect, disconnect, getAccessToken } = useCalendarConnection();
   const [ocupado, setOcupado] = useState<'conectando' | 'sincronizando' | 'desconectando' | 'escolhendo' | null>(null);
   const [resumo, setResumo] = useState<string | null>(null);
@@ -148,6 +155,9 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
   const janela = useMemo(() => janelaDeEspelho(), []);
   const janelaImport = useMemo(() => janelaDeImportacao(), []);
   const paraEspelhar = useMemo(() => dentroDaJanela(reservations, janela), [reservations, janela]);
+
+  /** O automático roda uma vez por abertura do cartão (a trava de tempo cuida das voltas seguintes). */
+  const jaTentouAuto = useRef(false);
 
   const refsDeCao = useMemo<DogRef[]>(
     () => dogs.map((cao) => ({ id: cao.id, dogName: cao.name, clientName: cao.clientName ?? '' })),
@@ -253,6 +263,25 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     void carregarEtiquetas();
   }, [carregarEtiquetas]);
 
+  /** A IMPORTAÇÃO (ler o Google e aplicar): usada pelo botão Sync e pela sincronização automática. */
+  const rodarImportacao = useCallback(
+    async (accessToken: string, labels: EventLabel[]): Promise<ImportSummary> =>
+      runCalendarImport({
+        accessToken,
+        // A importação consulta de HOJE para frente (a janela do espelho não serve aqui: ela recua
+        // 30 dias de propósito).
+        range: { timeMin: janelaImport.timeMin, timeMax: janelaImport.timeMax },
+        window: { from: janelaImport.from, to: janelaImport.to },
+        dogs,
+        reservations: bookings,
+        doFetch: fetchReal,
+        ports: supabaseImportPorts(supabase, organizationId),
+        calendarId: escolha.calendarId,
+        labels,
+      }),
+    [bookings, dogs, escolha.calendarId, janelaImport, organizationId],
+  );
+
   const sincronizar = useCallback(async () => {
     setOcupado('sincronizando');
     setErro(null);
@@ -274,19 +303,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
 
       let texto = describeSummary(summary);
       try {
-        const importado: ImportSummary = await runCalendarImport({
-          accessToken,
-          // A importação consulta de HOJE para frente (a janela do espelho não serve aqui: ela
-          // recua 30 dias de propósito).
-          range: { timeMin: janelaImport.timeMin, timeMax: janelaImport.timeMax },
-          window: { from: janelaImport.from, to: janelaImport.to },
-          dogs,
-          reservations: bookings,
-          doFetch: fetchReal,
-          ports: supabaseImportPorts(supabase, organizationId),
-          calendarId: escolha.calendarId,
-          labels,
-        });
+        const importado = await rodarImportacao(accessToken, labels);
         const daImportacao = describeImport({
           created: importado.created,
           updated: importado.updated,
@@ -312,12 +329,52 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
         );
       }
       setUltimoEnvio(new Date().toLocaleTimeString());
+      // Sincronizou agora: o automático guarda a hora para não repetir a cada volta na aba.
+      await marcarSincronizacao();
     } catch (error) {
       setErro(mensagemDeFalha(error, acessoDoEscolhido));
     } finally {
       setOcupado(null);
     }
-  }, [acessoDoEscolhido, bookings, carregarEtiquetas, dogs, escolha.calendarId, getAccessToken, janela, janelaImport, onImported, organizationId, paraEspelhar]);
+  }, [acessoDoEscolhido, carregarEtiquetas, getAccessToken, janela, onImported, paraEspelhar, rodarImportacao]);
+
+  /**
+   * SINCRONIZA SOZINHO AO ABRIR (pedido do dono, áudio de 27/09/2026): o escritório cancela direto no
+   * Google — no dia, um ou dois dias antes — e o gestor precisa ver isso sem tocar em nada.
+   *
+   * Só a IMPORTAÇÃO roda sozinha: o espelho ESCREVE no calendário do cliente e continua sendo um
+   * toque de gente. Roda uma vez por abertura do cartão e respeita a trava de 10 minutos
+   * (`JANELA_AUTO_MS`), senão cada volta na Agenda viraria uma sincronização inteira.
+   */
+  useEffect(() => {
+    if (!autoImport || status !== 'connected' || jaTentouAuto.current) return;
+    jaTentouAuto.current = true;
+    void (async () => {
+      if (!precisaSincronizar(await lerUltimaSincronizacao())) return;
+      setOcupado('sincronizando');
+      try {
+        const accessToken = await getAccessToken();
+        const labels = await carregarEtiquetas();
+        const importado = await rodarImportacao(accessToken, labels);
+        const daImportacao = describeImport({
+          created: importado.created,
+          updated: importado.updated,
+          cancelled: importado.cancelled,
+          extraDays: importado.extraDays,
+          review: importado.review.length,
+        });
+        setResumo(daImportacao ? `Auto · ${daImportacao}` : 'Auto · checked, nothing new');
+        setRevisao(importado.review);
+        if (importado.created + importado.updated + importado.cancelled + (importado.extraDays ?? 0) > 0) onImported?.();
+        if (importado.failures.length) setErro(describeImportFailure(importado.failures));
+      } catch (error) {
+        setErro(mensagemDeFalha(error, acessoDoEscolhido));
+      } finally {
+        setOcupado(null);
+        await marcarSincronizacao();
+      }
+    })();
+  }, [acessoDoEscolhido, autoImport, carregarEtiquetas, getAccessToken, onImported, rodarImportacao, status]);
 
   /** Liga o evento ao cão escolhido: aproveita reserva igual que já existe, senão cria. */
   const resolverRevisao = useCallback(async () => {
