@@ -65,6 +65,11 @@ import { describeImport, describeImportFailure, kindOf, type BookingForImport, t
 import { runCalendarImport, type ImportReviewItem, type ImportSummary } from './importService';
 import { JANELA_AUTO_MS, lerUltimaSincronizacao, marcarSincronizacao, precisaSincronizar } from './lastSyncStore';
 import { describeSummary, runCalendarSync } from './sync';
+import {
+  enviarCredencialAoServidor,
+  revogarCredencialDoServidor,
+  servidorTemCredencial,
+} from './serverCredential';
 import { useCalendarConnection } from './useCalendarConnection';
 
 /**
@@ -350,6 +355,16 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     if (!autoImport || status !== 'connected' || jaTentouAuto.current) return;
     jaTentouAuto.current = true;
     void (async () => {
+      // Aparelho que já estava conectado ANTES desta versão: manda a credencial para o servidor uma
+      // vez. O app não consegue ler a tabela (é o desenho), então ele PERGUNTA para a função — só
+      // envia quando o servidor responde que não tem (`false`; `null` = não deu para saber).
+      try {
+        if ((await servidorTemCredencial()) === false) {
+          await enviarCredencialAoServidor(escolha.calendarId);
+        }
+      } catch {
+        // silencioso de propósito: é migração de credencial, não pode atrapalhar a importação abaixo.
+      }
       if (!precisaSincronizar(await lerUltimaSincronizacao())) return;
       setOcupado('sincronizando');
       try {
@@ -418,15 +433,20 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     const resultado = await connect();
     setOcupado(null);
     if (resultado === 'connected') {
+      // A credencial passa a existir no SERVIDOR (cifrada lá) para a importação rodar de tempo em
+      // tempo com o app fechado — pedido do dono, 27/09/2026.
+      await enviarCredencialAoServidor(escolha.calendarId);
       void sincronizar();
     } else if (resultado === 'error') {
       setErro('Could not connect to Google. Try again.');
     }
-  }, [connect, sincronizar]);
+  }, [connect, escolha.calendarId, sincronizar]);
 
   const desconectar = useCallback(async () => {
     setOcupado('desconectando');
     await disconnect();
+    // Sem isto o servidor continuaria com acesso a um calendário que o cliente não usa mais.
+    await revogarCredencialDoServidor();
     setOcupado(null);
     setResumo(null);
     setUltimoEnvio(null);

@@ -1,6 +1,10 @@
 /**
  * Cofre dos tokens do Google no aparelho (expo-secure-store → Keychain no iOS).
- * O refresh token fica SOMENTE aqui: nunca vai para o banco, nem para o bundle.
+ * O refresh token vive aqui no aparelho e — desde 27/09/2026, por pedido do dono ("o cliente cancelou,
+ * altera lá… você vai ver no calendário vermelho") — TAMBÉM é enviado para o servidor, CIFRADO
+ * (AES-GCM numa Edge Function, chave em segredo do projeto), para a importação rodar com o app
+ * fechado. O que fica no banco é texto cifrado e o app nunca o lê de volta.
+ * Se o gestor desconectar o Google na tela, a linha do servidor é apagada (`revogarCredencialDoServidor`).
  */
 import * as SecureStore from 'expo-secure-store';
 
