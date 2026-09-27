@@ -20,7 +20,15 @@ export type DispatchConstraint = {
 
 export const EMPTY_CONSTRAINT: DispatchConstraint = { windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' };
 
-export type DispatchDriver = { id: string; name: string };
+export type DispatchDriver = {
+  id: string;
+  name: string;
+  /**
+   * Gestor que também dirige (áudio do dono, 27/09/2026): aparece na lista de motoristas do Dispatch
+   * para poder receber rota. O rótulo na tela deixa claro que ele é o escritório.
+   */
+  alsoManager?: boolean;
+};
 export type DispatchStopItem = {
   dogId: string;
   clientName: string;
@@ -392,7 +400,10 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
                 const active = driver.id === driverId;
                 return (
                   <Pressable key={driver.id} accessibilityRole="button" accessibilityLabel={`Driver ${driver.name}`} onPress={() => setDriverId(driver.id)} style={[styles.driverOption, active && styles.driverOptionActive]}>
-                    <Text style={[styles.driverOptionText, active && styles.driverOptionTextActive]}>{driver.name}</Text>
+                    <Text style={[styles.driverOptionText, active && styles.driverOptionTextActive]}>
+                      {driver.name}
+                      {driver.alsoManager ? ' · manager' : ''}
+                    </Text>
                   </Pressable>
                 );
               })}

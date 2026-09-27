@@ -7,6 +7,7 @@ import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
+import { DriveSwitchRow } from '@/features/auth/DriveSwitchRow';
 
 export default function AccountProfileScreen() {
   const { session } = useAuth();
@@ -59,6 +60,9 @@ export default function AccountProfileScreen() {
               <View style={styles.avatar}><Text style={styles.avatarText}>{(fullName ?? 'D')[0]}</Text></View>
               <View style={styles.info}><Text style={styles.name}>{fullName}</Text><Text style={styles.email}>{session?.user.email}</Text><Text style={styles.role}>{papel}</Text>{membroDesde ? <Text style={styles.desde}>Member since {membroDesde}</Text> : null}</View>
             </View>
+            {/* Interruptor gestor ↔ motorista (áudio do dono, 27/09/2026) — o mesmo componente usado no
+                "More" do gestor, para não existirem duas versões do mesmo interruptor. */}
+            <DriveSwitchRow />
             <Pressable accessibilityRole="button" accessibilityLabel="Change password" onPress={() => router.push('/password')} style={styles.changePassword}>
               <Text style={styles.changePasswordText}>Change password</Text>
             </Pressable>
@@ -88,6 +92,7 @@ const styles = StyleSheet.create({
   email: { color: colors.muted, fontSize: 13, marginTop: 3 },
   role: { color: colors.forest700, fontSize: 12, fontWeight: '800', marginTop: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   desde: { color: colors.muted, fontSize: 11, marginTop: 4 },
+
   signOut: { backgroundColor: '#FBEAE6', borderRadius: radii.medium, padding: 15, alignItems: 'center', marginTop: 18 },
   changePassword: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.medium, padding: 15, alignItems: 'center', marginTop: 18 },
   changePasswordText: { color: colors.forest700, fontWeight: '900', fontSize: 14 },
