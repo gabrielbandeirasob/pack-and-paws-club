@@ -44,6 +44,7 @@ import type { NavTarget } from '@/features/maps/links';
 import { navigationUrlFor, type NavApp } from '@/features/maps/navigation';
 import { loadPreferredNavApp, savePreferredNavApp } from '@/features/maps/preferences';
 import { rowToStop, type DriverRouteRow, type DriverStopRow } from '@/features/driver/rows';
+import { DriveSwitchRow } from '@/features/auth/DriveSwitchRow';
 import { useRoleGuard } from '@/features/auth/useRoleGuard';
 import { supabase } from '@/lib/supabase';
 
@@ -814,9 +815,7 @@ export default function DriverTodayScreen() {
    */
   const proximaParada = useMemo(() => nextStopFor(stopsComEta), [stopsComEta]);
 
-  // TRAVA DE PAPEL (print do dono, 27/09/2026): esta tela é do MOTORISTA. Se o papel for gestor, o app
-  // devolve ele para o painel — antes dava para ficar aqui, com a barra de abas do gestor e "No published
-  // route today", sem nada fazer a troca.
+  // A trava acompanha a visão: o gestor que ligou o interruptor também pode dirigir.
   const { liberado } = useRoleGuard('driver');
   if (!liberado) {
     return (
@@ -848,6 +847,7 @@ export default function DriverTodayScreen() {
           <Text style={styles.eyebrow}>PACK & PAWS CLUB · DRIVER</Text>
           <Text style={styles.title}>Today&apos;s Route</Text>
           {publishedAt || stops.length > 0 ? <Text style={styles.date}>{todayLocalISO()}</Text> : null}
+          <DriveSwitchRow />
         </View>
         {offline || pendingSync + pendingWrites.length > 0 ? (
           <View style={styles.offlineBanner} accessibilityRole="alert">

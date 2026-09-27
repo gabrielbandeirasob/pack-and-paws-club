@@ -17,7 +17,7 @@ jest.mock('expo-router', () => ({
 }));
 
 jest.mock('@/features/auth/useOrganizationRole', () => ({
-  useOrganizationRole: () => ({ role: 'manager', isLoading: false }),
+  useOrganizationRole: () => ({ role: 'manager', view: 'manager', isLoading: false }),
 }));
 
 jest.mock('@/lib/supabase', () => {

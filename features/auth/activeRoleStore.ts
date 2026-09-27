@@ -21,6 +21,24 @@ const CHAVE = 'packpaws.visaoAtiva.v1';
 
 /** Web/testes: sem SecureStore a escolha vive na memória (nada quebra). */
 let memoria: ActiveView | null = null;
+let leitura: Promise<ActiveView | null> | null = null;
+let revisao = 0;
+let escrita = Promise.resolve();
+const ouvintes = new Set<() => void>();
+
+export function assinarVisaoAtiva(ouvinte: () => void): () => void {
+  ouvintes.add(ouvinte);
+  return () => { ouvintes.delete(ouvinte); };
+}
+
+export function obterVisaoAtiva(): ActiveView | null {
+  return memoria;
+}
+
+function publicar(visao: ActiveView | null): void {
+  memoria = visao;
+  ouvintes.forEach((ouvinte) => ouvinte());
+}
 
 /**
  * Visão que o app deve mostrar, dado o papel real e a escolha guardada. Puro de propósito:
@@ -38,26 +56,41 @@ export function podeAlternarVisao(papel: 'manager' | 'driver' | null): boolean {
 }
 
 export async function lerVisaoAtiva(): Promise<ActiveView | null> {
-  try {
-    const bruto = await SecureStore.getItemAsync(CHAVE);
-    if (bruto === 'driver' || bruto === 'manager') return bruto;
-    return memoria;
-  } catch {
-    return memoria;
+  if (!leitura) {
+    const inicio = revisao;
+    leitura = (async () => {
+      try {
+        const bruto = await SecureStore.getItemAsync(CHAVE);
+        // Uma leitura antiga nunca desfaz um toque dado enquanto o cofre carregava.
+        if (inicio === revisao && (bruto === 'driver' || bruto === 'manager')) publicar(bruto);
+      } catch {
+        // Web: mantém a escolha em memória quando o cofre não está disponível.
+      }
+      return memoria;
+    })();
   }
+  await leitura;
+  return memoria;
 }
 
-export async function salvarVisaoAtiva(visao: ActiveView | null): Promise<void> {
-  memoria = visao;
-  try {
-    if (visao) await SecureStore.setItemAsync(CHAVE, visao);
-    else await SecureStore.deleteItemAsync(CHAVE);
-  } catch {
-    // web/testes: a memória acima já serve.
-  }
+export function salvarVisaoAtiva(visao: ActiveView | null): Promise<void> {
+  revisao += 1;
+  publicar(visao);
+  // Mantém a ordem dos toques também no cofre, mesmo se a escrita demorar.
+  escrita = escrita.then(async () => {
+    try {
+      if (visao) await SecureStore.setItemAsync(CHAVE, visao);
+      else await SecureStore.deleteItemAsync(CHAVE);
+    } catch {
+      // Web/testes: a memória acima já serve.
+    }
+  });
+  return escrita;
 }
 
 /** Só para os testes: zera a escolha em memória. */
 export function esquecerVisaoAtiva(): void {
-  memoria = null;
+  revisao += 1;
+  leitura = null;
+  publicar(null);
 }

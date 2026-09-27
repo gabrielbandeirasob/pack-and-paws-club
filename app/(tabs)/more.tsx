@@ -8,13 +8,13 @@ import { appVersionLabel, supportMailUrl } from '@/features/common/support';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
-import { DriveSwitchShortcut } from '@/features/auth/DriveSwitchRow';
+import { DriveSwitchRow } from '@/features/auth/DriveSwitchRow';
 
 export default function MoreScreen() {
   const { session } = useAuth();
-  const { role } = useOrganizationRole();
+  const { view } = useOrganizationRole();
   /** Só o gestor vê "Team" e "Activity" (ver o comentário na lista). */
-  const papel = role;
+  const papel = view;
   const version = appVersionLabel({
     version: Constants.expoConfig?.version,
     build: Constants.expoConfig?.ios?.buildNumber,
@@ -30,13 +30,8 @@ export default function MoreScreen() {
         <Text style={styles.title}>More</Text>
       </View>
       <View style={styles.list}>
-        {/*
-          INTERRUPTOR GESTOR ↔ MOTORISTA (áudio do dono, 27/09/2026): "na conta do administrador ele
-          consegue ter tipo um switch on and off que muda entre a dashboard do administrador para a
-          dashboard do driver… porque o administrador também faz os pick-ups e drop-off". Aqui é o
-          atalho do menu; o interruptor ligado/desligado vive no Perfil do motorista (mesma conta).
-        */}
-        <DriveSwitchShortcut />
+        {/* O mesmo interruptor da Home e da rota, também disponível no menu. */}
+        <DriveSwitchRow />
         {/* "Team" e "Activity" são do GESTOR: até 25/09/2026 o motorista também via "Team" (com o texto
             "invite drivers and managers") no próprio menu — a tela não fazia nada por RLS, mas o convite
             errado no menu confundia e não é assunto dele. */}
