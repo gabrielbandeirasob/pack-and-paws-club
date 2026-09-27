@@ -35,6 +35,7 @@ import {
   dentroDaJanela,
   shiftDay,
 } from '@/features/dashboard/dayNavigation';
+import { DriveSwitchRow } from '@/features/auth/DriveSwitchRow';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { landingRouteForRole } from '@/features/navigation/roleTabs';
 import { haversineKm } from '@/features/dispatch/routeOptimizer';
@@ -160,8 +161,8 @@ function toDashboardRoute(
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { role, isLoading: roleLoading } = useOrganizationRole();
-  const landingRoute = landingRouteForRole(role, roleLoading);
+  const { view, isLoading: roleLoading } = useOrganizationRole();
+  const landingRoute = landingRouteForRole(view, roleLoading);
   useEffect(() => {
     if (landingRoute) router.replace(landingRoute as never);
   }, [landingRoute, router]);
@@ -508,9 +509,9 @@ export default function HomeScreen() {
   );
 
   // Motorista nao tem painel de gestao (nem "Add from Contacts"/"New reservation"):
-  // enquanto o papel carrega, ou quando e driver, mostramos o carregando e o efeito
+  // enquanto a visão carrega, ou quando é motorista, mostramos o carregando e o efeito
   // acima leva ele para "Today's Route". Antes ele abria o painel do gerente.
-  if (roleLoading || role !== 'manager') {
+  if (roleLoading || view !== 'manager') {
     return (
       <SafeAreaView style={styles.screen} edges={['top']}>
         <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
@@ -526,6 +527,7 @@ export default function HomeScreen() {
         </SafeAreaView>
       ) : error ? (
         <SafeAreaView style={styles.screen} edges={['top']}>
+          <DriveSwitchRow />
           <Text style={styles.error}>{error}</Text>
         </SafeAreaView>
       ) : (
@@ -542,6 +544,7 @@ export default function HomeScreen() {
             onNextDay: () => irParaDia(1),
             onToday: irParaHoje,
           }}
+          viewSwitch={<DriveSwitchRow />}
           greeting={header.greeting}
           initials={header.initials}
           daycare={counts.daycare}

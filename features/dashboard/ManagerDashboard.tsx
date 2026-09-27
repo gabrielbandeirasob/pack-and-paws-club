@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Image, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -58,6 +58,7 @@ type Props = {
   /** Navegação por dia: swipe no cabeçalho verde + setas + "Back to today". */
   dayNav: DashboardDayNav;
   greeting: string;
+  viewSwitch?: ReactNode;
   initials: string;
   daycare: number;
   boarding: number;
@@ -98,7 +99,7 @@ export type DashboardDayNav = {
 /** Quanto o dedo precisa andar para valer como "arrastou para o lado" (não é toque, não é scroll). */
 const ARRASTO_MINIMO = 60;
 
-export function ManagerDashboard({ dateLabel, dayNav, greeting, initials, daycare, boarding, progress, routes, day, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours, onOpenWeekSummary, weekSummaryHint }: Props) {
+export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, initials, daycare, boarding, progress, routes, day, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours, onOpenWeekSummary, weekSummaryHint }: Props) {
   const [folhaAberta, setFolhaAberta] = useState(false);
 
   /**
@@ -172,6 +173,7 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, initials, daycar
             </Pressable>
           </View>
           <Text style={styles.greeting}>{greeting}</Text>
+          {viewSwitch}
         </View>
 
         {/*

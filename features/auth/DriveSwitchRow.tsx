@@ -9,10 +9,11 @@
  * O que ele faz: troca a VISÃO (as abas) e leva para a tela do novo papel. O vínculo no banco não
  * muda, a sessão não é refeita e quem é motorista não vê este interruptor.
  */
-import { Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { StyleSheet, Switch, Text, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
+import { landingRouteForView } from '@/features/navigation/roleTabs';
 import { colors, radii } from '@/features/theme/tokens';
 
 export function DriveSwitchRow() {
@@ -37,36 +38,15 @@ export function DriveSwitchRow() {
         accessibilityLabel="Drive today"
         value={dirigindo}
         onValueChange={(ligado) => {
-          setView(ligado ? 'driver' : 'manager');
-          router.replace(ligado ? '/(tabs)/driver' : '/(tabs)/index');
+          const destino = ligado ? 'driver' : 'manager';
+          setView(destino);
+          router.replace(landingRouteForView(destino));
         }}
-        trackColor={{ false: colors.line, true: colors.forest700 }}
-        thumbColor={colors.paper}
+        trackColor={{ false: '#D1D1D6', true: colors.forest700 }}
+        thumbColor="#FFFFFF"
+        ios_backgroundColor="#D1D1D6"
       />
     </View>
-  );
-}
-
-/** Linha do gestor que já dirige: leva direto para a visão de motorista (atalho do "More"). */
-export function DriveSwitchShortcut() {
-  const { canSwitchView, setView } = useOrganizationRole();
-  if (!canSwitchView) return null;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="Open the driver view"
-      onPress={() => {
-        setView('driver');
-        router.replace('/(tabs)/driver');
-      }}
-      style={styles.row}
-    >
-      <View style={styles.texts}>
-        <Text style={styles.title}>Driver view</Text>
-        <Text style={styles.hint}>Open the driver app with your own route (you can come back here).</Text>
-      </View>
-      <Text style={styles.arrow}>›</Text>
-    </Pressable>
   );
 }
 
@@ -75,5 +55,4 @@ const styles = StyleSheet.create({
   texts: { flex: 1 },
   title: { color: colors.ink, fontWeight: '900', fontSize: 15 },
   hint: { color: colors.muted, fontSize: 11.5, lineHeight: 16, marginTop: 4 },
-  arrow: { color: colors.forest700, fontWeight: '900', fontSize: 20 },
 });

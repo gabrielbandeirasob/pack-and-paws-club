@@ -11,7 +11,7 @@ import { DriveSwitchRow } from '@/features/auth/DriveSwitchRow';
 
 export default function AccountProfileScreen() {
   const { session } = useAuth();
-  const { role } = useOrganizationRole();
+  const { role, view } = useOrganizationRole();
   const [fullName, setFullName] = useState<string | null>(null);
   /**
    * O papel é o do VÍNCULO ativo (`organization_members.role`), não um rótulo fixo: até 25/09/2026 a tela
@@ -50,7 +50,7 @@ export default function AccountProfileScreen() {
  return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>PACK & PAWS CLUB · {papel.toUpperCase()}</Text>
+        <Text style={styles.eyebrow}>PACK & PAWS CLUB · {(view ?? 'Account').toUpperCase()}</Text>
         <Text style={styles.title}>Profile</Text>
       </View>
       <View style={styles.body}>

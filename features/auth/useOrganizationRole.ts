@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/features/auth/AuthProvider';
 import {
+  assinarVisaoAtiva,
+  obterVisaoAtiva,
   lerVisaoAtiva,
   podeAlternarVisao,
   salvarVisaoAtiva,
@@ -33,16 +35,19 @@ type RoleState = {
  */
 export function useOrganizationRole(): RoleState & { reload: () => void } {
   const { session } = useAuth();
-  const [state, setState] = useState<{ role: OrganizationRole | null; isLoading: boolean; escolhida: ActiveView | null }>(
-    { role: null, isLoading: true, escolhida: null },
+  const [state, setState] = useState<{ role: OrganizationRole | null; isLoading: boolean }>(
+    { role: null, isLoading: true },
   );
   const [tentativa, setTentativa] = useState(0);
 
-  // A escolha do interruptor vive no aparelho: carrega uma vez (e recarrega se o vínculo mudar).
+  const escolhida = useSyncExternalStore(assinarVisaoAtiva, obterVisaoAtiva, obterVisaoAtiva);
+  const [visaoCarregada, setVisaoCarregada] = useState(false);
+
+  // Aguarda a leitura compartilhada do aparelho antes de liberar a navegação.
   useEffect(() => {
     let cancelado = false;
-    lerVisaoAtiva().then((escolhida) => {
-      if (!cancelado) setState((atual) => ({ ...atual, escolhida }));
+    lerVisaoAtiva().then(() => {
+      if (!cancelado) setVisaoCarregada(true);
     });
     return () => {
       cancelado = true;
@@ -86,7 +91,6 @@ export function useOrganizationRole(): RoleState & { reload: () => void } {
     (view: ActiveView) => {
       // Mão única: motorista não vira gestor pelo interruptor (a regra de verdade está no módulo puro).
       if (!podeAlternarVisao(state.role)) return;
-      setState((atual) => ({ ...atual, escolhida: view }));
       void salvarVisaoAtiva(view);
     },
     [state.role],
@@ -94,8 +98,8 @@ export function useOrganizationRole(): RoleState & { reload: () => void } {
 
   return {
     role: state.role,
-    isLoading: state.isLoading,
-    view: visaoEfetiva(state.role, state.escolhida),
+    isLoading: state.isLoading || !visaoCarregada,
+    view: visaoEfetiva(state.role, escolhida),
     canSwitchView: podeAlternarVisao(state.role),
     setView,
     reload,

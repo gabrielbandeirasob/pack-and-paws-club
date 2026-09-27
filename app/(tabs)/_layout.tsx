@@ -30,7 +30,7 @@ const DRIVER_TABS: TabSpec[] = [
 const ALL_TABS = [...MANAGER_TABS, ...DRIVER_TABS];
 
 export default function TabLayout() {
-  const { role, isLoading, reload } = useOrganizationRole();
+  const { role, view, isLoading, reload } = useOrganizationRole();
   const { session } = useAuth();
   /**
    * BOLINHA DO MENU (operação, 26/09/2026): "vai gerar tipo aquela bolinha para você clicar no
@@ -49,7 +49,7 @@ export default function TabLayout() {
     return <NoAccess email={session?.user?.email ?? null} onRetry={reload} />;
   }
 
-  const activeNames = new Set((role === 'manager' ? MANAGER_TABS : DRIVER_TABS).map((tab) => tab.name));
+  const activeNames = new Set((view === 'manager' ? MANAGER_TABS : DRIVER_TABS).map((tab) => tab.name));
 
   return (
     <><StatusBar style="light" />

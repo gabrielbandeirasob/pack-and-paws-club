@@ -27,7 +27,7 @@ jest.mock('@/features/auth/AuthProvider', () => ({
 }));
 
 jest.mock('@/features/auth/useOrganizationRole', () => ({
-  useOrganizationRole: () => ({ role: mockPapel.role, isLoading: false }),
+  useOrganizationRole: () => ({ role: mockPapel.role, view: mockPapel.role, isLoading: false }),
 }));
 
 jest.mock('expo-constants', () => ({ expoConfig: { version: '1.0.0', ios: { buildNumber: '60' } } }));

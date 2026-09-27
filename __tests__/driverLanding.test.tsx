@@ -60,7 +60,7 @@ describe('abertura do app por papel', () => {
   beforeEach(() => {
     replaceMock.mockClear();
     (globalThis as any).__replace = replaceMock;
-    (globalThis as any).__roleState = { role: 'driver', isLoading: false };
+    (globalThis as any).__roleState = { role: 'driver', view: 'driver', isLoading: false };
   });
 
   it('motorista vai para "Today\'s Route" e NAO ve o painel do gerente', async () => {
@@ -70,14 +70,14 @@ describe('abertura do app por papel', () => {
   });
 
   it('gerente fica no painel, sem redirecionar', async () => {
-    (globalThis as any).__roleState = { role: 'manager', isLoading: false };
+    (globalThis as any).__roleState = { role: 'manager', view: 'manager', isLoading: false };
     const screen = await render(<HomeScreen />);
     expect(replaceMock).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.queryByText('MANAGER DASHBOARD')).toBeTruthy());
   });
 
   it('enquanto o papel carrega, mostra carregando e nao decide nada', async () => {
-    (globalThis as any).__roleState = { role: null, isLoading: true };
+    (globalThis as any).__roleState = { role: null, view: null, isLoading: true };
     const screen = await render(<HomeScreen />);
     expect(replaceMock).not.toHaveBeenCalled();
     expect(screen.queryByText('MANAGER DASHBOARD')).toBeNull();

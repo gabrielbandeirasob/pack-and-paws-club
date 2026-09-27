@@ -309,3 +309,19 @@ describe('ManagerDashboard', () => {
     expect(onOpenDriverHours).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * O INTERRUPTOR GESTOR ↔ MOTORISTA NA HOME (print do dono, 27/09/2026): ele procurava o botão no
+ * painel e não achava — ele só existia escondido no "More"/Profile. Aqui se trava que o interruptor
+ * que a Home recebe aparece junto do cabeçalho do painel.
+ */
+it('o interruptor de visão aparece no topo do painel do gestor', async () => {
+  const { Text } = require('react-native');
+  const { screen } = await setup({ viewSwitch: <Text>drive-switch-aqui</Text> });
+  expect(screen.getByText('drive-switch-aqui')).toBeTruthy();
+});
+
+it('sem interruptor informado, o painel não renderiza nada no lugar dele', async () => {
+  const { screen } = await setup();
+  expect(screen.queryByText('drive-switch-aqui')).toBeNull();
+});

@@ -397,7 +397,7 @@ jest.mock('@react-native-async-storage/async-storage', () =>
 
 jest.mock('@/features/auth/useOrganizationRole', () => ({
   // A tela "Today's Route" tem TRAVA DE PAPEL (27/09/2026): só abre para motorista.
-  useOrganizationRole: () => ({ role: 'driver', isLoading: false }),
+  useOrganizationRole: () => ({ role: 'driver', view: 'driver', isLoading: false }),
 }));
 
 jest.mock('expo-router', () => ({

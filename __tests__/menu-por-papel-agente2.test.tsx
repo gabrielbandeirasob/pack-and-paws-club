@@ -13,7 +13,7 @@ const conta = { role: null as string | null };
 const empurrados: string[] = [];
 
 jest.mock('@/features/auth/useOrganizationRole', () => ({
-  useOrganizationRole: () => ({ role: conta.role, isLoading: false }),
+  useOrganizationRole: () => ({ role: conta.role, view: conta.role, isLoading: false }),
 }));
 
 jest.mock('@/features/auth/AuthProvider', () => ({

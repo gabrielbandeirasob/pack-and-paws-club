@@ -36,3 +36,8 @@ export function landingRouteForRole(role: UserRole | null, isLoading: boolean): 
   if (isLoading || !role) return null;
   return role === 'driver' ? '/(tabs)/driver' : null;
 }
+
+/** A visão escolhida define o destino, sem alterar o vínculo da conta. */
+export function landingRouteForView(view: UserRole): '/(tabs)/driver' | '/(tabs)' {
+  return view === 'driver' ? '/(tabs)/driver' : '/(tabs)';
+}
