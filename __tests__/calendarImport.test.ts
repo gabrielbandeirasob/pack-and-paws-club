@@ -131,9 +131,10 @@ describe('a COR do evento é o serviço (e o título é só o nome do cão)', ()
     const vermelho = parseBookingEvent(evento({ id: 'e3', summary: 'Bella', colorId: VERMELHO }));
     expect(vermelho).toMatchObject({ serviceType: null, cancels: true, dogName: 'Bella' });
 
-    // Sem cor: serviço indefinido (não se chuta).
+    // Sem cor NENHUMA = day care (áudio do dono, 28/09/2026: "as cores de Daycare é a cor chamada
+    // default do Google calendário ou Peacock" — o escritório não pinta os dias de day care).
     const semCor = parseBookingEvent(evento({ id: 'e4', summary: 'Bella', colorId: null }));
-    expect(semCor).toMatchObject({ serviceType: null, cancels: false });
+    expect(semCor).toMatchObject({ serviceType: 'daycare', cancels: false });
   });
 
   it('título sem nome não é lido (vai para a pendência "unreadable")', () => {
@@ -184,7 +185,7 @@ describe('ida e volta do formato', () => {
     };
     const enviado = buildGoogleEvent(reserva);
     // O espelho PINTou o evento com a cor do serviço — é isso que faz a volta ler boarding.
-    expect(enviado.colorId).toBe(VERDE);
+    expect(enviado.colorId).toBe('10'); // Basil = a cor da ESTADIA (dono, 28/09/2026); era Sage (2)
     const lido = parseBookingEvent(
       evento({
         id: 'e1',
@@ -198,7 +199,7 @@ describe('ida e volta do formato', () => {
     expect(lido).toEqual({
       serviceType: 'boarding',
       // O que foi lido na cor (paleta antiga): o cartão mostra `colorId 2 (Sage)`.
-      color: { source: 'colorId', labelId: null, labelName: null, backgroundColor: null, colorId: VERDE, meaning: { kind: 'service', serviceType: 'boarding' } },
+      color: { source: 'colorId', labelId: null, labelName: null, backgroundColor: null, colorId: '10', meaning: { kind: 'service', serviceType: 'boarding' } },
       cancels: false,
       // VERDE = dia de hotel (escritório, 27/09/2026): quem entra na van é o dia de CHEGADA/SAÍDA
       // (amarelo/verde-claro). Como este evento é o espelho do PRÓPRIO app, a reserva dele é ligada
@@ -317,13 +318,11 @@ describe('plano da importação — cão que NÃO está no cadastro (não se cri
 });
 
 describe('plano da importação — cor não reconhecida', () => {
-  it('evento SEM cor não entra e cai na lista "color not recognized"', () => {
+  it('evento SEM cor entra como DAY CARE (o dono, 28/09/2026: sem cor = a cor default = day care)', () => {
     const plano = planCalendarImport([evento({ id: 'e-sem-cor', summary: 'Pietro', colorId: null })], CAES, [], JANELA);
 
-    expect(plano).toEqual([
-      expect.objectContaining({ kind: 'review', eventId: 'e-sem-cor', reason: 'unrecognized color' }),
-    ]);
-    expect(plano.some((item) => item.kind === 'create')).toBe(false);
+    expect(plano.map((item) => item.kind)).toContain('create');
+    expect(plano.some((item) => item.kind === 'review')).toBe(false);
   });
 
   it('o AMARELO (banana) importa como BOARDING — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {

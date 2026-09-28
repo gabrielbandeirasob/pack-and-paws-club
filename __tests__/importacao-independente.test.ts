@@ -88,10 +88,10 @@ describe('REGRA NOVA: o serviço vem da COR e o cão tem de estar cadastrado', (
     expect(JSON.stringify(plano)).not.toContain('newDog');
   });
 
-  it('evento SEM cor não é importado: "color not recognized" (não se chuta serviço)', () => {
+  it('evento SEM cor é importado como DAY CARE (dono, 28/09/2026)', () => {
     const plano = planCalendarImport([evento('ev-sem-cor', 'Pietro', '2026-09-30', { colorId: null })], [PIETRO], SEM_RESERVAS, JANELA);
 
-    expect(plano[0]).toMatchObject({ kind: 'review', reason: 'unrecognized color' });
+    expect(plano.map((item) => item.kind)).toContain('create');
   });
 
   it('mantém o comportamento antigo que NÃO foi revogado: evento futuro apagado no Google cancela a reserva', () => {
@@ -118,8 +118,8 @@ describe('REGRA NOVA: o serviço vem da COR e o cão tem de estar cadastrado', (
     expect(plano.filter((item) => item.kind === 'create')).toHaveLength(0);
   });
 
-  it('sem cor E cão desconhecido: a cor vem primeiro (pintar o evento é o primeiro passo)', () => {
+  it('sem cor E cão desconhecido: agora a cor existe (day care), então a revisão é por CÃO desconhecido', () => {
     const plano = planCalendarImport([evento('ev-nada', 'Zeus', '2026-09-30', { colorId: null })], SEM_CAES, SEM_RESERVAS, JANELA);
-    expect(plano[0]).toMatchObject({ kind: 'review', reason: 'unrecognized color' });
+    expect(plano[0].kind).toBe('review');
   });
 });

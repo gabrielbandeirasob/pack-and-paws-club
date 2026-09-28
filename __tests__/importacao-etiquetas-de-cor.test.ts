@@ -103,12 +103,10 @@ describe('etiqueta de cor -> serviço da reserva (paleta NOVA do Google)', () =>
     expect(criado.parsed.color).toMatchObject({ labelName: 'Amarelo', backgroundColor: BANANA });
   });
 
-  it('evento SEM etiqueta e SEM colorId (o "sem cor" de sempre) também vai para a lista', () => {
+  it('evento SEM etiqueta e SEM colorId (o "sem cor" de sempre) entra como DAY CARE', () => {
     const saida = plano([recurso(5, 'Zara')]);
-    const pendencia = soUm(saida, 'review');
-
-    expect(pendencia.reason).toBe('unrecognized color');
-    expect(pendencia.parsed.color).toMatchObject({ source: 'none', labelId: null, colorId: null });
+    expect(saida.some((item) => item.kind === 'create')).toBe(true);
+    expect(soUm(saida, 'create').parsed.color).toMatchObject({ source: 'none', labelId: null, colorId: null });
   });
 
   it('a paleta ANTIGA (`colorId`) continua valendo como fallback para evento sem etiqueta', () => {

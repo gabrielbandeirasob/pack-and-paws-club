@@ -14,7 +14,7 @@
  *  - no plano real: "Scarlet" pintado de amarelo vira reserva de BOARDING; "Mowgli/Kona" em vermelho
  *    cancela os DOIS cães (uma decisão por cão, no mesmo evento).
  */
-import { meaningOfLabelColor, meaningOfColor, labelForService, readEventColor, TOM_AMARELO } from '@/features/calendar/googleColors';
+import { meaningOfLabelColor, meaningOfColor, labelForMovimento, labelForService, readEventColor, TOM_AMARELO } from '@/features/calendar/googleColors';
 import {
   planCalendarImport,
   type BookingForImport,
@@ -45,18 +45,20 @@ describe('amarelo (e tons amarelos) = boarding', () => {
     expect(meaningOfColor('5')).toEqual({ kind: 'service', serviceType: 'boarding' });
   });
 
-  it('o espelho escolhe uma etiqueta AMARELA para boarding (é a que o escritório usa)', () => {
+  it('o espelho separa as duas cores: VERDE na estadia, AMARELA no dia de chegada/saída (dono, 28/09/2026)', () => {
     const labels = [
       { id: '10', name: 'Banana', backgroundColor: '#F6BF26' },
       { id: '13', name: 'Sage', backgroundColor: '#33B679' },
     ];
-    expect(labelForService(labels, 'boarding')?.name).toBe('Banana');
+    expect(labelForService(labels, 'boarding')?.name).toBe('Sage');
+    expect(labelForMovimento(labels)?.name).toBe('Banana');
   });
 
-  it('laranja e marrom continuam SEM significado (o app não chuta)', () => {
-    for (const [nome, hex] of [['Tangerine', '#F4511E'], ['Pumpkin', '#EF6C00'], ['Cocoa', '#795548'], ['Birch', '#A79B8E']] as const) {
+  it('laranja e bege continuam SEM significado; o MARROM (Cocoa) virou fora de horário em 28/09/2026', () => {
+    for (const [nome, hex] of [['Tangerine', '#F4511E'], ['Pumpkin', '#EF6C00'], ['Birch', '#A79B8E']] as const) {
       expect([nome, meaningOfLabelColor(hex)]).toEqual([nome, null]);
     }
+    expect(meaningOfLabelColor('#795548')).toEqual({ kind: 'out_of_hours' });
   });
 });
 

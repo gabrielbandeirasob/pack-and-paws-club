@@ -187,7 +187,9 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
         <View style={styles.statsRow}>
           <Stat value={String(daycare)} label="Daycare" />
           <Stat value={String(boarding)} label="Boarding" />
-          <Stat value={String(day.totalDogs)} label="Total dogs" hint="on the calendar today" />
+          {/* Rótulo em PORTUGUÊS por pedido do dono (28/09/2026): "o número total de cães aparece sempre a
+              contagem de acordo com o calendário" — e ele quer esse rótulo e o do faturamento em português. */}
+          <Stat value={String(day.totalDogs)} label="Número total de Cães" hint="on the calendar today" />
         </View>
 
         <View style={styles.statsRow2}>
@@ -360,7 +362,8 @@ function RevenueStat({ revenueCents, onSave }: { revenueCents: number | null; on
         placeholderTextColor={colors.muted}
         style={styles.receitaCampo}
       />
-      <Text style={styles.muted}>Revenue · tap to type</Text>
+      {/* Rótulo em PORTUGUÊS por pedido do dono (28/09/2026): "o faturamento é por conta do admin". */}
+      <Text style={styles.muted}>Faturamento · tap to type</Text>
     </View>
   );
 }

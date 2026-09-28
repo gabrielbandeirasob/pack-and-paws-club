@@ -41,7 +41,15 @@ export type ColorMeaning =
   | { kind: 'service'; serviceType: BookingServiceType }
   /** Evento pintado de ROXO: alteração de cliente de dia fixo (dia extra/alterado da escala). */
   | { kind: 'schedule_change' }
-  | { kind: 'cancel' };
+  | { kind: 'cancel' }
+  /**
+   * **COCOA (marrom) = fora do horário de funcionamento** (dono, 28/09/2026): *"Cocoa é toda vez que o
+   * pick-up dele for depois do nosso dia de trabalho, que seria depois, por exemplo, das cinco da
+   * tarde... nenhum dos drivers vai fazer, quem vai fazer é o administrador. Então nem entra na lista
+   * de dispatch."* O cão CONTA no dia (aparece na lista do dia para o gestor) mas **não pede van** —
+   * é o administrador que busca/entrega, e ele pode tirar o cão do dia se não quiser.
+   */
+  | { kind: 'out_of_hours' };
 
 /**
  * Ids da paleta do Google que o app reconhece. Verde = boarding, azul = daycare, **roxo = alteração de
@@ -67,10 +75,29 @@ export const GOOGLE_COLOR_IDS = {
 
 /**
  * Cor com que o ESPELHO pinta o evento de cada serviço (app → Google).
- * Um id só por serviço, o mais legível na tela do calendário: Sage (verde) e Peacock (azul).
+ *
+ * Decisão do dono (28/09/2026): *"você vai usar as mesmas cores pro aplicativo"* — o app escreve no
+ * calendário com as cores do escritório:
+ *  - **day care** = **Peacock** (azul, id 7) — *"as cores de Daycare é a cor chamada default do Google
+ *    calendário ou Peacock"*;
+ *  - **hospedagem (estadia)** = **Basil** (verde escuro, id 10) — *"basil pra estadia completa"*;
+ *  - **dia de chegada/saída** = amarelo (**Banana**, id 5) — `COLOR_OF_MOVIMENTO` (na paleta nova o
+ *    escritório usa **Avocado**, que não tem id legado; quando o calendário tiver a etiqueta, o
+ *    espelho manda a etiqueta junto — ver `labelForMovimento`).
+ *
  * É também o **fallback** quando o calendário não tem etiqueta do serviço (ou não deu para lê-las).
  */
-export const COLOR_OF_SERVICE: Record<BookingServiceType, string> = { boarding: '2', daycare: '7' };
+export const COLOR_OF_SERVICE: Record<BookingServiceType, string> = { boarding: '10', daycare: '7' };
+
+/** Cor (paleta antiga) do dia de CHEGADA/SAÍDA da hospedagem — amarelo, o mesmo tom que a leitura usa. */
+export const COLOR_OF_MOVIMENTO = '5';
+
+/**
+ * Cor do CANCELAMENTO quando quem cancela é o APP (dono, 28/09/2026): *"se a gente cancelar pelo app, eu
+ * não quero que você apague o evento do calendário. Eu quero que você mude a cor para vermelho (tomato)"*.
+ * O evento fica no calendário, vermelho, contando a história do dia — em vez de sumir.
+ */
+export const COLOR_OF_CANCELAMENTO = '11';
 
 /** Nome da cor de cada id da paleta antiga — é o que a tela mostra ao lado do `colorId`. */
 export const LEGACY_COLOR_NAMES: Record<string, string> = {
@@ -116,7 +143,6 @@ export function meaningOfColor(colorId?: string | null): ColorMeaning | null {
 export function colorOfService(serviceType: BookingServiceType): string {
   return COLOR_OF_SERVICE[serviceType];
 }
-
 /* ------------------------------- etiquetas (paleta nova) ------------------------------- */
 
 /**
@@ -130,6 +156,9 @@ export function colorOfService(serviceType: BookingServiceType): string {
  */
 export function movimentaOCao(read: EventColorRead | null | undefined): boolean | null {
   const significado = read?.meaning;
+  // Fora de horário: o cão CONTA no dia, mas quem busca/entrega é o administrador — não é van, logo
+  // não entra na lista de dispatch (dono, 28/09/2026).
+  if (significado?.kind === 'out_of_hours') return false;
   if (!significado || significado.kind !== 'service' || significado.serviceType !== 'boarding') return null;
   if (read?.source === 'label') return tomDeMovimento(read.backgroundColor);
   if (read?.colorId) return ehDaPaleta(read.colorId, GOOGLE_COLOR_IDS_MOVIMENTO);
@@ -191,6 +220,18 @@ export const TONS_VERMELHOS = [
   { de: 0, ate: 12 },
 ] as const;
 
+/** Hex da cor **Cocoa** (marrom) da paleta do Google — "fora do horário de funcionamento". */
+export const HEX_COCOA = '#795548';
+
+/** O serviço do dia a partir do que a cor disse. Cocoa conta como dia de day care (lista do dia). */
+export function serviceTypeOfMeaning(meaning: ColorMeaning | null | undefined): BookingServiceType | null {
+  if (!meaning) return null;
+  if (meaning.kind === 'service') return meaning.serviceType;
+  // *"se for o drop-off e for cor cocoa você pode botar ele na lista do daycare do dia"* (dono, 28/09/2026)
+  if (meaning.kind === 'out_of_hours') return 'daycare';
+  return null;
+}
+
 /** Saturação mínima para o hex ter TOM: abaixo disso a cor é cinza e não diz serviço nenhum. */
 const SATURACAO_MINIMA = 0.08;
 
@@ -218,6 +259,10 @@ export function hueOfHex(hex?: string | null): number | null {
 
 /** Traduz o HEX de uma etiqueta pelo TOM. `null` = tom fora de verde/azul/roxo/vermelho (não se chuta). */
 export function meaningOfLabelColor(hex?: string | null): ColorMeaning | null {
+  // COCOA (marrom) PRIMEIRO: o tom dele (~16°) cai na faixa do laranja/bege, e por tom não dá para
+  // separá-lo de Tangerine/Pumpkin/Birch — o dono disse (28/09/2026) que cocoa é o marrom dele, então
+  // a cor é reconhecida pelo HEX exato da paleta.
+  if ((limpo(hex)?.toLowerCase() ?? '') === HEX_COCOA) return { kind: 'out_of_hours' };
   const tom = hueOfHex(hex);
   if (tom === null) return null;
   if (tom >= TOM_AMARELO.de && tom < TOM_AMARELO.ate) return { kind: 'service', serviceType: 'boarding' };
@@ -239,11 +284,37 @@ export function meaningOfLabelColor(hex?: string | null): ColorMeaning | null {
  * decidiu que roxo conta como azul, então é o esperado. O espelho continua mandando junto o `colorId` 7
  * (`colorOfService`), que é o que um cliente antigo do calendário entende.
  */
+/**
+ * PAPEL de cada dia de movimento da hospedagem, na ordem (dono, 28/09/2026): *"sempre que você ler, por
+ * exemplo, um avocado num dia, o próximo que ler avocado vai ser saída, não vai ser chegada. E o cocoa
+ * vai ser a mesma coisa"*. Ou seja: **o 1º dia de movimento é CHEGADA, o 2º é SAÍDA**.
+ *
+ * Quando o app percebe a SAÍDA, o dono quer que o cão apareça **no dia de day care** daquele dia
+ * (*"quando você perceber que é saída, você deve sugerir que ele esteja no dia de daycare"*).
+ */
+export function papeisDeMovimento(datas: string[]): ('chegada' | 'saida')[] {
+  return [...datas]
+    .sort()
+    .map((_, indice) => (indice === 0 ? 'chegada' : 'saida'));
+}
+
+/** Etiqueta do DIA DE CHEGADA/SAÍDA (tom amarelo/verde-claro — Avocado no escritório). */
+export function labelForMovimento(labels: EventLabel[] | null | undefined): EventLabel | null {
+  const encontradas = (labels ?? [])
+    .filter((label) => hueOfHex(label.backgroundColor) !== null && tomDeMovimento(label.backgroundColor))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  return encontradas[0] ?? null;
+}
+
 export function labelForService(labels: EventLabel[] | null | undefined, serviceType: BookingServiceType): EventLabel | null {
   const encontradas = (labels ?? [])
     .filter((label) => {
       const significado = meaningOfLabelColor(label.backgroundColor);
-      return significado?.kind === 'service' && significado.serviceType === serviceType;
+      if (!(significado?.kind === 'service' && significado.serviceType === serviceType)) return false;
+      // Hospedagem: a etiqueta do tom AMARELO (avocado/banana) é do dia de CHEGADA/SAÍDA, não da estadia
+      // — quem a usa é `labelForMovimento`. Sem este corte, o dia de estadia saía avocado (dono, 28/09/2026).
+      if (serviceType === 'boarding' && tomDeMovimento(label.backgroundColor)) return false;
+      return true;
     })
     .sort((a, b) => a.id.localeCompare(b.id));
   return encontradas[0] ?? null;
@@ -280,7 +351,13 @@ export function readEventColor(
   const labelId = limpo(event.eventLabelId);
   const colorId = limpo(event.colorId);
   const etiqueta = labelId ? labels.find((label) => label.id === labelId) ?? null : null;
-  const significado = etiqueta ? meaningOfLabelColor(etiqueta.backgroundColor) : meaningOfColor(colorId);
+  const lido = etiqueta ? meaningOfLabelColor(etiqueta.backgroundColor) : meaningOfColor(colorId);
+  // SEM COR NENHUMA = day care (dono, 28/09/2026): *"as cores de Daycare é a cor chamada default do
+  // Google calendario ou Peacock"* — o escritório não pinta os dias de day care, deixa no padrão.
+  // Só vale quando não há cor alguma: etiqueta de cor desconhecida (cinza, rosa) continua "não
+  // reconhecida", porque aí o escritório pintou de propósito.
+  const semNada = !labelId && !colorId;
+  const significado = lido ?? (semNada ? { kind: 'service' as const, serviceType: 'daycare' as const } : null);
   return {
     source: labelId ? 'label' : colorId ? 'colorId' : 'none',
     labelId,

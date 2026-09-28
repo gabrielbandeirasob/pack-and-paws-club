@@ -56,3 +56,34 @@ it('GESTOR ve Team e Activity, e o toque em Activity abre a auditoria', async ()
   fireEvent.press(tela.getByLabelText('Activity'));
   expect(empurrados).toContain('/activity');
 });
+
+
+/**
+ * BUG DO DONO (28/09/2026): "na aba More a página não movimenta".
+ * Medido no app real: em tela pequena (375x600) o conteúdo parava no "Change password" — "Help & support",
+ * a caixa da conta, "Sign out" e a versão ficavam INALCANÇÁVEIS, e rolar 800px não movia nada (prints
+ * idênticos). Causa: a lista era um `<View>` sem rolagem. Estes vetores travam o conserto.
+ */
+it('a lista do More ROLA e o que ficava escondido esta dentro da area que rola', async () => {
+  conta.role = 'manager';
+  const tela = await render(<MenuMore />);
+  await waitFor(() => expect(tela.getByText('Sign out')).toBeTruthy());
+
+  const area = tela.getByTestId('more-scroll');
+  expect(area).toBeTruthy();
+
+  const estaDentro = (no: { parent: unknown }) => {
+    let p: unknown = no.parent;
+    while (p) {
+      if (p === area) return true;
+      p = (p as { parent: unknown }).parent;
+    }
+    return false;
+  };
+  // o que estava inalcançável tem de morar DENTRO do que rola
+  expect(estaDentro(tela.getByText('Sign out'))).toBe(true);
+  expect(estaDentro(tela.getByText('Help & support'))).toBe(true);
+  expect(estaDentro(tela.getByText(/version 1\.0\.0/))).toBe(true);
+  // e continua sem esconder o que é do motorista
+  conta.role = 'driver';
+});

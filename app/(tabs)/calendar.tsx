@@ -13,6 +13,7 @@ import { NewReservationForm, type NewReservationPayload } from '@/features/calen
 import { CalendarConnectionCard } from '@/features/integrations/google/CalendarConnectionCard';
 import type { BookingForImport } from '@/features/integrations/google/importPlan';
 import { toLocalReservations, diasPausados } from '@/features/integrations/google/localReservations';
+import type { LocalReservation } from '@/features/integrations/google/calendarSync';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -31,6 +32,11 @@ export default function CalendarScreen() {
   const [selectedDay, setSelectedDay] = useState(todayLocalISO());
   const [view, setView] = useState<ViewMode>('day');
   const [reservations, setReservations] = useState<ReservationRecord[]>([]);
+  /**
+   * Reservas CANCELADAS: só existem para o espelho pintar o evento de vermelho (Tomato) em vez de apagá-lo
+   * — palavra do dono (28/09/2026). NÃO entram no `buildDay`: o dia não mostra cão cancelado.
+   */
+  const [canceladasParaEspelho, setCanceladasParaEspelho] = useState<LocalReservation[]>([]);
   const [recurring, setRecurring] = useState<RecurringScheduleRecord[]>([]);
   const [exceptions, setExceptions] = useState<RecurringExceptionRecord[]>([]);
   const [dogs, setDogs] = useState<(DogRef & { clientId?: string })[]>([]);
@@ -52,13 +58,19 @@ export default function CalendarScreen() {
     const orgId = (memberships as { organization_id: string }[] | null)?.[0]?.organization_id ?? null;
     setOrganizationId(orgId);
     if (!orgId) { setLoading(false); return; }
-    const [reservationResult, recurringResult, exceptionResult, dogResult] = await Promise.all([
+    const [reservationResult, canceladasResult, recurringResult, exceptionResult, dogResult] = await Promise.all([
+      /**
+       * CANCELADAS: entram só para o ESPELHO. Dono, 28/09/2026: *"se a gente cancelar pelo app, eu não
+       * quero que você apague o evento do calendário — mude a cor para vermelho (tomato)"*. Sem esta
+       * lista, a reserva cancelada sumia daqui e o espelho APAGAVA o evento do escritório.
+       */
+      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'cancelled'),
       supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'confirmed'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', orgId),
       supabase.from('dogs').select('id, name, client:clients(id, name)').eq('organization_id', orgId).eq('active', true),
     ]);
-    const queryError = reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? dogResult.error;
+    const queryError = reservationResult.error ?? canceladasResult.error ?? recurringResult.error ?? exceptionResult.error ?? dogResult.error;
     if (queryError) { setError(queryError.message); setLoading(false); return; }
     setReservations(((reservationResult.data as unknown as ReservationRow[]) ?? []).map((row) => ({
       id: row.id,
@@ -91,6 +103,20 @@ export default function CalendarScreen() {
       reason: row.reason,
     })));
     setDogs(((dogResult.data as unknown as DogRow[]) ?? []).map((row) => ({ id: row.id, dogName: row.name, clientName: row.client.name, clientId: row.client.id })));
+    setCanceladasParaEspelho(
+      ((canceladasResult.data as unknown as ReservationRow[]) ?? []).map((row) => ({
+        id: row.id,
+        dogName: row.dog.name,
+        clientName: row.dog.client.name,
+        serviceType: row.service_type,
+        startDate: row.start_date,
+        endDate: row.end_date,
+        transportRequired: row.transport_required,
+        googleEventId: row.google_event_id ?? null,
+        source: row.source ?? 'app',
+        cancelled: true,
+      })),
+    );
     jaCarregou.current = true;
     setLoading(false);
   }, []);
@@ -395,7 +421,7 @@ export default function CalendarScreen() {
             ) : null}
 
             <CalendarConnectionCard
-              reservations={reservasParaEspelhar}
+              reservations={[...reservasParaEspelhar, ...canceladasParaEspelho]}
               organizationId={organizationId ?? ''}
               dogs={dogs.map((cao) => ({ id: cao.id, name: cao.dogName, clientName: cao.clientName }))}
               bookings={casosDaImportacao}

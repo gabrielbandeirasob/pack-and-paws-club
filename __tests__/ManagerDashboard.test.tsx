@@ -171,10 +171,12 @@ describe('ManagerDashboard', () => {
 
     expect(screen.getByText('Daycare')).toBeTruthy();
     expect(screen.getByText('Boarding')).toBeTruthy();
-    expect(screen.getByText('Total dogs')).toBeTruthy();
+    // Rótulo em PORTUGUÊS por pedido do dono (28/09/2026): o indicador de total de cães e o de
+    // faturamento ficam em português; day care, boarding e Total Pack continuam como o escritório fala.
+    expect(screen.getByText('Número total de Cães')).toBeTruthy();
     expect(screen.getByText('23')).toBeTruthy();
     expect(screen.getByText('Total Pack')).toBeTruthy();
-    expect(screen.getByText('Revenue · tap to type')).toBeTruthy();
+    expect(screen.getByText('Faturamento · tap to type')).toBeTruthy();
     expect(screen.getByLabelText('Revenue of the day').props.value).toBe('1,234.56');
   });
 
