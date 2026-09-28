@@ -56,7 +56,7 @@ function recurrenceRule(weekdays: number[], untilDate?: string): string {
  * de etiqueta.
  */
 export function buildGoogleEvent(reservation: ReservationForSync, options: { labels?: EventLabel[] } = {}): GoogleEventInput {
-  const summary = `${reservation.serviceType === 'daycare' ? 'Daycare' : 'Boarding'} · ${reservation.dogName} (${reservation.clientName})`;
+  const summary = reservation.dogName;
   // Google Calendar all-day events use an exclusive end date.
   const effectiveEnd = reservation.endDate ?? reservation.startDate;
   const endDate = addDaysISO(effectiveEnd, 1);

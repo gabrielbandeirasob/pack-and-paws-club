@@ -4,7 +4,7 @@ describe('buildGoogleEvent', () => {
   it('builds a one-day daycare all-day event with exclusive end date', () => {
     const event = buildGoogleEvent({ dogName: 'Bob', clientName: 'Maria', serviceType: 'daycare', startDate: '2026-09-08', endDate: '2026-09-08' });
     expect(event).toMatchObject({
-      summary: 'Daycare · Bob (Maria)',
+      summary: 'Bob',
       start: { date: '2026-09-08' },
       end: { date: '2026-09-09' },
     });

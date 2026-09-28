@@ -40,7 +40,7 @@ describe('cancelar no app PINTA de Tomato — não apaga o evento', () => {
     // a etiqueta tem de ser LIMPA: na API ela vence o colorId
     expect(update.event.eventLabelId).toBeNull();
     // o evento continua contando a história: mesmo título, mesmas datas
-    expect(update.event.summary).toBe('Daycare · Kona (Ana)');
+    expect(update.event.summary).toBe('Kona');
     expect(update.event.start.date).toBe('2026-09-28');
   });
 

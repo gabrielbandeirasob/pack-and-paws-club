@@ -561,7 +561,7 @@ export function planCalendarImport(
       // 4.1 Dia de hotel (verde) sem chegada/saída marcada para este cão na janela: mantém a van
       //     (comportamento antigo). Com a marcação, o dia do meio fica FORA da van — é o pedido do
       //     escritório ("um cão hospedado não pode aparecer na rota nos dias em que ninguém busca").
-      if (parsed.transportRequired === false && !caesComChegadaOuSaida.has(alvo)) {
+      if (cor.kind === 'service' && cor.serviceType === 'boarding' && parsed.transportRequired === false && !caesComChegadaOuSaida.has(alvo)) {
         parsed.transportRequired = true;
       }
 
