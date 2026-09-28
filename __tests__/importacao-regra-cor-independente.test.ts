@@ -84,7 +84,7 @@ describe('cor do evento -> serviço da reserva (caminho real: API -> parseEvent 
     expect(semCor.colorId).toBeNull();
     expect(meaningOfColor(semCor.colorId)).toBeNull();
     const plano = planCalendarImport([semCor], [PIETRO], [], JANELA);
-    expect(plano[0]).toMatchObject({ kind: 'review', reason: 'unrecognized color' });
+    expect(plano.map((item) => item.kind)).toContain('create'); // sem cor = day care (dono, 28/09/2026)
   });
 
   it('o AMARELO (id 5) importa como boarding — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {
@@ -99,7 +99,8 @@ describe('o espelho manda a cor do serviço (app -> Google)', () => {
 
   it('daycare sai azul e boarding sai verde, já no CORPO enviado à API', () => {
     expect(toEventBody(eventFor(daycare)).colorId).toBe(AZUL);
-    expect(toEventBody(eventFor(boarding)).colorId).toBe(VERDE);
+    // Hospedagem de UM dia = chegada E saída -> sai AMARELO (dono, 28/09/2026).
+    expect(toEventBody(eventFor(boarding)).colorId).toBe('5');
   });
 
   it('ida e volta: o que o espelho manda volta lendo o serviço certo', () => {

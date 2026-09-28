@@ -15,6 +15,7 @@
  *  - a tela recebe o que foi lido: nome da etiqueta + hex + `colorId` legado (`Cobalto (#4A86E8)`).
  */
 import {
+  labelForMovimento,
   describeEventColor,
   hueOfHex,
   interpretarEtiquetas,
@@ -89,9 +90,11 @@ describe('tom (hue) do hex da etiqueta', () => {
     // laranja (Tangerine #f4511e ≈ 14° e Pumpkin #ef6c00 ≈ 27°, de propósito FORA do vermelho E do
     // amarelo), marrom, rosa/vinho e cinza. O ROXO saiu desta lista em 24/09/2026 (virou daycare) e o
     // AMARELO em 27/09/2026 (virou boarding) — ver os testes acima.
-    for (const hex of ['#f4511e', '#ef6c00', '#795548', '#ad1457', '#808080']) {
+    // O MARROM (Cocoa) saiu desta lista em 28/09/2026 (áudio do dono): virou "fora de horário".
+    for (const hex of ['#f4511e', '#ef6c00', '#ad1457', '#808080']) {
       expect([hex, meaningOfLabelColor(hex)]).toEqual([hex, null]);
     }
+    expect(meaningOfLabelColor('#795548')).toEqual({ kind: 'out_of_hours' });
   });
 
   it('AMARELO (Banana #ffd666 ≈ 44°) vira BOARDING — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {
@@ -142,7 +145,10 @@ describe('etiquetas do calendário', () => {
     ];
     expect(labelForService(duasVerdes, 'boarding')?.id).toBe('a-verde');
     expect(labelForService(duasVerdes, 'daycare')?.id).toBe('azul');
-    expect(labelForService([{ id: 'x', name: 'Amarelo', backgroundColor: BANANA }], 'boarding')?.id).toBe('x');
+    // 28/09/2026: o AMARELO (Avocado/Banana) é a etiqueta do dia de CHEGADA/SAÍDA — quem a usa agora é
+    // `labelForMovimento`; para a ESTADIA vale a verde.
+    expect(labelForService([{ id: 'x', name: 'Amarelo', backgroundColor: BANANA }], 'boarding')).toBeNull();
+    expect(labelForMovimento([{ id: 'x', name: 'Amarelo', backgroundColor: BANANA }])?.id).toBe('x');
     expect(labelForService([], 'daycare')).toBeNull();
     expect(labelForService(undefined, 'daycare')).toBeNull();
   });
@@ -192,7 +198,9 @@ describe('o que foi LIDO do evento (o que a tela mostra)', () => {
 
   it('sem etiqueta e sem colorId: nada de serviço, e a tela diz que não há cor', () => {
     const lido = readEventColor({ eventLabelId: null, colorId: null }, etiquetas);
-    expect(lido).toEqual({ source: 'none', labelId: null, labelName: null, backgroundColor: null, colorId: null, meaning: null });
+    // Sem cor = day care desde 28/09/2026 (áudio do dono). A TELA continua dizendo 'no color':
+    // não há etiqueta nem colorId para mostrar.
+    expect(lido).toEqual({ source: 'none', labelId: null, labelName: null, backgroundColor: null, colorId: null, meaning: { kind: 'service', serviceType: 'daycare' } });
     expect(describeEventColor(lido)).toBe('no color');
   });
 

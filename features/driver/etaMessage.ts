@@ -34,12 +34,7 @@
 import { digitsForPhone } from '@/features/clients/contactActions';
 
 export type EtaPhase = 'pickup' | 'dropoff';
-/**
- * Mensageiro: o app hoje só oferece SMS (o cliente pediu para tirar o WhatsApp da interface —
- * "a gente sempre usa Messenger aqui"), mas o tipo continua aceitando os dois para não quebrar
- * as chamadas que já existem.
- */
-export type Messenger = 'sms' | 'whatsapp';
+
 
 /** Quanto a faixa começa ANTES da previsão ("5 minutos antes de estar na casa do cliente"). */
 export const AVISO_ANTES_MIN = 5;
@@ -255,26 +250,16 @@ export function smsLink(
   return `sms:${lista.join(',')}&body=${encodeURIComponent(text)}`;
 }
 
-/** Link do WhatsApp (wa.me) com o texto pronto. */
-export function whatsappLink(phone: string | null | undefined, text: string): string | null {
-  const digits = digitsForPhone(phone);
-  if (!digits) return null;
-  return `https://wa.me/${digits.replace(/^\+/, '')}?text=${encodeURIComponent(text)}`;
-}
-
-/** Link do mensageiro escolhido (null = número inválido). */
-export function messengerLink(
-  messenger: Messenger,
-  phones: Array<string | null | undefined> | string | null | undefined,
-  text: string,
-): string | null {
-  // O WhatsApp recebe UM número: com dois tutores ele cai no primeiro (o app hoje só oferece SMS).
-  if (messenger === 'whatsapp') {
-    const lista = Array.isArray(phones) ? recipientsFor(...phones) : recipientsFor(phones);
-    return whatsappLink(lista[0] ?? null, text);
-  }
+/**
+ * Link do aviso: SEMPRE SMS — o dono mandou tirar o outro mensageiro 100% do projeto (28/09/2026).
+ * Fica uma função só aqui para as telas não precisarem saber do esquema de URL.
+ */
+export function linkForChoice(phones: Array<string | null | undefined> | string | null | undefined, text: string): string | null {
   return smsLink(phones, text);
 }
+
+/** Nome antigo da mesma função (as telas chamavam assim). */
+export const messengerLink = linkForChoice;
 
 /** O que gravar no histórico da parada (a fase do aviso). */
 export function noticeKind(phase: EtaPhase): 'pickup' | 'dropoff' {

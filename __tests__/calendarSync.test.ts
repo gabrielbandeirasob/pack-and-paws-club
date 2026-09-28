@@ -65,7 +65,7 @@ describe('planCalendarSync', () => {
 
   it('pinta o evento com a cor do serviço (verde boarding, azul daycare)', () => {
     expect(eventFor(daycare).colorId).toBe('7'); // Peacock
-    expect(eventFor(boarding).colorId).toBe('2'); // Sage
+    expect(eventFor(boarding).colorId).toBe('10'); // Basil = ESTADIA (dono, 28/09/2026: "basil pra estadia completa")
   });
 
   it('evento do espelho SEM cor (criado antes desta regra) é atualizado para ganhar a cor', () => {
@@ -120,13 +120,13 @@ describe('espelho e as etiquetas de cor do calendário', () => {
     const noite = eventFor(boarding, { labels: ETIQUETAS });
 
     expect(manha.eventLabelId).toBe('lab-azul');
-    // AMARELO virou boarding em 27/09/2026 (dono: "a cor amarela e os tons que lembram ela é boarding") e
-    // entre duas etiquetas do mesmo tom vale a de MENOR id — aqui 'lab-amarela' < 'lab-verde'.
-    expect(noite.eventLabelId).toBe('lab-amarela');
+    // 28/09/2026 (áudio do dono): a ESTADIA sai com a cor do dia de estadia — "basil pra estadia completa".
+    // O amarelo/avocado passou a ser a etiqueta do dia de CHEGADA/SAÍDA (ver `labelForMovimento`).
+    expect(noite.eventLabelId).toBe('lab-verde');
     // O objeto interno também guarda o fallback legado; na API, eventLabelVersion=1 faz a etiqueta
     // prevalecer e o Google pode devolver `colorId` nulo.
     expect(manha.colorId).toBe('7');
-    expect(noite.colorId).toBe('2');
+    expect(noite.colorId).toBe('10'); // Basil (estadia) — a cor do espelho mudou em 28/09/2026
   });
 
   it('entre etiquetas de boarding vale a de MENOR id (não é "amarelo sempre")', () => {

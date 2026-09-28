@@ -48,7 +48,9 @@ export default function RouteHistoryScreen() {
         .eq('organization_id', organizationId)
         .order('route_date', { ascending: false })
         .limit(60),
-      supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).eq('role', 'driver'),
+      // Motorista E gestor: desde 27/09/2026 o gestor também pega rota (áudio do dono). Só `driver` deixava
+      // a rota dele sem nome — aparecia "Driver" (achado da varredura, 28/09/2026).
+      supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).in('role', ['driver', 'manager']),
     ]);
     if (routeError) { setError(routeError.message); setLoading(false); return; }
 

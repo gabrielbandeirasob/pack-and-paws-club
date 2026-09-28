@@ -52,12 +52,9 @@ describe('smsLink com dois números', () => {
     expect(smsLink([], 'oi')).toBeNull();
   });
 
-  it('o WhatsApp (fora da interface, mas ainda no tipo) usa o primeiro número', () => {
-    expect(messengerLink('whatsapp', [PAI, MAE], 'oi')).toBe(`https://wa.me/14155550100?text=oi`);
-  });
 
   it('o SMS pelo messengerLink também sai em grupo', () => {
-    expect(messengerLink('sms', [PAI, MAE], 'oi')).toBe('sms:+14155550100,+14155550199&body=oi');
+    expect(messengerLink([PAI, MAE], 'oi')).toBe('sms:+14155550100,+14155550199&body=oi');
   });
 });
 

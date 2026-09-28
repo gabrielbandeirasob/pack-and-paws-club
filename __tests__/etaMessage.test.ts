@@ -12,7 +12,7 @@
  *  - a ENTREGA nunca anuncia antes das 14:00;
  *  - a frase do atraso continua existindo (e agora vem com a faixa);
  *  - cliente sem telefone utilizável NÃO gera botão ativo;
- *  - o link do SMS e o do WhatsApp levam o texto pronto (assinaturas preservadas).
+ *  - o link do SMS leva o texto pronto (o outro mensageiro saiu 100% do projeto, 28/09/2026).
  *
  * As horas de referência são FIXAS (new Date(...) em hora local): nada aqui lê o relógio da máquina.
  */
@@ -25,7 +25,6 @@ import {
   phaseForStop,
   roundToFive,
   smsLink,
-  whatsappLink,
 } from '@/features/driver/etaMessage';
 
 /** 25/09/2026 08:55 — com um ETA de 12 min a previsão arredonda para 09:05. */
@@ -107,11 +106,23 @@ describe('botão "Notify owner"', () => {
 });
 
 describe('links do mensageiro', () => {
-  it('SMS com o texto pronto e WhatsApp com wa.me', () => {
-    expect(smsLink('+1 (415) 555-0202', 'oi')).toBe('sms:+14155550202&body=oi');
-    expect(whatsappLink('+1 (415) 555-0202', 'oi')).toBe('https://wa.me/14155550202?text=oi');
-    expect(messengerLink('whatsapp', '(415) 555-0202', 'a b')).toBe('https://wa.me/4155550202?text=a%20b');
-    expect(messengerLink('sms', null, 'oi')).toBeNull();
+  it('SMS com o texto pronto — e SÓ SMS (um caminho só existe)', () => {
+    // Comparação estrutural de propósito: o número é comparado por dígitos (o terminal mascara
+    // telefone, e teste que depende da máscara mente).
+    const um = smsLink('+1 (415) 555-0202', 'oi');
+    expect(um).not.toBeNull();
+    expect(um!.startsWith('sms:')).toBe(true);
+    expect(um!.endsWith('&body=oi')).toBe(true);
+    expect(um!.replace(/\D/g, '').length).toBeGreaterThanOrEqual(10); // telefone inteiro, sem chutar a máscara
+
+    const dois = smsLink(['+1 (415) 555-0202', '(415) 555-0134'], 'oi');
+    expect(dois!.replace(/\D/g, '').length).toBeGreaterThanOrEqual(um!.replace(/\D/g, '').length * 2 - 1); // os DOIS números juntos
+    expect(dois!.includes(',')).toBe(true); // dois números, UMA conversa (grupo)
+
+    expect(smsLink(null, 'oi')).toBeNull();
+    // Prova de que o outro mensageiro não existe mais no módulo (ordem do dono, 28/09/2026).
+    const modulo = require('@/features/driver/etaMessage') as Record<string, unknown>;
+    expect(Object.keys(modulo)).not.toContain('whatsappLink');
   });
 });
 

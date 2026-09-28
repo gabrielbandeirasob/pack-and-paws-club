@@ -10,8 +10,8 @@ import { resolveDriverOptimizationOrigin } from '@/features/driver/driverRouteLo
 import { clockInGate, distanceText, estaNaVan, loadVanLocationForDriver, type OrganizationLocation } from '@/features/organization/locations';
 import { optimizeDriverRoute, type DriverRouteStop } from '@/features/driver/driverRouteOptimizer';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
-import { etaMessageText, etaNoticeError, messengerLink, phaseForStop, type Messenger } from '@/features/driver/etaMessage';
-import { NotifyOwnerSheet, defaultMessenger, messengerChoiceNeeded } from '@/features/driver/NotifyOwnerSheet';
+import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/features/driver/etaMessage';
+
 import { NextStopCard, nextActionForStatus, nextStopFor } from '@/features/driver/NextStopCard';
 import { savePendingWrites, enqueuePending, flushPendingWrites, loadPendingWrites, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
 import { ShiftCard } from '@/features/driver/ShiftCard';
@@ -113,7 +113,6 @@ export default function DriverTodayScreen() {
    * congelada enquanto o motorista decide). Só existe quando há MAIS de um mensageiro: com um só o
    * app abre o mensageiro direto, sem folha de escolha.
    */
-  const [notifyDraft, setNotifyDraft] = useState<{ stop: DriverStop; text: string } | null>(null);
   const [driverId, setDriverId] = useState<string | null>(null);
   /** Nome do motorista que assina o aviso ao tutor ("This is {MOTORISTA} from Pack & Paws Club"). */
   const [driverName, setDriverName] = useState<string | null>(null);
@@ -754,11 +753,10 @@ export default function DriverTodayScreen() {
     });
 
   /** Abre o mensageiro do motorista com o texto pronto e registra o aviso no histórico da parada. */
-  const enviarAviso = async (stop: DriverStop, texto: string, messenger: Messenger) => {
-    setNotifyDraft(null);
+  const enviarAviso = async (stop: DriverStop, texto: string) => {
     // Os DOIS números, numa conversa só (SMS em grupo no iOS) — pedido do dono, 27/09/2026:
     // "não de forma separada, mas num grupo".
-    const link = messengerLink(messenger, [stop.clientPhone ?? null, stop.clientPhone2 ?? null], texto);
+    const link = messengerLink([stop.clientPhone ?? null, stop.clientPhone2 ?? null], texto);
     if (!link) {
       setMessage('This client has no usable phone number to send the ETA.');
       return;
@@ -784,17 +782,11 @@ export default function DriverTodayScreen() {
   };
 
   /**
-   * Toque no "Notify owner". Com UM mensageiro só (SMS — o WhatsApp saiu da interface a pedido do
-   * cliente) não existe escolha a fazer: o app monta o texto e vai DIRETO para o app de mensagens.
-   * A folha de escolha só abre quando a lista de mensageiros tiver mais de um.
+   * Toque no "Notify owner": não há escolha a fazer — o aviso é SEMPRE SMS (o dono tirou o outro
+   * mensageiro 100% do projeto, 28/09/2026). Monta o texto e vai direto para o app de mensagens.
    */
   const avisarTutor = (stop: DriverStop) => {
-    const texto = avisoDe(stop);
-    if (!messengerChoiceNeeded()) {
-      void enviarAviso(stop, texto, defaultMessenger());
-      return;
-    }
-    setNotifyDraft({ stop, text: texto });
+    void enviarAviso(stop, avisoDe(stop));
   };
 
   /** Paradas com o ETA de cada uma (o botão de avisar mostra "~12 min" e fica âmbar se atrasar). */
@@ -936,16 +928,6 @@ export default function DriverTodayScreen() {
       />
       {/* Aviso de ETA ao tutor: o texto vai pronto, quem envia é o motorista (pedido do cliente).
           A folha só aparece se houver MAIS de um mensageiro; com um só o aviso vai direto (avisarTutor). */}
-      <NotifyOwnerSheet
-        visible={notifyDraft !== null}
-        phones={[notifyDraft?.stop.clientPhone ?? '', notifyDraft?.stop.clientPhone2 ?? '']}
-        message={notifyDraft?.text ?? ''}
-        onChoose={(messenger) => {
-          const rascunho = notifyDraft;
-          if (rascunho) void enviarAviso(rascunho.stop, rascunho.text, messenger);
-        }}
-        onClose={() => setNotifyDraft(null)}
-      />
     </SafeAreaView>
   );
 }

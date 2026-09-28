@@ -12,6 +12,7 @@
  * entao reexecutar o sync nao duplica eventos.
  */
 import { buildGoogleEvent, type GoogleEventInput, type ReservationForSync } from './googleEvents.ts';
+import { COLOR_OF_CANCELAMENTO } from './googleColors.ts';
 import type { EventLabel } from './googleColors.ts';
 
 export const APP_KEY_PROPERTY = 'appKey';
@@ -37,6 +38,13 @@ export type LocalReservation = ReservationForSync & {
   googleEventId?: string | null;
   /** 'google' = nasceu no Google Calendar (lá manda); 'app' = nasceu no aplicativo. */
   source?: 'app' | 'google' | null;
+  /**
+   * Reserva CANCELADA **pelo app**: o espelho NÃO apaga o evento — pinta de vermelho (Tomato). Dono,
+   * 28/09/2026: *"se a gente cancelar pelo app, eu não quero que você apague o evento do calendário"*.
+   * Quem monta a lista precisa incluir as canceladas com esta marca (senão o evento cai no caminho de
+   * exclusão de órfão).
+   */
+  cancelled?: boolean;
 };
 
 export type RemoteEvent = {
@@ -75,10 +83,23 @@ export function appKeyOf(reservation: LocalReservation): string {
   return reservation.id;
 }
 
+/**
+ * Evento do app para uma reserva CANCELADA pelo app (dono, 28/09/2026): *"eu não quero que você apague o
+ * evento do calendário. Eu quero que você mude a cor para vermelho (tomato)"*. Fica o mesmo nome e as
+ * mesmas datas; muda a cor (e limpa a etiqueta, que senão venceria o `colorId` na API).
+ */
+function eventoCancelado(reservation: LocalReservation): GoogleEventInput {
+  return {
+    ...buildGoogleEvent(reservation),
+    colorId: COLOR_OF_CANCELAMENTO,
+    eventLabelId: null,
+  };
+}
+
 /** Evento do Google pronto para envio, com a chave de idempotencia embutida. */
 export function eventFor(reservation: LocalReservation, options: { labels?: EventLabel[] } = {}): GoogleEventInput {
   return {
-    ...buildGoogleEvent(reservation, options),
+    ...(reservation.cancelled ? eventoCancelado(reservation) : buildGoogleEvent(reservation, options)),
     extendedProperties: {
       private: {
         [APP_KEY_PROPERTY]: appKeyOf(reservation),
@@ -99,11 +120,16 @@ export function eventsEqual(desired: GoogleEventInput, remote: RemoteEvent): boo
   // Etiqueta SUPERA colorId na API. Com uma etiqueta desejada, o Google pode devolver colorId nulo:
   // comparar também o legado causaria PATCH infinito. Sem etiqueta lida pelo app, preservamos uma
   // etiqueta remota em vez de substituí-la por colorId; se nenhum lado usa etiqueta, vale o legado.
-  const corOk = desired.eventLabelId !== undefined
-    ? (desired.eventLabelId ?? null) === (remote.eventLabelId ?? null)
-    : remote.eventLabelId
-      ? true
-      : (desired.colorId ?? null) === (remote.colorId ?? null);
+  // `eventLabelId: null` = o app quer LIMPAR a etiqueta e mandar só o `colorId` (é o caso do
+  // cancelamento: pinta de Tomato). Aqui a comparação tem de olhar os DOIS, senão o PATCH nunca sai e a
+  // cor nova não chega ao calendário — foi o que o vetor do cancelamento pegou (28/09/2026).
+  const corOk = desired.eventLabelId === null
+    ? (remote.eventLabelId ?? null) === null && (desired.colorId ?? null) === (remote.colorId ?? null)
+    : desired.eventLabelId !== undefined
+      ? (desired.eventLabelId ?? null) === (remote.eventLabelId ?? null)
+      : remote.eventLabelId
+        ? true
+        : (desired.colorId ?? null) === (remote.colorId ?? null);
   return (
     desired.summary === remote.summary &&
     desired.start.date === remote.startDate &&
@@ -142,6 +168,8 @@ export function planCalendarSync(local: LocalReservation[], remote: RemoteEvent[
         // Evento do Google apagado (o cliente desmarcou): quem cancela a reserva é a importação.
         continue;
       }
+      // Reserva cancelada que nunca foi espelhada: não se cria evento — não há nada para cancelar.
+      if (reservation.cancelled) continue;
       actions.push({ type: 'create', reservationId: reservation.id, event: desired });
     } else if (!eventsEqual(desired, existing)) {
       actions.push({ type: 'update', reservationId: reservation.id, eventId: existing.id, event: desired });

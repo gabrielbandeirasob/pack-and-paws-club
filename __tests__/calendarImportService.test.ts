@@ -129,8 +129,9 @@ describe('runCalendarImport', () => {
       ports: portas(registro),
     });
 
-    expect(registro).toEqual([]);
-    expect(resumo.review).toEqual([expect.objectContaining({ eventId: 'e-sem-cor', reason: 'unrecognized color' })]);
+    // Sem cor = day care (áudio do dono, 28/09/2026): o evento agora GRAVA uma reserva de day care.
+    expect(registro.length).toBeGreaterThan(0);
+    expect(resumo.review ?? []).toEqual([]);
   });
 
   it('evento VERMELHO cancela a reserva daquele cão naquele dia', async () => {

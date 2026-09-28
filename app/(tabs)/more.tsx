@@ -1,4 +1,4 @@
-import { Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
@@ -29,7 +29,9 @@ export default function MoreScreen() {
         <Text style={styles.eyebrow}>PACK & PAWS CLUB</Text>
         <Text style={styles.title}>More</Text>
       </View>
-      <View style={styles.list}>
+      {/* A lista ROLA: sem isto o "Help & support", a caixa da conta, o "Sign out" e a versão ficavam
+          inalcançáveis em tela pequena (bug do dono, 28/09/2026: "na aba More a página não movimenta"). */}
+      <ScrollView style={styles.list} contentContainerStyle={styles.listConteudo} testID="more-scroll">
         {/* O mesmo interruptor da Home e da rota, aqui em linha fina (sem caixa), como as outras linhas. */}
         <DriveSwitchRow dentroDeLista />
         {/* "Team" e "Activity" são do GESTOR: até 25/09/2026 o motorista também via "Team" (com o texto
@@ -81,7 +83,7 @@ export default function MoreScreen() {
           <Text style={styles.signOutText}>Sign out</Text>
         </Pressable>
         <Text style={styles.version}>Pack & Paws Club · version {version}</Text>
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -91,7 +93,9 @@ const styles = StyleSheet.create({
   header: { backgroundColor: colors.forest700, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 26, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
   eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
   title: { color: 'white', fontFamily: 'serif', fontSize: 30, fontWeight: '800', marginTop: 6 },
-  list: { flex: 1, padding: 18, backgroundColor: colors.cream },
+  list: { flex: 1, backgroundColor: colors.cream },
+  // O padding vive no CONTEÚDO do ScrollView: assim ele rola junto e a última linha não fica atrás da barra.
+  listConteudo: { padding: 18, paddingBottom: 30 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, padding: 15, marginBottom: 10 },
   rowTitle: { color: colors.ink, fontWeight: '800', fontSize: 15 },
   rowHint: { color: colors.muted, fontSize: 12, marginTop: 3 },

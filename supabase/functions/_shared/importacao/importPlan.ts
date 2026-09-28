@@ -18,8 +18,12 @@
  *     vermelho = CANCELAMENTO (cancela a reserva daquele cao naquele dia, se existir; numa serie,
  *     pula o dia). Sao DOIS esquemas de cor: a etiqueta do calendario (paleta nova, classificada pelo
  *     TOM do hex — o "Cobalto" #4A86E8 do cliente) manda, e o `colorId` legado (1..11) e o fallback
- *     (ver `features/calendar/googleColors`). Sem cor ou com cor fora do mapa o app NAO chuta servico:
- *     vai para a lista "color not recognized".
+ *     (ver `features/calendar/googleColors`). **Sem cor NENHUMA = day care** (palavra do dono,
+ *     28/09/2026: "as cores de Daycare e a cor chamada default do Google calendario ou Peacock");
+ *     cor pintada que o app nao conhece (cinza, rosa, laranja) continua indo para
+ *     "color not recognized" — ai o escritorio pintou de proposito. **Cocoa (marrom) = fora do horario
+ *     de funcionamento**: o cao conta no dia (lista de day care) mas NAO pede van (o administrador
+ *     busca/entrega).
  *  4. O vinculo com o Google e por EVENTO (`googleEventId`), nunca por nome: o segundo Sync nao cria
  *     de novo, e renomear o cao no app tambem nao faz o proximo Sync criar outro cadastro.
  *  5. Reserva que nasceu no Google: se o evento mudar, a reserva muda; se o evento sumir, a reserva
@@ -35,7 +39,7 @@
  *     e derruba o insert inteiro (era o defeito de producao de 24/09/2026).
  */
 import { addDaysISO, weekdayOfISO } from './dates.ts';
-import { movimentaOCao, readEventColor, type BookingServiceType, type ColorMeaning, type EventColorRead, type EventLabel } from './googleColors.ts';
+import { movimentaOCao, readEventColor, serviceTypeOfMeaning, type BookingServiceType, type ColorMeaning, type EventColorRead, type EventLabel } from './googleColors.ts';
 import type { RemoteEvent } from './calendarSync.ts';
 
 export type { BookingServiceType };
@@ -293,7 +297,7 @@ export function parseBookingEvents(event: RemoteEvent, labels: EventLabel[] = []
   const transportRequired = movimentaOCao(color) ?? true;
 
   return nomes.map((dogName) => ({
-    serviceType: color.meaning?.kind === 'service' ? color.meaning.serviceType : null,
+    serviceType: serviceTypeOfMeaning(color.meaning),
     color,
     cancels: color.meaning?.kind === 'cancel',
     transportRequired,
@@ -521,7 +525,7 @@ export function planCalendarImport(
         title: evento.summary,
         date: evento.startDate,
         parsed: {
-          serviceType: color.meaning?.kind === 'service' ? color.meaning.serviceType : null,
+          serviceType: serviceTypeOfMeaning(color.meaning),
           color,
           cancels: color.meaning?.kind === 'cancel',
           dogName: '(no title)',
@@ -623,7 +627,7 @@ export function planCalendarImport(
       if (ligada) {
         vistos.add(evento.id);
         const dogId = dogDoTitulo ?? ligada.dogId;
-        const servico: ParsedBooking = { ...parsed, serviceType: cor.serviceType };
+        const servico: ParsedBooking = { ...parsed, serviceType: serviceTypeOfMeaning(cor) };
         if (ligada.source === 'google' && precisaAtualizar(ligada, servico, dogId)) {
           resultados.push({ kind: 'update', eventId: evento.id, bookingKind: ligada.kind, bookingId: ligada.id, dogId, parsed: servico });
         }
@@ -642,7 +646,7 @@ export function planCalendarImport(
       }
 
       const dogId = candidatos[0].id;
-      const servico: ParsedBooking = { ...parsed, serviceType: cor.serviceType };
+      const servico: ParsedBooking = { ...parsed, serviceType: serviceTypeOfMeaning(cor) };
       vistos.add(evento.id);
 
       // 8. Igual a uma reserva que o app ja tem = duplicata: o gestor decide (liga o evento a ela).

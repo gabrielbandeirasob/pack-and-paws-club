@@ -13,6 +13,8 @@
  * Os textos são os que o cliente mandou por escrito; qualquer mudança de palavra aqui é mudança de
  * contrato com ele.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createElement } from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 
@@ -36,16 +38,10 @@ import {
   DROPOFF_INICIO_MIN,
   avisoWindow,
   etaMessageText,
+  linkForChoice,
   messengerLink,
   windowLabel,
 } from '@/features/driver/etaMessage';
-import {
-  NotifyOwnerSheet,
-  OFFERED_MESSENGERS,
-  defaultMessenger,
-  linkForChoice,
-  messengerChoiceNeeded,
-} from '@/features/driver/NotifyOwnerSheet';
 import { seedNextDogName } from '@/features/clients/clientsService';
 import { EditClientForm } from '@/features/clients/EditClientForm';
 import type { EditableClient } from '@/features/clients/clientsService';
@@ -203,42 +199,29 @@ describe('(d) parada atrasada: diz que está atrasada E mostra a faixa', () => {
 });
 
 /* ------------------------------------------------------------------ *
- * (e) WhatsApp fora da interface e escolha que deixou de existir
+ * (e) Não existe WhatsApp no projeto (ordem do dono, 28/09/2026: "retirar 100%")
  * ------------------------------------------------------------------ */
 
-describe('(e) sem WhatsApp: um mensageiro só é envio direto', () => {
+describe('(e) o projeto não tem WhatsApp em lugar nenhum', () => {
   const telefone = '+1 415 555 0134';
-  const mensagem = `Good morning, ${CLIENTE}! This is ${MOTORISTA} from Pack & Paws Club. I'll be there between 9:00 and 9:30 AM to pick up ${CAO}. Looking forward to another great day with us! 🐶🐾`;
 
-  it('a lista da interface tem um mensageiro e não é o WhatsApp', () => {
-    expect(OFFERED_MESSENGERS).toEqual(['sms']);
-    expect(OFFERED_MESSENGERS).not.toContain('whatsapp');
+  it('o módulo do aviso não tem função de WhatsApp nem link wa.me', () => {
+    const modulo = require('@/features/driver/etaMessage') as Record<string, unknown>;
+    expect(Object.keys(modulo)).not.toContain('whatsappLink');
+    expect(JSON.stringify(modulo)).not.toMatch(/wa\.me/);
   });
 
-  it('com um mensageiro não há escolha: envio direto no SMS', () => {
-    expect(messengerChoiceNeeded()).toBe(false);
-    expect(defaultMessenger()).toBe('sms');
-    // O dia em que a lista tiver dois volta a perguntar (a folha não foi apagada).
-    expect(messengerChoiceNeeded(['sms', 'whatsapp'])).toBe(true);
+  it('o link do aviso é sempre SMS, com os dois tutores na mesma conversa', () => {
+    expect(linkForChoice(telefone, 'oi')).toBe('sms:+14155550134&body=oi');
+    expect(linkForChoice([telefone, '+1 415 555 0202'], 'oi')).toBe('sms:+14155550134,+14155550202&body=oi');
+    expect(linkForChoice(null, 'oi')).toBeNull();
   });
 
-  it('a folha, se aberta, não oferece WhatsApp (só o SMS)', async () => {
-    const tela = await render(
-      createElement(NotifyOwnerSheet, { visible: true, phones: [telefone], message: mensagem, onChoose: () => {}, onClose: () => {} }),
-    );
-
-    expect(tela.queryByLabelText('WhatsApp')).toBeNull();
-    expect(tela.getByLabelText('Messages (SMS)')).toBeTruthy();
-    expect(tela.getByText(mensagem)).toBeTruthy();
+  it('o código do motorista não menciona o outro mensageiro', () => {
+    const fonte = readFileSync(join(__dirname, '..', 'app', '(tabs)', 'driver.tsx'), 'utf8');
+    expect(fonte.toLowerCase()).not.toContain('whatsapp');
+    expect(fonte).not.toContain('wa.me');
   });
-
-  it('o link do mensageiro escolhido continua sendo montado (assinaturas preservadas)', () => {
-    expect(linkForChoice('sms', telefone, 'oi')).toBe('sms:+14155550134&body=oi');
-    expect(linkForChoice('whatsapp', telefone, 'oi')).toBe('https://wa.me/14155550134?text=oi');
-    expect(messengerLink('sms', null, 'oi')).toBeNull();
-  });
-});
-
 /* ------------------------------------------------------------------ *
  * (f) "+ Add another dog" no cadastro do cliente
  * ------------------------------------------------------------------ */
@@ -307,4 +290,5 @@ describe('(f) "+ Add another dog" na edição do cliente', () => {
     expect(tela.getAllByDisplayValue('Kona').length).toBeGreaterThan(0);
     expect(tela.getAllByDisplayValue('Thor').length).toBeGreaterThan(0);
   });
+});
 });

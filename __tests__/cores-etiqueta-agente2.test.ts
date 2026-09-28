@@ -123,11 +123,9 @@ describe('fallback da paleta ANTIGA (colorId) e limite do parser', () => {
     expect(item.parsed.serviceType).toBe('boarding');
   });
 
-  it('sem etiqueta e sem colorId -> lista "cor nao reconhecida"', () => {
+  it('sem etiqueta e sem colorId -> entra como DAY CARE (dono, 28/09/2026)', () => {
     const plano = planCalendarImport([evento('ev-sem-cor', 'Zara')], [ZARA], [], JANELA, { labels: [] });
-    const item = plano[0];
-    if (item?.kind !== 'review') throw new Error('esperava review');
-    expect(item.reason).toBe('unrecognized color');
+    expect(plano.map((item) => item.kind)).toContain('create');
   });
 
   it('INVARIANTE: nenhum desfecho aponta para cao fora do cadastro', () => {

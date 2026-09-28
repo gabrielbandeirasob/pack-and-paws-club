@@ -1,5 +1,5 @@
 import { addDaysISO } from '@/features/calendar/dates';
-import { colorOfService, labelForService, type EventLabel } from '@/features/calendar/googleColors';
+import { COLOR_OF_MOVIMENTO, colorOfService, labelForMovimento, labelForService, type EventLabel } from '@/features/calendar/googleColors';
 
 export type GoogleEventInput = {
   summary: string;
@@ -60,8 +60,11 @@ export function buildGoogleEvent(reservation: ReservationForSync, options: { lab
   const event: GoogleEventInput = { summary, start: { date: reservation.startDate }, end: { date: endDate } };
   // O evento sai PINTADO com a cor do serviço: é assim que o escritório enxerga o tipo no calendário
   // e é o que a importação lê de volta quando o evento volta para o app.
-  event.colorId = colorOfService(reservation.serviceType);
-  const etiqueta = labelForService(options.labels, reservation.serviceType);
+  // Reserva de UM dia de hospedagem = chegada E saída no mesmo dia → sai AMARELO (o escritório usa
+  // Avocado; sem etiqueta, o id 5). Estadias de vários dias saem Basil, a cor do dia de estadia.
+  const movimento = reservation.serviceType === 'boarding' && reservation.startDate === (reservation.endDate ?? reservation.startDate);
+  event.colorId = movimento ? COLOR_OF_MOVIMENTO : colorOfService(reservation.serviceType);
+  const etiqueta = (movimento ? labelForMovimento(options.labels) : null) ?? labelForService(options.labels, reservation.serviceType);
   if (etiqueta) event.eventLabelId = etiqueta.id;
   if (reservation.weekdays?.length) {
     const openEnded = !reservation.endDate || reservation.endDate === reservation.startDate;

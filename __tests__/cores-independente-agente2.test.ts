@@ -91,12 +91,9 @@ describe('cor do evento define o servico (vetores do agente2)', () => {
     expect(item.title).toBe('Bella');
   });
 
-  it('SEM COR nao importa e cai na lista (motivo unrecognized color)', () => {
+  it('SEM COR entra como DAY CARE (dono, 28/09/2026: sem cor = cor default = day care)', () => {
     const saida = plano([evento('e7', 'Pietro', null)], [PIETRO]);
-    expect(saida.some((x) => x.kind === 'create' || x.kind === 'update')).toBe(false);
-    const item = saida[0];
-    if (item?.kind !== 'review') throw new Error('esperava review');
-    expect(item.reason).toBe('unrecognized color');
+    expect(saida.some((x) => x.kind === 'create' || x.kind === 'update')).toBe(true);
   });
 
   it('nome que existe em DOIS caes vai para a lista com motivo (nao escolhe no chute)', () => {

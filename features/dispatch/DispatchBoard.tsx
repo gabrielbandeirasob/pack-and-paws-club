@@ -6,6 +6,7 @@ import { DogPicker } from '@/features/calendar/DogPicker';
 import type { DogRef } from '@/features/calendar/dayMath';
 import { frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
+import { rotuloDeStatus } from '@/features/dispatch/routeStatusLabel';
 import { colors, radii } from '@/features/theme/tokens';
 import { StopProofChips } from '@/features/dispatch/ProofViewer';
 import { showAlert } from '@/features/ui/alert';
@@ -235,7 +236,7 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
                       quebra LETRA POR LETRA (relato do dono no iPhone, 12/09/2026). */}
                   <View style={styles.driverText} testID="driver-info">
                     <Text style={styles.driverName}>{driver.name}</Text>
-                    <Text style={styles.muted}>{stops.length} stop{stops.length === 1 ? '' : 's'}{route?.status === 'published' ? ' · Published' : route ? ' · Draft' : ''}</Text>
+                    <Text style={styles.muted}>{stops.length} stop{stops.length === 1 ? '' : 's'}{rotuloDeStatus(route?.status)}</Text>
                     {route && stops.length > 0 ? (
                       <Text style={[styles.muted, eta?.lateMinutes || frescor?.velha ? styles.lateText : null]}>
                         {location && frescor
