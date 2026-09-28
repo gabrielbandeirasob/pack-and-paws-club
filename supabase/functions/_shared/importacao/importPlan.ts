@@ -463,6 +463,61 @@ function alvoDoCancelamento(
 }
 
 /**
+ * EM QUE DIAS o cão está DENTRO de uma hospedagem (os dias de verde/Basil do calendário do escritório).
+ *
+ * É o que decide o lado do dia quando o evento está pintado de **Cocoa (marrom)** — a cor de "fora do
+ * horário de funcionamento". Regra do dono (áudio de 28/09/2026): *"se for o drop-off e for cor cocoa
+ * você pode botar ele na lista do daycare do dia"* e *"no dia da saída, se for cocoa, ainda assim o
+ * cachorro vai para o daycare, mesmo que ele seja entregue depois do horário de funcionamento"* — já a
+ * CHEGADA é outra coisa: *"na chegada não tem como ele ter chegado antes do daycare"*, o cão veio para
+ * FICAR, então o dia da chegada é **boarding**.
+ *
+ * O "lado" se lê sem o escritório escrever nada extra: **se a hospedagem cobre o dia SEGUINTE ao
+ * Cocoa, aquele Cocoa é uma chegada** (a estadia veio depois dele); se não cobre, o Cocoa é saída (a
+ * estadia ficou para trás) ou dia de daycare com entrega tardia.
+ */
+export function coberturaDaHospedagem(events: RemoteEvent[], labels: EventLabel[] = []): Map<string, Set<string>> {
+  const cobertura = new Map<string, Set<string>>();
+  for (const evento of events) {
+    if (ehEventoDeOperacao(evento.summary)) continue;
+    for (const lido of parseBookingEvents(evento, labels)) {
+      const cor = lido.color.meaning;
+      if (cor?.kind !== 'service' || cor.serviceType !== 'boarding') continue;
+      const cao = normalizar(lido.dogName);
+      const dias = cobertura.get(cao) ?? new Set<string>();
+      let dia = lido.startDate;
+      // Teto de segurança: série aberta (`openEnded`) não pode virar laço infinito.
+      for (let passo = 0; passo < 400 && dia <= lido.endDate; passo += 1) {
+        dias.add(dia);
+        dia = addDaysISO(dia, 1);
+      }
+      cobertura.set(cao, dias);
+    }
+  }
+  return cobertura;
+}
+
+/**
+ * Serviço daquele dia lido da COR, com o lado da hospedagem resolvido para o **Cocoa** (o único que
+ * depende de contexto): a hospedagem continua depois do dia ⇒ o cão CHEGOU fora do horário ⇒
+ * `boarding`; caso contrário (saída fora do horário ou dia de daycare com entrega tardia) ⇒ `daycare`.
+ * Nos dois casos o cão NÃO pede van (`movimentaOCao` já devolve `false` para fora do horário) — quem
+ * busca/entrega é o administrador, de carro.
+ */
+function servicoDoDia(
+  cor: ColorMeaning,
+  parsed: ParsedBooking,
+  hospedagem: Map<string, Set<string>>,
+  cao: string,
+): BookingServiceType | null {
+  if (cor.kind === 'out_of_hours') {
+    const continuaDepois = hospedagem.get(cao)?.has(addDaysISO(parsed.startDate, 1)) ?? false;
+    return continuaDepois ? 'boarding' : 'daycare';
+  }
+  return serviceTypeOfMeaning(cor);
+}
+
+/**
  * O que fazer com o que está no Google. Determinístico e sem rede.
  *
  * `events` já vem recortado pela janela da consulta (timeMin/timeMax), e `window` é a mesma janela
@@ -486,12 +541,20 @@ export function planCalendarImport(
     if (ehEventoDeOperacao(evento.summary)) continue;
     for (const lido of parseBookingEvents(evento, labels)) {
       if (antesDaJanela(lido.startDate, window)) continue;
-      if (lido.transportRequired === true) caesComChegadaOuSaida.add(normalizar(lido.dogName));
+      // Dia de movimento = o cão ANDA de van (amarelo/Avocado) **ou** fora do horário (marrom/Cocoa,
+      // em que quem busca é o administrador). Nos dois casos o cão hospedado não pode seguir na rota
+      // nos dias do meio, quando ninguém busca ele (dono, 28/09/2026).
+      if (lido.transportRequired === true || lido.color.meaning?.kind === 'out_of_hours') {
+        caesComChegadaOuSaida.add(normalizar(lido.dogName));
+      }
     }
   }
   for (const reserva of reservations) {
     if (reserva.googleEventId) porEvento.set(reserva.googleEventId, reserva);
   }
+
+  // Lado do dia para o COCOA (marrom, fora do horário): chegada de hospedagem x saída/dia de daycare.
+  const hospedagem = coberturaDaHospedagem(events, labels);
 
   const resultados: ImportOutcome[] = [];
   const vistos = new Set<string>();
@@ -638,7 +701,7 @@ export function planCalendarImport(
       if (ligada) {
         vistos.add(evento.id);
         const dogId = dogDoTitulo ?? ligada.dogId;
-        const servico: ParsedBooking = { ...parsed, serviceType: serviceTypeOfMeaning(cor) };
+        const servico: ParsedBooking = { ...parsed, serviceType: servicoDoDia(cor, parsed, hospedagem, alvo) };
         if (ligada.source === 'google' && precisaAtualizar(ligada, servico, dogId)) {
           resultados.push({ kind: 'update', eventId: evento.id, bookingKind: ligada.kind, bookingId: ligada.id, dogId, parsed: servico });
         }
@@ -657,7 +720,7 @@ export function planCalendarImport(
       }
 
       const dogId = candidatos[0].id;
-      const servico: ParsedBooking = { ...parsed, serviceType: serviceTypeOfMeaning(cor) };
+      const servico: ParsedBooking = { ...parsed, serviceType: servicoDoDia(cor, parsed, hospedagem, alvo) };
       vistos.add(evento.id);
 
       // 8. Igual a uma reserva que o app ja tem = duplicata: o gestor decide (liga o evento a ela).
