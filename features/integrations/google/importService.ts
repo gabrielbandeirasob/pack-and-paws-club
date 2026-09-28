@@ -116,8 +116,15 @@ export async function runCalendarImport({
   /**
    * Eventos que JÁ ganharam reserva nesta rodada: a segunda reserva do mesmo evento (casa com dois cães)
    * nasce sem o vínculo do evento, porque o índice do banco é único por evento.
+   *
+   * Começa com os eventos que JÁ têm uma reserva vinculada no app: o vínculo daquele evento está
+   * tomado, então qualquer reserva NOVA para ele (o segundo cão do mesmo evento) precisa nascer sem o
+   * vínculo. Sem esta semente o insert do segundo cão batia no índice único, a rodada respondia
+   * "already in the app" e **o segundo cão ficava sem reserva nenhuma** (medido em 28/09/2026).
    */
-  const eventosComReserva = new Set<string>();
+  const eventosComReserva = new Set<string>(
+    reservations.map((reserva) => reserva.googleEventId).filter((id): id is string => Boolean(id)),
+  );
 
   for (const item of plano) {
     if (item.kind === 'review') {

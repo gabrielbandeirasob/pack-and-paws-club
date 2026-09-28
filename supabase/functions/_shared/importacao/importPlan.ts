@@ -634,7 +634,27 @@ export function planCalendarImport(
       // 5. Vínculo por EVENTO (não por nome): se o evento já tem reserva no app, ela é a referência.
       //    Título que não aponta para nenhum cão do cadastro (o caso do cão RENOMEADO no app depois da
       //    importação) NÃO cria cadastro novo: a reserva segue com o cão dela, que é o mesmo evento.
-      const ligada = porEvento.get(evento.id) ?? null;
+      //
+      //    🐞 Evento com DOIS cães tem UMA reserva por cão: o vínculo do evento serve a UM deles — o
+      //    cão da reserva vinculada. Sem isto os dois cães achavam a MESMA reserva e cada um propunha
+      //    `update` nela, então o `dog_id` **trocava de cão a cada sincronização** (medido no banco em
+      //    28/09/2026: toda rodada devolvia "4 atualizados", sempre em eventos de dois cães, e o dia
+      //    ficava com 7 cães em vez de 8 — o outro cão perdia a reserva). O segundo cão passa a usar a
+      //    reserva DELE (mesmo dia/serviço/série, sem vínculo) ou cria a dele — o serviço remove o
+      //    vínculo na criação porque o índice do banco é único por evento.
+      const vinculada = porEvento.get(evento.id) ?? null;
+      const usaVinculo = !vinculada || parsedTodos.length === 1 || !dogDoTitulo || vinculada.dogId === dogDoTitulo;
+      const ligada = usaVinculo
+        ? vinculada
+        : (reservations.find(
+            (item) =>
+              item.source === 'google' &&
+              item.status === 'confirmed' &&
+              item.dogId === dogDoTitulo &&
+              item.kind === kindOf(parsed) &&
+              item.startDate === parsed.startDate &&
+              (item.kind === 'recurring' ? mesmosDias(item.weekdays, parsed.weekdays) : item.endDate === parsed.endDate),
+          ) ?? null);
 
       // Uma reserva cancelada conserva o vínculo: a leitura automática não pode desfazer
       // o cancelamento enquanto o gestor ainda não tocou no Sync para pintar Tomato.
