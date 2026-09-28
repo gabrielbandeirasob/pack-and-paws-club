@@ -17,6 +17,22 @@ jest.mock('@/features/integrations/google/importService', () => ({
   runCalendarImport: jest.fn(),
   hasImportChanges: jest.requireActual('@/features/integrations/google/importService').hasImportChanges,
 }));
+/**
+ * A CREDENCIAL NO SERVIDOR e o RELÓGIO LOCAL, mockados (achado da CI em 28/09/2026).
+ *
+ * O cartão, ao abrir com `autoImport`, pergunta à função do servidor se a credencial já está lá
+ * (`servidorTemCredencial`) — chamada de REDE de verdade dentro de um teste de unidade. Aqui na máquina
+ * de desenvolvimento ela responde rápido; no runner da CI (sem rota para o domínio) ela pendura até o
+ * timeout do Jest: o portão de qualidade ficou vermelho com 1 teste de 1121 falhando por timeout, num
+ * arquivo que passava em 0,8 s localmente. Teste de unidade não fala com a rede: os dois módulos entram
+ * mockados, e o comportamento da trava de 10 min segue coberto em `__tests__/sincronizacao-automatica.test.ts`.
+ */
+jest.mock('@/features/integrations/google/serverCredential', () => ({
+  servidorTemCredencial: jest.fn(async () => true),
+  enviarCredencialAoServidor: jest.fn(async () => undefined),
+  revogarCredencialDoServidor: jest.fn(async () => undefined),
+}));
+
 // A lista de calendarios e as cores do calendario vem da API do Google: aqui sao injetadas (nenhuma
 // chamada de rede).
 jest.mock('@/features/integrations/google/calendarApi', () => ({
