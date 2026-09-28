@@ -104,9 +104,9 @@ async function carregarDadosDaOrganizacao(
   const [reservas, series, excecoes, caes] = await Promise.all([
     admin
       .from('reservations')
-      .select('id, service_type, start_date, end_date, google_event_id, source, dog:dogs(id, name, client:clients(name))')
+      .select('id, status, service_type, start_date, end_date, google_event_id, source, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
-      .eq('status', 'confirmed'),
+      .in('status', ['confirmed', 'cancelled']),
     admin
       .from('recurring_schedules')
       .select('id, weekdays, start_date, end_date, active, google_event_id, source, dog:dogs(id, name, client:clients(name))')
@@ -123,6 +123,7 @@ async function carregarDadosDaOrganizacao(
 
   type LinhaDeReserva = {
     id: string;
+    status: string;
     service_type: string;
     start_date: string;
     end_date: string | null;
@@ -151,7 +152,7 @@ async function carregarDadosDaOrganizacao(
     endDate: row.end_date,
     weekdays: null,
     skipDates: null,
-    status: 'confirmed' as const,
+    status: row.status,
   }));
 
   const listaExcecoes = ((excecoes.data as unknown as LinhaDeExcecao[]) ?? []).map((row) => ({

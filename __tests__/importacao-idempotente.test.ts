@@ -83,12 +83,16 @@ describe('fotografia fresca: o que o plano lê antes de decidir', () => {
     expect(casos[2]).toMatchObject({ id: 's1', kind: 'recurring', weekdays: [1, 3, 5], status: 'active' });
   });
 
-  it('lê o banco na hora da importação (reservas confirmadas + escalas ativas)', async () => {
+  it('lê o banco na hora da importação (reservas confirmadas e canceladas + escalas ativas)', async () => {
     const caminhos: string[] = [];
     const cliente = {
       from: (tabela: string) => ({
         select: (colunas: string) => ({
           eq: (coluna1: string, valor1: string) => ({
+            in: async (coluna2: string, valores: string[]) => {
+              caminhos.push(`${tabela}:${coluna1}=${valor1}:${coluna2}=${valores.join(",")}`);
+              return { data: [{ id: "r1", dog_id: "d1", service_type: "daycare", start_date: "2026-09-28", end_date: "2026-09-28", google_event_id: "ev-1", source: "google", status: "cancelled" }], error: null };
+            },
             eq: async (coluna2: string, valor2: string) => {
               caminhos.push(`${tabela}:${coluna1}=${valor1}:${coluna2}=${valor2}`);
               return tabela === 'reservations'
@@ -102,14 +106,15 @@ describe('fotografia fresca: o que o plano lê antes de decidir', () => {
 
     const casos = await carregarSnapshotDaImportacao(cliente as never, 'org-1');
 
-    expect(caminhos).toEqual(['reservations:organization_id=org-1:status=confirmed', 'recurring_schedules:organization_id=org-1:active=true']);
+    expect(caminhos).toEqual(['reservations:organization_id=org-1:status=confirmed,cancelled', 'recurring_schedules:organization_id=org-1:active=true']);
+    expect(casos[0].status).toBe('cancelled');
     expect(casos.map((caso) => caso.googleEventId)).toEqual(['ev-1', 'ev-9']);
   });
 
   it('se a leitura do banco falhar, o erro aparece (não segue com lista vazia em silêncio)', async () => {
     const cliente = {
       from: () => ({
-        select: () => ({ eq: () => ({ eq: async () => ({ data: null, error: { message: 'permission denied' } }) }) }),
+        select: () => ({ eq: () => ({ in: async () => ({ data: null, error: { message: 'permission denied' } }), eq: async () => ({ data: null, error: { message: 'permission denied' } }) }) }),
       }),
     };
     await expect(carregarSnapshotDaImportacao(cliente as never, 'org-1')).rejects.toThrow('permission denied');

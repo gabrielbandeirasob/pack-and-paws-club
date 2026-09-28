@@ -13,13 +13,12 @@ import { NewReservationForm, type NewReservationPayload } from '@/features/calen
 import { CalendarConnectionCard } from '@/features/integrations/google/CalendarConnectionCard';
 import type { BookingForImport } from '@/features/integrations/google/importPlan';
 import { toLocalReservations, diasPausados } from '@/features/integrations/google/localReservations';
-import type { LocalReservation } from '@/features/integrations/google/calendarSync';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
 type ViewMode = 'day' | 'week' | 'month';
 
-type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; google_event_id: string | null; source: 'app' | 'google' | null; dog: { id: string; name: string; client: { name: string } } };
+type ReservationRow = { id: string; status: 'confirmed' | 'cancelled'; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; google_event_id: string | null; source: 'app' | 'google' | null; dog: { id: string; name: string; client: { name: string } } };
 type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; transport_required: boolean; google_event_id: string | null; source: 'app' | 'google' | null; dog: { id: string; name: string; client: { name: string } } };
 type ExceptionRow = { id: string; recurring_schedule_id: string; action: 'skip' | 'transport_on' | 'transport_off'; start_date: string; end_date: string; reason: string | null };
 type DogRow = { id: string; name: string; client: { id: string; name: string } };
@@ -32,11 +31,6 @@ export default function CalendarScreen() {
   const [selectedDay, setSelectedDay] = useState(todayLocalISO());
   const [view, setView] = useState<ViewMode>('day');
   const [reservations, setReservations] = useState<ReservationRecord[]>([]);
-  /**
-   * Reservas CANCELADAS: só existem para o espelho pintar o evento de vermelho (Tomato) em vez de apagá-lo
-   * — palavra do dono (28/09/2026). NÃO entram no `buildDay`: o dia não mostra cão cancelado.
-   */
-  const [canceladasParaEspelho, setCanceladasParaEspelho] = useState<LocalReservation[]>([]);
   const [recurring, setRecurring] = useState<RecurringScheduleRecord[]>([]);
   const [exceptions, setExceptions] = useState<RecurringExceptionRecord[]>([]);
   const [dogs, setDogs] = useState<(DogRef & { clientId?: string })[]>([]);
@@ -58,23 +52,23 @@ export default function CalendarScreen() {
     const orgId = (memberships as { organization_id: string }[] | null)?.[0]?.organization_id ?? null;
     setOrganizationId(orgId);
     if (!orgId) { setLoading(false); return; }
-    const [reservationResult, canceladasResult, recurringResult, exceptionResult, dogResult] = await Promise.all([
+    const [reservationResult, recurringResult, exceptionResult, dogResult] = await Promise.all([
       /**
        * CANCELADAS: entram só para o ESPELHO. Dono, 28/09/2026: *"se a gente cancelar pelo app, eu não
        * quero que você apague o evento do calendário — mude a cor para vermelho (tomato)"*. Sem esta
        * lista, a reserva cancelada sumia daqui e o espelho APAGAVA o evento do escritório.
        */
-      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'cancelled'),
-      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('status', 'confirmed'),
+      supabase.from('reservations').select('id, status, service_type, start_date, end_date, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).in('status', ['confirmed', 'cancelled']),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', orgId),
       supabase.from('dogs').select('id, name, client:clients(id, name)').eq('organization_id', orgId).eq('active', true),
     ]);
-    const queryError = reservationResult.error ?? canceladasResult.error ?? recurringResult.error ?? exceptionResult.error ?? dogResult.error;
+    const queryError = reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? dogResult.error;
     if (queryError) { setError(queryError.message); setLoading(false); return; }
     setReservations(((reservationResult.data as unknown as ReservationRow[]) ?? []).map((row) => ({
       id: row.id,
       dog: { id: row.dog.id, dogName: row.dog.name, clientName: row.dog.client.name },
+      status: row.status,
       serviceType: row.service_type,
       startDate: row.start_date,
       endDate: row.end_date,
@@ -103,20 +97,6 @@ export default function CalendarScreen() {
       reason: row.reason,
     })));
     setDogs(((dogResult.data as unknown as DogRow[]) ?? []).map((row) => ({ id: row.id, dogName: row.name, clientName: row.client.name, clientId: row.client.id })));
-    setCanceladasParaEspelho(
-      ((canceladasResult.data as unknown as ReservationRow[]) ?? []).map((row) => ({
-        id: row.id,
-        dogName: row.dog.name,
-        clientName: row.dog.client.name,
-        serviceType: row.service_type,
-        startDate: row.start_date,
-        endDate: row.end_date,
-        transportRequired: row.transport_required,
-        googleEventId: row.google_event_id ?? null,
-        source: row.source ?? 'app',
-        cancelled: true,
-      })),
-    );
     jaCarregou.current = true;
     setLoading(false);
   }, []);
@@ -153,7 +133,7 @@ export default function CalendarScreen() {
         endDate: reserva.endDate,
         weekdays: null,
         skipDates: null,
-        status: 'confirmed',
+        status: reserva.status ?? 'confirmed',
       })),
       ...recurring
         .filter((serie) => serie.active)
@@ -232,8 +212,13 @@ export default function CalendarScreen() {
 
   const removeReservation = async (item: DayItem) => {
     if (!item.reservationId) return;
-    await supabase.from('reservations').delete().eq('id', item.reservationId);
-    await load();
+    const { error } = await supabase.from('reservations').update({ status: 'cancelled' }).eq('id', item.reservationId);
+    if (error) { showAlert('Unable to cancel', error.message); return; }
+    setReservations((current) => current.map((reservation) =>
+      reservation.id === item.reservationId ? { ...reservation, status: 'cancelled' } : reservation,
+    ));
+    showAlert('Day cancelled', 'The client’s calendar event will turn Tomato on the next Sync.');
+    await load({ silent: true });
   };
 
   const skipDate = async (scheduleId: string) => {
@@ -421,7 +406,7 @@ export default function CalendarScreen() {
             ) : null}
 
             <CalendarConnectionCard
-              reservations={[...reservasParaEspelhar, ...canceladasParaEspelho]}
+              reservations={reservasParaEspelhar}
               organizationId={organizationId ?? ''}
               dogs={dogs.map((cao) => ({ id: cao.id, name: cao.dogName, clientName: cao.clientName }))}
               bookings={casosDaImportacao}

@@ -3,6 +3,8 @@ export type DogRef = { id: string; dogName: string; clientName: string };
 export type ReservationRecord = {
   id: string;
   dog: DogRef;
+  /** Omitido apenas por consumidores legados que já consultam confirmadas. */
+  status?: 'confirmed' | 'cancelled';
   serviceType: 'daycare' | 'boarding';
   startDate: string;
   endDate: string;
@@ -174,6 +176,7 @@ export function buildDay(
   const boarding: DayItem[] = [];
 
   for (const reservation of reservations) {
+    if (reservation.status === 'cancelled') continue;
     if (!isWithin(isoDate, reservation.startDate, reservation.endDate)) continue;
     if (reservation.serviceType === 'boarding') {
       boarding.push(itemize('boarding', reservation, null));
@@ -206,5 +209,17 @@ export function buildDay(
 
   daycare.sort(compareByName);
   boarding.sort(compareByName);
-  return { daycare, boarding };
+  // Agregação de tela: uma entrada por cão/serviço, sem alterar reservas no banco.
+  // Transporte continua disponível se qualquer agendamento desse serviço o pedir.
+  const uniqueDogs = (items: DayItem[]): DayItem[] => {
+    const dogs = new Map<string, DayItem>();
+    for (const item of items) {
+      const existing = dogs.get(item.dogId);
+      dogs.set(item.dogId, existing
+        ? { ...existing, transportRequired: existing.transportRequired || item.transportRequired }
+        : item);
+    }
+    return [...dogs.values()];
+  };
+  return { daycare: uniqueDogs(daycare), boarding: uniqueDogs(boarding) };
 }

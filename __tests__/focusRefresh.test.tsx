@@ -54,6 +54,7 @@ function cadeia(resultado: unknown) {
   const mesma = () => builder;
   builder.select = mesma;
   builder.eq = mesma;
+  builder.in = mesma;
   builder.limit = mesma;
   builder.order = mesma;
   builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve(resultado).then(resolve);

@@ -573,6 +573,13 @@ export function planCalendarImport(
       //    importação) NÃO cria cadastro novo: a reserva segue com o cão dela, que é o mesmo evento.
       const ligada = porEvento.get(evento.id) ?? null;
 
+      // Uma reserva cancelada conserva o vínculo: a leitura automática não pode desfazer
+      // o cancelamento enquanto o gestor ainda não tocou no Sync para pintar Tomato.
+      if (ligada?.kind === 'reservation' && ligada.status === 'cancelled') {
+        vistos.add(evento.id);
+        continue;
+      }
+
       // 6. Evento VERMELHO = cancelamento do dia daquele cão.
       if (cor.kind === 'cancel') {
         vistos.add(evento.id);

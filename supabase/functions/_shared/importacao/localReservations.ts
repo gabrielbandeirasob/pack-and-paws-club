@@ -78,6 +78,7 @@ export function toLocalReservations(
     // Vínculo com o Google (reserva importada): sem isso o espelho criaria um evento NOVO para uma
     // reserva que já tem evento — evento duplicado no calendário do cliente.
     googleEventId: reserva.googleEventId ?? null,
+    ...(reserva.status === 'cancelled' ? { cancelled: true } : {}),
     source: reserva.source ?? 'app',
   }));
 

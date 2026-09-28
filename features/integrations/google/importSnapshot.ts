@@ -79,7 +79,7 @@ export function montarCasosDaImportacao(
 }
 
 /**
- * Lê o que existe AGORA no banco (confirmações + escalas ativas). Chamada pelo cartão do Google no
+ * Lê o que existe AGORA no banco (confirmadas e canceladas + escalas ativas). Chamada pelo cartão do Google no
  * momento da importação — é o que impede a rodada de "criar" o que já está lá.
  */
 export async function carregarSnapshotDaImportacao(
@@ -91,7 +91,7 @@ export async function carregarSnapshotDaImportacao(
       .from('reservations')
       .select('id, dog_id, service_type, start_date, end_date, google_event_id, source, status')
       .eq('organization_id', organizationId)
-      .eq('status', 'confirmed'),
+      .in('status', ['confirmed', 'cancelled']),
     client
       .from('recurring_schedules')
       .select('id, dog_id, weekdays, start_date, end_date, google_event_id, source')
