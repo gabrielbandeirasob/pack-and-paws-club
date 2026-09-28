@@ -268,7 +268,8 @@ describe('plano da importação — o que entra', () => {
     // Mudou de dia e ficou verde: o serviço do app passa a boarding.
     const plano = planCalendarImport([evento({ id: 'e5', summary: 'Bella', colorId: VERDE, startDate: '2026-10-07', endDate: '2026-10-09' })], CAES, ligada, JANELA);
     expect(plano).toEqual([
-      { kind: 'update', eventId: 'e5', bookingKind: 'reservation', bookingId: 'r1', dogId: 'dog-bella', parsed: expect.objectContaining({ serviceType: 'boarding', startDate: '2026-10-07', endDate: '2026-10-08' }) },
+      // `semVinculo: false` = a linha É a dona do vínculo do evento (reescreve, como sempre).
+      { kind: 'update', eventId: 'e5', bookingKind: 'reservation', bookingId: 'r1', dogId: 'dog-bella', semVinculo: false, parsed: expect.objectContaining({ serviceType: 'boarding', startDate: '2026-10-07', endDate: '2026-10-08' }) },
     ]);
   });
 

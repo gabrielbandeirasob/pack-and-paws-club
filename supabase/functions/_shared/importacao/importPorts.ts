@@ -183,7 +183,7 @@ export function supabaseImportPorts(
       return 'created';
     },
 
-    updateBooking: async ({ bookingId, kind, eventId, dogId, parsed }) => {
+    updateBooking: async ({ bookingId, kind, eventId, dogId, parsed, semVinculo = false }) => {
       if (kind === 'recurring') {
         const { error } = await client
           .from('recurring_schedules')
@@ -193,7 +193,7 @@ export function supabaseImportPorts(
             start_date: parsed.startDate,
             end_date: fimDaSerie(parsed),
             active: true,
-            google_event_id: eventId,
+            ...(semVinculo ? {} : { google_event_id: eventId }),
             source: 'google',
           })
           .eq('id', bookingId);
@@ -212,7 +212,9 @@ export function supabaseImportPorts(
           transport_required: parsed.transportRequired ?? true,
           goes_to_daycare: parsed.goesToDaycare ?? true,
           status: 'confirmed',
-          google_event_id: eventId,
+          // O vínculo do evento é único: a linha do SEGUNDO cão de um evento de dois cães atualiza sem
+          // mexer nele (senão bate no índice único e a rodada inteira registra falha).
+          ...(semVinculo ? {} : { google_event_id: eventId }),
           source: 'google',
         })
         .eq('id', bookingId);

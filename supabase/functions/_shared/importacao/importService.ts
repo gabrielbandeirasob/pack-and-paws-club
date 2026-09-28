@@ -66,7 +66,7 @@ export type ImportPorts = {
    * sem isso, a segunda tentativa virava o erro "this event already has a reservation" na tela.
    */
   createBooking: (input: { eventId: string; dogId: string; kind: ExistingBookingKind; parsed: ParsedBooking; semVinculo?: boolean }) => Promise<'created' | 'already'>;
-  updateBooking: (input: { bookingId: string; kind: ExistingBookingKind; eventId: string; dogId: string; parsed: ParsedBooking }) => Promise<void>;
+  updateBooking: (input: { bookingId: string; kind: ExistingBookingKind; eventId: string; dogId: string; parsed: ParsedBooking; semVinculo?: boolean }) => Promise<void>;
   /** Cancela a reserva (marca cancelada) ou desativa a série — o cliente desmarcou no Google. */
   cancelBooking: (input: { bookingId: string; kind: ExistingBookingKind; eventId: string }) => Promise<void>;
   /**
@@ -134,8 +134,12 @@ export async function runCalendarImport({
       resumo.review.push({ eventId: item.eventId, title: item.title, date: item.date, reason: item.reason, parsed: item.parsed });
       continue;
     }
+    // O vínculo do evento já está tomado (por uma reserva que existe ou por outra criação desta
+    // rodada)? Então a reserva NOVA nasce sem ele — e o mesmo valor vai para o registro da falha.
+    const semVinculo =
+      item.kind === 'create' ? eventosComReserva.has(item.eventId) : item.kind === 'update' ? Boolean(item.semVinculo) : false;
     try {
-      const resultado = await aplicar(item, ports, { semVinculo: item.kind === 'create' && eventosComReserva.has(item.eventId) });
+      const resultado = await aplicar(item, ports, { semVinculo });
       if (item.kind === 'create') {
         // Evento que já tinha reserva não é erro nem criação: é o app confirmando o que já existe.
         if (resultado === 'already') {
@@ -153,6 +157,9 @@ export async function runCalendarImport({
       resumo.failures.push({
         eventId: item.eventId,
         reservationId: item.kind === 'create' ? undefined : alvo,
+        dogId: 'dogId' in item ? item.dogId : undefined,
+        serviceType: 'parsed' in item ? item.parsed.serviceType : undefined,
+        semVinculo,
         error: error instanceof Error ? error.message : String(error),
       });
     }
@@ -176,6 +183,7 @@ async function aplicar(
       eventId: item.eventId,
       dogId: item.dogId,
       parsed: item.parsed,
+      semVinculo: item.semVinculo,
     });
     return null;
   }

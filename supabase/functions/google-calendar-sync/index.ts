@@ -104,7 +104,7 @@ async function carregarDadosDaOrganizacao(
   const [reservas, series, excecoes, caes] = await Promise.all([
     admin
       .from('reservations')
-      .select('id, status, service_type, start_date, end_date, google_event_id, source, dog:dogs(id, name, client:clients(name))')
+      .select('id, status, service_type, start_date, end_date, google_event_id, source, goes_to_daycare, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
       .in('status', ['confirmed', 'cancelled']),
     admin
@@ -129,6 +129,7 @@ async function carregarDadosDaOrganizacao(
     end_date: string | null;
     google_event_id: string | null;
     source: string | null;
+    goes_to_daycare: boolean | null;
     dog: { id: string; name: string; client: { name: string } };
   };
   type LinhaDeSerie = LinhaDeReserva & { weekdays: number[] | null; active: boolean };
@@ -153,6 +154,9 @@ async function carregarDadosDaOrganizacao(
     weekdays: null,
     skipDates: null,
     status: row.status,
+    // Contrato do cliente (28/09/2026): todo boarding passa pelo daycare, menos a chegada fora do
+    // horário. Sem o campo aqui, o relógio do servidor comparava `undefined` e atualizava à toa.
+    goesToDaycare: row.goes_to_daycare ?? true,
   }));
 
   const listaExcecoes = ((excecoes.data as unknown as LinhaDeExcecao[]) ?? []).map((row) => ({
@@ -252,7 +256,10 @@ async function sincronizarOrganizacao(
     // calendário. Sem isso, "6 falhas" no log não ajuda ninguém a corrigir.
     const falhas = resumo.failures
       .slice(0, 5)
-      .map((item) => `${item.eventId ?? item.reservationId ?? '?'}: ${item.error}`)
+      // Quem falhou, não só onde: com DOIS cães no mesmo evento, o id do evento não diz qual cão
+      // ficou sem reserva (foi o caso do relógio em 28/09/2026).
+      .map((item) => `${item.eventId ?? item.reservationId ?? '?'}${item.dogId ? ` · ${item.dogId}` : ''}` +
+        `${item.serviceType ? ` · ${item.serviceType}` : ''}${item.semVinculo === undefined ? '' : ` · semVinculo=${item.semVinculo}`}: ${item.error}`)
       .join(' | ');
     const texto =
       `ok${dry ? ' (seco, sem escrever)' : ''} · ${resumo.created} criados · ${resumo.updated} atualizados · ` +

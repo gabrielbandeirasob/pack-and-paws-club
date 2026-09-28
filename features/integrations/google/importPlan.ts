@@ -368,7 +368,13 @@ export type ReviewReason =
 
 export type ImportOutcome =
   | { kind: 'create'; eventId: string; dogId: string; parsed: ParsedBooking }
-  | { kind: 'update'; eventId: string; bookingKind: ExistingBookingKind; bookingId: string; dogId: string; parsed: ParsedBooking }
+  /**
+   * `semVinculo` = NÃO escrever o `google_event_id` nesta linha. Vale para a reserva do SEGUNDO cão de
+   * um evento de dois cães: o vínculo do evento é único por organização e já é da outra linha — escrever
+   * aqui batia no índice único (`reservations_google_event_unico`) e a rodada do relógio devolvia
+   * *"1 falhas"* todo dia 15 min (medido em 28/09/2026 no evento `Sylvie/Agnes`).
+   */
+  | { kind: 'update'; eventId: string; bookingKind: ExistingBookingKind; bookingId: string; dogId: string; parsed: ParsedBooking; semVinculo?: boolean }
   | { kind: 'cancel'; eventId: string; bookingKind: ExistingBookingKind; bookingId: string }
   /** Dia de uma série pulado (evento vermelho sobre uma escala: não se desativa a série inteira). */
   | { kind: 'skip'; eventId: string; scheduleId: string; date: string }
@@ -743,7 +749,16 @@ export function planCalendarImport(
         const dogId = dogDoTitulo ?? ligada.dogId;
         const servico: ParsedBooking = { ...parsed, ...leituraDoDia(cor, parsed, hospedagem, alvo) };
         if (ligada.source === 'google' && precisaAtualizar(ligada, servico, dogId)) {
-          resultados.push({ kind: 'update', eventId: evento.id, bookingKind: ligada.kind, bookingId: ligada.id, dogId, parsed: servico });
+          resultados.push({
+            kind: 'update',
+            eventId: evento.id,
+            bookingKind: ligada.kind,
+            bookingId: ligada.id,
+            dogId,
+            parsed: servico,
+            // A linha é a do OUTRO cão do evento? Então o vínculo não é dela: atualiza sem mexer nele.
+            semVinculo: ligada.googleEventId !== evento.id,
+          });
         }
         continue;
       }
@@ -812,8 +827,22 @@ export function describeImport(resumo: { created: number; already?: number; upda
   return partes.length ? partes.join(' · ') : '';
 }
 
-/** Falha de um item da importação: o evento (ou a reserva) e a mensagem que veio do banco. */
-export type ImportFailure = { eventId?: string; reservationId?: string; error: string };
+/**
+ * Falha de um item da importação: o evento (ou a reserva) e a mensagem que veio do banco.
+ *
+ * `dogId`/`serviceType`/`semVinculo` entraram em 28/09/2026: o relógio do servidor devolvia
+ * *"1 falhas [<evento>: duplicate key…]"* e **não dizia de qual cão era** — com dois cães no mesmo
+ * evento, contar falha não diagnostica. Agora o registro diz quem era e se a reserva ia nascer sem
+ * vínculo (é o que separa "faltou o vínculo" de "o plano tentou ligar duas vezes").
+ */
+export type ImportFailure = {
+  eventId?: string;
+  reservationId?: string;
+  dogId?: string;
+  serviceType?: 'daycare' | 'boarding' | null;
+  semVinculo?: boolean;
+  error: string;
+};
 
 /**
  * Motivos conhecidos, na língua da tela.

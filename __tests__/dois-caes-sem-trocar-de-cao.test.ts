@@ -38,6 +38,7 @@ const vinculada: BookingForImport = {
 };
 
 type Linha = {
+  id?: string;
   dog_id: string;
   google_event_id?: string;
   organization_id: string;
@@ -63,6 +64,23 @@ function banco() {
           linhas.push(linha);
           return { error: null };
         },
+        // O MESMO índice vale no update: reescrever o vínculo de outra linha estoura 23505 (foi o que
+        // o relógio fazia a cada 15 min — "1 falhas" no evento Sylvie/Agnes, 28/09/2026).
+        update: (linha: Partial<Linha>) => ({
+          eq: async (coluna: keyof Linha, valor: string) => {
+            const alvo = linhas.find((salva) => salva[coluna] === valor);
+            if (!alvo) return { error: null };
+            if (
+              linha.google_event_id &&
+              linha.google_event_id !== alvo.google_event_id &&
+              linhas.some((salva) => salva !== alvo && salva.google_event_id === linha.google_event_id)
+            ) {
+              return { error: { code: '23505', message: 'duplicate key value violates unique constraint "reservations_google_event_unico"' } };
+            }
+            Object.assign(alvo, linha);
+            return { error: null };
+          },
+        }),
       }),
     } as never,
     'org-jez',
@@ -113,4 +131,41 @@ it('a segunda reserva nasce SEM o vínculo do evento e a rodada seguinte não at
   const resumo2 = await runCalendarImport(segunda);
   expect(resumo2).toMatchObject({ created: 0, updated: 0, already: 0, failures: [], review: [] });
   expect(linhas).toHaveLength(1);
+});
+
+it('segundo cão com reserva própria (sem vínculo) é ATUALIZADO sem reescrever o vínculo', async () => {
+  // Caso real do relógio (28/09/2026): o evento é de UM dia, a Agnes segura o vínculo e a Sylvie tem a
+  // reserva dela sem vínculo. O plano atualizava a linha da Sylvie gravando o vínculo do evento nela —
+  // o banco recusava (índice único) e a rodada registrava "1 falhas" a cada 15 minutos.
+  const doAgnes: BookingForImport = { ...vinculada, id: 'res-agnes', dogId: 'agnes', googleEventId: null };
+  const plano = planCalendarImport([evento], dogs, [vinculada, doAgnes], window);
+  // Nada a fazer: a linha da Agnes casa com o evento (vínculo) e a da Sylvie já está igual.
+  expect(plano).toEqual([]);
+
+  // Agora com a linha da Sylvie DESATUALIZADA (serviço diferente): o plano manda atualizar SEM o vínculo.
+  const desatualizada: BookingForImport = { ...doAgnes, serviceType: 'boarding' };
+  // A linha da Sylvie casa com o evento (é ela que segura o vínculo); a da Agnes está desatualizada.
+  const comUpdate = planCalendarImport([evento], dogs, [vinculada, desatualizada], window);
+  expect(comUpdate).toMatchObject([
+    { kind: 'update', bookingId: 'res-agnes', dogId: 'agnes', semVinculo: true },
+  ]);
+  expect(comUpdate.every((item) => item.kind !== 'update' || item.semVinculo === true)).toBe(true);
+  const item = comUpdate[0];
+  if (item.kind !== 'update') throw new Error('Esperava um update');
+
+  const { linhas, ports } = banco();
+  linhas.push(
+    { id: 'res-sylvie', dog_id: 'sylvie', google_event_id: evento.id, organization_id: 'org-jez', service_type: 'daycare', start_date: DIA, end_date: DIA, transport_required: true },
+    { id: 'res-agnes', dog_id: 'agnes', organization_id: 'org-jez', service_type: 'daycare', start_date: DIA, end_date: DIA, transport_required: true },
+  );
+  await ports.updateBooking({
+    bookingId: 'res-agnes',
+    kind: 'reservation',
+    eventId: evento.id,
+    dogId: 'agnes',
+    parsed: { ...item.parsed, serviceType: 'daycare' },
+    semVinculo: true,
+  });
+  expect(linhas[1]).toMatchObject({ dog_id: 'agnes', service_type: 'daycare' });
+  expect(linhas[1]).not.toHaveProperty('google_event_id');
 });

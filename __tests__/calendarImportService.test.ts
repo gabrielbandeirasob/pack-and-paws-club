@@ -326,7 +326,8 @@ describe('runCalendarImport', () => {
     });
     expect(criadas).toEqual(['e2']);
     expect(resumo.created).toBe(1);
-    expect(resumo.failures).toEqual([{ eventId: 'e1', reservationId: undefined, error: 'RLS negou' }]);
+    // `toMatchObject`: o registro da falha ganhou cão/serviço/semVinculo em 28/09/2026 (quem falhou).
+    expect(resumo.failures).toMatchObject([{ eventId: 'e1', reservationId: undefined, error: 'RLS negou' }]);
   });
 
   it('falha ao cancelar aparece no resumo com o id do agendamento', async () => {
@@ -359,7 +360,7 @@ describe('runCalendarImport', () => {
       }),
     });
 
-    expect(resumo.failures).toEqual([{ eventId: 'e-sumiu', reservationId: 'r1', error: expect.stringContaining('reservations_check') }]);
+    expect(resumo.failures).toMatchObject([{ eventId: 'e-sumiu', reservationId: 'r1', error: expect.stringContaining('reservations_check') }]);
     // E a tela ganha o MOTIVO da primeira falha, não só a contagem.
     expect(describeImportFailure(resumo.failures)).toBe('1 item(s) from Google could not be saved. First: end_date before start_date');
   });
