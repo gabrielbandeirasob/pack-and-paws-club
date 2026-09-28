@@ -35,6 +35,7 @@ function portas(registro: string[] = [], extras: Partial<ImportPorts> = {}): Imp
   return {
     createBooking: async (entrada) => {
       registro.push(`reserva:${entrada.eventId}:${entrada.dogId}:${String(entrada.parsed.serviceType)}`);
+      return 'created';
     },
     updateBooking: async (entrada) => {
       registro.push(`atualiza:${entrada.bookingId}`);
@@ -260,6 +261,7 @@ describe('runCalendarImport', () => {
       ports: portas([], {
         createBooking: async (entrada) => {
           criadas.push({ kind: entrada.kind, servico: entrada.parsed.serviceType });
+          return 'created';
         },
       }),
     });
@@ -318,6 +320,7 @@ describe('runCalendarImport', () => {
         createBooking: async (entrada) => {
           if (entrada.eventId === 'e1') throw new Error('RLS negou');
           criadas.push(entrada.eventId);
+          return 'created';
         },
       }),
     });
@@ -378,6 +381,7 @@ describe('runCalendarImport', () => {
       ports: portas([], {
         createBooking: async ({ parsed }) => {
           criadas.push({ start_date: parsed.startDate, end_date: parsed.endDate });
+          return 'created';
         },
       }),
     });

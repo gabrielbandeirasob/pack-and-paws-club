@@ -546,7 +546,11 @@ export function planCalendarImport(
       continue;
     }
 
-    // 4 a 8 valem POR CÃO: um evento com dois nomes gera uma decisão (e uma reserva) para cada um.
+    // 4 a 8 valem POR CÃO: um evento com dois nomes gera uma decisão (e uma reserva) para cada um — é
+    // pedido da operação (26/09/2026: "ele tem que identificar que são os dois cachorros… é só uma
+    // parada"). O vínculo com o evento (`google_event_id`) é único por organização, então quem cuida de
+    // NÃO repetir o vínculo é o executor: a 2ª reserva do mesmo evento nasce sem o vínculo (ver
+    // `semVinculo` em importService/importPorts).
     for (const parsed of parsedTodos) {
       // 4. Casa o cao pelo NOME do titulo (normalizado). Nome repetido em dois cadastros nao e
       //    desempatado por tutor: a regra nova nao traz tutor no titulo, entao isso e pendencia.
@@ -683,9 +687,11 @@ export function planCalendarImport(
 }
 
 /** Resumo curto para a tela (mesmo tom do resumo do espelho e no idioma da interface: inglês). */
-export function describeImport(resumo: { created: number; updated: number; cancelled: number; extraDays?: number; review: number }): string {
+export function describeImport(resumo: { created: number; already?: number; updated: number; cancelled: number; extraDays?: number; review: number }): string {
   const partes: string[] = [];
   if (resumo.created) partes.push(`${resumo.created} from Google`);
+  // Evento que já tinha reserva (ver `ImportSummary.already`): informação, não erro.
+  if (resumo.already) partes.push(`${resumo.already} already in the app`);
   if (resumo.updated) partes.push(`${resumo.updated} updated`);
   if (resumo.extraDays) partes.push(`${resumo.extraDays} linked to a recurring schedule`);
   if (resumo.cancelled) partes.push(`${resumo.cancelled} cancelled`);

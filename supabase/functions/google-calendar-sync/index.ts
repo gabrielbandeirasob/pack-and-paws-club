@@ -50,11 +50,16 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
-/** Portas de contagem: planeja tudo e não escreve nada (modo `?dry=1`). */
+/**
+ * Portas de contagem: planeja tudo e não escreve nada (modo `?dry=1`).
+ *
+ * `createBooking` devolve `'created'` porque é o que a porta de verdade devolve quando a linha entra —
+ * nesse modo nada entra, mas o resumo do `dry` conta o que ENTRARIA.
+ */
 function portasDeContagem(): ImportPorts {
   const nada = async () => undefined;
   return {
-    createBooking: nada,
+    createBooking: async () => 'created' as const,
     updateBooking: nada,
     cancelBooking: nada,
     skipRecurringDay: nada,

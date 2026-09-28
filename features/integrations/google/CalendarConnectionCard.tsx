@@ -62,6 +62,7 @@ import {
 import type { LocalReservation } from './calendarSync';
 import { escolhaDaRevisao, supabaseImportPorts } from './importPorts';
 import { describeImport, describeImportFailure, kindOf, type BookingForImport, type DogForImport } from './importPlan';
+import { carregarSnapshotDaImportacao } from './importSnapshot';
 import { runCalendarImport, type ImportReviewItem, type ImportSummary } from './importService';
 import { JANELA_AUTO_MS, lerUltimaSincronizacao, marcarSincronizacao, precisaSincronizar } from './lastSyncStore';
 import { describeSummary, runCalendarSync } from './sync';
@@ -278,7 +279,14 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
         range: { timeMin: janelaImport.timeMin, timeMax: janelaImport.timeMax },
         window: { from: janelaImport.from, to: janelaImport.to },
         dogs,
-        reservations: bookings,
+        /**
+         * FOTOGRAFIA FRESCA (produção, 27/09/2026): a lista `bookings` vem do estado da tela, carregado no
+         * foco da aba. Numa rodada em que ela estava desatualizada, todo evento que já tinha reserva
+         * parecia novo e o escritório leu "26 item(s) from Google could not be saved". Aqui relemos o
+         * banco no momento da importação; se essa leitura falhar, cai na lista da tela (e a portaria do
+         * banco — que trata violação de único como "já está no app" — cobre o resto).
+         */
+        reservations: await carregarSnapshotDaImportacao(supabase, organizationId).catch(() => bookings),
         doFetch: fetchReal,
         ports: supabaseImportPorts(supabase, organizationId),
         calendarId: escolha.calendarId,
@@ -311,6 +319,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
         const importado = await rodarImportacao(accessToken, labels);
         const daImportacao = describeImport({
           created: importado.created,
+          already: importado.already,
           updated: importado.updated,
           cancelled: importado.cancelled,
           extraDays: importado.extraDays,
@@ -373,6 +382,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
         const importado = await rodarImportacao(accessToken, labels);
         const daImportacao = describeImport({
           created: importado.created,
+          already: importado.already,
           updated: importado.updated,
           cancelled: importado.cancelled,
           extraDays: importado.extraDays,

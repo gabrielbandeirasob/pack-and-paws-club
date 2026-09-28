@@ -41,6 +41,12 @@ export type ImportReviewItem = {
 
 export type ImportSummary = {
   created: number;
+  /**
+   * Eventos que já tinham reserva no app (o banco recusou por único). Entrou em 27/09/2026, quando o
+   * escritório viu *"26 item(s) from Google could not be saved"* numa rodada em que a lista local estava
+   * desatualizada: o certo é dizer "já está no app", não acusar falha.
+   */
+  already: number;
   updated: number;
   cancelled: number;
   /** Dias extras ligados a escalas (evento ROXO) — o dia entrou na escala, não virou reserva avulsa. */
@@ -51,8 +57,15 @@ export type ImportSummary = {
 };
 
 export type ImportPorts = {
-  /** Cria a reserva (data avulsa) ou a série (dias da semana) conforme o formato do evento. */
-  createBooking: (input: { eventId: string; dogId: string; kind: ExistingBookingKind; parsed: ParsedBooking }) => Promise<void>;
+  /**
+   * Cria a reserva (data avulsa) ou a série (dias da semana) conforme o formato do evento.
+   *
+   * `semVinculo` = o evento JÁ ficou ligado a outra reserva desta mesma rodada (casa com dois cães:
+   * cada um tem a sua reserva). O banco só aceita UM `google_event_id` por organização
+   * (`reservations_google_event_unico`), então a partir da segunda reserva o vínculo não é repetido —
+   * sem isso, a segunda tentativa virava o erro "this event already has a reservation" na tela.
+   */
+  createBooking: (input: { eventId: string; dogId: string; kind: ExistingBookingKind; parsed: ParsedBooking; semVinculo?: boolean }) => Promise<'created' | 'already'>;
   updateBooking: (input: { bookingId: string; kind: ExistingBookingKind; eventId: string; dogId: string; parsed: ParsedBooking }) => Promise<void>;
   /** Cancela a reserva (marca cancelada) ou desativa a série — o cliente desmarcou no Google. */
   cancelBooking: (input: { bookingId: string; kind: ExistingBookingKind; eventId: string }) => Promise<void>;
@@ -101,7 +114,13 @@ export async function runCalendarImport({
   const eventos = await listAllEvents(accessToken, range, doFetch, calendarId);
   const plano = planCalendarImport(eventos, dogs, reservations, window, { labels });
 
-  const resumo: ImportSummary = { created: 0, updated: 0, cancelled: 0, extraDays: 0, review: [], failures: [] };
+  const resumo: ImportSummary = { created: 0, already: 0, updated: 0, cancelled: 0, extraDays: 0, review: [], failures: [] };
+
+  /**
+   * Eventos que JÁ ganharam reserva nesta rodada: a segunda reserva do mesmo evento (casa com dois cães)
+   * nasce sem o vínculo do evento, porque o índice do banco é único por evento.
+   */
+  const eventosComReserva = new Set<string>();
 
   for (const item of plano) {
     if (item.kind === 'review') {
@@ -109,8 +128,16 @@ export async function runCalendarImport({
       continue;
     }
     try {
-      await aplicar(item, ports);
-      if (item.kind === 'create') resumo.created += 1;
+      const resultado = await aplicar(item, ports, { semVinculo: item.kind === 'create' && eventosComReserva.has(item.eventId) });
+      if (item.kind === 'create') {
+        // Evento que já tinha reserva não é erro nem criação: é o app confirmando o que já existe.
+        if (resultado === 'already') {
+          resumo.already += 1;
+        } else {
+          resumo.created += 1;
+          eventosComReserva.add(item.eventId);
+        }
+      }
       else if (item.kind === 'update') resumo.updated += 1;
       else if (item.kind === 'extraDay') resumo.extraDays += 1;
       else resumo.cancelled += 1;
@@ -127,10 +154,13 @@ export async function runCalendarImport({
   return resumo;
 }
 
-async function aplicar(item: Exclude<ImportOutcome, { kind: 'review' }>, ports: ImportPorts): Promise<void> {
+async function aplicar(
+  item: Exclude<ImportOutcome, { kind: 'review' }>,
+  ports: ImportPorts,
+  opcoes: { semVinculo?: boolean } = {},
+): Promise<'created' | 'already' | null> {
   if (item.kind === 'create') {
-    await ports.createBooking({ eventId: item.eventId, dogId: item.dogId, kind: kindOf(item.parsed), parsed: item.parsed });
-    return;
+    return ports.createBooking({ eventId: item.eventId, dogId: item.dogId, kind: kindOf(item.parsed), parsed: item.parsed, semVinculo: opcoes.semVinculo });
   }
   if (item.kind === 'update') {
     await ports.updateBooking({
@@ -140,11 +170,11 @@ async function aplicar(item: Exclude<ImportOutcome, { kind: 'review' }>, ports: 
       dogId: item.dogId,
       parsed: item.parsed,
     });
-    return;
+    return null;
   }
   if (item.kind === 'skip') {
     await ports.skipRecurringDay({ scheduleId: item.scheduleId, date: item.date, eventId: item.eventId });
-    return;
+    return null;
   }
   if (item.kind === 'extraDay') {
     // O dia entra na ESCALA (dia extra). Se o evento já tinha virado reserva solta (antes estava azul),
@@ -153,9 +183,10 @@ async function aplicar(item: Exclude<ImportOutcome, { kind: 'review' }>, ports: 
       await ports.cancelBooking({ bookingId: item.looseBookingId, kind: 'reservation', eventId: item.eventId });
     }
     await ports.addScheduleExtraDay({ scheduleId: item.scheduleId, date: item.date, eventId: item.eventId });
-    return;
+    return null;
   }
   await ports.cancelBooking({ bookingId: item.bookingId, kind: item.bookingKind, eventId: item.eventId });
+  return null;
 }
 
 export function hasImportChanges(resumo: ImportSummary): boolean {

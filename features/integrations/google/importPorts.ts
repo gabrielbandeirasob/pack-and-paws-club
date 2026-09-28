@@ -84,8 +84,26 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
    * (`parsed.transportRequired`), que só manda `false` quando o cão tem chegada/saída marcada na
    * janela. Aqui o padrão segue `true` para tudo que não veio decidido.
    */
+  /**
+   * `true` quando o banco recusou por VIOLAÇÃO DE ÚNICO — em `reservations` isso só acontece no índice
+   * `reservations_google_event_unico (organization_id, google_event_id)`: quer dizer que aquele EVENTO do
+   * Google já tem reserva no app.
+   *
+   * Por que isso virou caso tratado (produção, 27/09/2026): o escritório tocou em "Sync now" e a tela
+   * mostrou *"26 item(s) from Google could not be saved. First: this event already has a reservation"* —
+   * a importação rodou com uma fotografia das reservas que não incluía as ligadas àqueles eventos, então
+   * o plano tentou CRIAR o que já existia. Prova de que era a fotografia e não a regra: a mesma
+   * importação, rodando no servidor e lendo o banco na hora, deu `0 criados · 5 atualizados · 0 para
+   * revisar`.
+   *
+   * Regra: evento que já tem reserva = importado. Não é erro do escritório nem motivo para assustar
+   * ninguém: a reserva já existe e o próximo Sync (ou o do servidor) atualiza o que mudou.
+   */
+  const jaImportado = (error: { code?: string; message?: string }): boolean =>
+    error.code === '23505' || /duplicate key value/i.test(error.message ?? '');
+
   return {
-    createBooking: async ({ eventId, dogId, kind, parsed }) => {
+    createBooking: async ({ eventId, dogId, kind, parsed, semVinculo = false }) => {
       if (kind === 'recurring') {
         const { data, error } = await client
           .from('recurring_schedules')
@@ -97,15 +115,19 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
             end_date: fimDaSerie(parsed),
             active: true,
             transport_required: parsed.transportRequired ?? true,
-            google_event_id: eventId,
+            // Mesma razão da reserva: o vínculo do evento é único por organização (casa com dois cães).
+            ...(semVinculo ? {} : { google_event_id: eventId }),
             source: 'google',
           })
           .select('id')
           .single();
-        if (error) throw new Error(error.message);
+        if (error) {
+          if (jaImportado(error)) return 'already';
+          throw new Error(error.message);
+        }
         const criado = (data as { id: string } | null)?.id;
         if (criado) await gravarPausas(criado, parsed.skipDates);
-        return;
+        return 'created';
       }
 
       const { error } = await client.from('reservations').insert({
@@ -115,10 +137,19 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
         start_date: parsed.startDate,
         end_date: parsed.endDate,
         transport_required: parsed.transportRequired ?? true,
-        google_event_id: eventId,
+        /**
+         * CASA COM DOIS CÃES (26/09/2026): cada cão tem a SUA reserva no mesmo dia, mas o
+         * `google_event_id` é único por organização. Só a PRIMEIRA reserva do evento fica com o vínculo;
+         * a segunda nasce sem ele (a reserva existe do mesmo jeito e o dia do cão não se perde).
+         */
+        ...(semVinculo ? {} : { google_event_id: eventId }),
         source: 'google',
       });
-      if (error) throw new Error(error.message);
+      if (error) {
+        if (jaImportado(error)) return 'already';
+        throw new Error(error.message);
+      }
+      return 'created';
     },
 
     updateBooking: async ({ bookingId, kind, eventId, dogId, parsed }) => {
