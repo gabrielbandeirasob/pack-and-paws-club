@@ -131,6 +131,7 @@ describe('portas do banco: o dia de hotel é gravado sem transporte', () => {
   function lido(transportRequired: boolean): ParsedBooking {
     return {
       serviceType: 'boarding',
+      goesToDaycare: true,
       color: { source: 'label', labelId: BASIL.id, labelName: 'Basil', backgroundColor: BASIL.backgroundColor, colorId: null, meaning: { kind: 'service', serviceType: 'boarding' } },
       cancels: false,
       transportRequired,

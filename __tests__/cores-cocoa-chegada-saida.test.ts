@@ -46,10 +46,10 @@ describe('COCOA no dia de CHEGADA da hospedagem = boarding', () => {
     expect([...coberturaDaHospedagem(events, labels).get('kona')!].sort()).toEqual(['2026-10-02', '2026-10-03']);
   });
 
-  it('o dia da chegada entra como BOARDING e NUNCA pede van', () => {
+  it('o dia da chegada entra como BOARDING, NUNCA pede van e fica FORA do daycare', () => {
     expect(decisao(events, 'ev-cocoa')).toMatchObject({
       kind: 'create',
-      parsed: { serviceType: 'boarding', transportRequired: false },
+      parsed: { serviceType: 'boarding', transportRequired: false, goesToDaycare: false },
     });
   });
 
@@ -66,6 +66,8 @@ describe('COCOA no dia de CHEGADA da hospedagem = boarding', () => {
       startDate: '2026-10-01',
       endDate: '2026-10-01',
       transportRequired: false,
+      // CHEGADA fora do horário: o cão não passa pelo daycare (contrato escrito, 28/09/2026).
+      goesToDaycare: false,
     };
     const dia = buildDay('2026-10-01', [reserva], []);
     expect(dia.boarding.map((item) => item.dogName)).toEqual(['Kona']);
@@ -76,26 +78,27 @@ describe('COCOA no dia de CHEGADA da hospedagem = boarding', () => {
 });
 
 describe('COCOA no dia de SAÍDA e em dia de daycare = daycare', () => {
-  it('saída fora do horário (a estadia ficou para trás) conta como DAYCARE', () => {
-    const events = [estadia('2026-10-02', '2026-10-04'), cocoa('2026-10-05', 'ev-saida')];
+  it('saída fora do horário (a estadia ficou para trás) é BOARDING que VAI pro daycare', () => {
+    // A estadia vai até 04/10 (o fim do evento no Google é EXCLUSIVO: `2026-10-05` = dias 02, 03 e 04).
+    const events = [estadia('2026-10-02', '2026-10-05'), cocoa('2026-10-05', 'ev-saida')];
     expect(decisao(events, 'ev-saida')).toMatchObject({
       kind: 'create',
-      parsed: { serviceType: 'daycare', transportRequired: false },
+      parsed: { serviceType: 'boarding', transportRequired: false, goesToDaycare: true },
     });
   });
 
   it('cão de daycare entregue depois do horário (sem hospedagem) conta como DAYCARE', () => {
     expect(decisao([cocoa('2026-10-01', 'ev-daycare')], 'ev-daycare')).toMatchObject({
       kind: 'create',
-      parsed: { serviceType: 'daycare', transportRequired: false },
+      parsed: { serviceType: 'daycare', transportRequired: false, goesToDaycare: true },
     });
   });
 
-  it('hospedagem que começa no DIA SEGUINTE não faz o Cocoa virar boarding por engano (buraco de um dia)', () => {
+  it('hospedagem que começa no DIA SEGUINTE não faz o Cocoa virar chegada por engano (buraco de um dia)', () => {
     const events = [cocoa('2026-10-01', 'ev-antes'), estadia('2026-10-03', '2026-10-05')];
     expect(decisao(events, 'ev-antes')).toMatchObject({
       kind: 'create',
-      parsed: { serviceType: 'daycare', transportRequired: false },
+      parsed: { serviceType: 'daycare', transportRequired: false, goesToDaycare: true },
     });
   });
 });

@@ -53,6 +53,7 @@ const PARSED_BASE = {
   weekdays: [],
   skipDates: [],
   transportRequired: true,
+  goesToDaycare: true,
   openEnded: false,
 };
 

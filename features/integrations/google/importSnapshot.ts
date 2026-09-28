@@ -30,6 +30,7 @@ export type ReservaParaImportar = {
   google_event_id: string | null;
   source: string | null;
   status: string;
+  goes_to_daycare?: boolean | null;
 };
 
 /** Linha crua de `recurring_schedules` (só o que o plano usa). */
@@ -61,6 +62,7 @@ export function montarCasosDaImportacao(
       weekdays: null,
       skipDates: null,
       status: reserva.status as BookingForImport['status'],
+      goesToDaycare: reserva.goes_to_daycare ?? true,
     })),
     ...series.map((serie) => ({
       id: serie.id,
@@ -89,7 +91,7 @@ export async function carregarSnapshotDaImportacao(
   const [reservas, series] = await Promise.all([
     client
       .from('reservations')
-      .select('id, dog_id, service_type, start_date, end_date, google_event_id, source, status')
+      .select('id, dog_id, service_type, start_date, end_date, google_event_id, source, status, goes_to_daycare')
       .eq('organization_id', organizationId)
       .in('status', ['confirmed', 'cancelled']),
     client

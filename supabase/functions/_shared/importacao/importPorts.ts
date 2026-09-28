@@ -165,6 +165,9 @@ export function supabaseImportPorts(
         start_date: parsed.startDate,
         end_date: parsed.endDate,
         transport_required: parsed.transportRequired ?? true,
+        // Contrato do cliente (28/09/2026): "todo boarding vai pro daycare" — a importação marca FALSE
+        // só na chegada fora do horário (Cocoa no pick-up), quando o cão não passa pelo daycare.
+        goes_to_daycare: parsed.goesToDaycare ?? true,
         /**
          * CASA COM DOIS CÃES (26/09/2026): cada cão tem a SUA reserva no mesmo dia, mas o
          * `google_event_id` é único por organização. Só a PRIMEIRA reserva do evento fica com o vínculo;
@@ -206,6 +209,8 @@ export function supabaseImportPorts(
           service_type: parsed.serviceType,
           start_date: parsed.startDate,
           end_date: parsed.endDate,
+          transport_required: parsed.transportRequired ?? true,
+          goes_to_daycare: parsed.goesToDaycare ?? true,
           status: 'confirmed',
           google_event_id: eventId,
           source: 'google',

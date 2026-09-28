@@ -1,12 +1,29 @@
 /**
- * Regra do cliente (áudio de 23/09/2026): cão em BOARDING que também faz DAYCARE no mesmo dia já
- * começa o dia dentro da van — "ele não tem necessidade de aparecer para fazer rota de pickup".
+ * VAN DO DIA — quem já está dentro dela, quem entra na fila principal e quem vai pro Total Pack.
  *
- * E a complementação do MESMO áudio: "pode ser que algum que vai pro daycare precise voltar para a
- * casa... então é melhor que o administrador possa dizer quais cachorros estão para aquele dia, ou
- * pelo menos confirmar manualmente". Por isso existem DUAS listas:
- *   transportPool -> fila principal do Dispatch (precisa de pickup);
+ * Pedido do cliente em áudio (23/09/2026): cão em BOARDING que também faz DAYCARE no mesmo dia já
+ * começa o dia dentro da van — "ele não tem necessidade de aparecer para fazer rota de pickup". E a
+ * complementação do mesmo áudio: "pode ser que algum que vai pro daycare precise voltar para a casa…
+ * então é melhor que o administrador possa dizer quais cachorros estão para aquele dia, ou pelo menos
+ * confirmar manualmente". Por isso existem DUAS listas:
+ *   transportPool -> fila principal do Dispatch (é parada da rota);
  *   vanPool       -> seção separada ("já na van"), para o gestor incluir à mão quando precisar.
+ *
+ * CONTRATO ESCRITO (28/09/2026) — é ele que manda agora:
+ *   * "por via de regra todo boarding vai pro daycare (ou seja eles no início do dia já estarão dentro
+ *     da van esperando o driver e na rota de drop off eles voltam pro ponto de drop da van junto com o
+ *     motorista — não entra como parada na rota, mas entram na lista de total pack e contagem do dia)";
+ *   * "Avocado - pick up ou drop off do boarding (…) através dos drivers" e "Quem for avocado no dia de
+ *     drop off ele entra como um ponto na rota normal";
+ *   * "Cocoa - (…) o mesmo que o Avocado, a diferença está no horário (…) no pick up cocoa (…) ele entra
+ *     no total de cães mas NÃO entra no total pack porque o cão não estará no day care".
+ *
+ * Traduzido para as colunas que o app tem:
+ *   - dia de HOTEL sem movimento (`boarding` + `transport_required = false`) = já está na van, não é
+ *     parada, entra no Total Pack;
+ *   - dia de MOVIMENTO (`boarding` + `transport_required = true`, o Avocado) = parada normal da rota;
+ *   - CHEGADA fora do horário (`goes_to_daycare = false`) = não está na van, não é parada e fica FORA do
+ *     Total Pack.
  */
 import {
   buildDay,
@@ -38,30 +55,42 @@ function reserva(parcial: Partial<ReservationRecord> & { id: string; dog: Return
   } as ReservationRecord;
 }
 
-const boardingFiló = (id: string, extras: Partial<ReservationRecord> = {}) =>
-  reserva({ id, dog: cao('d1', 'Filó', 'Amor'), serviceType: 'boarding', startDate: '2026-09-21', endDate: '2026-09-27', ...extras });
+/** Basil: dia de HOTEL do meio da hospedagem — sem movimento, o cão já está na van. */
+const basil = (id: string, extras: Partial<ReservationRecord> = {}) =>
+  reserva({ id, dog: cao('d1', 'Filó', 'Amor'), serviceType: 'boarding', startDate: '2026-09-21', endDate: '2026-09-27', transportRequired: false, ...extras });
 
-describe('dogsJaNaVan', () => {
-  it('cão em boarding que faz daycare no dia já está na van', () => {
-    const day = dia([boardingFiló('r1'), reserva({ id: 'r2', dog: cao('d1', 'Filó', 'Amor') })]);
-    expect([...dogsJaNaVan(day)]).toEqual(['d1']);
+/** Avocado: dia de chegada/saída da hospedagem — o driver busca ou entrega: parada da rota. */
+const avocado = (id: string, extras: Partial<ReservationRecord> = {}) =>
+  reserva({ id, dog: cao('d1', 'Filó', 'Amor'), serviceType: 'boarding', transportRequired: true, ...extras });
+
+describe('dogsJaNaVan (quem já está dentro da van)', () => {
+  it('dia de hotel (Basil) já está na van — mesmo sem evento de daycare no mesmo dia', () => {
+    expect([...dogsJaNaVan(dia([basil('r1')]))]).toEqual(['d1']);
   });
 
-  it('cão só em boarding (sem daycare no dia) NÃO está na van', () => {
-    const day = dia([reserva({ id: 'r1', dog: cao('d2', 'Thor', 'Maria'), serviceType: 'boarding', startDate: '2026-09-21', endDate: '2026-09-27' })]);
+  it('dia de movimento (Avocado) NÃO está na van: ele é ponto da rota', () => {
+    expect([...dogsJaNaVan(dia([avocado('r1')]))]).toEqual([]);
+  });
+
+  it('chegada fora do horário (Cocoa no pick-up) NÃO está na van — o cão não vai pro daycare', () => {
+    const day = dia([basil('r1', { goesToDaycare: false })]);
     expect([...dogsJaNaVan(day)]).toEqual([]);
   });
 
   it('cão só em daycare no dia NÃO está na van', () => {
-    const day = dia([reserva({ id: 'r1', dog: cao('d3', 'Kona', 'Leigh Ann') })]);
-    expect([...dogsJaNaVan(day)]).toEqual([]);
+    expect([...dogsJaNaVan(dia([reserva({ id: 'r1', dog: cao('d3', 'Kona', 'Leigh Ann') })]))]).toEqual([]);
   });
 });
 
 describe('transportPool (fila principal que o Dispatch oferece)', () => {
-  it('tira da rota o cão que está boarding e faz daycare no mesmo dia', () => {
-    const day = dia([boardingFiló('r1'), reserva({ id: 'r2', dog: cao('d1', 'Filó', 'Amor') }), reserva({ id: 'r3', dog: cao('d2', 'Kona', 'Leigh Ann') })]);
+  it('não oferece o cão que já está na van (hotel) e mantém os outros', () => {
+    const day = dia([basil('r1'), reserva({ id: 'r2', dog: cao('d1', 'Filó', 'Amor') }), reserva({ id: 'r3', dog: cao('d2', 'Kona', 'Leigh Ann') })]);
     expect(transportPool(day).map((item) => item.dogId)).toEqual(['d2']);
+  });
+
+  it('dia de movimento do boarding entra na fila (é parada normal da rota)', () => {
+    const day = dia([avocado('r1', { dog: cao('d1', 'Filó', 'Amor') })]);
+    expect(transportPool(day).map((item) => item.dogId)).toEqual(['d1']);
   });
 
   it('mantém quem precisa de transporte e não está na van', () => {
@@ -92,28 +121,24 @@ describe('transportPool (fila principal que o Dispatch oferece)', () => {
 });
 
 describe('vanPool (seção "já na van" do Dispatch)', () => {
-  it('lista o cão em boarding que faz daycare no dia — e ele NÃO fica na fila principal', () => {
-    const day = dia([boardingFiló('r1'), reserva({ id: 'r2', dog: cao('d1', 'Filó', 'Amor') }), reserva({ id: 'r3', dog: cao('d2', 'Kona', 'Leigh Ann') })]);
+  it('lista o cão de hotel — e ele NÃO fica na fila principal', () => {
+    const day = dia([basil('r1'), reserva({ id: 'r3', dog: cao('d2', 'Kona', 'Leigh Ann') })]);
     expect(vanPool(day).map((item) => item.dogId)).toEqual(['d1']);
     expect(transportPool(day).map((item) => item.dogId)).toEqual(['d2']);
   });
 
   it('não repete o cão na seção', () => {
-    const day = dia([boardingFiló('r1'), reserva({ id: 'r2', dog: cao('d1', 'Filó', 'Amor') })]);
-    expect(vanPool(day)).toHaveLength(1);
+    expect(vanPool(dia([basil('r1'), basil('r2')]))).toHaveLength(1);
   });
 
-  it('cão em boarding sem daycare no dia NÃO entra na seção (ele precisa de pickup)', () => {
-    const day = dia([reserva({ id: 'r1', dog: cao('d2', 'Thor', 'Maria'), serviceType: 'boarding', startDate: '2026-09-21', endDate: '2026-09-27' })]);
+  it('o dia de movimento NÃO entra na seção (ele é ponto da rota)', () => {
+    const day = dia([avocado('r1', { dog: cao('d2', 'Thor', 'Maria') })]);
     expect(vanPool(day)).toEqual([]);
     expect(transportPool(day).map((item) => item.dogId)).toEqual(['d2']);
   });
 
-  it('quem não pede transporte não entra em nenhuma das duas', () => {
-    const day = dia([
-      boardingFiló('r1', { transportRequired: false }),
-      reserva({ id: 'r2', dog: cao('d1', 'Filó', 'Amor'), transportRequired: false }),
-    ]);
+  it('a chegada fora do horário não entra em nenhuma das duas', () => {
+    const day = dia([basil('r1', { dog: cao('d2', 'Thor', 'Maria'), goesToDaycare: false })]);
     expect(vanPool(day)).toEqual([]);
     expect(transportPool(day)).toEqual([]);
   });

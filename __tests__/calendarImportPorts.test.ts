@@ -52,6 +52,7 @@ function clienteFalso(respostas: Record<string, Resposta> = {}, chamadas: string
 
 const parsed: ParsedBooking = {
   serviceType: 'boarding',
+  goesToDaycare: true,
   // O que foi lido na cor do evento (paleta antiga, `colorId` 2 = Sage): a tela mostra isso.
   color: { source: 'colorId', labelId: null, labelName: null, backgroundColor: null, colorId: '2', meaning: { kind: 'service', serviceType: 'boarding' } },
   cancels: false,

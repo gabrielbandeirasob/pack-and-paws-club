@@ -9,6 +9,14 @@ export type ReservationRecord = {
   startDate: string;
   endDate: string;
   transportRequired: boolean;
+  /**
+   * O cão passa pelo DAYCARE neste dia (entra no Total Pack e na seção "já está na van"). Contrato do
+   * cliente, escrito em 28/09/2026: *"por via de regra todo boarding vai pro daycare (ou seja eles no
+   * início do dia já estarão dentro da van esperando o driver)"*. A única exceção é a **chegada fora do
+   * horário** (Cocoa no pick-up): *"ele entra no total de cães mas não entra no total pack porque o cão
+   * não estará no day care"*. Omitido = `true` (reserva antiga/criada no app, série de daycare).
+   */
+  goesToDaycare?: boolean;
   /** Evento do Google que originou a reserva (reserva importada) — ver migration 025. */
   googleEventId?: string | null;
   /** 'google' = nasceu no Google Calendar (lá manda); 'app' = nasceu no aplicativo. */
@@ -49,6 +57,8 @@ export type DayItem = {
   dogName: string;
   clientName: string;
   transportRequired: boolean;
+  /** O cão passa pelo daycare hoje (ver `ReservationRecord.goesToDaycare`). */
+  goesToDaycare: boolean;
   // True when this recurring occurrence is currently overridden to skip (paused) on the built day.
   paused?: boolean;
 };
@@ -56,16 +66,29 @@ export type DayItem = {
 export type DaySummary = { daycare: DayItem[]; boarding: DayItem[] };
 
 /**
- * Cães que já começam o dia DENTRO da van: estão em boarding e também fazem daycare no mesmo dia.
+ * Cães que já começam o dia DENTRO da van (não precisam de pickup).
  *
- * Pedido do cliente em áudio (23/09/2026): "se o cachorro está boarding, o administrador é capaz de
- * escolher se ele vai ou não para o daycare; e normalmente se ele for para o daycare, ele já vai
- * começar dentro da van aquele dia. Então ele não tem necessidade de aparecer para fazer rota de
- * pickup, porque ele está boarding."
+ * Pedido do cliente em áudio (23/09/2026): "se o cachorro está boarding… ele já vai começar dentro da
+ * van aquele dia. Então ele não tem necessidade de aparecer para fazer rota de pickup, porque ele está
+ * boarding."
+ *
+ * CONTRATO ESCRITO (28/09/2026) — o que fecha a regra: *"por via de regra todo boarding vai pro daycare
+ * (ou seja eles no início do dia já estarão dentro da van esperando o driver e na rota de drop off eles
+ * voltam pro ponto de drop da van junto com o motorista — **não entra como parada na rota**, mas entram
+ * na lista de total pack e contagem do dia)"*. Então quem está na van é o dia de HOTEL **sem movimento**
+ * (`transport_required = false`: Basil e a saída fora do horário) que passa pelo daycare — não é mais
+ * preciso o calendário ter DOIS eventos no mesmo dia.
+ *
+ * A chegada fora do horário (Cocoa no pick-up) fica de fora: `goesToDaycare = false` ("o cão não estará
+ * no day care"). Dia de movimento (avocado, chegada ou saída com o driver) também fica de fora — ele
+ * ENTRA como parada normal da rota.
  */
 export function dogsJaNaVan(day: DaySummary): Set<string> {
-  const emDaycare = new Set(day.daycare.filter((item) => !item.paused).map((item) => item.dogId));
-  return new Set(day.boarding.filter((item) => emDaycare.has(item.dogId)).map((item) => item.dogId));
+  return new Set(
+    day.boarding
+      .filter((item) => !item.transportRequired && item.goesToDaycare)
+      .map((item) => item.dogId),
+  );
 }
 
 /**
@@ -87,18 +110,20 @@ export function transportPool(day: DaySummary): DayItem[] {
 }
 
 /**
- * Cães que JÁ ESTÃO NA VAN (boarding + daycare no mesmo dia), para a seção separada do Dispatch.
+ * Cães que JÁ ESTÃO NA VAN, para a seção separada do Dispatch ("Boarding — already in the van").
  *
- * Por que existem mesmo sem precisar de pickup (áudio do cliente, 23/09/2026): "pode ser que algum
- * que vai pro daycare precise voltar para a casa... então é melhor que o administrador possa dizer
- * quais cachorros estão para aquele dia, ou pelo menos confirmar manualmente". Ou seja: saem da fila
+ * Por que existem mesmo sem precisar de pickup (áudio do cliente, 23/09/2026): "pode ser que algum que
+ * vai pro daycare precise voltar para a casa… então é melhor que o administrador possa dizer quais
+ * cachorros estão para aquele dia, ou pelo menos confirmar manualmente". Ou seja: saem da fila
  * principal, mas continuam à mão do gestor para incluir na rota quando precisarem voltar.
+ *
+ * Contrato escrito (28/09/2026): o dia de hotel sem movimento entra aqui sozinho (Basil e a saída fora
+ * do horário) — `dogsJaNaVan` é quem decide.
  */
 export function vanPool(day: DaySummary): DayItem[] {
   const jaNaVan = dogsJaNaVan(day);
   const vistos = new Set<string>();
-  return [...day.boarding, ...day.daycare].filter((item) => {
-    if (!item.transportRequired) return false;
+  return day.boarding.filter((item) => {
     if (!jaNaVan.has(item.dogId)) return false;
     if (vistos.has(item.dogId)) return false;
     vistos.add(item.dogId);
@@ -127,6 +152,7 @@ function itemize(kind: DayItem['kind'], reservation: ReservationRecord | null, s
     reservationId: reservation?.id ?? null,
     recurringScheduleId: schedule?.id ?? null,
     transportRequired: source.transportRequired,
+    goesToDaycare: reservation?.goesToDaycare ?? true,
   };
 }
 

@@ -205,6 +205,8 @@ describe('ida e volta do formato', () => {
       // (amarelo/verde-claro). Como este evento é o espelho do PRÓPRIO app, a reserva dele é ligada
       // pelo `google_event_id` e o `updateBooking` não mexe no transporte — o que o gestor marcou fica.
       transportRequired: false,
+      // Todo dia de boarding passa pelo daycare por regra (contrato do cliente, 28/09/2026).
+      goesToDaycare: true,
       dogName: 'Filó',
       startDate: '2026-09-28',
       endDate: '2026-10-31',

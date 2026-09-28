@@ -25,6 +25,11 @@ export type DayDog = {
   dogName: string;
   clientName: string;
   serviceType: 'daycare' | 'boarding';
+  /**
+   * O cão passa pelo daycare hoje (entra no Total Pack). Omitido = `true`. Falso só na **chegada fora
+   * do horário** (Cocoa no pick-up), quando ele não vai ao daycare — contrato do cliente, 28/09/2026.
+   */
+  goesToDaycare?: boolean;
 };
 
 /** Linha de `pack_entries`: só existe quando o escritório mexeu naquele cão naquele dia. */
@@ -60,7 +65,14 @@ export function dogsOfDay(daycare: DayDog[], boarding: DayDog[]): DayDog[] {
   const porCao = new Map<string, DayDog>();
   for (const cao of [...daycare, ...boarding]) {
     const atual = porCao.get(cao.dogId);
-    if (!atual || (atual.serviceType === 'daycare' && cao.serviceType === 'boarding')) porCao.set(cao.dogId, cao);
+    if (!atual) {
+      porCao.set(cao.dogId, cao);
+      continue;
+    }
+    // Vale o serviço mais forte (boarding) — mas o "vai pro daycare" é do DIA: só sai do pack se
+    // TODAS as linhas do cão naquele dia disserem que ele não passa pelo daycare.
+    const escolhido = atual.serviceType === 'daycare' && cao.serviceType === 'boarding' ? cao : atual;
+    porCao.set(cao.dogId, { ...escolhido, goesToDaycare: (atual.goesToDaycare ?? true) || (cao.goesToDaycare ?? true) });
   }
   return [...porCao.values()].sort((a, b) => a.dogName.localeCompare(b.dogName));
 }
@@ -70,7 +82,10 @@ export function packRows(dogs: DayDog[], entries: PackEntry[]): PackRow[] {
   const porCao = new Map(entries.map((entrada) => [entrada.dogId, entrada]));
   return dogs.map((cao) => {
     const entrada = porCao.get(cao.dogId);
-    return { ...cao, inPack: entrada?.inPack ?? true, walkerId: entrada?.walkerId ?? null };
+    // Padrão = o cão VAI PRO DAYCARE hoje (contrato do cliente, 28/09/2026): o X do gestor continua
+    // mandando, e a chegada fora do horário (Cocoa no pick-up) entra fora do pack por padrão.
+    const padrao = cao.goesToDaycare ?? true;
+    return { ...cao, inPack: entrada?.inPack ?? padrao, walkerId: entrada?.walkerId ?? null };
   });
 }
 

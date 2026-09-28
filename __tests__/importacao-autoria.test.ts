@@ -36,6 +36,7 @@ const PARSED: ParsedBooking = {
   weekdays: [1, 3, 5],
   skipDates: [],
   transportRequired: true,
+  goesToDaycare: true,
   openEnded: false,
 };
 

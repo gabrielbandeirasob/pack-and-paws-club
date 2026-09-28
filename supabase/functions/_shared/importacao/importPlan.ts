@@ -60,6 +60,14 @@ export type ParsedBooking = {
   startDate: string;
   /** Fim INCLUSIVO (o evento do Google usa fim exclusivo). */
   endDate: string;
+  /**
+   * O cão passa pelo DAYCARE neste dia (entra no Total Pack e na van). Contrato do cliente, escrito em
+   * 28/09/2026: *"por via de regra todo boarding vai pro daycare (ou seja eles no início do dia já
+   * estarão dentro da van esperando o driver)"* — a ÚNICA exceção é a **CHEGADA fora do horário**
+   * (Cocoa no pick-up): *"ele entra no total de cães mas não entra no total pack porque o cão não
+   * estará no day care"*.
+   */
+  goesToDaycare: boolean;
   /** 0 = domingo … 6 = sabado. Vazio = evento de um dia so. */
   weekdays: number[];
   /** Datas (ISO) de pausa (viram EXDATE no evento). */
@@ -298,6 +306,9 @@ export function parseBookingEvents(event: RemoteEvent, labels: EventLabel[] = []
 
   return nomes.map((dogName) => ({
     serviceType: serviceTypeOfMeaning(color.meaning),
+    // Padrão do dia: o cão passa pelo daycare. Quem tira é o plano, e só na CHEGADA fora do horário
+    // (Cocoa no pick-up), que depende do contexto da hospedagem — ver `leituraDoDia`.
+    goesToDaycare: true,
     color,
     cancels: color.meaning?.kind === 'cancel',
     transportRequired,
@@ -326,6 +337,8 @@ export type ExistingBookingKind = 'reservation' | 'recurring';
 
 export type BookingForImport = {
   id: string;
+  /** O cão passa pelo daycare nesse dia (Total Pack/van). `false` só na chegada fora do horário. */
+  goesToDaycare?: boolean;
   /**
    * 'reservation' = data avulsa (`reservations`); 'recurring' = série de dias da semana
    * (`recurring_schedules`). O Google não distingue os dois: quem distingue é o RRULE do evento e
@@ -394,6 +407,7 @@ function precisaAtualizar(reserva: BookingForImport, parsed: ParsedBooking, dogI
   return (
     reserva.dogId !== dogId ||
     reserva.serviceType !== parsed.serviceType ||
+    (reserva.goesToDaycare ?? true) !== parsed.goesToDaycare ||
     reserva.startDate !== parsed.startDate ||
     (serie ? (reserva.endDate ?? null) !== (parsed.openEnded ? null : parsed.endDate) : reserva.endDate !== parsed.endDate) ||
     (serie ? !mesmosDias(reserva.weekdays, parsed.weekdays) : false) ||
@@ -498,23 +512,31 @@ export function coberturaDaHospedagem(events: RemoteEvent[], labels: EventLabel[
 }
 
 /**
- * Serviço daquele dia lido da COR, com o lado da hospedagem resolvido para o **Cocoa** (o único que
- * depende de contexto): a hospedagem continua depois do dia ⇒ o cão CHEGOU fora do horário ⇒
- * `boarding`; caso contrário (saída fora do horário ou dia de daycare com entrega tardia) ⇒ `daycare`.
- * Nos dois casos o cão NÃO pede van (`movimentaOCao` já devolve `false` para fora do horário) — quem
+ * Serviço E "vai pro daycare" daquele dia, a partir da COR. O único caso que depende de contexto é o
+ * **Cocoa (marrom, fora do horário)**, que o cliente descreveu (28/09/2026) como *"o mesmo que o
+ * Avocado, a diferença está no horário"*: ele é uma CHEGADA ou uma SAÍDA do boarding, e o lado se lê da
+ * sequência (a hospedagem continua no dia seguinte? então é chegada; vinha do dia anterior? é saída).
+ * Nos dois casos o cão NÃO pede van (`movimentaOCao` devolve `false` para fora do horário) — quem
  * busca/entrega é o administrador, de carro.
  */
-function servicoDoDia(
+function leituraDoDia(
   cor: ColorMeaning,
   parsed: ParsedBooking,
   hospedagem: Map<string, Set<string>>,
   cao: string,
-): BookingServiceType | null {
+): Pick<ParsedBooking, 'serviceType' | 'goesToDaycare'> {
   if (cor.kind === 'out_of_hours') {
-    const continuaDepois = hospedagem.get(cao)?.has(addDaysISO(parsed.startDate, 1)) ?? false;
-    return continuaDepois ? 'boarding' : 'daycare';
+    const dias = hospedagem.get(cao);
+    const continuaDepois = dias?.has(addDaysISO(parsed.startDate, 1)) ?? false;
+    const vinhaDeAntes = dias?.has(addDaysISO(parsed.startDate, -1)) ?? false;
+    // CHEGADA fora do horário: o cão veio para ficar e NÃO passa pelo daycare.
+    if (continuaDepois) return { serviceType: 'boarding', goesToDaycare: false };
+    // SAÍDA fora do horário: dormia no hotel, vai pro daycare e volta pra casa depois do horário.
+    if (vinhaDeAntes) return { serviceType: 'boarding', goesToDaycare: true };
+    // Sem hospedagem em volta: cão de daycare entregue tarde.
+    return { serviceType: 'daycare', goesToDaycare: true };
   }
-  return serviceTypeOfMeaning(cor);
+  return { serviceType: serviceTypeOfMeaning(cor), goesToDaycare: true };
 }
 
 /**
@@ -589,6 +611,7 @@ export function planCalendarImport(
         date: evento.startDate,
         parsed: {
           serviceType: serviceTypeOfMeaning(color.meaning),
+          goesToDaycare: true,
           color,
           cancels: color.meaning?.kind === 'cancel',
           dogName: '(no title)',
@@ -721,7 +744,7 @@ export function planCalendarImport(
       if (ligada) {
         vistos.add(evento.id);
         const dogId = dogDoTitulo ?? ligada.dogId;
-        const servico: ParsedBooking = { ...parsed, serviceType: servicoDoDia(cor, parsed, hospedagem, alvo) };
+        const servico: ParsedBooking = { ...parsed, ...leituraDoDia(cor, parsed, hospedagem, alvo) };
         if (ligada.source === 'google' && precisaAtualizar(ligada, servico, dogId)) {
           resultados.push({ kind: 'update', eventId: evento.id, bookingKind: ligada.kind, bookingId: ligada.id, dogId, parsed: servico });
         }
@@ -740,7 +763,7 @@ export function planCalendarImport(
       }
 
       const dogId = candidatos[0].id;
-      const servico: ParsedBooking = { ...parsed, serviceType: servicoDoDia(cor, parsed, hospedagem, alvo) };
+      const servico: ParsedBooking = { ...parsed, ...leituraDoDia(cor, parsed, hospedagem, alvo) };
       vistos.add(evento.id);
 
       // 8. Igual a uma reserva que o app ja tem = duplicata: o gestor decide (liga o evento a ela).
