@@ -72,6 +72,8 @@ type Credencial = {
   refresh_token_encrypted: string;
   calendar_id: string | null;
   connected_email: string | null;
+  /** Quem conectou o calendário (o gestor): é ele que assina as linhas que a função cria (created_by). */
+  updated_by: string | null;
 };
 
 /** Troca o refresh token por um access token novo (o Google expira em ~1 h). */
@@ -203,7 +205,7 @@ async function sincronizarOrganizacao(
   const registrar = async (resultado: string): Promise<void> => {
     await admin
       .from('google_calendar_credentials')
-      .update({ last_sync_at: new Date().toISOString(), last_sync_result: resultado.slice(0, 300) })
+      .update({ last_sync_at: new Date().toISOString(), last_sync_result: resultado.slice(0, 900) })
       .eq('organization_id', organizationId);
   };
 
@@ -223,15 +225,39 @@ async function sincronizarOrganizacao(
       reservations: bookings,
       doFetch: fetch,
       // Em `dry` nada é escrito: as portas só contam.
-      ports: dry ? portasDeContagem() : supabaseImportPorts(admin, organizationId),
+      // `criadoPor`: sem JWT na função, o `default auth.uid()` de `created_by` vira NULL e o banco recusa
+      // a criação (era o "0 criados · 6 falhas" do relógio). O autor é o gestor que conectou o calendário.
+      ports: dry
+        ? portasDeContagem()
+        : supabaseImportPorts(admin, organizationId, { criadoPor: credencial.updated_by ?? null }),
       calendarId,
       labels,
     });
 
+    /**
+     * O QUE FICOU PARA REVISAR, NOMEADO (dono, 28/09/2026: *"o erro persiste, ele não está pegando os
+     * agendamentos ao sincronizar"*).
+     *
+     * O resumo só contava "9 para revisar" — número que não diz nada a quem está do lado do telefone. Um
+     * evento que o app não importa é justamente um agendamento que "não está sendo pego": aqui ele entra
+     * com o TÍTULO e o MOTIVO (cão fora do cadastro, cor não reconhecida, dois cães com o mesmo nome,
+     * duplicado), e é isso que o escritório precisa ver para resolver em minutos.
+     */
+    const pendencias = resumo.review
+      .slice(0, 12)
+      .map((item) => `"${item.title}" (${item.date}, ${item.reason})`)
+      .join('; ');
+    // E o MOTIVO das falhas, cru: é ele que diz se o problema é regra do app, permissão ou dado do
+    // calendário. Sem isso, "6 falhas" no log não ajuda ninguém a corrigir.
+    const falhas = resumo.failures
+      .slice(0, 5)
+      .map((item) => `${item.eventId ?? item.reservationId ?? '?'}: ${item.error}`)
+      .join(' | ');
     const texto =
       `ok${dry ? ' (seco, sem escrever)' : ''} · ${resumo.created} criados · ${resumo.updated} atualizados · ` +
       `${resumo.cancelled} cancelados · ${resumo.extraDays ?? 0} dias extras · ${resumo.review.length} para revisar` +
-      (resumo.failures.length ? ` · ${resumo.failures.length} falhas` : '');
+      (pendencias ? ` [${pendencias}]` : '') +
+      (resumo.failures.length ? ` · ${resumo.failures.length} falhas [${falhas}]` : '');
     await registrar(texto);
     return { organization_id: organizationId, ok: true, dry, resumo: texto };
   } catch (erro) {
@@ -256,7 +282,7 @@ Deno.serve(async (request: Request) => {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
   let consulta = admin
     .from('google_calendar_credentials')
-    .select('organization_id, refresh_token_encrypted, calendar_id, connected_email');
+    .select('organization_id, refresh_token_encrypted, calendar_id, connected_email, updated_by');
   if (apenasOrg) consulta = consulta.eq('organization_id', apenasOrg);
   const { data, error } = await consulta;
   if (error) return json({ error: `nao foi possivel ler as credenciais (${error.message})` }, 500);

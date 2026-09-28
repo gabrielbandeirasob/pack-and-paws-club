@@ -54,14 +54,37 @@ export function escolhaDaRevisao({
   return igual ? { kind: igual.kind, id: igual.id } : { criar: true };
 }
 
-export function supabaseImportPorts(client: SupabaseClient, organizationId: string): ImportPorts {
+export function supabaseImportPorts(
+  client: SupabaseClient,
+  organizationId: string,
+  opcoes: { criadoPor?: string | null } = {},
+): ImportPorts {
   const fimDaSerie = (parsed: ParsedBooking): string | null => (parsed.openEnded ? null : parsed.endDate);
+
+  /**
+   * AUTORIA DAS LINHAS (`created_by`) — produção, 28/09/2026.
+   *
+   * As três tabelas que a importação escreve têm `created_by uuid not null default auth.uid()`. No APARELHO
+   * o padrão funciona (tem sessão); na FUNÇÃO DO SERVIDOR não há `auth.uid()` (ela roda com a chave de
+   * serviço, sem JWT), então o `default` virava NULL e o banco recusava:
+   * `null value in column "created_by" of relation "reservations" violates not-null constraint`.
+   *
+   * Efeito real: o relógio de 15 minutos **atualizava** o que existia, mas **não criava** nada — era o
+   * *"não está pegando os agendamentos ao sincronizar"* lido pelo dono (o log do servidor mostrava
+   * `0 criados · 2 atualizados · 6 falhas`).
+   *
+   * Aqui o autor entra explícito quando quem chama sabe quem é (o servidor usa o gestor que conectou o
+   * calendário — `google_calendar_credentials.updated_by`). No app nada é passado: segue valendo o
+   * `default auth.uid()` de sempre.
+   */
+  const autoria = opcoes.criadoPor ? { created_by: opcoes.criadoPor } : {};
 
   const gravarPausas = async (scheduleId: string, skipDates: string[]): Promise<void> => {
     await client.from('recurring_exceptions').delete().eq('recurring_schedule_id', scheduleId).eq('action', 'skip');
     if (skipDates.length === 0) return;
     const { error } = await client.from('recurring_exceptions').insert(
       skipDates.map((dia) => ({
+        ...autoria,
         organization_id: organizationId,
         recurring_schedule_id: scheduleId,
         action: 'skip',
@@ -111,6 +134,7 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
         const { data, error } = await client
           .from('recurring_schedules')
           .insert({
+            ...autoria,
             organization_id: organizationId,
             dog_id: dogId,
             weekdays: parsed.weekdays,
@@ -134,6 +158,7 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
       }
 
       const { error } = await client.from('reservations').insert({
+        ...autoria,
         organization_id: organizationId,
         dog_id: dogId,
         service_type: parsed.serviceType,
@@ -214,6 +239,7 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
       if (erroDaBusca) throw new Error(erroDaBusca.message);
 
       const { error } = await client.from('recurring_exceptions').insert({
+        ...autoria,
         organization_id: organizationId,
         recurring_schedule_id: scheduleId,
         action: 'skip',
@@ -245,6 +271,7 @@ export function supabaseImportPorts(client: SupabaseClient, organizationId: stri
       if (erroDaBusca) throw new Error(erroDaBusca.message);
 
       const { error } = await client.from('recurring_exceptions').insert({
+        ...autoria,
         organization_id: organizationId,
         recurring_schedule_id: scheduleId,
         action: 'extra',
