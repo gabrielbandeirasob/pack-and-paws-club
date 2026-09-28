@@ -101,6 +101,7 @@ jobs:
             --platform ios \
             --profile "${{ inputs.perfil || 'production' }}" \
             --non-interactive \
+            --clear-cache \
             --output ./packpaws.ipa
 
       # O EAS esconde a saída do xcodebuild (fica num arquivo temporário do runner). Sem isto, o
