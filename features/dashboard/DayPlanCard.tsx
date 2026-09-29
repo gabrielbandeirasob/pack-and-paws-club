@@ -17,11 +17,11 @@
  * dia não foi pedido e o app não guarda binário; se o cliente quiser a foto de verdade, é um passo
  * novo (upload), combinado depois.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radii } from '@/features/theme/tokens';
-import { PLANO_TEXTO_MAX } from './dayOperation';
+import { packDistribution, PLANO_TEXTO_MAX, type PackRow } from './dayOperation';
 
 type Props = {
   walkLocation: string | null;
@@ -30,11 +30,21 @@ type Props = {
   /** Mensagem do último salvamento ("Saved") — some sozinha na tela. */
   saved?: string | null;
   onSave: (values: { walkLocation: string; photoIdea: string }) => void;
+  /**
+   * DISTRIBUIÇÃO DO PACK (pedido do dono, 29/09/2026): o mesmo array da folha do Total Pack e a lista
+   * de membros ativos. Com eles o cartão mostra, embaixo dos dois campos, "quem ficou com quais cães".
+   * Opcionais para não quebrar tela/teste que monte o cartão sem o dia carregado.
+   */
+  packRows?: PackRow[];
+  members?: { id: string; name: string }[];
 };
 
-export function DayPlanCard({ walkLocation, photoIdea, busy = false, saved = null, onSave }: Props) {
+export function DayPlanCard({ walkLocation, photoIdea, busy = false, saved = null, onSave, packRows = [], members = [] }: Props) {
   const [local, setLocal] = useState(walkLocation ?? '');
   const [foto, setFoto] = useState(photoIdea ?? '');
+
+  const noPack = packRows.filter((linha) => linha.inPack).length;
+  const grupos = useMemo(() => packDistribution(packRows, members), [packRows, members]);
 
   // O que veio do banco manda quando a tela recarrega (outro gestor pode ter salvo, ou o gestor
   // acabou de arrastar para outro dia).
@@ -84,6 +94,30 @@ export function DayPlanCard({ walkLocation, photoIdea, busy = false, saved = nul
         </Pressable>
         {saved ? <Text style={styles.ok}>{saved}</Text> : null}
       </View>
+
+      {/*
+        DISTRIBUIÇÃO DO PACK (pedido do dono, 29/09/2026): "motorista gabriel ficou com tais cachorros,
+        motorista rafael ficou com tal… uma forma fácil do administrador ver como ficou a distribuição".
+        É LEITURA, não edição — quem assina o caminhante é a folha do Total Pack (indicador da Home).
+      */}
+      <View style={styles.separador} />
+      <Text style={styles.distTitulo}>Pack distribution</Text>
+      {noPack === 0 ? (
+        <Text style={styles.distVazio}>No dogs going to the walk on this day.</Text>
+      ) : (
+        <>
+          <Text style={styles.distSub}>{`${noPack} of ${packRows.length} dogs on the walk`}</Text>
+          {grupos.map((grupo) => (
+            <View key={grupo.walkerId ?? 'sem-caminhante'} style={styles.distLinha}>
+              <Text style={styles.distNome}>{`${grupo.name} · ${grupo.dogs.length}`}</Text>
+              <Text style={styles.distCaes}>{grupo.dogs.map((cao) => cao.dogName).join(', ')}</Text>
+            </View>
+          ))}
+          {grupos.some((grupo) => grupo.walkerId === null) ? (
+            <Text style={styles.distDica}>Assign them in the Total Pack sheet.</Text>
+          ) : null}
+        </>
+      )}
     </View>
   );
 }
@@ -100,4 +134,13 @@ const styles = StyleSheet.create({
   salvarOff: { opacity: 0.45 },
   salvarTexto: { color: 'white', fontWeight: '800', fontSize: 13 },
   ok: { color: colors.success, fontSize: 11.5, fontWeight: '700' },
+  /** Distribuição do pack (leitura): uma linha por pessoa, discreta, sem virar um bloco pesado. */
+  separador: { height: 1, backgroundColor: colors.line, marginTop: 16, marginBottom: 12 },
+  distTitulo: { fontFamily: 'serif', fontWeight: '800', fontSize: 14, color: colors.ink },
+  distSub: { color: colors.muted, fontSize: 11, marginTop: 2, marginBottom: 8 },
+  distVazio: { color: colors.muted, fontSize: 12 },
+  distLinha: { flexDirection: 'row', alignItems: 'baseline', gap: 8, paddingVertical: 3 },
+  distNome: { color: colors.forest700, fontWeight: '800', fontSize: 12.5, minWidth: 88 },
+  distCaes: { color: colors.ink, fontSize: 12.5, flex: 1 },
+  distDica: { color: colors.muted, fontSize: 10.5, marginTop: 6 },
 });

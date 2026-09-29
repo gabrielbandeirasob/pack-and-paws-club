@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render, within } from '@testing-library/react-native';
 import { ManagerDashboard, type DashboardDaySection, type DashboardRoute } from '@/features/dashboard/ManagerDashboard';
 
 const routes: DashboardRoute[] = [
@@ -186,7 +186,11 @@ describe('ManagerDashboard', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Total Pack — open the pack of the day' }));
 
     expect(screen.getByText(/1 of 2 going to the walk/)).toBeTruthy();
-    expect(screen.getByText('Thor')).toBeTruthy();
+    // Desde 29/09/2026 a Home TAMBÉM lista nome de cão, no cartão "Day plan" (distribuição do pack:
+    // "motorista X ficou com tais cachorros"). Por isso o cão da folha é procurado DENTRO da folha —
+    // a asserção continua provando o mesmo (a folha mostra o cão), só não confunde as duas listas.
+    const folha = within(screen.getByTestId('total-pack-sheet'));
+    expect(folha.getByText('Thor')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Remove Thor from the pack' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Put Nina back in the pack' })).toBeTruthy();
 

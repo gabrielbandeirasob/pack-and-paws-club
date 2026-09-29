@@ -35,7 +35,7 @@ export function PackSheet({ visible, dayLabel, rows, members, busy = false, onTo
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.fundo}>
-        <View style={styles.folha}>
+        <View style={styles.folha} testID="total-pack-sheet">
           <Text style={styles.titulo}>Total Pack</Text>
           <Text style={styles.sub}>{`${dayLabel} · ${noPack} of ${rows.length} going to the walk`}</Text>
 

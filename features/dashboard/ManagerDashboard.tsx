@@ -246,6 +246,8 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
           busy={day.planBusy}
           saved={day.planSaved}
           onSave={day.onSavePlan}
+          packRows={day.packRows}
+          members={day.members}
         />
 
         <View style={styles.sectionTitleRow}>

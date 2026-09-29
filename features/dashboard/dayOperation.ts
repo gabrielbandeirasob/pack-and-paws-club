@@ -131,6 +131,60 @@ export function dogsWalkingWith(rows: PackRow[], walkerId: string): PackRow[] {
   return rows.filter((linha) => linha.inPack && linha.walkerId === walkerId);
 }
 
+/** Um grupo da distribuição do pack: quem ficou com quais cães. */
+export type PackGroup = {
+  /** `null` = cão no pack que ainda não foi assinado a ninguém. */
+  walkerId: string | null;
+  /** Nome mostrado na tela (o do membro, ou o rótulo de "sem caminhante"). */
+  name: string;
+  dogs: PackRow[];
+};
+
+/**
+ * DISTRIBUIÇÃO DO PACK — "motorista Gabriel ficou com tais cachorros, o Rafael com tais".
+ *
+ * Pedido do dono (29/09/2026): *"no day plans o administrador consiga ver a lista do total pack…
+ * uma forma fácil do administrador ver como ficou a distribuição"*. A fonte é o `walkerId` da folha
+ * do Total Pack — o campo que o próprio cliente desenhou para isso (*"assinar lá esse cachorro para um
+ * dos drivers… para a CAMINHADA — não na rota"*, áudio de 26/09/2026).
+ *
+ * Regras: só entra cão que está NO pack (o X do gestor tira); os grupos saem na ordem de `members`
+ * (a mesma ordem da folha do Total Pack, para o gestor bater o olho nos dois lugares); quem não ficou
+ * com cão nenhum não aparece; caminhante que não está mais entre os membros ativos vira o rótulo de
+ * sem cadastro em vez de sumir da lista; e os cães sem caminhante ficam num grupo no fim, que é o que
+ * o gestor precisa ver para terminar de distribuir.
+ */
+export function packDistribution(
+  rows: PackRow[],
+  members: { id: string; name: string }[],
+  rotulos: { semCaminhante?: string; semCadastro?: string } = {},
+): PackGroup[] {
+  const semCaminhante = rotulos.semCaminhante ?? 'Unassigned';
+  const semCadastro = rotulos.semCadastro ?? 'Team member';
+  const noPack = rows.filter((linha) => linha.inPack);
+  const nomes = new Map(members.map((membro) => [membro.id, membro.name]));
+
+  const grupos: PackGroup[] = [];
+  for (const membro of members) {
+    const dogs = noPack.filter((linha) => linha.walkerId === membro.id);
+    if (dogs.length > 0) grupos.push({ walkerId: membro.id, name: membro.name, dogs });
+  }
+
+  // Caminhante fora da lista de membros ativos: fica agrupado pelo id, com o rótulo de sem cadastro,
+  // logo depois dos membros — nunca desaparece da distribuição.
+  const idsFora = [...new Set(noPack.map((linha) => linha.walkerId))].filter(
+    (id): id is string => id !== null && !nomes.has(id),
+  );
+  for (const id of idsFora) {
+    grupos.push({ walkerId: id, name: semCadastro, dogs: noPack.filter((linha) => linha.walkerId === id) });
+  }
+
+  const semDono = noPack.filter((linha) => linha.walkerId === null);
+  if (semDono.length > 0) grupos.push({ walkerId: null, name: semCaminhante, dogs: semDono });
+
+  return grupos;
+}
+
 /* --------------------------------- dinheiro --------------------------------- */
 
 /**
