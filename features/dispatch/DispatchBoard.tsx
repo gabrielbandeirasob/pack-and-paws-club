@@ -594,7 +594,7 @@ const styles = StyleSheet.create({
   // `marginLeft: 'auto'` o bloco de acoes era dimensionado pelo conteudo e, quando nao cabia, o
   // ULTIMO botao (o ✕ de cancelar rota) saia do cartao e era cortado pelo `overflow: 'hidden'`.
   driverActions: { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto', flexShrink: 1, maxWidth: '100%' },
-  optimizeButton: { backgroundColor: colors.forest500, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  optimizeButton: { backgroundColor: colors.forest500, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
   optimizeText: { color: 'white', fontWeight: '900', fontSize: 12 },
   stop: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 11, borderBottomWidth: 1, borderBottomColor: '#F0F1ED' },
   position: { width: 24, height: 24, borderRadius: 8, backgroundColor: '#EDF3EB', alignItems: 'center', justifyContent: 'center' },
