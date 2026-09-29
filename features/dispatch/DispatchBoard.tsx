@@ -585,7 +585,10 @@ const styles = StyleSheet.create({
   cancelRouteButton: { borderWidth: 1, borderColor: '#E8BFBF', backgroundColor: '#FBEDED', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8 },
   cancelRouteText: { color: colors.urgency, fontWeight: '900', fontSize: 12 },
   // flexWrap: numa tela estreita os botoes descem para a propria linha em vez de espremer o nome.
-  driverActions: { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' },
+  // `flexShrink` + `maxWidth` entram por causa de um defeito visto no print de 29/09/2026: com
+  // `marginLeft: 'auto'` o bloco de acoes era dimensionado pelo conteudo e, quando nao cabia, o
+  // ULTIMO botao (o ✕ de cancelar rota) saia do cartao e era cortado pelo `overflow: 'hidden'`.
+  driverActions: { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto', flexShrink: 1, maxWidth: '100%' },
   optimizeButton: { backgroundColor: colors.forest500, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
   optimizeText: { color: 'white', fontWeight: '900', fontSize: 12 },
   stop: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 11, borderBottomWidth: 1, borderBottomColor: '#F0F1ED' },
