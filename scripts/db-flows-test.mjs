@@ -72,20 +72,35 @@ async function asUser (uid, role, body) {
 
 // ---------------------------------------------------------------- contexto
 const ctx = (await sql(`
-  -- TUDO da MESMA organizacao: escolhe uma org que tenha gestor ativo E rota publicada, e deriva
-  -- o resto dela. Antes pegava "a org mais antiga" + "um gestor qualquer" + "uma rota qualquer" -
-  -- com mais de uma org no banco isso misturava identidades e a suite acusava falha falsa
-  -- (aconteceu em 12/09/2026, quando o teste de push publicou uma rota na org do cliente).
+  -- TUDO da MESMA organizacao: escolhe uma org que tenha gestor ativo E rota publicada CUJO MOTORISTA
+  -- seja membro ativo dela, e deriva o resto dali.
+  --
+  -- Historico (importa para nao repetir):
+  --  * 12/09/2026 — a versao antiga pegava "a org mais antiga" + "um gestor qualquer" + "uma rota
+  --    qualquer" e, com mais de uma org no banco, misturava identidades (o teste de push chegou a
+  --    publicar rota na org do cliente);
+  --  * 29/09/2026 — mesmo dentro de uma org, o fixture pegou a rota MAIS ANTIGA publicada, que era de um
+  --    motorista que NAO e mais membro da equipe. A policy de leitura do motorista exige vinculo ativo na
+  --    org, e a do gestor exige driver_in_org: a suite passou a acusar 15 falhas de RLS que nao eram do
+  --    app (rota orfa). Agora o motorista da rota TEM de ser membro ativo — e a org "E2E Test Org" e a
+  --    que serve de cobaia, com dado de teste.
   with alvo as (
     select o.id
       from organizations o
       join organization_members m on m.organization_id = o.id and m.role = 'manager' and m.status = 'active'
-     where exists (select 1 from routes r where r.organization_id = o.id and r.status = 'published')
+     where exists (
+       select 1 from routes r
+         join organization_members d on d.user_id = r.driver_id and d.organization_id = r.organization_id
+              and d.status = 'active' and d.role in ('driver', 'manager')
+        where r.organization_id = o.id and r.status = 'published'
+     )
      order by o.created_at
      limit 1
   ), rota as (
     select r.id, r.driver_id
       from routes r
+      join organization_members d on d.user_id = r.driver_id and d.organization_id = r.organization_id
+           and d.status = 'active' and d.role in ('driver', 'manager')
      where r.organization_id = (select id from alvo) and r.status = 'published'
      order by r.route_date
      limit 1
@@ -94,10 +109,23 @@ const ctx = (await sql(`
          (select user_id from organization_members where organization_id = (select id from alvo) and role='manager' and status='active' limit 1) as manager,
          (select driver_id from rota) as driver,
          (select id from rota) as route,
-         (select r.driver_id from routes r where r.organization_id = (select id from alvo) and r.driver_id <> (select driver_id from rota) limit 1) as other_driver,
+         -- "outro motorista" tem de ser MOTORISTA (gestor le a rota da org, entao nao serve) e de fora da
+         -- rota: serve qualquer motorista ativo de outra org; se nao houver, fica NULL e os casos de
+         -- isolamento passam por vacuidade (esta anotado no relatorio).
+         (select m.user_id from organization_members m
+           where m.status = 'active' and m.role = 'driver' and m.organization_id <> (select id from alvo)
+           limit 1) as other_driver,
+         -- "forasteiro": membro ATIVO de OUTRA organizacao (nao e gestor nem motorista desta) — serve para
+         -- provar o isolamento entre organizacoes com um usuario de verdade, e nao com o uid zerado.
+         (select m.user_id from organization_members m
+           where m.status = 'active' and m.organization_id <> (select id from alvo)
+           limit 1) as outsider,
          (select s.dog_id from route_stops s where s.route_id = (select id from rota) limit 1) as stop_dog,
          (select d.client_id from dogs d where d.id = (select s.dog_id from route_stops s where s.route_id = (select id from rota) limit 1)) as stop_client,
-         (select d.id from dogs d where d.id <> (select s.dog_id from route_stops s where s.route_id = (select id from rota) limit 1) limit 1) as free_dog,
+         (select d.id from dogs d
+           where d.organization_id = (select id from alvo)
+             and d.id <> (select s.dog_id from route_stops s where s.route_id = (select id from rota) limit 1)
+           limit 1) as free_dog,
          (select count(*) from clients) as n_clients,
          (select count(*) from dogs) as n_dogs,
          (select count(*) from reservations) as n_res,
@@ -110,7 +138,7 @@ const ctx = (await sql(`
 `))[0]
 
 const { org: ORG, manager: MANAGER, driver: DRIVER, route: ROUTE, other_driver: OTHER_DRIVER,
-  stop_dog: STOP_DOG, stop_client: STOP_CLIENT, free_dog: FREE_DOG } = ctx
+  outsider: OUTSIDER, stop_dog: STOP_DOG, stop_client: STOP_CLIENT, free_dog: FREE_DOG } = ctx
 
 if (!ORG || !MANAGER || !ROUTE || !STOP_DOG) {
   console.error('Banco sem dados minimos para testar (precisa de org, manager e rota publicada).')
@@ -141,7 +169,7 @@ async function caso (nome, quem, body, espera) {
 
 const MGR = { uid: MANAGER, role: 'authenticated' }
 const DRV = { uid: DRIVER, role: 'authenticated' }
-const DRV2 = { uid: OTHER_DRIVER, role: 'authenticated' }
+const DRV2 = { uid: OTHER_DRIVER ?? OUTSIDER, role: 'authenticated' }
 const ANON = { uid: '00000000-0000-0000-0000-000000000000', role: 'anon' }
 
 console.log(`\nORG ${ORG}\nmanager ${MANAGER}\ndriver  ${DRIVER}\n`)
@@ -152,7 +180,11 @@ await caso('cria cliente novo', MGR,
 await caso('cria cao para cliente existente', MGR,
   `insert into dogs (id, organization_id, client_id, name) values ('${U()}','${ORG}','${STOP_CLIENT}','TESTE E2E CAO'); select 1 as n;`, 'ok')
 await caso('grava instrucoes de acesso', MGR,
-  `insert into client_instructions (organization_id, client_id, pickup_access_instructions) values ('${ORG}','${STOP_CLIENT}','teste'); select 1 as n;`, 'ok')
+  // `client_instructions` tem indice UNICO por `client_id`: quem JA tem instrucoes recebe update (era
+  // insert cego e a suite acusava 23505 duplicate key — falha de teste, nao do app).
+  `insert into client_instructions (organization_id, client_id, pickup_access_instructions) values ('${ORG}','${STOP_CLIENT}','teste')
+     on conflict (client_id) do update set pickup_access_instructions = 'teste';
+   select 1 as n;`, 'ok')
 await caso('cria reserva de daycare (hoje)', MGR,
   `insert into reservations (organization_id, dog_id, service_type, start_date, end_date, transport_required) values ('${ORG}','${FREE_DOG}','daycare',current_date,current_date,true); select 1 as n;`, 'ok')
 await caso('cria reserva de boarding (intervalo)', MGR,
@@ -180,8 +212,10 @@ await caso('ciclo da rota: draft -> parada -> reordenar -> publicar', MGR,
 console.log('\n== MANAGER: o que TEM de ser recusado ==')
 await caso('cao apontando para cliente inexistente', MGR,
   `insert into dogs (id, organization_id, client_id, name) values ('${U()}','${ORG}','${U()}','TESTE INVALIDO'); select 1 as n;`, 'erro')
-await caso('rota com usuario que nao e driver', MGR,
-  `insert into routes (id, organization_id, route_date, driver_id, status) values ('${U()}','${ORG}',current_date,'${MANAGER}','draft'); select 1 as n;`, 'erro')
+await caso('gestor ativo TAMBEM pode ser o motorista da rota (interruptor "Drive today", 27/09/2026)', MGR,
+  `insert into routes (id, organization_id, route_date, driver_id, status) values ('${U()}','${ORG}',current_date + 297,'${MANAGER}','draft'); select 1 as n;`, 'ok')
+await caso('usuario de FORA da organizacao nao pode ser motorista da rota', MGR,
+  `insert into routes (id, organization_id, route_date, driver_id, status) values ('${U()}','${ORG}',current_date + 298,'${OUTSIDER}','draft'); select 1 as n;`, 'erro')
 await caso('registro em organizacao inexistente', MGR,
   `insert into dogs (id, organization_id, client_id, name) values ('${U()}','${U()}','${STOP_CLIENT}','TESTE ORG FALSA'); select 1 as n;`, 'erro')
 

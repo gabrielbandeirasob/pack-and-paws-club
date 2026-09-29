@@ -35,6 +35,13 @@ npm run test:db       # precisa de PACKPAWS_SUPABASE_TOKEN (env ou /opt/data/.en
 dogs`) não aparece em teste unitário. Ele só aparece quando a RLS é avaliada de verdade. Foi exatamente
 o que essa camada pegou.
 
+⚠️ **Fixtures têm de ser de uma org de TESTE com motorista ativo (29/09/2026).** A suíte escolhia a org
+mais antiga com rota publicada; passou a exigir que o **motorista da rota seja membro ativo** dessa org
+(hoje: `E2E Test Org`). Sem isso ela pegava uma rota órfã (motorista que saiu da equipe), a RLS negava
+tudo e a suíte acusava **15 falhas que não eram do app** — ficou vermelha sem ninguém notar. Estado
+depois do conserto: **59 casos OK, 0 falhas**, sobras 0. Se voltar a aparecer falha em massa de RLS
+(`42501`) ou leitura `n=0`, **desconfie do fixture antes do app**: confira o vínculo do motorista da rota.
+
 ## 3. O que ainda não está automatizado (e por quê)
 
 - **E2E no aparelho (iOS):** Maestro e Detox exigem macOS/simulador. No Linux não roda iOS.
