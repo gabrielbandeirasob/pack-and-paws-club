@@ -269,3 +269,10 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
+
+it('mantém os rótulos e alvos de toque de pelo menos 44 pontos para mover Luna', async () => {
+  const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={routes} {...noops} />);
+  for (const nome of ['Move Luna up', 'Move Luna down']) {
+    expect(screen.getByRole('button', { name: nome })).toHaveStyle({ minWidth: 44, minHeight: 44 });
+  }
+});

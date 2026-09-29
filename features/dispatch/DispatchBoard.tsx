@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
@@ -93,7 +93,7 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog }: Props) {
+export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog }: Props) {
   const [sheet, setSheet] = useState<SheetState>(null);
   const [buscaCao, setBuscaCao] = useState(false);
   const [driverId, setDriverId] = useState<string | null>(null);
@@ -131,13 +131,13 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
     }
   }, [sheet]);
 
-  const assignedDogIds = new Set(routes.flatMap((route) => route.stops.map((stop) => stop.dogId)));
+  const assignedDogIds = useMemo(() => new Set(routes.flatMap((route) => route.stops.map((stop) => stop.dogId))), [routes]);
   /** Fila principal: precisa de transporte e não está já na van. */
-  const paraTransporte = dayItems.filter((item) => !item.inVan);
-  const unassigned = paraTransporte.filter((item) => !assignedDogIds.has(item.dogId));
+  const paraTransporte = useMemo(() => dayItems.filter((item) => !item.inVan), [dayItems]);
+  const unassigned = useMemo(() => paraTransporte.filter((item) => !assignedDogIds.has(item.dogId)), [paraTransporte, assignedDogIds]);
   /** Seção separada: já estão na van (sem pickup), mas o gestor pode incluir na rota à mão. */
-  const naVan = dayItems.filter((item) => item.inVan && !assignedDogIds.has(item.dogId));
-  const routesByDriver = new Map(routes.map((route) => [route.driverId, route]));
+  const naVan = useMemo(() => dayItems.filter((item) => item.inVan && !assignedDogIds.has(item.dogId)), [dayItems, assignedDogIds]);
+  const routesByDriver = useMemo(() => new Map(routes.map((route) => [route.driverId, route])), [routes]);
 
   const constraintFromFields = (): DispatchConstraint => {
     if (kind === 'window') return { windowStart, windowEnd, exactTime: null, priority };
@@ -203,115 +203,12 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
         </Text>
       </View>
       <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {drivers.map((driver) => {
-          const route = routesByDriver.get(driver.id);
-          const stops = route ? [...route.stops].sort((a, b) => a.sequence - b.sequence) : [];
-          const location = driverLocations[driver.id];
-          // Idade da última posição: a tela avisa quando fica velha e ESCONDE o ETA quando é antiga
-          // demais (melhoria 3 da revisão das contas) — número calculado de posição velha engana.
-          const frescor = location ? frescorDaPosicao(location.updatedAt) : null;
-          const eta = route && stops.length > 0
-            ? nextStopEta(
-                stops.map((stop) => ({
-                  id: stop.dogId,
-                  sequence: stop.sequence,
-                  clientName: stop.clientName,
-                  dogName: stop.dogName,
-                  latitude: stop.latitude,
-                  longitude: stop.longitude,
-                  windowEnd: stop.windowEnd,
-                  exactTime: stop.exactTime,
-                  status: stop.status,
-                })),
-                location ? { latitude: location.latitude, longitude: location.longitude } : null,
-              )
-            : null;
-          return (
-            <View key={driver.id} style={styles.driverCard}>
-              <View style={styles.driverHeader}>
-                <View style={styles.driverIdentity}>
-                  <View style={styles.avatar}><Text style={styles.avatarText}>{driver.name[0]}</Text></View>
-                  {/* Precisa de flex:1 (e minWidth:0): sem isso, numa tela estreita os QUATRO botoes
-                      de acao consomem a linha e sobram ~48pt para o texto - o nome do motorista
-                      quebra LETRA POR LETRA (relato do dono no iPhone, 12/09/2026). */}
-                  <View style={styles.driverText} testID="driver-info">
-                    <Text style={styles.driverName}>{driver.name}</Text>
-                    <Text style={styles.muted}>{stops.length} stop{stops.length === 1 ? '' : 's'}{rotuloDeStatus(route?.status)}</Text>
-                    {route && stops.length > 0 ? (
-                      <Text style={[styles.muted, eta?.lateMinutes || frescor?.velha ? styles.lateText : null]}>
-                        {location && frescor
-                          ? `📍 ${frescor.texto}${frescor.muitoVelha ? ' · ⚠️ position stale' : frescor.velha ? ' · ⚠️ going stale' : ''}`
-                          : '📍 not sharing'}
-                        {/* ETA só com posição do motorista: sem posição, "~0 min" é número inventado
-                            (achado no print de 25/09/2026, com o motorista em "not sharing"). */}
-                        {eta && location && !frescor?.muitoVelha ? ` · ~${eta.minutes} min to ${eta.dogName}` : ''}
-                        {eta && frescor?.muitoVelha ? ' · ETA hidden (position too old)' : ''}
-                        {eta && eta.lateMinutes > 0 ? ` · ⚠️ ${eta.lateMinutes} min late` : ''}
-                      </Text>
-                    ) : null}
-                  </View>
-                </View>
-                {route && stops.length > 0 ? (
-                  <View style={styles.driverActions} testID="driver-actions">
-                    {stops.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped').length >= 2 ? (
-                      <Pressable accessibilityRole="button" accessibilityLabel={`Optimize ${driver.name} route`} disabled={working} onPress={() => void onOptimize(route.routeId)} style={styles.optimizeButton}>
-                        <Text style={styles.optimizeText}>Optimize</Text>
-                      </Pressable>
-                    ) : null}
-                    <Pressable accessibilityRole="button" accessibilityLabel={`Publish ${driver.name} route`} disabled={working} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
-                      <Text style={styles.publishText}>{route.status === 'published' ? 'Republish' : 'Publish'}</Text>
-                    </Pressable>
-                    {route.status === 'published' ? (
-                      <>
-                        <Pressable accessibilityRole="button" accessibilityLabel={`Unpublish ${driver.name} route`} disabled={working} onPress={() => void onUnpublish(route.routeId)} style={styles.unpublishButton}>
-                          <Text style={styles.unpublishText}>Unpublish</Text>
-                        </Pressable>
-                        <Pressable accessibilityRole="button" accessibilityLabel={`Complete ${driver.name} route`} disabled={working} onPress={() => void onCompleteRoute(route.routeId)} style={styles.completeButton}>
-                          <Text style={styles.completeText}>✓ Done</Text>
-                        </Pressable>
-                      </>
-                    ) : null}
-                    <Pressable accessibilityRole="button" accessibilityLabel={`Cancel ${driver.name} route`} disabled={working} onPress={() => void onCancelRoute(route.routeId)} style={styles.cancelRouteButton}>
-                      <Text style={styles.cancelRouteText}>✕</Text>
-                    </Pressable>
-                  </View>
-                ) : null}
-              </View>
-              {stops.map((stop, index) => (
-                <View key={`${driver.id}-${stop.dogId}`} style={styles.stop}>
-                  <View style={styles.position}><Text style={styles.positionText}>{index + 1}</Text></View>
-                  <View style={styles.stopMain}>
-                    <Text style={styles.stopName}>{stop.clientName} · {stop.dogName}</Text>
-                    <View style={styles.badgeRow}>
-                      {stop.status === 'skipped' ? <Badge text="⚠ Problem" color={colors.urgency} /> : null}
-                      {stop.status === 'pending' && isPastDeadline(stop.windowEnd, stop.exactTime) ? <Badge text="Late" color={colors.urgency} /> : null}
-                      {stop.priority === 'priority' ? <Badge text="⚡ High" color={colors.urgency} /> : null}
-                      {stop.windowStart && stop.windowEnd ? <Badge text={`⏰ ${stop.windowStart}–${stop.windowEnd}`} color={colors.forest500} /> : null}
-                      {stop.exactTime ? <Badge text={`@ ${stop.exactTime}`} color={colors.gold} /> : null}
-                    </View>
-                    <StopProofChips pickupPath={stop.pickupProofPath} dropoffPath={stop.dropoffProofPath} />
-                  </View>
-                  <View style={styles.stopActions}>
-                    {route && route.status === 'draft' && stops.length > 1 ? (
-                      <>
-                        <Pressable accessibilityRole="button" accessibilityLabel={`Move ${stop.dogName} up`} disabled={working || index === 0} onPress={() => void onMoveStop(route.routeId, stop.dogId, -1)} hitSlop={6}>
-                          <Text style={[styles.moveText, index === 0 && styles.moveDisabled]}>▲</Text>
-                        </Pressable>
-                        <Pressable accessibilityRole="button" accessibilityLabel={`Move ${stop.dogName} down`} disabled={working || index === stops.length - 1} onPress={() => void onMoveStop(route.routeId, stop.dogId, 1)} hitSlop={6}>
-                          <Text style={[styles.moveText, index === stops.length - 1 && styles.moveDisabled]}>▼</Text>
-                        </Pressable>
-                      </>
-                    ) : null}
-                    <Pressable accessibilityRole="button" accessibilityLabel={`Options for ${stop.dogName}`} onPress={() => route && setSheet({ mode: 'edit', route, stop })} hitSlop={8}>
-                      <Text style={styles.optionsText}>⋯</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              ))}
-              {stops.length === 0 ? <Text style={styles.noStops}>No stops assigned yet.</Text> : null}
-            </View>
-          );
-        })}
+        {drivers.map((driver) => (
+          <CartaoMotorista key={driver.id} driver={driver} route={routesByDriver.get(driver.id)}
+            location={driverLocations[driver.id]} working={working} setSheet={setSheet}
+            onMoveStop={onMoveStop} onOptimize={onOptimize} onPublish={onPublish}
+            onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
+        ))}
         <View style={styles.unassigned}>
           <Text style={styles.unassignedTitle}>{unassigned.length} unassigned</Text>
           {paraTransporte.length === 0 ? (
@@ -470,7 +367,127 @@ export function DispatchBoard({ date, drivers, dayItems, routes, driverLocations
       </Modal>
     </View>
   );
-}
+});
+
+type PropsCartao = Pick<Props, 'onMoveStop' | 'onOptimize' | 'onPublish' | 'onUnpublish' | 'onCancelRoute' | 'onCompleteRoute'> & {
+  driver: DispatchDriver;
+  route?: DispatchRoute;
+  location?: { latitude: number; longitude: number; updatedAt: string };
+  working: boolean;
+  setSheet: (sheet: SheetState) => void;
+};
+
+const CartaoMotorista = memo(function CartaoMotorista({
+  driver, route, location, working, setSheet, onMoveStop, onOptimize, onPublish,
+  onUnpublish, onCancelRoute, onCompleteRoute,
+}: PropsCartao) {
+  const stops = useMemo(() => route ? [...route.stops].sort((a, b) => a.sequence - b.sequence) : [], [route]);
+  // Idade da última posição: a tela avisa quando fica velha e ESCONDE o ETA quando é antiga
+  // demais (melhoria 3 da revisão das contas) — número calculado de posição velha engana.
+  const frescor = location ? frescorDaPosicao(location.updatedAt) : null;
+  const eta = route && stops.length > 0
+    ? nextStopEta(
+        stops.map((stop) => ({
+          id: stop.dogId,
+          sequence: stop.sequence,
+          clientName: stop.clientName,
+          dogName: stop.dogName,
+          latitude: stop.latitude,
+          longitude: stop.longitude,
+          windowEnd: stop.windowEnd,
+          exactTime: stop.exactTime,
+          status: stop.status,
+        })),
+        location ? { latitude: location.latitude, longitude: location.longitude } : null,
+      )
+    : null;
+  return (
+    <View key={driver.id} style={styles.driverCard}>
+      <View style={styles.driverHeader}>
+        <View style={styles.driverIdentity}>
+          <View style={styles.avatar}><Text style={styles.avatarText}>{driver.name[0]}</Text></View>
+          {/* Precisa de flex:1 (e minWidth:0): sem isso, numa tela estreita os QUATRO botoes
+              de acao consomem a linha e sobram ~48pt para o texto - o nome do motorista
+              quebra LETRA POR LETRA (relato do dono no iPhone, 12/09/2026). */}
+          <View style={styles.driverText} testID="driver-info">
+            <Text style={styles.driverName}>{driver.name}</Text>
+            <Text style={styles.muted}>{stops.length} stop{stops.length === 1 ? '' : 's'}{rotuloDeStatus(route?.status)}</Text>
+            {route && stops.length > 0 ? (
+              <Text style={[styles.muted, eta?.lateMinutes || frescor?.velha ? styles.lateText : null]}>
+                {location && frescor
+                  ? `📍 ${frescor.texto}${frescor.muitoVelha ? ' · ⚠️ position stale' : frescor.velha ? ' · ⚠️ going stale' : ''}`
+                  : '📍 not sharing'}
+                {/* ETA só com posição do motorista: sem posição, "~0 min" é número inventado
+                    (achado no print de 25/09/2026, com o motorista em "not sharing"). */}
+                {eta && location && !frescor?.muitoVelha ? ` · ~${eta.minutes} min to ${eta.dogName}` : ''}
+                {eta && frescor?.muitoVelha ? ' · ETA hidden (position too old)' : ''}
+                {eta && eta.lateMinutes > 0 ? ` · ⚠️ ${eta.lateMinutes} min late` : ''}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+        {route && stops.length > 0 ? (
+          <View style={styles.driverActions} testID="driver-actions">
+            {stops.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped').length >= 2 ? (
+              <Pressable accessibilityRole="button" accessibilityLabel={`Optimize ${driver.name} route`} disabled={working} onPress={() => void onOptimize(route.routeId)} style={styles.optimizeButton}>
+                <Text style={styles.optimizeText}>Optimize</Text>
+              </Pressable>
+            ) : null}
+            <Pressable accessibilityRole="button" accessibilityLabel={`Publish ${driver.name} route`} disabled={working} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
+              <Text style={styles.publishText}>{route.status === 'published' ? 'Republish' : 'Publish'}</Text>
+            </Pressable>
+            {route.status === 'published' ? (
+              <>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Unpublish ${driver.name} route`} disabled={working} onPress={() => void onUnpublish(route.routeId)} style={styles.unpublishButton}>
+                  <Text style={styles.unpublishText}>Unpublish</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Complete ${driver.name} route`} disabled={working} onPress={() => void onCompleteRoute(route.routeId)} style={styles.completeButton}>
+                  <Text style={styles.completeText}>✓ Done</Text>
+                </Pressable>
+              </>
+            ) : null}
+            <Pressable accessibilityRole="button" accessibilityLabel={`Cancel ${driver.name} route`} disabled={working} onPress={() => void onCancelRoute(route.routeId)} style={styles.cancelRouteButton}>
+              <Text style={styles.cancelRouteText}>✕</Text>
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+      {stops.map((stop, index) => (
+        <View key={`${driver.id}-${stop.dogId}`} style={styles.stop}>
+          <View style={styles.position}><Text style={styles.positionText}>{index + 1}</Text></View>
+          <View style={styles.stopMain}>
+            <Text style={styles.stopName}>{stop.clientName} · {stop.dogName}</Text>
+            <View style={styles.badgeRow}>
+              {stop.status === 'skipped' ? <Badge text="⚠ Problem" color={colors.urgency} /> : null}
+              {stop.status === 'pending' && isPastDeadline(stop.windowEnd, stop.exactTime) ? <Badge text="Late" color={colors.urgency} /> : null}
+              {stop.priority === 'priority' ? <Badge text="⚡ High" color={colors.urgency} /> : null}
+              {stop.windowStart && stop.windowEnd ? <Badge text={`⏰ ${stop.windowStart}–${stop.windowEnd}`} color={colors.forest500} /> : null}
+              {stop.exactTime ? <Badge text={`@ ${stop.exactTime}`} color={colors.gold} /> : null}
+            </View>
+            <StopProofChips pickupPath={stop.pickupProofPath} dropoffPath={stop.dropoffProofPath} />
+          </View>
+          <View style={styles.stopActions}>
+            {route && route.status === 'draft' && stops.length > 1 ? (
+              <>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Move ${stop.dogName} up`} disabled={index === 0} onPress={() => void onMoveStop(route.routeId, stop.dogId, -1)} style={styles.moveButton}>
+                  <Text style={[styles.moveText, index === 0 && styles.moveDisabled]}>▲</Text>
+                </Pressable>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Move ${stop.dogName} down`} disabled={index === stops.length - 1} onPress={() => void onMoveStop(route.routeId, stop.dogId, 1)} style={styles.moveButton}>
+                  <Text style={[styles.moveText, index === stops.length - 1 && styles.moveDisabled]}>▼</Text>
+                </Pressable>
+              </>
+            ) : null}
+            <Pressable accessibilityRole="button" accessibilityLabel={`Options for ${stop.dogName}`} onPress={() => route && setSheet({ mode: 'edit', route, stop })} hitSlop={8}>
+              <Text style={styles.optionsText}>⋯</Text>
+            </Pressable>
+          </View>
+        </View>
+      ))}
+      {stops.length === 0 ? <Text style={styles.noStops}>No stops assigned yet.</Text> : null}
+    </View>
+  );
+
+});
 
 function Badge({ text, color }: { text: string; color: string }) {
   return (
@@ -529,9 +546,10 @@ const styles = StyleSheet.create({
   badgeRow: { flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' },
   badge: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
   badgeText: { fontSize: 10, fontWeight: '900' },
-  stopActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  moveText: { color: colors.forest700, fontSize: 11, fontWeight: '900' },
-  moveDisabled: { color: '#C8CFC9' },
+  stopActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  moveButton: { minWidth: 44, minHeight: 44, padding: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.sage, borderColor: colors.line, borderWidth: 1, borderRadius: radii.small },
+  moveText: { color: colors.forest700, fontSize: 18, fontWeight: '900' },
+  moveDisabled: { color: colors.muted, opacity: 0.4 },
   optionsText: { color: colors.forest700, fontSize: 18, fontWeight: '900', lineHeight: 20 },
   noStops: { color: colors.muted, fontSize: 12, padding: 12 },
   unassigned: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#B9C4B9', borderRadius: radii.medium, padding: 13, backgroundColor: '#FAFBF7', marginTop: 4 },
