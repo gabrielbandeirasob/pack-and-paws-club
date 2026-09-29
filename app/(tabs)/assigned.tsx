@@ -4,7 +4,8 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { todayLocalISO } from '@/features/calendar/dates';
-import { sortStopsBySequence, stopLabel, stopStatusLabel } from '@/features/driver/routeLabels';
+import { ordenarParadasDoDia } from '@/features/driver/dayOrder';
+import { stopLabel, stopStatusLabel } from '@/features/driver/routeLabels';
 import { colors, radii } from '@/features/theme/tokens';
 import { plural } from '@/lib/plural';
 import { supabase } from '@/lib/supabase';
@@ -12,6 +13,8 @@ import { supabase } from '@/lib/supabase';
 type StopRow = {
   id: string;
   sequence: number | null;
+  dropoff_sequence?: number | null;
+  dropoffSequence?: number | null;
   status: string;
   dog: { name: string | null; client: { name: string | null; address_line_1: string | null; city: string | null } | null } | null;
 };
@@ -26,13 +29,17 @@ export default function DriverAssignedScreen() {
     const { data: { user } } = await supabase.auth.getUser();
     const { data } = await supabase
       .from('routes')
-      .select('route_stops(id, sequence, status, dog:dogs(name, client:clients(name, address_line_1, city)))')
+      .select('route_stops(id, sequence, dropoff_sequence, status, dog:dogs(name, client:clients(name, address_line_1, city)))')
       .eq('driver_id', user?.id ?? '')
       .eq('route_date', todayLocalISO())
       .eq('status', 'published');
     const rows = ((data as unknown as { route_stops: StopRow[] }[]) ?? []).flatMap((route) => route.route_stops ?? []);
-    // a ordem da rota e' a sequencia, nao a ordem que o banco devolveu
-    setStops(sortStopsBySequence(rows));
+    /**
+     * A MESMA ordem da tela da rota (`features/driver/dayOrder`): busca enquanto houver busca, depois a
+     * ordem da ENTREGA publicada pelo gestor. Antes esta lista ordenava só por `sequence` e, na tarde,
+     * discordava da numeração que o motorista vê na rota.
+     */
+    setStops(ordenarParadasDoDia(rows.map((row) => ({ ...row, sequence: row.sequence ?? 0, dropoffSequence: row.dropoff_sequence ?? null }))));
     setLoading(false);
   }, []);
 

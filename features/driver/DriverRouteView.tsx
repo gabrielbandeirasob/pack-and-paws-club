@@ -1,5 +1,6 @@
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { ordenarParadasDoDia } from '@/features/driver/dayOrder';
 import { notifyButtonState } from '@/features/driver/etaMessage';
 import { ETA_MAXIMO_PLAUSIVEL_MIN } from '@/features/driver/eta';
 import { clockText } from '@/features/driver/shift';
@@ -17,6 +18,7 @@ export type DriverStop = {
    */
   groupId?: string | null;
   sequence: number;
+  dropoffSequence?: number | null;
   status: 'pending' | 'arrived' | 'picked_up' | 'completed' | 'skipped';
   clientName: string;
   dogName: string;
@@ -69,7 +71,7 @@ function addressLine(stop: DriverStop): string | null {
 
 export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
   const fire = (stop: DriverStop, action: DriverAction) => onAction(stop.id, action);
-  const ordered = [...stops].sort((a, b) => a.sequence - b.sequence);
+  const ordered = ordenarParadasDoDia(stops);
   /**
    * TAREFAS do dia: paradas do MESMO cliente viram UMA parada com N cães (migration 029) — o motorista
    * para uma vez e resolve cão por cão, cada um com seu status e seu comprovante (decisão do dono).

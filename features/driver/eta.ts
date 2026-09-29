@@ -1,3 +1,4 @@
+import { proximaParadaDoDia } from '@/features/driver/dayOrder';
 import { haversineKm } from '@/features/dispatch/routeOptimizer';
 
 export type EtaPosition = { latitude: number; longitude: number };
@@ -5,6 +6,7 @@ export type EtaPosition = { latitude: number; longitude: number };
 export type EtaStop = {
   id: string;
   sequence: number;
+  dropoffSequence?: number | null;
   clientName: string;
   dogName: string;
   latitude?: number | null;
@@ -134,9 +136,7 @@ export function minutesToStop(
  * Also reports how many minutes past its window/deadline the arrival would be.
  */
 export function nextStopEta(stops: EtaStop[], position: EtaPosition | null, now: Date = new Date(), speedKph = DEFAULT_SPEED_KPH): EtaResult | null {
-  const next = [...stops]
-    .filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped')
-    .sort((a, b) => a.sequence - b.sequence)[0];
+  const next = proximaParadaDoDia(stops);
   if (!next) return null;
 
   const minutes =

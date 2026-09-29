@@ -29,15 +29,14 @@ function resolvido(status: DriverStop['status']): boolean {
 /**
  * Agrupa as paradas do dia em TAREFAS por `stop_group_id` (mesmo cliente na mesma rota = mesma parada).
  *
- * Regras: a ordem das tarefas é a da rota (o menor `sequence` do grupo manda) e, dentro do grupo, os cães
+ * Regras: a ordem das tarefas é a recebida (a primeira parada do grupo manda) e, dentro do grupo, os cães
  * seguem a ordem da rota. Parada sem `groupId` (base antiga, antes da migration 029) fica sozinha: o app
  * nunca junta dois cães por conta própria.
  */
 export function agruparEmTarefas(stops: DriverStop[]): DriverTask[] {
-  const ordenadas = [...stops].sort((a, b) => a.sequence - b.sequence);
   const grupos = new Map<string, DriverStop[]>();
 
-  for (const stop of ordenadas) {
+  for (const stop of stops) {
     const chave = stop.groupId && stop.groupId.length > 0 ? stop.groupId : `parada:${stop.id}`;
     const atual = grupos.get(chave);
     if (atual) atual.push(stop);

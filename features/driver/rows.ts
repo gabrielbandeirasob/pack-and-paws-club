@@ -8,6 +8,7 @@ import type { DriverStop } from '@/features/driver/DriverRouteView';
 export type DriverStopRow = {
   id: string;
   sequence: number;
+  dropoff_sequence?: number | null;
   status: DriverStop['status'];
   /** Parada agrupada por cliente (migration 029): mesmo cliente na mesma rota = mesma parada. */
   stop_group_id?: string | null;
@@ -77,6 +78,7 @@ export function rowToStop(row: DriverStopRow): DriverStop {
     dogId: dog?.id ?? null,
     groupId: row.stop_group_id ?? null,
     sequence: row.sequence,
+    dropoffSequence: row.dropoff_sequence ?? null,
     status: row.status,
     clientName: client?.name?.trim() || UNKNOWN_CLIENT,
     dogName: dog?.name?.trim() || UNKNOWN_DOG,

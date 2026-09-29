@@ -1,3 +1,4 @@
+import { proximaParadaDoDia } from '@/features/driver/dayOrder';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { DriverAction, DriverStop } from '@/features/driver/DriverRouteView';
@@ -39,7 +40,7 @@ export const NEXT_ACTION_LABEL: Partial<Record<DriverAction, string>> = {
 };
 
 /**
- * Próxima parada do dia: a de MENOR `sequence` que ainda não foi resolvida.
+ * Próxima parada do dia: busca pendente primeiro; após as buscas, entrega publicada.
  *
  * "Resolvida" usa a MESMA definição do resto do app (ver `nextStopEta` em features/driver/eta e
  * `resolvido` em features/driver/tasks): `completed` OU `skipped`. Uma parada marcada como problema
@@ -47,11 +48,7 @@ export const NEXT_ACTION_LABEL: Partial<Record<DriverAction, string>> = {
  * mandaria o motorista de volta para uma casa que ele já reportou como impossível.
  */
 export function nextStopFor(stops: DriverStop[]): DriverStop | null {
-  return (
-    [...stops]
-      .filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped')
-      .sort((a, b) => a.sequence - b.sequence)[0] ?? null
-  );
+  return proximaParadaDoDia(stops);
 }
 
 type Props = {

@@ -5,6 +5,7 @@
  * moram na mesma casa e o motorista para uma vez. Um status por CÃO (cada um com seu comprovante) e o
  * motorista PODE fechar o dia com um cão pendente.
  */
+import { ordenarParadasDoDia } from '@/features/driver/dayOrder';
 import type { DriverStop } from '@/features/driver/DriverRouteView';
 import { agruparEmTarefas, posicoesDasParadas } from '@/features/driver/tasks';
 
@@ -71,12 +72,12 @@ describe('TAREFA = parada do cliente (N cães na mesma casa)', () => {
   });
 
   it('a ordem da rota manda: grupos pela MENOR sequência e cães na ordem da rota', () => {
-    const tarefas = agruparEmTarefas([
+    const tarefas = agruparEmTarefas(ordenarParadasDoDia([
       parada('s3', 'Bella', { groupId: 'grupo-b', sequence: 3, clientName: 'Leigh Ann' }),
       parada('s2', 'Mowgli', { groupId: GRUPO_ANA, sequence: 2 }),
       parada('s1', 'Kona', { groupId: GRUPO_ANA, sequence: 1 }),
       parada('s4', 'Zara', { groupId: 'grupo-b', sequence: 4, clientName: 'Leigh Ann' }),
-    ]);
+    ]));
 
     expect(tarefas.map((t) => t.clientName)).toEqual(['Ana', 'Leigh Ann']);
     expect(tarefas[0].stops.map((s) => s.dogName)).toEqual(['Kona', 'Mowgli']);
