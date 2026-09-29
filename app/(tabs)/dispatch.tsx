@@ -6,6 +6,7 @@ import { buildDay, transportPool, vanPool, type DogRef, type RecurringExceptionR
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
 import { criarFilaDeEscrita, trocarNaOrdem } from '@/features/dispatch/reorderQueue';
+import { ordemDaBusca, ordemDaEntrega, ordenarComTravas, pinDaParada, type Travas, type Perna } from '@/features/dispatch/orderPins';
 import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
 import { STALE_ROUTE_TITLE, expectedVersion, isStaleRouteError, routeErrorMessage } from '@/features/dispatch/staleRoute';
 import { fetchTravelTimes } from '@/features/dispatch/trafficProvider';
@@ -18,6 +19,11 @@ type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_
 type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; transport_required: boolean; dog: { id: string; name: string; client: { name: string } } };
 type ExceptionRow = { id: string; recurring_schedule_id: string; action: 'skip' | 'transport_on' | 'transport_off'; start_date: string; end_date: string };
 type StopRow = {
+  pickup_pin?: Travas['pickupPin'];
+  pickup_pin_position?: number | null;
+  dropoff_pin?: Travas['dropoffPin'];
+  dropoff_pin_position?: number | null;
+  dropoff_sequence?: number | null;
   dog_id: string;
   sequence: number;
   status: 'pending' | 'arrived' | 'picked_up' | 'completed' | 'skipped';
@@ -58,18 +64,25 @@ export default function DispatchScreen() {
   const contexto = useRef({ orgId: '', date });
   const diaDasRotas = useRef(date);
   const leituraRotas = useRef(0);
+  const gravandoOrdens = useRef(new Set<string>());
   contexto.current.date = date;
   const atualizarRotas = useCallback((novas: DispatchRoute[]) => {
     routesRef.current = novas;
     setRoutes(novas);
   }, []);
-  const fila = useMemo(() => criarFilaDeEscrita<string[]>({
+  const fila = useMemo(() => criarFilaDeEscrita<{ pickup: string[]; dropoff: string[] | null; pernas: Set<Perna> }>({
     escrever: async (rotaId, ordem) => {
-      const { error } = await supabase.rpc('reorder_route_stops', {
-        p_route_id: rotaId, p_dog_ids: ordem, p_esperado: expectedVersion(versoes.current, rotaId),
-      });
-      if (error) throw error;
-      versoes.current[rotaId] = (versoes.current[rotaId] ?? 1) + 1;
+      for (const perna of ordem.pernas) {
+        const { error } = perna === 'pickup'
+          ? await supabase.rpc('reorder_route_stops', {
+            p_route_id: rotaId, p_dog_ids: ordem.pickup, p_esperado: expectedVersion(versoes.current, rotaId),
+          })
+          : await supabase.rpc('apply_route_order', {
+            p_route_id: rotaId, p_pickup_ids: null, p_dropoff_ids: ordem.dropoff, p_esperado: expectedVersion(versoes.current, rotaId),
+          });
+        if (error) throw error;
+        versoes.current[rotaId] = (versoes.current[rotaId] ?? 1) + 1;
+      }
       revisoes.current[rotaId] = (revisoes.current[rotaId] ?? 0) + 1;
     },
   }), []);
@@ -171,13 +184,13 @@ export default function DispatchScreen() {
     const { orgId, date } = contexto.current;
     const consulta = ++leituraRotas.current;
     const leitura = { ...revisoes.current };
-    const pendentes = new Set(routesRef.current.filter((rota) => fila.pendente(rota.routeId)).map((rota) => rota.routeId));
-    const routeResult = await supabase.from('routes').select('id, driver_id, status, lock_version, route_stops(dog_id, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, client:clients(name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date);
+    const pendentes = new Set(routesRef.current.filter((rota) => (fila.pendente(rota.routeId) || gravandoOrdens.current.has(rota.routeId))).map((rota) => rota.routeId));
+    const routeResult = await supabase.from('routes').select('id, driver_id, status, lock_version, route_stops(dog_id, pickup_pin, pickup_pin_position, dropoff_pin, dropoff_pin_position, dropoff_sequence, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, client:clients(name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date);
     if (date !== contexto.current.date || consulta !== leituraRotas.current) return;
     if (routeResult.error) { falhou('rotas', routeResult.error.message); return; }
     falhou('rotas', null);
     const routeRows = (routeResult.data as unknown as RouteRow[]) ?? [];
-    const protegida = (id: string) => fila.pendente(id) || pendentes.has(id) || leitura[id] !== revisoes.current[id];
+    const protegida = (id: string) => gravandoOrdens.current.has(id) || fila.pendente(id) || pendentes.has(id) || leitura[id] !== revisoes.current[id];
     routeRows.forEach((row) => {
       if (!protegida(row.id)) versoes.current[row.id] = row.lock_version ?? 1;
     });
@@ -187,6 +200,11 @@ export default function DispatchScreen() {
       status: row.status,
       stops: (row.route_stops ?? []).map((stop) => ({
         dogId: stop.dog_id,
+        pickupPin: stop.pickup_pin,
+        pickupPinPosition: stop.pickup_pin_position,
+        dropoffPin: stop.dropoff_pin,
+        dropoffPinPosition: stop.dropoff_pin_position,
+        dropoffSequence: stop.dropoff_sequence,
         sequence: stop.sequence,
         status: stop.status,
         clientName: stop.dog.client.name,
@@ -364,6 +382,9 @@ export default function DispatchScreen() {
   }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas]);
 
   const saveStopConstraint = useCallback(async (routeId: string, dogId: string, constraint: DispatchConstraint) => {
+    const parada = routesRef.current.find((rota) => rota.routeId === routeId)?.stops.find((stop) => stop.dogId === dogId);
+    if (parada && parada.windowStart === constraint.windowStart && parada.windowEnd === constraint.windowEnd
+      && parada.exactTime === constraint.exactTime && parada.priority === constraint.priority) return;
     const { error } = await supabase.from('route_stops').update({
       window_start: constraint.windowStart,
       window_end: constraint.windowEnd,
@@ -375,6 +396,30 @@ export default function DispatchScreen() {
     await carregarRotas();
   }, [falhaDeEscrita, marcarRotaAlterada, carregarRotas]);
 
+  const savePins = useCallback(async (routeId: string, dogId: string, travas: Travas) => {
+    await fila.aguardar(routeId);
+    const parada = routesRef.current.find((rota) => rota.routeId === routeId)?.stops.find((stop) => stop.dogId === dogId);
+    if (!parada) return;
+    gravandoOrdens.current.add(routeId);
+    try {
+      for (const perna of ['pickup', 'dropoff'] as const) {
+        const antes = pinDaParada(parada, perna);
+        const depois = pinDaParada(travas, perna);
+        if (antes?.tipo === depois?.tipo && (antes?.tipo !== 'fixed' || antes.posicao === depois?.posicao)) continue;
+        const { error } = await supabase.rpc('set_stop_order_pin', {
+          p_route_id: routeId, p_dog_id: dogId, p_leg: perna, p_pin: depois?.tipo ?? null,
+          p_pin_position: depois?.tipo === 'fixed' ? depois.posicao : null, p_esperado: versaoDe(routeId),
+        });
+        falhaDeEscrita(error);
+        versoes.current[routeId] = (versoes.current[routeId] ?? 1) + 1;
+        revisoes.current[routeId] = (revisoes.current[routeId] ?? 0) + 1;
+      }
+    } finally {
+      gravandoOrdens.current.delete(routeId);
+      await carregarRotas();
+    }
+  }, [fila, versaoDe, falhaDeEscrita, carregarRotas]);
+
   const removeStop = useCallback(async (routeId: string, dogId: string) => {
     const { error } = await supabase.from('route_stops').delete().eq('route_id', routeId).eq('dog_id', dogId);
     falhaDeEscrita(error);
@@ -382,15 +427,26 @@ export default function DispatchScreen() {
     await carregarRotas();
   }, [falhaDeEscrita, marcarRotaAlterada, carregarRotas]);
 
-  const moveStop = useCallback(async (routeId: string, dogId: string, direction: -1 | 1) => {
+  const pernasPendentes = useRef<Record<string, Set<Perna>>>({});
+  const moverNaPerna = useCallback(async (routeId: string, dogId: string, direction: -1 | 1, perna: Perna) => {
     const rota = routesRef.current.find((item) => item.routeId === routeId);
     if (!rota) return;
-    const ordem = trocarNaOrdem(rota.stops, dogId, direction);
+    const base = perna === 'pickup' ? rota.stops : ordemDaEntrega(rota.stops).map((stop, i) => ({ ...stop, sequence: i + 1 }));
+    const troca = trocarNaOrdem(base, dogId, direction);
+    const ordem = perna === 'pickup' ? troca : troca?.map((stop, i) => ({
+      ...stop, sequence: rota.stops.find((original) => original.dogId === stop.dogId)!.sequence, dropoffSequence: i + 1,
+    }));
     if (!ordem) return;
     revisoes.current[routeId] = (revisoes.current[routeId] ?? 0) + 1;
     atualizarRotas(routesRef.current.map((item) => item.routeId === routeId ? { ...item, stops: ordem } : item));
     const jaPendente = fila.pendente(routeId);
-    const escrita = fila.enfileirar(routeId, ordem.map((item) => item.dogId));
+    const pernas = pernasPendentes.current[routeId] ?? new Set<Perna>();
+    pernas.add(perna);
+    pernasPendentes.current[routeId] = pernas;
+    const escrita = fila.enfileirar(routeId, {
+      pickup: ordemDaBusca(ordem).map((item) => item.dogId),
+      dropoff: ordemDaEntrega(ordem).map((item) => item.dogId), pernas: new Set(pernas),
+    });
     // Uma única observação de erro por lote, mesmo com vários toques.
     if (jaPendente) return;
     try {
@@ -398,8 +454,12 @@ export default function DispatchScreen() {
     } catch (erro) {
       showAlert(isStaleRouteError(erro as { message: string }) ? STALE_ROUTE_TITLE : 'Unable to reorder stops', routeErrorMessage(erro as { message: string }));
       await carregarRotas();
+    } finally {
+      delete pernasPendentes.current[routeId];
     }
   }, [fila, atualizarRotas, carregarRotas]);
+  const moveStop = useCallback((routeId: string, dogId: string, direction: -1 | 1) => moverNaPerna(routeId, dogId, direction, 'pickup'), [moverNaPerna]);
+  const moveDropoff = useCallback((routeId: string, dogId: string, direction: -1 | 1) => moverNaPerna(routeId, dogId, direction, 'dropoff'), [moverNaPerna]);
 
   const publish = useCallback(async (routeId: string) => {
     const { error } = await supabase.rpc('publish_route', { p_route_id: routeId, p_esperado: versaoDe(routeId) });
@@ -425,14 +485,15 @@ export default function DispatchScreen() {
   const optimize = useCallback(async (routeId: string) => {
     const route = routesRef.current.find((candidate) => candidate.routeId === routeId);
     if (!route) return;
-    const sorted = [...route.stops].sort((a, b) => a.sequence - b.sequence);
+    const versao = versaoDe(routeId);
+    const sorted = ordemDaBusca(route.stops);
     const finished = sorted.filter((stop) => stop.status === 'completed' || stop.status === 'skipped');
     const remaining = sorted.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped');
-    if (remaining.length < 2) return;
+    if (sorted.length < 2) return;
 
     // Tempos reais de transito (servidor). Sem funcao/chave/internet, cai na estimativa de
     // linha reta e o gestor nem percebe atraso: a espera e limitada por timeout curto.
-    const traffic = await fetchTravelTimes(remaining.map((stop) => ({
+    const traffic = await fetchTravelTimes(sorted.map((stop) => ({
       dogId: stop.dogId,
       clientName: stop.clientName,
       dogName: stop.dogName,
@@ -462,16 +523,45 @@ export default function DispatchScreen() {
       showAlert('Cannot optimize this route', result.reason ?? 'The schedule is infeasible.');
       return;
     }
-    const lines = result.stops.map((stop) => `• ${stop.sequence}. ${stop.clientName} · ${stop.dogName} — arrive ${stop.plannedArrival}`);
+    // As janelas existentes são de busca; a entrega usa a mesma matriz, sem janelas da manhã.
+    const entrega = optimizeRoute(ordemDaEntrega(sorted).map((stop) => ({
+      ...stop, windowStart: null, windowEnd: null, exactTime: null,
+    })), { travel: traffic.travel });
+    if (!entrega.feasible) {
+      showAlert('Cannot optimize this route', entrega.reason ?? 'The schedule is infeasible.'); return;
+    }
+    const travasBusca = sorted.map((stop) => ({ dogId: stop.dogId, pin: pinDaParada(stop, 'pickup') }));
+    // Concluídas ocupam o início; qualquer trava incompatível aparece como conflito.
+    const busca = ordenarComTravas([...finished, ...result.stops], [
+      ...finished.map((stop, i) => ({ dogId: stop.dogId, pin: { tipo: 'fixed' as const, posicao: i + 1 } })),
+      ...travasBusca,
+    ], sorted.length);
+    const volta = ordenarComTravas(entrega.stops, sorted.map((stop) => ({ dogId: stop.dogId, pin: pinDaParada(stop, 'dropoff') })), sorted.length);
+    const linhas = (ordem: { dogName: string }[]) => ordem.map((stop, i) => `• ${i + 1}. ${stop.dogName}`).join('\n');
+    const conflitos = (resultado: typeof busca, perna: string) => resultado.conflitos.map((conflito) =>
+      `${perna}: ${conflito.motivo === 'collision' ? 'Conflicting locks' : 'Position outside route'} #${conflito.posicao}: ${conflito.dogIds.map((id) => sorted.find((stop) => stop.dogId === id)?.dogName ?? id).join(', ')}`);
+    const mensagem = `Pick-up:\n${linhas(busca.ordem)}\n\nDrop-off:\n${linhas(volta.ordem)}\n\n${[...conflitos(busca, 'Pick-up'), ...conflitos(volta, 'Drop-off')].join('\n')}`;
     const origem = traffic.source === 'live' ? 'live traffic' : 'estimated times';
-    showAlert(`Optimized route (${origem})`, `Suggested order:\n${lines.join('\n')}`, [
+    showAlert(`Optimized route (${origem})`, mensagem, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Apply',
         onPress: () => {
-          const order = [...finished.map((stop) => stop.dogId), ...result.stops.map((stop) => stop.dogId)];
-          void supabase.rpc('reorder_route_stops', { p_route_id: routeId, p_dog_ids: order, p_esperado: versaoDe(routeId) }).then(({ error }) => {
+          gravandoOrdens.current.add(routeId);
+          void Promise.resolve(supabase.rpc('apply_route_order', {
+            p_route_id: routeId, p_pickup_ids: busca.ordem.map((stop) => stop.dogId),
+            p_dropoff_ids: ordemDaEntrega(volta.ordem.map((stop, i) => ({ ...stop, dropoffSequence: i + 1 }))).map((stop) => stop.dogId),
+            p_esperado: versao,
+          })).then(({ error }) => {
+            if (!error) {
+              versoes.current[routeId] = (versao ?? 1) + 1;
+              revisoes.current[routeId] = (revisoes.current[routeId] ?? 0) + 1;
+            }
             if (error) showAlert(isStaleRouteError(error) ? STALE_ROUTE_TITLE : 'Unable to apply the route', routeErrorMessage(error));
+          }).catch((erro: { message: string }) => {
+            showAlert('Unable to apply the route', routeErrorMessage(erro));
+          }).finally(() => {
+            gravandoOrdens.current.delete(routeId);
             void carregarRotas();
           });
         },
@@ -495,6 +585,8 @@ export default function DispatchScreen() {
           onSaveStop={saveStopConstraint}
           onRemoveStop={removeStop}
           onMoveStop={moveStop}
+          onMoveDropoff={moveDropoff}
+          onSavePins={savePins}
           onOptimize={optimize}
           onPublish={publish}
           onUnpublish={unpublish}

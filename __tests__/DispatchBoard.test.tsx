@@ -276,3 +276,24 @@ it('mantém os rótulos e alvos de toque de pelo menos 44 pontos para mover Luna
     expect(screen.getByRole('button', { name: nome })).toHaveStyle({ minWidth: 44, minHeight: 44 });
   }
 });
+
+it('mostra selos por perna e rótulos acessíveis dos controles novos', async () => {
+  const comTravas: DispatchRoute[] = [{
+    ...routes[0], stops: routes[0].stops.map((stop) => ({
+      ...stop, pickupPin: 'first', dropoffPin: 'fixed', dropoffPinPosition: 3,
+    })),
+  }];
+  const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={comTravas} {...noops} />);
+  expect(screen.getAllByText('🔒 1st')).toHaveLength(2);
+  await fireEvent.press(screen.getByRole('button', { name: 'Drop-off Rafael route' }));
+  expect(screen.getAllByText('🔒 #3')).toHaveLength(2);
+  expect(screen.queryByText('🔒 1st')).toBeNull();
+  expect(screen.getByRole('button', { name: 'Pick-up Rafael route' })).toBeTruthy();
+  await fireEvent.press(screen.getByRole('button', { name: 'Options for Luna' }));
+  for (const perna of ['Pick-up', 'Drop-off']) {
+    for (const regra of ['Free', '1st', 'Last', 'Position #']) {
+      expect(screen.getByRole('button', { name: `${perna} rule ${regra}` })).toBeTruthy();
+    }
+  }
+  expect(screen.getByLabelText('Drop-off position')).toBeTruthy();
+});

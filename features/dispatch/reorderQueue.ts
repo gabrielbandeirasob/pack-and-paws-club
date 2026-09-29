@@ -16,6 +16,7 @@ export function criarFilaDeEscrita<T>({ escrever }: {
 }) {
   const rotas = new Map<string, { ultima: T; revisao: number; promessa: Promise<void> }>();
   return {
+    aguardar: (rotaId: string) => rotas.get(rotaId)?.promessa ?? Promise.resolve(),
     pendente: (rotaId: string) => rotas.has(rotaId),
     enfileirar(rotaId: string, ordem: T): Promise<void> {
       const existente = rotas.get(rotaId);

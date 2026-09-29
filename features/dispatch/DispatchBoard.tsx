@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
 import { DogPicker } from '@/features/calendar/DogPicker';
@@ -10,6 +10,7 @@ import { rotuloDeStatus } from '@/features/dispatch/routeStatusLabel';
 import { colors, radii } from '@/features/theme/tokens';
 import { StopProofChips } from '@/features/dispatch/ProofViewer';
 import { showAlert } from '@/features/ui/alert';
+import { ordemDaBusca, ordemDaEntrega, pinDaParada, type Perna, type Travas } from '@/features/dispatch/orderPins';
 import { plural } from '@/lib/plural';
 
 export type DispatchConstraint = {
@@ -56,7 +57,7 @@ export type DispatchRouteStop = DispatchStopItem & {
   /** Caminhos das fotos de comprovante no bucket privado (migration 020). */
   pickupProofPath?: string | null;
   dropoffProofPath?: string | null;
-} & DispatchConstraint;
+} & DispatchConstraint & Travas & { dropoffSequence?: number | null };
 export type DispatchRoute = { routeId: string; driverId: string; status: 'draft' | 'published' | 'completed' | 'cancelled'; stops: DispatchRouteStop[] };
 
 type ConstraintKind = 'none' | 'window' | 'exact';
@@ -76,6 +77,8 @@ type Props = {
   onSaveStop: (routeId: string, dogId: string, constraint: DispatchConstraint) => Promise<void>;
   onRemoveStop: (routeId: string, dogId: string) => Promise<void>;
   onMoveStop: (routeId: string, dogId: string, direction: -1 | 1) => Promise<void>;
+  onMoveDropoff?: Props['onMoveStop'];
+  onSavePins?: (routeId: string, dogId: string, travas: Travas) => Promise<void>;
   onOptimize: (routeId: string) => Promise<void>;
   onPublish: (routeId: string) => Promise<void>;
   onUnpublish: (routeId: string) => Promise<void>;
@@ -93,7 +96,8 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog }: Props) {
+export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog }: Props) {
+  const [travas, setTravas] = useState<Travas>({});
   const [sheet, setSheet] = useState<SheetState>(null);
   const [buscaCao, setBuscaCao] = useState(false);
   const [driverId, setDriverId] = useState<string | null>(null);
@@ -108,6 +112,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
 
   useEffect(() => {
     if (!sheet) return;
+    setTravas(sheet.mode === 'edit' ? sheet.stop : {});
     setError(null);
     setTimeTarget(null);
     setKind('none');
@@ -157,14 +162,22 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
       if (windowEnd <= windowStart) { setError('The window end must be after its start.'); return; }
     }
     if (kind === 'exact' && !validTime(exactTime)) { setError('Use HH:MM for the exact time.'); return; }
+    for (const perna of ['pickup', 'dropoff'] as const) {
+      const pin = pinDaParada(travas, perna);
+      if (pin?.tipo === 'fixed' && (!Number.isInteger(pin.posicao) || (pin.posicao ?? 0) < 1)) {
+        setError('Position must be between 1 and 99.'); return;
+      }
+    }
     setWorking(true);
     try {
       const constraint = constraintFromFields();
       if (sheet.mode === 'assign') {
         await onAssign(sheet.item.dogId, driverId as string, constraint);
       } else if (driverId !== sheet.route.driverId) {
+        await onSavePins?.(sheet.route.routeId, sheet.stop.dogId, travas);
         await onAssign(sheet.stop.dogId, driverId as string, constraint);
       } else {
+        await onSavePins?.(sheet.route.routeId, sheet.stop.dogId, travas);
         await onSaveStop(sheet.route.routeId, sheet.stop.dogId, constraint);
       }
       setSheet(null);
@@ -206,7 +219,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
         {drivers.map((driver) => (
           <CartaoMotorista key={driver.id} driver={driver} route={routesByDriver.get(driver.id)}
             location={driverLocations[driver.id]} working={working} setSheet={setSheet}
-            onMoveStop={onMoveStop} onOptimize={onOptimize} onPublish={onPublish}
+            onMoveStop={onMoveStop} onMoveDropoff={onMoveDropoff} onOptimize={onOptimize} onPublish={onPublish}
             onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
         ))}
         <View style={styles.unassigned}>
@@ -341,6 +354,28 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
               </>
             ) : null}
 
+            {sheet?.mode === 'edit' ? <>
+              <Text style={styles.fieldLabel}>Order rule</Text>
+              {(['pickup', 'dropoff'] as const).map((perna) => {
+                const label = perna === 'pickup' ? 'Pick-up' : 'Drop-off';
+                return <View key={perna} style={styles.pinRow}>
+                  <Text style={styles.pinLabel}>{label}</Text>
+                  {([null, 'first', 'last', 'fixed'] as const).map((tipo) => {
+                    const texto = tipo === null ? 'Free' : tipo === 'first' ? '1st' : tipo === 'last' ? 'Last' : 'Position #';
+                    const ativo = (travas[`${perna}Pin`] ?? null) === tipo;
+                    return <Pressable key={texto} accessibilityRole="button" accessibilityLabel={`${label} rule ${texto}`} accessibilityState={{ selected: ativo }} disabled={working}
+                      onPress={() => setTravas((atual) => ({ ...atual, [`${perna}Pin`]: tipo }))}
+                      style={[styles.driverOption, styles.pinChip, ativo && styles.driverOptionActive]}>
+                      <Text style={[styles.driverOptionText, ativo && styles.driverOptionTextActive]}>{texto}</Text>
+                    </Pressable>;
+                  })}
+                  {travas[`${perna}Pin`] === 'fixed' ? <TextInput accessibilityLabel={`${label} position`} keyboardType="number-pad" maxLength={2}
+                    value={travas[`${perna}PinPosition`]?.toString() ?? ''} style={styles.pinInput}
+                    onChangeText={(valor) => setTravas((atual) => ({ ...atual, [`${perna}PinPosition`]: valor.replace(/\D/g, '') ? Number(valor.replace(/\D/g, '')) : null }))} /> : null}
+                </View>;
+              })}
+            </> : null}
+
             <Text style={styles.fieldLabel}>Priority</Text>
             <View style={styles.driverOptions}>
               {(['normal', 'priority'] as const).map((option) => (
@@ -369,7 +404,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
   );
 });
 
-type PropsCartao = Pick<Props, 'onMoveStop' | 'onOptimize' | 'onPublish' | 'onUnpublish' | 'onCancelRoute' | 'onCompleteRoute'> & {
+type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | 'onPublish' | 'onUnpublish' | 'onCancelRoute' | 'onCompleteRoute'> & {
   driver: DispatchDriver;
   route?: DispatchRoute;
   location?: { latitude: number; longitude: number; updatedAt: string };
@@ -378,10 +413,12 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onOptimize' | 'onPublish' | 'onUn
 };
 
 const CartaoMotorista = memo(function CartaoMotorista({
-  driver, route, location, working, setSheet, onMoveStop, onOptimize, onPublish,
+  driver, route, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
   onUnpublish, onCancelRoute, onCompleteRoute,
 }: PropsCartao) {
-  const stops = useMemo(() => route ? [...route.stops].sort((a, b) => a.sequence - b.sequence) : [], [route]);
+  const [perna, setPerna] = useState<Perna>('pickup');
+  const mover = perna === 'pickup' ? onMoveStop : onMoveDropoff;
+  const stops = useMemo(() => (perna === 'pickup' ? ordemDaBusca : ordemDaEntrega)(route?.stops ?? []), [route, perna]);
   // Idade da última posição: a tela avisa quando fica velha e ESCONDE o ETA quando é antiga
   // demais (melhoria 3 da revisão das contas) — número calculado de posição velha engana.
   const frescor = location ? frescorDaPosicao(location.updatedAt) : null;
@@ -428,7 +465,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
         </View>
         {route && stops.length > 0 ? (
           <View style={styles.driverActions} testID="driver-actions">
-            {stops.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped').length >= 2 ? (
+            {stops.length >= 2 ? (
               <Pressable accessibilityRole="button" accessibilityLabel={`Optimize ${driver.name} route`} disabled={working} onPress={() => void onOptimize(route.routeId)} style={styles.optimizeButton}>
                 <Text style={styles.optimizeText}>Optimize</Text>
               </Pressable>
@@ -452,12 +489,21 @@ const CartaoMotorista = memo(function CartaoMotorista({
           </View>
         ) : null}
       </View>
+      {route ? <View style={styles.pinRow}>
+        {(['pickup', 'dropoff'] as const).map((opcao) => <Pressable key={opcao} accessibilityRole="button"
+          accessibilityLabel={`${opcao === 'pickup' ? 'Pick-up' : 'Drop-off'} ${driver.name} route`}
+          accessibilityState={{ selected: perna === opcao }} onPress={() => setPerna(opcao)}
+          style={[styles.driverOption, perna === opcao && styles.driverOptionActive]}>
+          <Text style={[styles.driverOptionText, perna === opcao && styles.driverOptionTextActive]}>{opcao === 'pickup' ? 'Pick-up' : 'Drop-off'}</Text>
+        </Pressable>)}
+      </View> : null}
       {stops.map((stop, index) => (
         <View key={`${driver.id}-${stop.dogId}`} style={styles.stop}>
           <View style={styles.position}><Text style={styles.positionText}>{index + 1}</Text></View>
           <View style={styles.stopMain}>
             <Text style={styles.stopName}>{stop.clientName} · {stop.dogName}</Text>
             <View style={styles.badgeRow}>
+              {pinDaParada(stop, perna) ? <Badge text={`🔒 ${stop[`${perna}Pin`] === 'first' ? '1st' : stop[`${perna}Pin`] === 'last' ? 'last' : `#${stop[`${perna}PinPosition`]}`}`} color={colors.forest700} /> : null}
               {stop.status === 'skipped' ? <Badge text="⚠ Problem" color={colors.urgency} /> : null}
               {stop.status === 'pending' && isPastDeadline(stop.windowEnd, stop.exactTime) ? <Badge text="Late" color={colors.urgency} /> : null}
               {stop.priority === 'priority' ? <Badge text="⚡ High" color={colors.urgency} /> : null}
@@ -469,10 +515,10 @@ const CartaoMotorista = memo(function CartaoMotorista({
           <View style={styles.stopActions}>
             {route && route.status === 'draft' && stops.length > 1 ? (
               <>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Move ${stop.dogName} up`} disabled={index === 0} onPress={() => void onMoveStop(route.routeId, stop.dogId, -1)} style={styles.moveButton}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Move ${stop.dogName} up`} disabled={working || index === 0} onPress={() => void mover?.(route.routeId, stop.dogId, -1)} style={styles.moveButton}>
                   <Text style={[styles.moveText, index === 0 && styles.moveDisabled]}>▲</Text>
                 </Pressable>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Move ${stop.dogName} down`} disabled={index === stops.length - 1} onPress={() => void onMoveStop(route.routeId, stop.dogId, 1)} style={styles.moveButton}>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Move ${stop.dogName} down`} disabled={working || index === stops.length - 1} onPress={() => void mover?.(route.routeId, stop.dogId, 1)} style={styles.moveButton}>
                   <Text style={[styles.moveText, index === stops.length - 1 && styles.moveDisabled]}>▼</Text>
                 </Pressable>
               </>
@@ -507,6 +553,10 @@ function TimeTargetButton({ label, accessibilityLabel, value, active, onPress, h
 }
 
 const styles = StyleSheet.create({
+  pinRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 4 },
+  pinLabel: { width: 50, fontSize: 11, color: colors.ink },
+  pinChip: { paddingHorizontal: 6, paddingVertical: 7 },
+  pinInput: { width: 30, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, color: colors.ink, padding: 3 },
   screen: { flex: 1, backgroundColor: colors.forest700 },
   scroll: { flex: 1, backgroundColor: colors.cream },
   header: { backgroundColor: colors.forest700, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 18, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
