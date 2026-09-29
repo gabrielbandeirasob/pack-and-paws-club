@@ -48,6 +48,15 @@ export type DispatchStopItem = {
    * puxar qualquer cão do cadastro para o Total Pack, mesmo sem reserva no dia.
    */
   extra?: boolean;
+  /**
+   * Nomes dos cães que moram na MESMA CASA (mesmo cliente) e estão na fila do dia. A folha de
+   * atribuição avisa com eles e a atribuição leva todos juntos num clique só — áudio do dono
+   * (29/09/2026): *"se eu mandar o Sam para um driver, o Oli vai para o mesmo driver… não faz sentido
+   * eu ter que clicar duas vezes para a mesma casa"*.
+   */
+  houseMates?: string[];
+  /** A casa do cão (`dogs.client_id`). Ver `features/dispatch/houseMates.ts`. */
+  clientId?: string | null;
 };
 export type DispatchRouteStop = DispatchStopItem & {
   sequence: number;
@@ -197,6 +206,13 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
   };
 
   const sheetTitle = sheet ? (sheet.mode === 'assign' ? `Assign ${sheet.item.clientName} · ${sheet.item.dogName}` : `Edit ${sheet.stop.clientName} · ${sheet.stop.dogName}`) : '';
+  /**
+   * Aviso da casa na folha de atribuição: o gestor vê que os irmãos de casa vão junto ANTES de salvar
+   * (áudio do dono, 29/09/2026: *"se eu mandar o Sam para um driver, o Oli vai para o mesmo driver"*).
+   */
+  const casaAviso = sheet?.mode === 'assign' && (sheet.item.houseMates?.length ?? 0) > 0
+    ? `Same house: ${sheet.item.houseMates!.join(' and ')} ${sheet.item.houseMates!.length > 1 ? 'go' : 'goes'} to the same driver.`
+    : null;
 
   return (
     <View style={styles.screen}>
@@ -304,6 +320,8 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
                 <Text style={styles.sheetClose}>✕</Text>
               </Pressable>
             </View>
+
+            {casaAviso ? <Text style={styles.houseHint}>{casaAviso}</Text> : null}
 
             <Text style={styles.fieldLabel}>Driver</Text>
             <View style={styles.driverOptions}>
@@ -626,6 +644,11 @@ const styles = StyleSheet.create({
   sheetClose: { color: colors.muted, fontSize: 17, fontWeight: '800', paddingHorizontal: 6 },
   fieldLabel: { color: colors.ink, fontWeight: '800', fontSize: 11, marginTop: 12, marginBottom: 6 },
   fieldHint: { color: colors.muted, fontSize: 11, marginBottom: 6 },
+  /**
+   * Aviso da casa: "Same house: Ollie goes to the same driver." Fundo suave (sage) para o gestor ver
+   * ANTES de salvar que dois cães se movem juntos — pedido do dono, 29/09/2026.
+   */
+  houseHint: { color: colors.forest900, backgroundColor: colors.sage, borderRadius: 10, padding: 9, fontSize: 12, marginBottom: 10 },
   driverOptions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   driverOption: { backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
   driverOptionActive: { backgroundColor: colors.forest700, borderColor: colors.forest700 },

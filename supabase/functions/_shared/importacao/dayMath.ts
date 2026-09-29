@@ -1,7 +1,19 @@
 // GERADO por scripts/gera-importacao-compartilhada.mjs — NÃO EDITE ESTE ARQUIVO.
 // Edite o original no app (features/...) e rode o gerador: o teste importacao-compartilhada falha
 // se esta cópia ficar desatualizada.
-export type DogRef = { id: string; dogName: string; clientName: string };
+export type DogRef = {
+  id: string;
+  dogName: string;
+  clientName: string;
+  /**
+   * Cliente (a CASA) do cão. É o que diz quem mora junto no Dispatch: dois cães do mesmo cliente vão
+   * com o mesmo motorista e viram uma parada só para o motorista (áudio do dono, 29/09/2026:
+   * *"se eu mandar o Sam para um driver, o Oli vai para o mesmo driver… não faz sentido eu ter que
+   * clicar duas vezes para a mesma casa"*). Opcional porque nem todo consumidor do `DogRef` carrega
+   * o cliente; sem ele a regra simplesmente não agrupa.
+   */
+  clientId?: string | null;
+};
 
 export type ReservationRecord = {
   id: string;
@@ -59,6 +71,8 @@ export type DayItem = {
   dogId: string;
   dogName: string;
   clientName: string;
+  /** A casa do cão (`dogs.client_id`) — ver `DogRef.clientId`. */
+  clientId?: string | null;
   transportRequired: boolean;
   /** O cão passa pelo daycare hoje (ver `ReservationRecord.goesToDaycare`). */
   goesToDaycare: boolean;
@@ -152,6 +166,7 @@ function itemize(kind: DayItem['kind'], reservation: ReservationRecord | null, s
     dogId: dog.id,
     dogName: dog.dogName,
     clientName: dog.clientName,
+    clientId: dog.clientId ?? null,
     reservationId: reservation?.id ?? null,
     recurringScheduleId: schedule?.id ?? null,
     transportRequired: source.transportRequired,

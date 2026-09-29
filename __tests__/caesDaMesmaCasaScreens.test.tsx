@@ -1,0 +1,125 @@
+/**
+ * UM CLIQUE PARA A MESMA CASA — teste de tela do Dispatch (áudio do dono, 29/09/2026).
+ *
+ * Cenário real do calendário dele: **Sam** e **Ollie**, os dois cães do cliente Jose (56 Melrose Pl),
+ * mais o **Sammy** (cliente Chuck, outra casa) para provar que o vizinho não é arrastado junto.
+ *
+ * O que este teste trava:
+ *  1. a folha de atribuição avisa que o irmão de casa vai junto ("Same house: Ollie goes to the same driver.");
+ *  2. salvar manda DUAS escritas (um cão por parada — eles continuam sendo dois cães), com a versão da
+ *     rota andando a cada escrita (a trava `stale_route` do banco recusaria a segunda com a versão velha);
+ *  3. no fim, os dois aparecem no carro do motorista e o cão da outra casa continua na fila.
+ */
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import DispatchScreen from '@/app/(tabs)/dispatch';
+import { todayLocalISO } from '@/features/calendar/dates';
+import { supabase } from '@/lib/supabase';
+
+const HOJE = todayLocalISO();
+const reserva = (id: string, dogId: string, dogName: string, clientId: string, clientName: string) => ({
+  id, service_type: 'daycare' as const, start_date: HOJE, end_date: HOJE, transport_required: true,
+  goes_to_daycare: true, dog: { id: dogId, name: dogName, client: { id: clientId, name: clientName } },
+});
+const mockReservas = [
+  reserva('r1', 'sam', 'Sam', 'casa-jose', 'Jose'),
+  reserva('r2', 'ollie', 'Ollie', 'casa-jose', 'Jose'),
+  reserva('r3', 'sammy', 'Sammy', 'casa-chuck', 'Chuck'),
+];
+
+let mockParadasDaRota: unknown[] = [];
+const mockEventos: Record<string, () => void> = {};
+jest.mock('@/lib/supabase', () => ({
+  supabase: {
+    auth: { getUser: jest.fn(async () => ({ data: { user: { id: 'gestor' } } })) },
+    from: jest.fn((tabela: string) => {
+      let selecao = '';
+      const consulta: Record<string, any> = {};
+      for (const metodo of ['select', 'eq', 'in', 'limit', 'order', 'update', 'delete', 'upsert', 'insert']) {
+        consulta[metodo] = (...args: unknown[]) => {
+          if (metodo === 'select') selecao = args[0] as string;
+          return consulta;
+        };
+      }
+      consulta.single = () => Promise.resolve({ data: { id: 'rota' }, error: null });
+      consulta.then = (resolver: (valor: unknown) => unknown) => Promise.resolve({
+        data: tabela === 'organization_members'
+          ? selecao === 'organization_id' ? [{ organization_id: 'clube' }]
+            : [{ user_id: 'motorista', role: 'driver', profiles: { full_name: 'Rafael' } }]
+          : tabela === 'reservations' ? mockReservas
+            : tabela === 'routes' ? (mockParadasDaRota.length > 0 ? [{ id: 'rota', driver_id: 'motorista', status: 'draft', lock_version: 5, route_stops: mockParadasDaRota }] : [])
+              : [],
+        error: null,
+      }).then(resolver);
+      return consulta;
+    }),
+    rpc: jest.fn(),
+    channel: () => {
+      const canal = {
+        on: (_tipo: string, filtro: { table: string }, callback: () => void) => { mockEventos[filtro.table] = callback; return canal; },
+        subscribe: () => canal,
+      };
+      return canal;
+    },
+    removeChannel: jest.fn(),
+  },
+}));
+
+const rpc = supabase.rpc as jest.Mock;
+let confirmar: ((valor: { data: null; error: { message: string } | null }) => void)[];
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockParadasDaRota = [];
+  confirmar = [];
+  rpc.mockImplementation(() => new Promise((resolve) => confirmar.push(resolve)));
+});
+
+async function montar() {
+  const tela = await render(<DispatchScreen />);
+  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Jose · Sam' })).toBeTruthy());
+  return tela;
+}
+
+it('a folha avisa que o irmão de casa vai junto, e o cão de outra casa não é citado', async () => {
+  const tela = await montar();
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Jose · Sam' }));
+  expect(tela.getByText('Same house: Ollie goes to the same driver.')).toBeTruthy();
+  await fireEvent.press(tela.getByRole('button', { name: 'Close' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Chuck · Sammy' }));
+  expect(tela.queryByText(/Same house/)).toBeNull();
+});
+
+it('um clique manda as duas paradas, com a versão da rota andando a cada escrita', async () => {
+  const tela = await montar();
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Jose · Sam' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Driver Rafael' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
+
+  await waitFor(() => expect(rpc).toHaveBeenCalledTimes(1));
+  expect(rpc).toHaveBeenCalledWith('assign_stop_to_route', {
+    p_route_id: 'rota', p_dog_id: 'sam', p_window_start: null, p_window_end: null, p_exact_time: null, p_priority: 'normal', p_esperado: null,
+  });
+
+  // O banco devolveu o primeiro cão: agora a rota tem o Sam e a segunda escrita precisa da versão nova.
+  mockParadasDaRota = [
+    { dog_id: 'sam', sequence: 1, status: 'pending', priority: 'normal', window_start: null, window_end: null, exact_time: null, dog: { id: 'sam', name: 'Sam', client: { name: 'Jose', latitude: null, longitude: null } } },
+  ];
+  await act(async () => confirmar[0]({ data: null, error: null }));
+
+  await waitFor(() => expect(rpc).toHaveBeenCalledTimes(2));
+  expect(rpc).toHaveBeenLastCalledWith('assign_stop_to_route', {
+    p_route_id: 'rota', p_dog_id: 'ollie', p_window_start: null, p_window_end: null, p_exact_time: null, p_priority: 'normal', p_esperado: 2,
+  });
+
+  mockParadasDaRota = [
+    { dog_id: 'sam', sequence: 1, status: 'pending', priority: 'normal', window_start: null, window_end: null, exact_time: null, dog: { id: 'sam', name: 'Sam', client: { name: 'Jose', latitude: null, longitude: null } } },
+    { dog_id: 'ollie', sequence: 2, status: 'pending', priority: 'normal', window_start: null, window_end: null, exact_time: null, dog: { id: 'ollie', name: 'Ollie', client: { name: 'Jose', latitude: null, longitude: null } } },
+  ];
+  await act(async () => confirmar[1]({ data: null, error: null }));
+
+  await waitFor(() => {
+    expect(tela.getByText('Jose · Sam')).toBeTruthy();
+    expect(tela.getByText('Jose · Ollie')).toBeTruthy();
+  });
+  // O cão da outra casa continua na fila de quem não tem motorista.
+  expect(tela.getByRole('button', { name: 'Assign Chuck · Sammy' })).toBeTruthy();
+});
