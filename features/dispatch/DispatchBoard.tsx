@@ -576,13 +576,18 @@ const styles = StyleSheet.create({
   driverName: { fontWeight: '900', color: colors.ink },
   muted: { color: colors.muted, fontSize: 11 },
   lateText: { color: colors.urgency, fontWeight: '800' },
-  publishButton: { backgroundColor: colors.gold, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  /**
+   * BOTOES DE ACAO DA ROTA — altura minima de 44 pt (medido em 29/09/2026: estavam com 32 px, abaixo
+   * do minimo do iOS; sao os botoes que o gestor mais toca no Dispatch). O `justifyContent: center`
+   * mantem o texto centrado agora que a altura e fixa.
+   */
+  publishButton: { backgroundColor: colors.gold, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
   publishText: { color: colors.forest900, fontWeight: '900', fontSize: 12 },
-  unpublishButton: { borderWidth: 1, borderColor: colors.line, backgroundColor: colors.paper, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  unpublishButton: { borderWidth: 1, borderColor: colors.line, backgroundColor: colors.paper, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
   unpublishText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
-  completeButton: { backgroundColor: '#4E8D5C', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 },
+  completeButton: { backgroundColor: '#4E8D5C', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
   completeText: { color: 'white', fontWeight: '900', fontSize: 12 },
-  cancelRouteButton: { borderWidth: 1, borderColor: '#E8BFBF', backgroundColor: '#FBEDED', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8 },
+  cancelRouteButton: { borderWidth: 1, borderColor: '#E8BFBF', backgroundColor: '#FBEDED', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8, minHeight: 44, minWidth: 44, justifyContent: 'center' },
   cancelRouteText: { color: colors.urgency, fontWeight: '900', fontSize: 12 },
   // flexWrap: numa tela estreita os botoes descem para a propria linha em vez de espremer o nome.
   // `flexShrink` + `maxWidth` entram por causa de um defeito visto no print de 29/09/2026: com

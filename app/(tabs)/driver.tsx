@@ -5,10 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DriverRouteView, type DriverAction, type DriverStop } from '@/features/driver/DriverRouteView';
-import { DriverRouteOptimizerCard } from '@/features/driver/DriverRouteOptimizerCard';
 import { resolveDriverOptimizationOrigin } from '@/features/driver/driverRouteLocation';
 import { clockInGate, distanceText, estaNaVan, loadVanLocationForDriver, type OrganizationLocation } from '@/features/organization/locations';
-import { optimizeDriverRoute, type DriverRouteStop } from '@/features/driver/driverRouteOptimizer';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
 import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/features/driver/etaMessage';
 
@@ -24,7 +22,6 @@ import {
   startManualShift,
 } from '@/features/driver/shiftService';
 import { getCurrentDriverLocation, startLocationSharing, type LocationHandle, type LocationUpdate } from '@/features/driver/locationService';
-import { fetchTravelTimes } from '@/features/dispatch/trafficProvider';
 import {
   applyPendingEvents,
   clearRouteSnapshot,
@@ -116,7 +113,6 @@ export default function DriverTodayScreen() {
   const [driverId, setDriverId] = useState<string | null>(null);
   /** Nome do motorista que assina o aviso ao tutor ("This is {MOTORISTA} from Pack & Paws Club"). */
   const [driverName, setDriverName] = useState<string | null>(null);
-  const [optimizeBusy, setOptimizeBusy] = useState(false);
   const locationHandle = useRef<LocationHandle | null>(null);
   const realtimeRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
@@ -378,111 +374,6 @@ export default function DriverTodayScreen() {
     const timer = setInterval(compute, 60_000);
     return () => clearInterval(timer);
   }, [stops, position]);
-
-  /** Grava a ordem sugerida pelo GPS sem permitir que um motorista altere a rota de outro. */
-  const applyOptimizedOrder = async (dogIds: string[]) => {
-    if (!routeId || routeVersion === null) {
-      showAlert('Unable to save this route', 'Reload the route and optimize it again.');
-      return;
-    }
-
-    setOptimizeBusy(true);
-    try {
-      const { error } = await supabase.rpc('driver_reorder_route_stops', {
-        p_route_id: routeId,
-        p_dog_ids: dogIds,
-        p_esperado: routeVersion,
-      });
-      if (error) {
-        const stale = error.message.toLowerCase().includes('stale_route');
-        showAlert(
-          stale ? 'Route changed' : 'Unable to save this route',
-          stale
-            ? 'The manager changed this route. Reload it and optimize again.'
-            : 'The optimized route could not be saved. Please try again.',
-        );
-        await load();
-        return;
-      }
-
-      const order = new Map(dogIds.map((dogId, index) => [dogId, index + 1]));
-      setStops((current) =>
-        [...current]
-          .map((stop) => ({ ...stop, sequence: stop.dogId ? (order.get(stop.dogId) ?? stop.sequence) : stop.sequence }))
-          .sort((a, b) => a.sequence - b.sequence),
-      );
-      await load();
-      setMessage('Route optimized from your current location.');
-    } catch {
-      showAlert('Unable to save this route', 'The optimized route could not be saved. Check your connection and try again.');
-    } finally {
-      setOptimizeBusy(false);
-    }
-  };
-
-  /**
-   * Botão do motorista: usa a posição viva do aparelho como ponto zero, considera trânsito real
-   * quando o servidor responde e preserva qualquer etapa já iniciada/concluída.
-   */
-  const optimizeFromCurrentLocation = async () => {
-    if (!routeId) return;
-    setOptimizeBusy(true);
-    try {
-      const origin = await resolveDriverOptimizationOrigin(getCurrentDriverLocation, position);
-      if (origin) setPosition(origin);
-      if (!origin) {
-        showAlert('Unable to optimize this route', 'Your current location is not available. Allow location access and try again.');
-        return;
-      }
-
-      const missingDog = stops.find((stop) => !stop.dogId);
-      if (missingDog) {
-        showAlert('Unable to optimize this route', 'One of the assigned dogs is unavailable. Ask the manager to reload and publish the route again.');
-        return;
-      }
-
-      const routeStops: DriverRouteStop[] = stops.map((stop) => ({
-        stopId: stop.id,
-        dogId: stop.dogId!,
-        sequence: stop.sequence,
-        status: stop.status,
-        clientName: stop.clientName,
-        dogName: stop.dogName,
-        latitude: stop.latitude ?? null,
-        longitude: stop.longitude ?? null,
-        windowStart: stop.windowStart ?? null,
-        windowEnd: stop.windowEnd ?? null,
-        exactTime: stop.exactTime ?? null,
-        priority: stop.priority ?? 'normal',
-      }));
-      const pending = routeStops.filter((stop) => stop.status === 'pending');
-      const traffic = await fetchTravelTimes(pending, origin);
-      const now = new Date();
-      const result = optimizeDriverRoute(routeStops, origin, {
-        startAtMinutes: now.getHours() * 60 + now.getMinutes(),
-        travel: traffic.travel,
-      });
-      if (!result.feasible) {
-        showAlert('Unable to optimize this route', result.reason ?? 'The route cannot be calculated.');
-        return;
-      }
-
-      const lines = result.optimized.map((stop, index) => `• ${index + 1}. ${stop.clientName} · ${stop.dogName} — ${stop.plannedArrival ?? 'next'}`);
-      const source = traffic.source === 'live' ? 'live traffic' : 'distance estimate';
-      showAlert(
-        `Route ready (${source})`,
-        `Starting at your current location:\n${lines.join('\n')}`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Apply route', onPress: () => void applyOptimizedOrder(result.orderedDogIds) },
-        ],
-      );
-    } catch (reason) {
-      showAlert('Unable to optimize this route', reason instanceof Error ? reason.message : 'Location or route service is unavailable.');
-    } finally {
-      setOptimizeBusy(false);
-    }
-  };
 
   const act = async (stopId: string, action: DriverAction) => {
     setMessage(null);
@@ -869,15 +760,6 @@ export default function DriverTodayScreen() {
             </View>
           ) : (
             <>
-              {/* A rota nasce onde o motorista está; o gestor continua decidindo QUAIS cães entram. */}
-              <View style={styles.routeTools}>
-                <DriverRouteOptimizerCard
-                  pendingStops={stops.filter((stop) => stop.status === 'pending').length}
-                  busy={optimizeBusy}
-                  hasLocation={position !== null}
-                  onOptimize={optimizeFromCurrentLocation}
-                />
-              </View>
               {/* Jornada do dia (deduzida da rota; manual só na exceção) */}
               <View style={styles.jornada}>
                 <ShiftCard
@@ -950,7 +832,6 @@ const styles = StyleSheet.create({
   etaTextLate: { color: colors.urgency },
   /** flexGrow (não flex) = o corpo flui junto no ScrollView único; flex: 1 aqui prenderia a rolagem. */
   body: { flexGrow: 1, backgroundColor: colors.cream },
-  routeTools: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 2 },
   jornada: { paddingHorizontal: 16, paddingTop: 2, paddingBottom: 2 },
   /** Espaço do painel NEXT STOP: mesmo respiro horizontal do otimizador e da jornada. */
   nextStop: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 2 },
