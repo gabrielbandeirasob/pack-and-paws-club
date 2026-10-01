@@ -6,6 +6,7 @@ import { buildDay, transportPool, vanPool, type DogRef, type RecurringExceptionR
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
 import { juntarIrmaosDeCasa, vaoJunto } from '@/features/dispatch/houseMates';
+import { avisoDeFalhaParcial, type FalhaParcial } from '@/features/dispatch/partialWrite';
 import { criarFilaDeEscrita, trocarNaOrdem } from '@/features/dispatch/reorderQueue';
 import { ordemDaBusca, ordemDaEntrega, ordenarComTravas, pinDaParada, type Travas, type Perna } from '@/features/dispatch/orderPins';
 import { avisoDeFechamento, paradasPendentes, type FechamentoDeRota } from '@/features/dispatch/routeClosing';
@@ -55,6 +56,14 @@ function toDogRef(dog: { id: string; name: string; client: { id: string; name: s
     latitude: dog.client.latitude ?? null,
     longitude: dog.client.longitude ?? null,
   };
+}
+
+/**
+ * Erro JÁ relatado por extenso: a frase de falha parcial já diz quantos cães entraram e quais ficaram
+ * de fora, então o `catch` do `aplicarSugestao` não pode prefixar "N dogs saved" outra vez.
+ */
+function erroParcial(mensagem: string): Error {
+  return Object.assign(new Error(mensagem), { parcial: true });
 }
 
 export default function DispatchScreen() {
@@ -406,6 +415,12 @@ export default function DispatchScreen() {
     [versaoDe, falhaDeEscrita, avisarRotaMudou, carregarRotas],
   );
 
+  /** Nome do cão para as mensagens de falha (a fila do dia é a fonte; sem ele, o próprio id). */
+  const nomeDoCao = useCallback(
+    (dogId: string) => itensDoDia.current.find((item) => item.dogId === dogId)?.dogName ?? dogId,
+    [],
+  );
+
   const routeIdForDriver = useCallback(async (driverId: string) => {
     if (!organizationId) throw new Error('Organization not found.');
     const { data: route, error: routeError } = await supabase.from('routes').upsert(
@@ -432,6 +447,15 @@ export default function DispatchScreen() {
     const routeId = await routeIdForDriver(driverId);
     const naRota = new Set(routesRef.current.flatMap((rota) => rota.stops.map((stop) => stop.dogId)));
     const junto = [dogId, ...vaoJunto(itensDoDia.current, dogId, naRota).map((item) => item.dogId)];
+    /**
+     * UM erro não cancela o lote (melhoria do dono, 01/10/2026): antes o `break` deixava os irmãos
+     * seguintes sem nem serem tentados, e o gestor só via o primeiro motivo. Agora segue tentando os
+     * demais e a frase final diz quem ficou de fora. Exceção: `stale_route` invalida a rota INTEIRA
+     * (a versão que a tela tem é velha), então ali o lote para e o app avisa como sempre.
+     */
+    // Nome próprio: `falhas` já é o estado dos erros de carga da tela (linha ~126).
+    const naoSalvos: FalhaParcial[] = [];
+    let salvos = 0;
     for (const alvo of junto) {
       const { error } = await supabase.rpc('assign_stop_to_route', {
         p_route_id: routeId,
@@ -443,15 +467,22 @@ export default function DispatchScreen() {
         p_esperado: versaoDe(routeId),
       });
       if (error) {
-        falhaDeEscrita(error);
-        break;
+        if (isStaleRouteError(error)) falhaDeEscrita(error);
+        naoSalvos.push({
+          dogId: alvo,
+          dogName: nomeDoCao(alvo),
+          motivo: routeErrorMessage(error),
+        });
+        continue;
       }
       // Cada escrita bem-sucedida incrementa `lock_version` no banco: a próxima precisa da versão nova,
       // senão o Banco recusa como 'stale_route' (a trava é justamente para escrita velha).
       versoes.current[routeId] = (versoes.current[routeId] ?? 1) + 1;
+      salvos += 1;
     }
     await carregarRotas();
-  }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas]);
+    if (naoSalvos.length > 0) throw new Error(avisoDeFalhaParcial(naoSalvos, salvos));
+  }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas, nomeDoCao]);
 
   /**
    * SUGESTÃO DE ROTA (cliente, áudio de 01/10/2026): *"sugestão de rota automática… leva um tempinho aí
@@ -544,6 +575,7 @@ export default function DispatchScreen() {
     if (aplicandoSugestao.current) return;
     const proposta = propostaRef.current;
     propostaRef.current = null;
+    const naoSalvos: FalhaParcial[] = [];
     const conferirDia = () => {
       if (!proposta || proposta.dia !== contexto.current.date || proposta.org !== contexto.current.orgId)
         throw new Error('The day changed. Create a new suggestion.');
@@ -576,14 +608,23 @@ export default function DispatchScreen() {
             p_route_id: routeId, p_dog_id: cao.dogId, p_window_start: null, p_window_end: null,
             p_exact_time: null, p_priority: 'normal', p_esperado: versaoDe(routeId),
           });
-          falhaDeEscrita(error);
+          if (error) {
+            // Mesma regra da atribuição à mão: `stale_route` invalida a rota inteira, o resto é
+            // cão a cão (melhoria do dono, 01/10/2026).
+            if (isStaleRouteError(error)) falhaDeEscrita(error);
+            naoSalvos.push({ dogId: cao.dogId, dogName: cao.dogName, motivo: routeErrorMessage(error) });
+            continue;
+          }
           versoes.current[routeId] = (versoes.current[routeId] ?? 1) + 1;
           atribuidos.add(cao.dogId);
           salvos++;
         }
       }
+      if (naoSalvos.length > 0) throw erroParcial(avisoDeFalhaParcial(naoSalvos, salvos));
     } catch (erro) {
-      throw new Error(`${salvos} dogs saved. ${erro instanceof Error ? erro.message : 'Could not apply.'} Create a new suggestion to continue.`);
+      const texto = erro instanceof Error ? erro.message : 'Could not apply.';
+      const jaRelatado = (erro as Error & { parcial?: boolean })?.parcial === true;
+      throw new Error(`${jaRelatado ? '' : `${salvos} dogs saved. `}${texto} Create a new suggestion to continue.`);
     } finally {
       try { await carregarRotas(); } finally { aplicandoSugestao.current = false; }
     }

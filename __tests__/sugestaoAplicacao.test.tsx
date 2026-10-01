@@ -162,13 +162,17 @@ it('não despublica nem escreve em rota publicada', async () => {
   expect(mockWrites).toHaveLength(0);
   expect(mockRotas[0].status).toBe('published');
 });
-it('falha parcial é informada, recarrega e invalida a proposta para não repetir escritas', async () => {
+it('falha parcial não cancela o lote: salva o resto, nomeia quem faltou e não repete escritas', async () => {
   mockFailDog = 'sam';
   const screen = await open();
   await fireEvent.press(screen.getByLabelText('Apply suggestion'));
-  await waitFor(() => expect(screen.getByText(/saved.*new suggestion/i)).toBeTruthy());
+  // O cão recusado aparece pelo nome e o lote NÃO parou nele (era o defeito até 01/10/2026).
+  await waitFor(() => expect(screen.getByText(/1 dog could not be saved: sam/)).toBeTruthy());
+  const salvos = mockRotas[0].route_stops.map((s: any) => s.dog_id);
+  expect(salvos).not.toContain('sam');
+  expect(new Set(salvos)).toEqual(new Set(['ollie', 'sammy']));
+  // proposta invalidada: tocar de novo não repete escritas
   const n = mockWrites.length;
   await fireEvent.press(screen.getByLabelText('Apply suggestion'));
   expect(mockWrites).toHaveLength(n);
-  expect(mockRotas[0].route_stops.map((s: any) => s.dog_id)).toEqual(['ollie']);
 });

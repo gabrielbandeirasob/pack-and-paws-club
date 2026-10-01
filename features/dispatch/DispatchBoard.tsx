@@ -7,7 +7,7 @@ import type { BlocoSugerido, SugestaoDeRotas } from '@/features/dispatch/routeSu
 import type { DogRef } from '@/features/calendar/dayMath';
 import { frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
-import { rotuloDeStatus } from '@/features/dispatch/routeStatusLabel';
+import { avisoDeRotaInvisivel, rotuloDeStatus } from '@/features/dispatch/routeStatusLabel';
 import { colors, radii } from '@/features/theme/tokens';
 import { StopProofChips } from '@/features/dispatch/ProofViewer';
 import { showAlert } from '@/features/ui/alert';
@@ -601,6 +601,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
   onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy,
 }: PropsCartao) {
   const [perna, setPerna] = useState<Perna>('pickup');
+  const avisoRota = avisoDeRotaInvisivel(route?.status);
   const mover = perna === 'pickup' ? onMoveStop : onMoveDropoff;
   const stops = useMemo(() => (perna === 'pickup' ? ordemDaBusca : ordemDaEntrega)(route?.stops ?? []), [route, perna]);
   // Idade da última posição: a tela avisa quando fica velha e ESCONDE o ETA quando é antiga
@@ -633,6 +634,11 @@ const CartaoMotorista = memo(function CartaoMotorista({
           <View style={styles.driverText} testID="driver-info">
             <Text style={styles.driverName}>{driver.name}</Text>
             <Text style={styles.muted}>{stops.length} stop{stops.length === 1 ? '' : 's'}{rotuloDeStatus(route?.status)}</Text>
+            {/* Rascunho NÃO chega ao celular do motorista: o aviso fica na linha do status, que é
+                onde o gestor olha (melhoria do dono, 01/10/2026). */}
+            {avisoRota ? (
+              <Text style={styles.draftBadge} testID="driver-draft-badge">{avisoRota}</Text>
+            ) : null}
             {route && stops.length > 0 ? (
               <Text style={[styles.muted, eta?.lateMinutes || frescor?.velha ? styles.lateText : null]}>
                 {location && frescor
@@ -804,6 +810,8 @@ const styles = StyleSheet.create({
   unassignedTitle: { color: colors.muted, textTransform: 'uppercase', fontWeight: '900', fontSize: 11, marginBottom: 10 },
   sugestaoLista: { maxHeight: 400, flexShrink: 1 },
   sugestaoParticipantes: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
+  /** Rota em rascunho: uma linha fina, âmbar, dizendo que o motorista ainda não vê (não é erro). */
+  draftBadge: { alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: colors.gold, backgroundColor: colors.cream, color: colors.forest700, fontSize: 11, fontWeight: '800', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden' },
   sugestaoErro: { color: colors.urgency, fontSize: 11.5, fontWeight: '700', marginBottom: 8 },
   sugestaoBloco: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 11, marginBottom: 9, backgroundColor: '#FAFBF7' },
   sugestaoMotorista: { color: colors.ink, fontWeight: '800', fontSize: 13, marginBottom: 4 },
