@@ -64,6 +64,24 @@ describe('DriverRouteView', () => {
     expect(onAction).toHaveBeenCalledWith('stop-1', 'navigate');
   });
 
+  it('fluxo de 2 toques na lista: "I arrived" e depois "Next" (pegou + concluiu juntos)', async () => {
+    // Pedido do dono (30/09/2026): "I arrived e next. Talvez dois cliques" — o botão do meio
+    // ("Dog picked up") saiu da lista; o 2º toque é 'finish' (grava os dois passos de uma vez).
+    const onAction = jest.fn().mockResolvedValue(undefined);
+
+    const pendente = await render(<DriverRouteView stops={[stops[0]]} onAction={onAction} />);
+    expect(pendente.getByText('I arrived')).toBeTruthy();
+    await fireEvent.press(pendente.getByRole('button', { name: 'Mark arrived stop-1' }));
+    expect(onAction).toHaveBeenCalledWith('stop-1', 'arrived');
+
+    const chegou = await render(<DriverRouteView stops={[{ ...stops[0], status: 'arrived' }]} onAction={onAction} />);
+    expect(chegou.getByText('Next')).toBeTruthy();
+    await fireEvent.press(chegou.getByRole('button', { name: 'Next Bob' }));
+    expect(onAction).toHaveBeenLastCalledWith('stop-1', 'finish');
+    // O "Problem" continua na lista enquanto a parada está viva e continua pedindo o motivo.
+    expect(chegou.getByRole('button', { name: 'Problem stop-1' })).toBeTruthy();
+  });
+
   it('reveals the completed state after pickup', async () => {
     const progressed: DriverStop[] = [{ ...stops[0], status: 'picked_up' }];
     const screen = await render(<DriverRouteView stops={progressed} onAction={jest.fn()} />);

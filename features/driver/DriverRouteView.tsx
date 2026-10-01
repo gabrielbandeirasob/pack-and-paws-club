@@ -55,7 +55,15 @@ export type DriverStop = {
   priority?: 'normal' | 'priority';
 };
 
-export type DriverAction = 'navigate' | 'arrived' | 'picked_up' | 'completed' | 'problem';
+/**
+ * Ações do dia do motorista.
+ *
+ * `finish` é o 2º toque do fluxo curto (pedido do dono, 30/09/2026: "tem que ser, tipo assim,
+ * I arrived e next. Talvez dois cliques"): grava `picked_up` E `completed` no mesmo gesto — dois
+ * registros, com o horário carimbado pelo servidor, para o rastro de auditoria não perder o marco do
+ * meio. Ele não inventa estado novo: quem grava continua sendo o `act` de `app/(tabs)/driver.tsx`.
+ */
+export type DriverAction = 'navigate' | 'arrived' | 'picked_up' | 'completed' | 'problem' | 'finish';
 
 type Props = {
   stops: DriverStop[];
@@ -189,25 +197,27 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
                   </Text>
                 </Pressable>
               ) : null}
+              {/*
+                * FLUXO DE 2 TOQUES (pedido do dono, 30/09/2026): "I arrived" e depois "Next".
+                * O 2º toque grava pegou + concluiu juntos (ação 'finish') — os 3 registros de
+                * auditoria continuam existindo, só o trabalho do motorista que encurtou.
+                */}
               {!done && stop.status === 'pending' ? (
                 <Pressable accessibilityRole="button" accessibilityLabel={`Mark arrived ${stop.id}`} onPress={() => fire(stop, 'arrived')} style={[styles.action, styles.actionGold]}>
-                  <Text style={styles.actionGoldText}>Arrived</Text>
+                  <Text style={styles.actionGoldText}>I arrived</Text>
                 </Pressable>
               ) : null}
-              {!done && stop.status === 'arrived' ? (
+              {!done && (stop.status === 'arrived' || stop.status === 'picked_up') ? (
                 <>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Picked up ${stop.dogName}`} onPress={() => fire(stop, 'picked_up')} style={[styles.action, styles.actionGold]}>
-                    <Text style={styles.actionGoldText}>Dog picked up</Text>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Next ${stop.dogName}`} onPress={() => fire(stop, 'finish')} style={[styles.action, styles.actionGold]}>
+                    <Text style={styles.actionGoldText}>Next</Text>
                   </Pressable>
-                  <Pressable accessibilityRole="button" accessibilityLabel={`Problem ${stop.id}`} onPress={() => fire(stop, 'problem')} style={[styles.action, styles.actionProblem]}>
-                    <Text style={styles.actionProblemText}>Problem</Text>
-                  </Pressable>
+                  {stop.status === 'arrived' ? (
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Problem ${stop.id}`} onPress={() => fire(stop, 'problem')} style={[styles.action, styles.actionProblem]}>
+                      <Text style={styles.actionProblemText}>Problem</Text>
+                    </Pressable>
+                  ) : null}
                 </>
-              ) : null}
-              {!done && stop.status === 'picked_up' ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={`Complete ${stop.id}`} onPress={() => fire(stop, 'completed')} style={[styles.action, styles.actionGold]}>
-                  <Text style={styles.actionGoldText}>Completed</Text>
-                </Pressable>
               ) : null}
             </View>
           </Pressable>

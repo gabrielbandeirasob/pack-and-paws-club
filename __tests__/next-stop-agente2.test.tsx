@@ -9,6 +9,11 @@
  * comprovante saiu do fluxo. Os testes abaixo foram ajustados para o contrato novo, com um caso
  * explícito que trava a REGRESSÃO (nenhum botão de foto volta sem pedido).
  *
+ * SEGUNDA ATUALIZAÇÃO (30/09/2026 — fluxo de 2 toques). O dono pediu "tem que ser, tipo assim,
+ * I arrived e next. Talvez dois cliques": o 2º toque virou a ação 'finish', que grava `picked_up` E
+ * `completed` no mesmo instante (os 3 registros de auditoria continuam no banco, com o carimbo do
+ * servidor). Os rótulos esperados aqui são os do fluxo novo.
+ *
  * Os testes são escritos para o REQUISITO (e não para a implementação): o painel mostra a parada de
  * menor `sequence` ainda não resolvida, as ações existem com rótulo acessível, e cada toque cai no
  * callback que a tela passa (o MESMO `act` da lista) com a ação certa.
@@ -75,10 +80,11 @@ describe('nextStopFor (parada escolhida)', () => {
 });
 
 describe('mapa de ações do dia (mesmo caminho da lista)', () => {
-  it('encadeia pending -> arrived -> picked_up -> completed', () => {
+  it('encadeia pending -> arrived -> finish: dois toques fecham a parada', () => {
     expect(nextActionForStatus('pending')).toBe('arrived');
-    expect(nextActionForStatus('arrived')).toBe('picked_up');
-    expect(nextActionForStatus('picked_up')).toBe('completed');
+    expect(nextActionForStatus('arrived')).toBe('finish');
+    // Parada que já estava em picked_up (rota antiga ou 2º toque interrompido) fecha no MESMO botão.
+    expect(nextActionForStatus('picked_up')).toBe('finish');
     expect(nextActionForStatus('completed')).toBeNull();
     expect(nextActionForStatus('skipped')).toBeNull();
   });
@@ -108,20 +114,20 @@ describe('NextStopCard', () => {
     expect(onAction).toHaveBeenCalledWith('stop-1', 'arrived');
   });
 
-  it('parada arrived mostra "Dog picked up" (a ação que marca a coleta)', async () => {
+  it('parada arrived mostra "Next": o 2º toque grava pegou + concluiu juntos', async () => {
     const { tela, onAction } = await painel(parada({ status: 'arrived' }));
-    expect(tela.getByText('Dog picked up')).toBeTruthy();
+    expect(tela.getByText('Next')).toBeTruthy();
 
-    await fireEvent.press(tela.getByLabelText('Next stop: Dog picked up for Bob'));
-    expect(onAction).toHaveBeenCalledWith('stop-1', 'picked_up');
+    await fireEvent.press(tela.getByLabelText('Next stop: Next for Bob'));
+    expect(onAction).toHaveBeenCalledWith('stop-1', 'finish');
   });
 
-  it('parada picked_up mostra "Complete" (a ação que marca a entrega)', async () => {
+  it('parada picked_up (rota antiga) mostra o MESMO "Next" para fechar', async () => {
     const { tela, onAction } = await painel(parada({ status: 'picked_up' }));
-    expect(tela.getByText('Complete')).toBeTruthy();
+    expect(tela.getByText('Next')).toBeTruthy();
 
-    await fireEvent.press(tela.getByLabelText('Next stop: Complete for Bob'));
-    expect(onAction).toHaveBeenCalledWith('stop-1', 'completed');
+    await fireEvent.press(tela.getByLabelText('Next stop: Next for Bob'));
+    expect(onAction).toHaveBeenCalledWith('stop-1', 'finish');
   });
 
   it('REGRESSÃO: nenhum botão de foto no painel (o comprovante saiu do app em 26/09/2026)', async () => {
@@ -152,6 +158,6 @@ describe('NextStopCard', () => {
   });
 
   it('os rótulos das ações vêm do mesmo mapa visível da lista', () => {
-    expect(NEXT_ACTION_LABEL).toEqual({ arrived: 'I arrived', picked_up: 'Dog picked up', completed: 'Complete' });
+    expect(NEXT_ACTION_LABEL).toEqual({ arrived: 'I arrived', finish: 'Next' });
   });
 });

@@ -21,22 +21,25 @@ import { colors, radii } from '@/features/theme/tokens';
  */
 
 /**
- * Próxima ação do dia para uma parada, estado por estado. É o MESMO caminho que os botões da lista já
- * percorrem em `features/driver/DriverRouteView.tsx` (pending -> Arrived, arrived -> Dog picked up,
- * picked_up -> Completed) — nenhum status novo é criado aqui.
+ * Próxima ação do dia para uma parada, estado por estado. É o MESMO caminho que os botões da lista
+ * percorrem em `features/driver/DriverRouteView.tsx`.
+ *
+ * FLUXO CURTO (pedido do dono, 30/09/2026 — "I arrived e next. Talvez dois cliques"): o ciclo de uma
+ * parada passou a ser 2 toques. O 1º é 'arrived'; o 2º é 'finish', que grava pegou + concluiu de uma
+ * vez (dois registros, hora do servidor). A parada que já estava em 'picked_up' (rota antiga ou um
+ * 2º toque que ficou pela metade) usa o MESMO 'finish' para fechar — nada de status novo.
  */
 export function nextActionForStatus(status: DriverStop['status']): DriverAction | null {
   if (status === 'pending') return 'arrived';
-  if (status === 'arrived') return 'picked_up';
-  if (status === 'picked_up') return 'completed';
+  if (status === 'arrived') return 'finish';
+  if (status === 'picked_up') return 'finish';
   return null;
 }
 
 /** Rótulo do botão da próxima ação, na ordem do dia (texto do motorista, não o nome do status). */
 export const NEXT_ACTION_LABEL: Partial<Record<DriverAction, string>> = {
   arrived: 'I arrived',
-  picked_up: 'Dog picked up',
-  completed: 'Complete',
+  finish: 'Next',
 };
 
 /**

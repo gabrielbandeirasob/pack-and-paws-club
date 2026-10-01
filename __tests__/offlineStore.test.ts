@@ -6,6 +6,7 @@ import {
   isNetworkError,
   loadOutbox,
   loadRouteSnapshot,
+  passosDoEvento,
   saveOutbox,
   saveRouteSnapshot,
   type DriverEvent,
@@ -28,6 +29,40 @@ describe('enqueueEvent', () => {
     expect(queue.find((event) => event.stopId === 's1')?.status).toBe('picked_up');
     expect(queue.find((event) => event.stopId === 's2')?.status).toBe('arrived');
   });
+
+  /**
+   * FLUXO DE 2 TOQUES (pedido do dono, 30/09/2026): o 2º toque ("Next") grava `picked_up` E
+   * `completed`. Sem rede, a fila NÃO pode perder nenhum dos dois — senão o servidor nunca carimba
+   * `picked_up_at` e a auditoria fica com um buraco no marco do meio.
+   */
+  it('preserva a sequência de passos quando o 2º toque grava dois de uma vez', () => {
+    const fila = enqueueEvent([], {
+      stopId: 's1',
+      status: 'completed',
+      steps: ['picked_up', 'completed'],
+      createdAt: 't1',
+    });
+    expect(passosDoEvento(fila[0])).toEqual(['picked_up', 'completed']);
+    expect(fila[0].status).toBe('completed'); // o que a tela mostra na hora
+  });
+
+  it('não perde o passo anterior quando o motorista toca de novo no mesmo dia', () => {
+    const comChegada = enqueueEvent([], { stopId: 's1', status: 'arrived', steps: ['arrived'], createdAt: 't1' });
+    const depois = enqueueEvent(comChegada, {
+      stopId: 's1',
+      status: 'completed',
+      steps: ['picked_up', 'completed'],
+      createdAt: 't2',
+    });
+    // chegou → pegou → concluiu: os TRÊS registros sobem, na ordem.
+    expect(passosDoEvento(depois[0])).toEqual(['arrived', 'picked_up', 'completed']);
+    expect(depois).toHaveLength(1);
+    expect(depois[0].status).toBe('completed');
+  });
+
+  it('fila antiga (sem steps) continua gravando só o status', () => {
+    expect(passosDoEvento({ stopId: 's1', status: 'completed', createdAt: 't' })).toEqual(['completed']);
+  });
 });
 
 describe('applyPendingEvents', () => {
@@ -41,6 +76,13 @@ describe('applyPendingEvents', () => {
     expect(result.find((item) => item.id === 's1')?.status).toBe('completed');
     expect(result.find((item) => item.id === 's2')?.status).toBe('arrived');
     expect(result.find((item) => item.id === 's3')?.status).toBe('skipped');
+  });
+
+  it('mostra o ÚLTIMO passo da ação (o 2º toque deixa a parada concluída)', () => {
+    const [parada] = applyPendingEvents([stop('s1')], [
+      { stopId: 's1', status: 'completed', steps: ['picked_up', 'completed'], createdAt: 't' },
+    ]);
+    expect(parada.status).toBe('completed');
   });
 
   it('returns the same list when there are no events', () => {

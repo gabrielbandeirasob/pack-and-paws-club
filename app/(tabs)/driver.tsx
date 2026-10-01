@@ -29,6 +29,7 @@ import {
   isNetworkError,
   loadOutbox,
   loadRouteSnapshot,
+  passosDoEvento,
   saveOutbox,
   saveRouteSnapshot,
   type DriverEventStatus,
@@ -199,20 +200,30 @@ export default function DriverTodayScreen() {
       return true;
     }
     const remaining: typeof events = [];
-    for (const event of events) {
-      // A fila local guarda só o STATUS: o passo da foto saiu do app do motorista em 26/09/2026
-      // (pedido do dono — ver o comentário em `vanLocation`).
-      const { error } = await supabase
-        .from('route_stops')
-        .update({ status: event.status })
-        .eq('id', event.stopId);
-      if (error) {
-        if (isNetworkError(error.message)) {
-          remaining.push(event, ...events.slice(events.indexOf(event) + 1));
-          break;
+    for (let indice = 0; indice < events.length; indice += 1) {
+      const event = events[indice];
+      /*
+       * A fila local guarda os PASSOS ainda não gravados (o passo da foto saiu do app do motorista
+       * em 26/09/2026 — ver o comentário em `vanLocation`). O 2º toque do fluxo curto
+       * ("Next" = peguei + concluí) tem DOIS passos: eles sobem em ordem, um `update` cada, para o
+       * trigger do banco carimbar `picked_up_at` e `completed_at` — a auditoria não perde o marco
+       * do meio. Fila antiga (sem `steps`) grava só o `status`, como sempre.
+       */
+      let parouPorRede = false;
+      for (const passo of passosDoEvento(event)) {
+        const { error } = await supabase
+          .from('route_stops')
+          .update({ status: passo })
+          .eq('id', event.stopId);
+        if (error) {
+          if (isNetworkError(error.message)) {
+            remaining.push(event, ...events.slice(indice + 1));
+            parouPorRede = true;
+          }
+          break; // erro do servidor: descarta o evento (mesmo comportamento de antes)
         }
-        continue;
       }
+      if (parouPorRede) break;
     }
     await saveOutbox(remaining);
     setPendingSync(remaining.length);
@@ -398,11 +409,23 @@ export default function DriverTodayScreen() {
       setNavTarget({ stopId, target });
       return;
     }
-    const statusMap: Partial<Record<DriverAction, DriverEventStatus>> = {
-      arrived: 'arrived', picked_up: 'picked_up', completed: 'completed', problem: 'skipped',
+    /**
+     * Passos que cada ação grava, NA ORDEM. Toda ação grava pelo menos um status; o 2º toque do
+     * fluxo curto ('finish', pedido do dono 30/09/2026) grava DOIS: o cão foi pego E a parada
+     * concluída, no mesmo instante — cada um com o carimbo do servidor, preservando os 3 registros
+     * de auditoria da parada (chegou / pegou / concluiu).
+     */
+    const passosDaAcao: Partial<Record<DriverAction, DriverEventStatus[]>> = {
+      arrived: ['arrived'],
+      picked_up: ['picked_up'],
+      completed: ['completed'],
+      finish: ['picked_up', 'completed'],
+      problem: ['skipped'],
     };
-    const status = statusMap[action];
-    if (!status) return;
+    const passos = passosDaAcao[action];
+    if (!passos || passos.length === 0) return;
+    /** O estado que a tela mostra na hora: o ÚLTIMO passo da ação. */
+    const status = passos[passos.length - 1];
 
     // PROBLEMA pergunta o motivo ANTES de gravar, para o aviso ao gestor já sair com a explicação
     // (defeito corrigido em 25/09/2026: antes o escritório só sabia que "houve um problema").
@@ -415,13 +438,15 @@ export default function DriverTodayScreen() {
     const statusAnterior = stops.find((stop) => stop.id === stopId)?.status ?? status;
     setStops((current) => current.map((stop) => (stop.id === stopId ? { ...stop, status } : stop)));
 
-    /** Grava o passo no banco. Lança em QUALQUER falha (quem chama decide o que fazer). */
+    /** Grava os passos no banco, NA ORDEM. Lança em QUALQUER falha (quem chama decide o que fazer). */
     const gravarPasso = async () => {
-      const atualizacao: Record<string, unknown> = { status };
-      // O motivo do problema entra na MESMA escrita: o push do gestor (trigger 033) sai com ele.
-      if (notaDoProblema) atualizacao.proof_note = notaDoProblema;
-      const { error } = await supabase.from('route_stops').update(atualizacao).eq('id', stopId);
-      if (error) throw new Error(error.message);
+      for (const passo of passos) {
+        const atualizacao: Record<string, unknown> = { status: passo };
+        // O motivo do problema entra na MESMA escrita: o push do gestor (trigger 033) sai com ele.
+        if (notaDoProblema) atualizacao.proof_note = notaDoProblema;
+        const { error } = await supabase.from('route_stops').update(atualizacao).eq('id', stopId);
+        if (error) throw new Error(error.message);
+      }
     };
 
     /** O cartao volta para o estado do BANCO (a escrita nao aconteceu). */
@@ -443,6 +468,9 @@ export default function DriverTodayScreen() {
         const events = enqueueEvent(await loadOutbox(), {
           stopId,
           status,
+          // Sem sinal, a fila guarda TODOS os passos da ação (o "Next" tem dois) para o replay
+          // gravar cada um — o servidor carimba `picked_up_at` e `completed_at` ao voltar o sinal.
+          steps: passos,
           createdAt: new Date().toISOString(),
         });
         await saveOutbox(events);

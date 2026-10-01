@@ -7,6 +7,14 @@ export type DriverEventStatus = 'arrived' | 'picked_up' | 'completed' | 'skipped
 export type DriverEvent = {
   stopId: string;
   status: DriverEventStatus;
+  /**
+   * Sequência de passos ainda NÃO gravados nesta parada, na ordem. Existe por causa do fluxo de
+   * 2 toques (pedido do dono, 30/09/2026): o 2º toque ("Next") grava `picked_up` E `completed`, e
+   * os DOIS têm de subir quando o sinal voltar — senão o marco do meio (e a linha de auditoria)
+   * some. `status` continua sendo o ÚLTIMO passo (é o que a tela mostra de imediato).
+   * Ausente = fila antiga/simples: grava só o `status`.
+   */
+  steps?: DriverEventStatus[];
   createdAt: string;
   /**
    * Comprovante tirado sem rede. A foto fica no aparelho e sobe para o Storage antes de o status
@@ -83,9 +91,22 @@ export async function saveOutbox(events: DriverEvent[]): Promise<void> {
   }
 }
 
-/** Adds an event keeping only the newest per stop (status is overwritten server-side). */
+/** Passos que um evento da fila tem de gravar, na ordem (fila antiga/simples = só o `status`). */
+export function passosDoEvento(event: DriverEvent): DriverEventStatus[] {
+  return event.steps && event.steps.length > 0 ? event.steps : [event.status];
+}
+
+/**
+ * Adds a new event and replaces older events for the same stop — mas NUNCA descarta um passo que
+ * ainda não subiu (o 2º toque do motorista grava `picked_up` e `completed`: os dois têm de chegar ao
+ * servidor, senão o marco do meio e a linha de auditoria ficam faltando).
+ */
 export function enqueueEvent(events: DriverEvent[], event: DriverEvent): DriverEvent[] {
-  return [...events.filter((existing) => existing.stopId !== event.stopId), event];
+  const anterior = events.find((existing) => existing.stopId === event.stopId);
+  const jaNaFila = anterior ? passosDoEvento(anterior) : [];
+  const novos = passosDoEvento(event);
+  const steps = [...jaNaFila, ...novos.filter((passo) => !jaNaFila.includes(passo))];
+  return [...events.filter((existing) => existing.stopId !== event.stopId), { ...event, steps }];
 }
 
 /** Applies pending events optimistically to the in-memory stop list. */
