@@ -1,7 +1,7 @@
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 
 import { ShiftCard } from '@/features/driver/ShiftCard';
-import { motivoDoClockIn, clockInGate, type ClockInGate } from '@/features/organization/locations';
+import { motivoDoClockIn, clockInGate, travaDoClockIn, type ClockInGate } from '@/features/organization/locations';
 import type { ShiftState } from '@/features/driver/shift';
 
 /**
@@ -20,6 +20,35 @@ const VAN = { id: 'van-1', name: 'Van — Palo Alto', kind: 'van' as const, addr
 const LONGE = { latitude: 37.471, longitude: -122.143 };
 
 const fora: ClockInGate = clockInGate({ location: VAN, position: LONGE });
+
+describe('travaDoClockIn (as duas leituras de GPS)', () => {
+  /** ~280 m da van: dentro do raio de 300 m. */
+  const NA_VAN = { latitude: 37.4421, longitude: -122.143 };
+
+  it('leitura fresca diz longe, mas a que a TELA mostra diz que está na van → LIBERA', () => {
+    // O caso exato do relato de 01/10/2026: o motorista lia "você está na van" e o toque era recusado.
+    const trava = travaDoClockIn(VAN, LONGE, NA_VAN);
+    expect(trava.kind).toBe('inside');
+    expect(trava.allowed).toBe(true);
+  });
+
+  it('leitura fresca diz na van e a amostra antiga diz longe → LIBERA (a fresca manda)', () => {
+    const trava = travaDoClockIn(VAN, NA_VAN, LONGE);
+    expect(trava.kind).toBe('inside');
+    expect(trava.allowed).toBe(true);
+  });
+
+  it('as DUAS dizem longe → continua recusando fora do raio (regra da operação)', () => {
+    const trava = travaDoClockIn(VAN, LONGE, { latitude: 37.471, longitude: -122.145 });
+    expect(trava.kind).toBe('outside');
+    expect(trava.allowed).toBe(false);
+  });
+
+  it('sem nenhuma posição → não trava (o motorista não fica sem trabalhar)', () => {
+    expect(travaDoClockIn(VAN, null, null).kind).toBe('no-position');
+    expect(travaDoClockIn(VAN, null, null).allowed).toBe(true);
+  });
+});
 
 describe('motivoDoClockIn (texto que vai para o banco)', () => {
   it('fora do raio grava o motivo do motorista COM a distância e a van', () => {

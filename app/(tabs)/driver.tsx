@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DriverRouteView, type DriverAction, type DriverStop } from '@/features/driver/DriverRouteView';
 import { resolveDriverOptimizationOrigin } from '@/features/driver/driverRouteLocation';
-import { clockInGate, distanceText, estaNaVan, loadVanLocationForDriver, motivoDoClockIn, type OrganizationLocation } from '@/features/organization/locations';
+import { clockInGate, distanceText, estaNaVan, loadVanLocationForDriver, motivoDoClockIn, travaDoClockIn, type OrganizationLocation } from '@/features/organization/locations';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
 import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/features/driver/etaMessage';
 
@@ -592,7 +592,10 @@ export default function DriverTodayScreen() {
        * não fica sem trabalhar. Dentro do raio nada muda (é o que marca a partida na van).
        */
       const posicaoAgora = await resolveDriverOptimizationOrigin(getCurrentDriverLocation, position);
-      const trava = clockInGate({ location: vanLocation, position: posicaoAgora });
+      // AS DUAS LEITURAS VALEM: a fresca (Accuracy.High, do toque) e a que a TELA mostra (amostra do
+      // compartilhamento, Balanced). Se qualquer uma diz "está na van", libera — antes, uma leitura
+      // fresca ruim recusava o toque de quem estava lendo "você está na van" na própria tela.
+      const trava = travaDoClockIn(vanLocation, posicaoAgora, position);
       /*
        * A regra da OPERAÇÃO continua de pé: o caminho NORMAL exige a van — fora do raio o registro
        * não acontece e o motivo aparece no cartão. Mas recusar não pode deixar o motorista SEM

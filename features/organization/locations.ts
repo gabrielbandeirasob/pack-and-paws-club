@@ -199,6 +199,27 @@ export function motivoDoClockIn(motivo: string, trava: ClockInGate, vanName: str
   return `${motivo} — started outside the van "${vanName}" (${distanceText(trava.distanceKm ?? 0)})`;
 }
 
+/**
+ * A TRAVA DO CLOCK IN com as DUAS leituras de posição.
+ *
+ * Por que existe (relato do cliente, 01/10/2026): *"o aplicativo até informava que ele estava no lugar
+ * certo mas não dava pra fazer o clock in"*. A tela mostra a amostra do compartilhamento
+ * (`Balanced`, atualizada a cada 45 s / 50 m) e o toque reavaliava com uma leitura FRESCA
+ * (`Accuracy.High`) — quando as duas discordavam, o motorista lia na tela "você está na van" e o toque
+ * era recusado. Agora **qualquer** leitura que diga "está na van" libera; o bloqueio só acontece
+ * quando as DUAS dizem que ele está longe (a regra da operação continua de pé, sem contradizer a tela).
+ */
+export function travaDoClockIn(
+  location: OrganizationLocation | null | undefined,
+  posicaoFresca: LocationUpdate | null | undefined,
+  posicaoVisivel: LocationUpdate | null | undefined,
+): ClockInGate {
+  const fresca = clockInGate({ location, position: posicaoFresca });
+  if (fresca.kind === 'inside') return fresca;
+  const visivel = clockInGate({ location, position: posicaoVisivel });
+  return visivel.kind === 'inside' ? visivel : fresca;
+}
+
 /** Atalho para a tela: o motorista está no raio da van? (falso quando não dá para saber) */
 export function estaNaVan(location: OrganizationLocation | null | undefined, position: LocationUpdate | null | undefined): boolean {
   return clockInGate({ location, position }).kind === 'inside';
