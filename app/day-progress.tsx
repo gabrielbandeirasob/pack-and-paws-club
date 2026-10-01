@@ -6,7 +6,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { todayLocalISO } from '@/features/calendar/dates';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { landingRouteForRole } from '@/features/navigation/roleTabs';
-import { packProgress, progressRows, type PackRoute } from '@/features/dashboard/packProgress';
+import { packProgress, performanceSummary, progressRows, type PackRoute } from '@/features/dashboard/packProgress';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -24,6 +24,9 @@ type StopRow = {
    * é exatamente "a última mudança de estado" que o comentário desta tela promete.
    */
   status_updated_at: string | null;
+  /** Prazo da parada ('HH:MM:SS' do banco): é o que o atraso do desempenho usa, com a tolerância. */
+  window_end: string | null;
+  exact_time: string | null;
   dog: { name: string };
 };
 type RouteRow = { id: string; driver_id: string; status: 'draft' | 'published'; route_stops: StopRow[] };
@@ -78,7 +81,7 @@ export default function DayProgressScreen() {
     const [rotasResult, motoristasResult] = await Promise.all([
       supabase
         .from('routes')
-        .select('id, driver_id, status, route_stops(id, sequence, status, status_updated_at, dog:dogs(name))')
+        .select('id, driver_id, status, route_stops(id, sequence, status, status_updated_at, window_end, exact_time, dog:dogs(name))')
         .eq('organization_id', organizationId)
         .eq('route_date', dia),
       supabase
@@ -105,7 +108,13 @@ export default function DayProgressScreen() {
         status: row.status,
         stops: [...row.route_stops]
           .sort((a, b) => a.sequence - b.sequence)
-          .map((stop) => ({ status: stop.status, dogName: stop.dog.name, at: stop.status_updated_at })),
+          .map((stop) => ({
+            status: stop.status,
+            dogName: stop.dog.name,
+            at: stop.status_updated_at,
+            windowEnd: stop.window_end ? stop.window_end.slice(0, 5) : null,
+            exactTime: stop.exact_time ? stop.exact_time.slice(0, 5) : null,
+          })),
       })),
     );
     setLoading(false);
@@ -163,6 +172,12 @@ export default function DayProgressScreen() {
                   {linha.routeStatus === 'published' ? `${linha.stops.length} stops` : `draft · ${linha.stops.length} stops`}
                 </Text>
               </View>
+              {/* Desempenho do motorista (pedido do dono, 30/09/2026): concluídas × total, quantas
+                  com problema, quantas pendentes fora do prazo (já com a tolerância de 3 min) e a
+                  última atualização — tudo do que esta tela JÁ carrega, sem consulta nova. */}
+              {linha.stops.length > 0 ? (
+                <Text style={styles.desempenho}>{performanceSummary(linha.performance)}</Text>
+              ) : null}
               {linha.stops.length === 0 ? (
                 <Text style={styles.vazioTexto}>No dogs on this route.</Text>
               ) : (
@@ -220,6 +235,7 @@ const styles = StyleSheet.create({
     marginBottom: 11,
   },
   cartaoTopo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  desempenho: { color: colors.muted, fontSize: 12, marginTop: -4, marginBottom: 8 },
   motorista: { fontFamily: 'serif', fontWeight: '800', fontSize: 17, color: colors.ink },
   rotaStatus: { color: colors.muted, fontSize: 12 },
   linhaCao: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7 },
