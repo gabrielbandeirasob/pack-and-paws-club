@@ -331,3 +331,25 @@ it('sem interruptor informado, o painel não renderiza nada no lugar dele', asyn
   const { screen } = await setup();
   expect(screen.queryByText('drive-switch-aqui')).toBeNull();
 });
+
+/**
+ * TOQUE NO MOTORISTA → LISTA DE PICK-UPS (cliente, áudio de 01/10/2026): "no Today's Routes seria
+ * ideal se você conseguisse clicar no driver e abrir uma lista dos pick-up que tem e os que ainda
+ * falta e que hora foi feita cada pick-up". O cartão da rota virou botão quando a Home passa
+ * `onOpenRoute`; sem a prop ele continua exatamente como era (só leitura).
+ */
+it('sem onOpenRoute o cartão do motorista continua sendo só leitura', async () => {
+  const { screen } = await setup();
+  expect(screen.queryByLabelText('Open Rafael route')).toBeNull();
+});
+
+it('com onOpenRoute, tocar no cartão do motorista abre a lista daquela rota', async () => {
+  const onOpenRoute = jest.fn();
+  const { screen } = await setup({ onOpenRoute });
+
+  await fireEvent.press(screen.getByLabelText('Open Rafael route'));
+  expect(onOpenRoute).toHaveBeenCalledWith('route-1');
+
+  await fireEvent.press(screen.getByLabelText('Open Jordan route'));
+  expect(onOpenRoute).toHaveBeenLastCalledWith('route-2');
+});
