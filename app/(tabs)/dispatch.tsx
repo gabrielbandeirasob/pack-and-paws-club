@@ -16,10 +16,12 @@ import { fetchTravelTimes } from '@/features/dispatch/trafficProvider';
 import { showAlert } from '@/features/ui/alert';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
+import { loadOrganizationLocations, vanLocationForRoute } from '@/features/organization/locations';
+import { sugerirRotas, type BlocoSugerido, type SugestaoDeRotas } from '@/features/dispatch/routeSuggestion';
 
 type DriverRow = { user_id: string; role: 'manager' | 'driver'; profiles: { full_name: string | null } | null };
-type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; goes_to_daycare: boolean | null; dog: { id: string; name: string; client: { id: string; name: string } } };
-type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; transport_required: boolean; dog: { id: string; name: string; client: { id: string; name: string } } };
+type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; goes_to_daycare: boolean | null; dog: { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } } };
+type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; transport_required: boolean; dog: { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } } };
 type ExceptionRow = { id: string; recurring_schedule_id: string; action: 'skip' | 'transport_on' | 'transport_off'; start_date: string; end_date: string };
 type StopRow = {
   pickup_pin?: Travas['pickupPin'];
@@ -36,13 +38,23 @@ type StopRow = {
   priority: 'normal' | 'priority';
   pickup_proof_path: string | null;
   dropoff_proof_path: string | null;
-  dog: { id: string; name: string; client: { name: string; latitude: number | null; longitude: number | null } };
+  dog: { id: string; name: string; client: { id?: string; name: string; latitude: number | null; longitude: number | null } };
 };
 type RouteRow = { id: string; driver_id: string; status: DispatchRoute['status']; lock_version: number | null; route_stops: StopRow[] | null };
-type DogRow = { id: string; name: string; client: { id: string; name: string } };
+type DogRow = { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } };
 
-function toDogRef(dog: { id: string; name: string; client: { id: string; name: string } }) {
-  return { id: dog.id, dogName: dog.name, clientName: dog.client.name, clientId: dog.client.id };
+/** Coordenada do endereço do cliente por cão — é o que a sugestão de rota usa (geografia). */
+type Coordenada = { latitude: number | null; longitude: number | null };
+
+function toDogRef(dog: { id: string; name: string; client: { id: string; name: string; latitude?: number | null; longitude?: number | null } }) {
+  return {
+    id: dog.id,
+    dogName: dog.name,
+    clientName: dog.client.name,
+    clientId: dog.client.id,
+    latitude: dog.client.latitude ?? null,
+    longitude: dog.client.longitude ?? null,
+  };
 }
 
 export default function DispatchScreen() {
@@ -58,6 +70,11 @@ export default function DispatchScreen() {
   /** Cães do cadastro (para o gestor adicionar um que não está no calendário do dia). */
   const [caesCadastro, setCaesCadastro] = useState<DogRef[]>([]);
   /**
+   * ENDEREÇO DE CADA CÃO (por `dogId`) — a sugestão de rota é geográfica, e a fila do dia montada pelo
+   * calendário não carrega coordenada. O mapa sai da MESMA consulta do dia, sem ida extra ao banco.
+   */
+  const coordenadasPorCao = useRef<Map<string, Coordenada>>(new Map());
+  /**
    * Cães adicionados À MÃO pelo gestor. Guardados num ref (e não no estado) para sobreviverem ao
    * recarregamento: o carregamento reconstrói a fila a partir do calendário, e sem isso o cão manual
    * sumiria da tela a cada atualização. Pedido do dono (23/09/2026).
@@ -68,6 +85,9 @@ export default function DispatchScreen() {
   // escrever antes, o banco recusa a escrita velha com 'stale_route' em vez de sobrescrever.
   const versoes = useRef<Record<string, number>>({});
   const routesRef = useRef<DispatchRoute[]>([]);
+  const propostaRef = useRef<{ dia: string; org: string; assinatura: string; blocos: BlocoSugerido[] } | null>(null);
+  const aplicandoSugestao = useRef(false);
+  const membrosDoDia = useRef<DriverRow[]>([]);
   const revisoes = useRef<Record<string, number>>({});
   const contexto = useRef({ orgId: '', date });
   const diaDasRotas = useRef(date);
@@ -141,11 +161,11 @@ export default function DispatchScreen() {
        * segundo vínculo. Na tela ele aparece marcado como "· manager".
        */
       supabase.from('organization_members').select('user_id, role, profiles(full_name)').eq('organization_id', orgId).in('role', ['driver', 'manager']).eq('status', 'active'),
-      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, dog:dogs(id, name, client:clients(id, name))').eq('organization_id', orgId).eq('status', 'confirmed'),
-      supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(id, name))').eq('organization_id', orgId).eq('active', true),
+      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('status', 'confirmed'),
+      supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId),
       // Cadastro completo (cão ativo): alimenta o "Add any dog" do Dispatch.
-      supabase.from('dogs').select('id, name, client:clients(id, name)').eq('organization_id', orgId).eq('active', true),
+      supabase.from('dogs').select('id, name, client:clients(id, name, latitude, longitude)').eq('organization_id', orgId).eq('active', true),
     ]);
     if (dia !== contexto.current.date) return;
     const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? dogResult.error;
@@ -153,6 +173,7 @@ export default function DispatchScreen() {
     falhou('dia', null);
 
     const driverRows = (driverResult.data as unknown as DriverRow[]) ?? [];
+    membrosDoDia.current = driverRows;
     setDrivers(
       driverRows.map((row) => ({
         id: row.user_id,
@@ -173,6 +194,20 @@ export default function DispatchScreen() {
 
     setCaesCadastro(((dogResult.data as unknown as DogRow[]) ?? []).map((row) => toDogRef(row)));
 
+    /**
+     * ENDEREÇO POR CÃO (para a sugestão de rota): sai das mesmas linhas que acabaram de chegar — sem
+     * consulta nova. Cão sem coordenada simplesmente não entra no mapa (a sugestão avisa e o deixa fora).
+     */
+    const coordenadas = new Map<string, Coordenada>();
+    const guardarCoordenada = (dog: { id: string; client?: { latitude?: number | null; longitude?: number | null } | null } | null | undefined) => {
+      if (!dog?.id) return;
+      coordenadas.set(dog.id, { latitude: dog.client?.latitude ?? null, longitude: dog.client?.longitude ?? null });
+    };
+    for (const row of ((reservationResult.data as unknown as ReservationRow[]) ?? [])) guardarCoordenada(row.dog);
+    for (const row of ((recurringResult.data as unknown as RecurringRow[]) ?? [])) guardarCoordenada(row.dog);
+    for (const row of ((dogResult.data as unknown as DogRow[]) ?? [])) guardarCoordenada(row);
+    coordenadasPorCao.current = coordenadas;
+
     const day = buildDay(dia, reservations, recurring, exceptions);
     const fila = transportPool(day);
     const naVan = vanPool(day);
@@ -189,6 +224,7 @@ export default function DispatchScreen() {
     ]);
     itensDoDia.current = itens;
     setDayItems(itens);
+    return true;
 
   }, []);
 
@@ -197,7 +233,7 @@ export default function DispatchScreen() {
     const consulta = ++leituraRotas.current;
     const leitura = { ...revisoes.current };
     const pendentes = new Set(routesRef.current.filter((rota) => (fila.pendente(rota.routeId) || gravandoOrdens.current.has(rota.routeId))).map((rota) => rota.routeId));
-    const routeResult = await supabase.from('routes').select('id, driver_id, status, lock_version, route_stops(dog_id, pickup_pin, pickup_pin_position, dropoff_pin, dropoff_pin_position, dropoff_sequence, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, client:clients(name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date);
+    const routeResult = await supabase.from('routes').select('id, driver_id, status, lock_version, route_stops(dog_id, pickup_pin, pickup_pin_position, dropoff_pin, dropoff_pin_position, dropoff_sequence, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, client:clients(id, name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date);
     if (date !== contexto.current.date || consulta !== leituraRotas.current) return;
     if (routeResult.error) { falhou('rotas', routeResult.error.message); return; }
     falhou('rotas', null);
@@ -220,6 +256,7 @@ export default function DispatchScreen() {
         sequence: stop.sequence,
         status: stop.status,
         clientName: stop.dog.client.name,
+        clientId: stop.dog.client.id,
         dogName: stop.dog.name,
         reservationKind: undefined,
         latitude: stop.dog.client.latitude,
@@ -239,6 +276,7 @@ export default function DispatchScreen() {
       return anterior && (protegida(rota.routeId) || JSON.stringify(anterior) === JSON.stringify(rota)) ? anterior : rota;
     })
       .concat(atuais.filter((rota) => protegida(rota.routeId) && !novas.some((nova) => nova.routeId === rota.routeId))));
+    return true;
   }, [fila, atualizarRotas]);
 
   const carregarPosicoes = useCallback(async () => {
@@ -414,6 +452,142 @@ export default function DispatchScreen() {
     }
     await carregarRotas();
   }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas]);
+
+  /**
+   * SUGESTÃO DE ROTA (cliente, áudio de 01/10/2026): *"sugestão de rota automática… leva um tempinho aí
+   * de clicar e mandar pro driver certo"*. A conta é PURA (`features/dispatch/routeSuggestion.ts`):
+   * junta os cães por endereço e corta a trilha em blocos contíguos, minimizando a distância.
+   *
+   * Entram: os cães do dia que ainda estão SEM motorista e a van da organização (sede padrão) como
+   * ponto de partida. NADA é gravado aqui — a folha mostra e o gestor confirma.
+   */
+  const assinaturaDaSugestao = useCallback(() => JSON.stringify({
+    itens: itensDoDia.current,
+    coordenadas: [...coordenadasPorCao.current.entries()],
+    membros: membrosDoDia.current,
+    rotas: routesRef.current.map(r => ({ ...r, versao: versoes.current[r.routeId] })),
+  }), []);
+
+  const sugerirRotasDoDia = useCallback(async (driverIds?: string[]): Promise<SugestaoDeRotas | null> => {
+    if (!organizationId || aplicandoSugestao.current) return null;
+    const dia = contexto.current.date;
+    propostaRef.current = null;
+    if (!(await carregarDia()) || !(await carregarRotas())) throw new Error('Could not refresh the day. Try again.');
+    const assinatura = assinaturaDaSugestao();
+    const atribuidos = new Set(routesRef.current.flatMap((rota) => rota.stops.map((stop) => stop.dogId)));
+    const caes = itensDoDia.current
+      .filter((item) => !item.inVan && !atribuidos.has(item.dogId))
+      .map((item) => {
+        const ponto = coordenadasPorCao.current.get(item.dogId);
+        return {
+          dogId: item.dogId,
+          clientId: item.clientId,
+          clientName: item.clientName,
+          dogName: item.dogName,
+          latitude: ponto?.latitude ?? null,
+          longitude: ponto?.longitude ?? null,
+        };
+      });
+    // Só rascunhos sem travas: anexar após um "last" invalidaria a condição do gestor.
+    // Não se muda o status de rota publicada/fechada para acomodar uma sugestão.
+    const disponiveis = membrosDoDia.current.filter(driver => {
+      if (driverIds && !driverIds.includes(driver.user_id)) return false;
+      const rota = routesRef.current.find(r => r.driverId === driver.user_id);
+      return !rota || (rota.status === 'draft' && rota.stops.every(s =>
+        s.status === 'pending' && !s.pickupPin && !s.dropoffPin));
+    });
+    const vans = await loadOrganizationLocations(supabase, organizationId);
+    if (dia !== contexto.current.date || assinatura !== assinaturaDaSugestao()) return null;
+    const van = vanLocationForRoute(vans, null);
+    const inicio = van ? { latitude: van.latitude, longitude: van.longitude } : null;
+    const motoristas = disponiveis.map(driver => ({ driverId: driver.user_id, driverName: driver.profiles?.full_name?.trim() || 'Driver' }));
+    const motoristaDaCasa = new Map<string, Set<string>>();
+    for (const rota of routesRef.current) for (const stop of rota.stops) {
+      if (!stop.clientId) continue;
+      const ids = motoristaDaCasa.get(stop.clientId) ?? new Set<string>();
+      ids.add(rota.driverId);
+      motoristaDaCasa.set(stop.clientId, ids);
+    }
+    const livres = caes.filter(c => !c.clientId || !motoristaDaCasa.has(c.clientId));
+    const proposta = sugerirRotas(
+      livres, motoristas, inicio,
+    );
+    // Casa parcialmente atribuída não é repartida para preencher outro carro. Respeitamos também
+    // separações manuais já existentes: se há dois motoristas na casa, o restante fica para revisão.
+    const fixos = caes.filter(c => c.clientId && motoristaDaCasa.has(c.clientId));
+    for (const cao of fixos) {
+      const ids = motoristaDaCasa.get(cao.clientId!)!;
+      const motorista = motoristas.find(m => ids.size === 1 && ids.has(m.driverId));
+      if (!motorista) { proposta.semLugar.push(cao); continue; }
+      let bloco = proposta.blocos.find(b => b.driverId === motorista.driverId);
+      if (!bloco) { bloco = { ...motorista, caes: [], km: 0 }; proposta.blocos.push(bloco); }
+      bloco.caes.push(cao);
+    }
+    if (fixos.length) {
+      proposta.blocos = proposta.blocos.flatMap(bloco => {
+        const ordenada = sugerirRotas(bloco.caes, [bloco], inicio);
+        proposta.semLugar.push(...ordenada.semLugar);
+        return ordenada.blocos;
+      });
+      proposta.kmTotal = proposta.blocos.reduce((soma, bloco) => soma + bloco.km, 0);
+    }
+    propostaRef.current = { dia, org: organizationId, assinatura, blocos: proposta.blocos };
+    return proposta;
+  }, [organizationId, carregarDia, carregarRotas, assinaturaDaSugestao]);
+
+  /**
+   * A proposta já contém os irmãos: uma RPC por cão, sem chamar assign (que os expandiria de novo).
+   * INSERT de rota nova, nunca UPSERT status=draft sobre rota existente. Falha parcial não é rollback:
+   * recarregamos o que foi salvo e exigimos nova proposta, evitando replay de um plano velho.
+   */
+  const aplicarSugestao = useCallback(async (blocos: BlocoSugerido[]) => {
+    if (aplicandoSugestao.current) return;
+    const proposta = propostaRef.current;
+    propostaRef.current = null;
+    const conferirDia = () => {
+      if (!proposta || proposta.dia !== contexto.current.date || proposta.org !== contexto.current.orgId)
+        throw new Error('The day changed. Create a new suggestion.');
+    };
+    aplicandoSugestao.current = true;
+    let salvos = 0;
+    try {
+      conferirDia();
+      if (proposta!.blocos !== blocos) throw new Error('Create a new suggestion.');
+      if (!(await carregarDia()) || !(await carregarRotas())) throw new Error('Could not refresh the day.');
+      conferirDia();
+      if (assinaturaDaSugestao() !== proposta!.assinatura || routesRef.current.some(r => fila.pendente(r.routeId)))
+        throw new Error('The routes or dogs changed.');
+      const atribuidos = new Set(routesRef.current.flatMap(r => r.stops.map(s => s.dogId)));
+      for (const bloco of blocos) {
+        conferirDia();
+        let routeId = routesRef.current.find(r => r.driverId === bloco.driverId)?.routeId;
+        if (!routeId) {
+          const { data, error } = await supabase.from('routes').insert({
+            organization_id: proposta!.org, route_date: proposta!.dia, driver_id: bloco.driverId, status: 'draft',
+          }).select('id, lock_version').single();
+          if (error) throw new Error(error.message);
+          routeId = (data as { id: string }).id;
+          versoes.current[routeId] = (data as { lock_version: number | null }).lock_version ?? 1;
+        }
+        for (const cao of bloco.caes) {
+          conferirDia();
+          if (atribuidos.has(cao.dogId)) throw new Error('A dog is already assigned.');
+          const { error } = await supabase.rpc('assign_stop_to_route', {
+            p_route_id: routeId, p_dog_id: cao.dogId, p_window_start: null, p_window_end: null,
+            p_exact_time: null, p_priority: 'normal', p_esperado: versaoDe(routeId),
+          });
+          falhaDeEscrita(error);
+          versoes.current[routeId] = (versoes.current[routeId] ?? 1) + 1;
+          atribuidos.add(cao.dogId);
+          salvos++;
+        }
+      }
+    } catch (erro) {
+      throw new Error(`${salvos} dogs saved. ${erro instanceof Error ? erro.message : 'Could not apply.'} Create a new suggestion to continue.`);
+    } finally {
+      try { await carregarRotas(); } finally { aplicandoSugestao.current = false; }
+    }
+  }, [carregarDia, carregarRotas, assinaturaDaSugestao, fila, versaoDe, falhaDeEscrita]);
 
   const saveStopConstraint = useCallback(async (routeId: string, dogId: string, constraint: DispatchConstraint) => {
     const parada = routesRef.current.find((rota) => rota.routeId === routeId)?.stops.find((stop) => stop.dogId === dogId);
@@ -645,6 +819,8 @@ export default function DispatchScreen() {
           routes={summary.routes}
           driverLocations={driverLocations}
           onAssign={assign}
+          onSuggestRoutes={sugerirRotasDoDia}
+          onApplySuggestion={aplicarSugestao}
           onSaveStop={saveStopConstraint}
           onRemoveStop={removeStop}
           onMoveStop={moveStop}

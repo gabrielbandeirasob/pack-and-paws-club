@@ -1,8 +1,9 @@
-import { memo, useEffect, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
 import { DogPicker } from '@/features/calendar/DogPicker';
+import type { BlocoSugerido, SugestaoDeRotas } from '@/features/dispatch/routeSuggestion';
 import type { DogRef } from '@/features/calendar/dayMath';
 import { frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
@@ -57,6 +58,13 @@ export type DispatchStopItem = {
   houseMates?: string[];
   /** A casa do cão (`dogs.client_id`). Ver `features/dispatch/houseMates.ts`. */
   clientId?: string | null;
+  /**
+   * Coordenada do ENDEREÇO do cliente — a sugestão de rota (cliente, 01/10/2026) é geográfica, então a
+   * fila do dia precisa do ponto de cada cão. Vem da mesma consulta do dia (`clients(latitude,
+   * longitude)`); cão sem coordenada NÃO ganha lugar inventado (a sugestão o deixa de fora e avisa).
+   */
+  latitude?: number | null;
+  longitude?: number | null;
 };
 export type DispatchRouteStop = DispatchStopItem & {
   sequence: number;
@@ -97,17 +105,94 @@ type Props = {
   /** Cães do cadastro, para o gestor adicionar um que não está no calendário do dia. */
   dogs?: DogRef[];
   onAddExtraDog?: (dog: DogRef) => void;
+  /**
+   * SUGESTÃO DE ROTA (cliente, áudio de 01/10/2026): o app propõe quem leva quais cães e em que ordem,
+   * por geografia, e o gestor confirma antes de qualquer escrita. A conta mora na TELA
+   * (`features/dispatch/routeSuggestion.ts` é puro); aqui só entra o botão, a folha da proposta e o
+   * "Apply". Sem as props o quadro fica exatamente como era.
+   */
+  onSuggestRoutes?: (driverIds?: string[]) => Promise<SugestaoDeRotas | null>;
+  onApplySuggestion?: (blocos: BlocoSugerido[]) => Promise<void>;
 };
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/** A quilometragem é exibida em MILHAS (o cliente é dos EUA), igual ao painel do dia. */
+const KM_PER_MILE = 1.609344;
 
 function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog }: Props) {
+export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion }: Props) {
   const [travas, setTravas] = useState<Travas>({});
   const [sheet, setSheet] = useState<SheetState>(null);
+  /**
+   * SUGESTÃO DE ROTA: a proposta mostrada na folha e o estado do pedido. Ela NÃO escreve nada — quem
+   * escreve é o "Apply", que a tela executa (as mesmas escritas da atribuição à mão).
+   */
+  const [sugestao, setSugestao] = useState<SugestaoDeRotas | null>(null);
+  const [sugestaoBusy, setSugestaoBusy] = useState(false);
+  const [sugestaoErro, setSugestaoErro] = useState<string | null>(null);
+  const [sugestaoInvalida, setSugestaoInvalida] = useState(false);
+  const [participantes, setParticipantes] = useState<string[] | null>(null);
+  const diaAtual = useRef(date);
+  diaAtual.current = date;
+  const pedidoAtual = useRef(0);
+  const sugestaoEmVoo = useRef(false);
+  useEffect(() => {
+    pedidoAtual.current++;
+    sugestaoEmVoo.current = false;
+    setSugestao(null);
+    setSugestaoErro(null);
+    setSugestaoBusy(false);
+    setParticipantes(null);
+    return () => { pedidoAtual.current++; };
+  }, [date]);
+  /**
+   * Pede a proposta à tela. Nada é gravado aqui: a folha mostra e o gestor decide (decisão do dono:
+   * *"mostra a proposta e eu confirmo num toque para aplicar"*).
+   */
+  const pedirSugestao = async (selecionados?: string[]) => {
+    if (!onSuggestRoutes || sugestaoEmVoo.current) return;
+    sugestaoEmVoo.current = true;
+    const pedido = ++pedidoAtual.current;
+    const dia = date;
+    const ids = selecionados ?? participantes ?? drivers.map(d => d.id);
+    setParticipantes(ids);
+    setSugestaoBusy(true);
+    setSugestaoInvalida(false);
+    setSugestaoErro(null);
+    try {
+      const proposta = await onSuggestRoutes(ids);
+      if (!proposta || pedido !== pedidoAtual.current || dia !== diaAtual.current) return;
+      setSugestao(proposta);
+      if (proposta.blocos.length === 0) setSugestaoErro('No eligible dogs or drivers. Check mapped addresses and draft routes.');
+    } catch (causa) {
+      if (pedido === pedidoAtual.current) setSugestaoErro(causa instanceof Error ? causa.message : 'Could not build the suggestion.');
+      setSugestaoInvalida(true);
+    } finally {
+      if (pedido === pedidoAtual.current) { sugestaoEmVoo.current = false; setSugestaoBusy(false); }
+    }
+  };
+
+  const aplicarSugestao = async () => {
+    if (!sugestao || !onApplySuggestion || sugestaoEmVoo.current || sugestaoInvalida) return;
+    sugestaoEmVoo.current = true;
+    setSugestaoBusy(true);
+    setSugestaoErro(null);
+    try {
+      await onApplySuggestion(sugestao.blocos);
+      setSugestao(null);
+    } catch (causa) {
+      setSugestaoInvalida(true);
+      setSugestaoErro(causa instanceof Error ? causa.message : 'Could not apply the suggestion.');
+    } finally {
+      sugestaoEmVoo.current = false;
+      setSugestaoBusy(false);
+    }
+  };
+
   const [buscaCao, setBuscaCao] = useState(false);
   const [driverId, setDriverId] = useState<string | null>(null);
   const [kind, setKind] = useState<ConstraintKind>('none');
@@ -236,10 +321,15 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
           <CartaoMotorista key={driver.id} driver={driver} route={routesByDriver.get(driver.id)}
             location={driverLocations[driver.id]} working={working} setSheet={setSheet}
             onMoveStop={onMoveStop} onMoveDropoff={onMoveDropoff} onOptimize={onOptimize} onPublish={onPublish}
+            onSuggest={onSuggestRoutes && onApplySuggestion && unassigned.length > 0 && driver.id ===
+              (drivers.find(d => routes.some(r => r.driverId === d.id && r.stops.length >= 2)) ?? drivers[0])?.id
+              ? pedirSugestao : undefined}
+            suggestionBusy={sugestaoBusy}
             onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
         ))}
         <View style={styles.unassigned}>
           <Text style={styles.unassignedTitle}>{unassigned.length} unassigned</Text>
+          {sugestaoErro && !sugestao ? <Text style={styles.sugestaoErro}>{sugestaoErro}</Text> : null}
           {paraTransporte.length === 0 ? (
             <Text style={styles.muted}>No transport dogs need a ride today.</Text>
           ) : unassigned.length === 0 ? (
@@ -307,6 +397,80 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
               hint="Search by dog or client"
               onSelect={(dog) => { onAddExtraDog?.(dog); setBuscaCao(false); }}
             />
+          </View>
+        </View>
+      </Modal>
+
+      {/*
+        SUGESTÃO DE ROTA — a proposta por geografia (cliente, áudio 01/10/2026). Mostra os blocos por
+        motorista, na ordem que será GRAVADA, o total de cada perna e o que ficou de fora por falta de
+        endereço no cadastro. Nada vai para o banco antes do "Apply".
+      */}
+      <Modal visible={sugestao !== null} transparent animationType="fade" onRequestClose={() => { if (!sugestaoBusy) setSugestao(null); }}>
+        <View style={styles.backdrop}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Suggested routes</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close suggestion" disabled={sugestaoBusy} onPress={() => setSugestao(null)} hitSlop={10}>
+                <Text style={styles.sheetClose}>✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.sugestaoLista}>
+            <Text style={styles.sugestaoMotorista}>Who is driving?</Text>
+            <View style={styles.sugestaoParticipantes}>
+              {drivers.map(driver => {
+                const checked = participantes?.includes(driver.id) ?? true;
+                return <Pressable key={driver.id} accessibilityRole="checkbox"
+                  accessibilityLabel={`Include ${driver.name} in suggestion`}
+                  accessibilityState={{ checked }} disabled={sugestaoBusy}
+                  onPress={() => void pedirSugestao(checked
+                    ? (participantes ?? []).filter(id => id !== driver.id)
+                    : [...(participantes ?? []), driver.id])}
+                  style={[styles.driverOption, checked && styles.driverOptionActive]}>
+                  <Text style={[styles.driverOptionText, checked && styles.driverOptionTextActive]}>
+                    {checked ? '✓ ' : ''}{driver.name}{driver.alsoManager ? ' · manager' : ''}
+                  </Text>
+                </Pressable>;
+              })}
+            </View>
+            <Text style={styles.muted}>
+              Geographic estimate, not road mileage or traffic. Same-house dogs stay together.
+              New dogs are appended in this pick-up order; existing stops stay unchanged.
+              Only draft routes without order locks or started stops can receive dogs.
+              Published and closed routes stay unchanged. Nothing is published by Apply.
+            </Text>
+            {sugestao?.blocos.map((bloco) => (
+              <View key={bloco.driverId} testID={`sugestao-${bloco.driverId}`} style={styles.sugestaoBloco}>
+                <Text style={styles.sugestaoMotorista}>
+                  {bloco.driverName} · {plural(bloco.caes.length, 'dog', 'dogs')}
+                  {bloco.km > 0 ? ` · ${Math.round(bloco.km / KM_PER_MILE)} mi` : ''}
+                </Text>
+                {bloco.caes.map((cao, indice) => (
+                  <Text key={cao.dogId} style={styles.sugestaoCao}>
+                    {indice + 1}. {cao.clientName} · {cao.dogName}
+                  </Text>
+                ))}
+              </View>
+            ))}
+            {sugestao && sugestao.semLugar.length > 0 ? (
+              <Text style={styles.sugestaoAviso}>
+                Check coordinates, eligible drivers or an already assigned house (kept out of the suggestion): {sugestao.semLugar.map((cao) => `${cao.clientName} · ${cao.dogName}`).join(', ')}
+              </Text>
+            ) : null}
+            {sugestaoErro ? <Text style={styles.error}>{sugestaoErro}</Text> : null}
+            </ScrollView>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Apply suggestion"
+              disabled={sugestaoBusy || sugestaoInvalida || (sugestao?.blocos.length ?? 0) === 0}
+              onPress={() => void aplicarSugestao()}
+              style={styles.saveButton}
+            >
+              {sugestaoBusy ? <ActivityIndicator color={colors.forest900} /> : <Text style={styles.saveText}>Apply to the routes</Text>}
+            </Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Cancel suggestion" disabled={sugestaoBusy} onPress={() => setSugestao(null)} style={styles.sheetCancel}>
+              <Text style={styles.sheetCancelText}>Cancel</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
@@ -428,11 +592,13 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
   location?: { latitude: number; longitude: number; updatedAt: string };
   working: boolean;
   setSheet: (sheet: SheetState) => void;
+  onSuggest?: () => Promise<void>;
+  suggestionBusy?: boolean;
 };
 
 const CartaoMotorista = memo(function CartaoMotorista({
   driver, route, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
-  onUnpublish, onCancelRoute, onCompleteRoute,
+  onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy,
 }: PropsCartao) {
   const [perna, setPerna] = useState<Perna>('pickup');
   const mover = perna === 'pickup' ? onMoveStop : onMoveDropoff;
@@ -481,13 +647,18 @@ const CartaoMotorista = memo(function CartaoMotorista({
             ) : null}
           </View>
         </View>
-        {route && stops.length > 0 ? (
+        {onSuggest || (route && stops.length > 0) ? (
           <View style={styles.driverActions} testID="driver-actions">
-            {stops.length >= 2 ? (
+            {route && stops.length >= 2 ? (
               <Pressable accessibilityRole="button" accessibilityLabel={`Optimize ${driver.name} route`} disabled={working} onPress={() => void onOptimize(route.routeId)} style={styles.optimizeButton}>
                 <Text style={styles.optimizeText}>Optimize</Text>
               </Pressable>
             ) : null}
+            {onSuggest ? <Pressable accessibilityRole="button" accessibilityLabel="Suggest routes"
+              disabled={working || suggestionBusy} onPress={() => void onSuggest()} style={styles.optimizeButton}>
+              <Text style={styles.optimizeText}>{suggestionBusy ? 'Thinking…' : 'Suggest routes'}</Text>
+            </Pressable> : null}
+            {route && stops.length > 0 ? <>
             <Pressable accessibilityRole="button" accessibilityLabel={`Publish ${driver.name} route`} disabled={working} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
               <Text style={styles.publishText}>{route.status === 'published' ? 'Republish' : 'Publish'}</Text>
             </Pressable>
@@ -504,6 +675,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
             <Pressable accessibilityRole="button" accessibilityLabel={`Cancel ${driver.name} route`} disabled={working} onPress={() => void onCancelRoute(route.routeId)} style={styles.cancelRouteButton}>
               <Text style={styles.cancelRouteText}>✕</Text>
             </Pressable>
+            </> : null}
           </View>
         ) : null}
       </View>
@@ -630,6 +802,13 @@ const styles = StyleSheet.create({
   noStops: { color: colors.muted, fontSize: 12, padding: 12 },
   unassigned: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#B9C4B9', borderRadius: radii.medium, padding: 13, backgroundColor: '#FAFBF7', marginTop: 4 },
   unassignedTitle: { color: colors.muted, textTransform: 'uppercase', fontWeight: '900', fontSize: 11, marginBottom: 10 },
+  sugestaoLista: { maxHeight: 400, flexShrink: 1 },
+  sugestaoParticipantes: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
+  sugestaoErro: { color: colors.urgency, fontSize: 11.5, fontWeight: '700', marginBottom: 8 },
+  sugestaoBloco: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 11, marginBottom: 9, backgroundColor: '#FAFBF7' },
+  sugestaoMotorista: { color: colors.ink, fontWeight: '800', fontSize: 13, marginBottom: 4 },
+  sugestaoCao: { color: colors.muted, fontSize: 12, lineHeight: 17 },
+  sugestaoAviso: { color: colors.forest900, backgroundColor: colors.sage, borderRadius: 10, padding: 9, fontSize: 11.5, marginBottom: 10 },
   chip: { backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 7, borderWidth: 1, borderColor: colors.line },
   chipText: { color: colors.ink, fontWeight: '800', fontSize: 13 },
   /** Botão "Add any dog": pontilhado como a moldura da fila, para não parecer um cão já listado. */
