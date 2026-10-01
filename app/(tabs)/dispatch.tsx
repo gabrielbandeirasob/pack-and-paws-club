@@ -8,6 +8,7 @@ import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type Dispa
 import { juntarIrmaosDeCasa, vaoJunto } from '@/features/dispatch/houseMates';
 import { criarFilaDeEscrita, trocarNaOrdem } from '@/features/dispatch/reorderQueue';
 import { ordemDaBusca, ordemDaEntrega, ordenarComTravas, pinDaParada, type Travas, type Perna } from '@/features/dispatch/orderPins';
+import { avisoDeFechamento, paradasPendentes, type FechamentoDeRota } from '@/features/dispatch/routeClosing';
 import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
 import { GRACE_MINUTES } from '@/features/driver/eta';
 import { STALE_ROUTE_TITLE, expectedVersion, isStaleRouteError, routeErrorMessage } from '@/features/dispatch/staleRoute';
@@ -500,10 +501,34 @@ export default function DispatchScreen() {
     await carregarRotas();
   }, [versaoDe, falhaDeEscrita, carregarRotas]);
 
+  /**
+   * Fechar ou despublicar TIRA a rota da tela do motorista (ele só lê `status = 'published'`).
+   * Com parada ainda pendente, o gestor tem de ver quantas são e QUAIS cães ficam sem a rota, e dar
+   * o ok — cancelar não muda nada. Sem pendência, a ação acontece direto como sempre. O texto sai do
+   * módulo puro `routeClosing`; aqui só entra a decisão de quando perguntar.
+   * Incidente de 30/09/2026: rota fechada com as 3 paradas pendentes 1 s depois de publicada.
+   */
+  const fecharComAviso = useCallback(
+    async (routeId: string, acao: FechamentoDeRota, aplicar: () => Promise<void>) => {
+      const rota = routesRef.current.find((item) => item.routeId === routeId);
+      const pendentes = paradasPendentes(rota?.stops ?? []);
+      if (pendentes.length === 0) {
+        await aplicar();
+        return;
+      }
+      const aviso = avisoDeFechamento(acao, pendentes);
+      showAlert(aviso.title, aviso.message, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: aviso.confirmLabel, onPress: () => { void aplicar(); } },
+      ]);
+    },
+    [],
+  );
+
   // Volta a rota para rascunho: o motorista deixa de ver a rota, mas nada e apagado.
   const unpublish = useCallback(async (routeId: string) => {
-    await trocarStatus(routeId, { status: 'draft', published_at: null });
-  }, [trocarStatus]);
+    await fecharComAviso(routeId, 'unpublish', () => trocarStatus(routeId, { status: 'draft', published_at: null }));
+  }, [fecharComAviso, trocarStatus]);
 
   // Cancela a rota (status cancelado): sai da operacao e sai da tela do motorista.
   const cancelRoute = useCallback(async (routeId: string) => {
@@ -512,8 +537,8 @@ export default function DispatchScreen() {
 
   // Fecha a rota: ela sai da operacao (motorista deixa de ver) e entra no historico.
   const completeRoute = useCallback(async (routeId: string) => {
-    await trocarStatus(routeId, { status: 'completed' });
-  }, [trocarStatus]);
+    await fecharComAviso(routeId, 'complete', () => trocarStatus(routeId, { status: 'completed' }));
+  }, [fecharComAviso, trocarStatus]);
 
   const optimize = useCallback(async (routeId: string) => {
     const route = routesRef.current.find((candidate) => candidate.routeId === routeId);
