@@ -23,7 +23,7 @@ jest.mock('expo-router', () => {
 
 import DriverAssignedScreen from '@/app/(tabs)/assigned';
 import DriverScheduleScreen from '@/app/(tabs)/schedule';
-import { formatDayLabel } from '@/features/calendar/dates';
+import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
 import {
   groupRoutesByPeriod,
   routeStatusLabel,
@@ -92,12 +92,15 @@ describe('rotulos e ordem (funcoes puras)', () => {
 describe('tela Schedule', () => {
   it('agrupa as rotas em Today, Upcoming e Past com a data legivel', async () => {
     const hoje = require('@/features/calendar/dates').todayLocalISO();
+    // As datas do fixture são RELATIVAS a hoje: com data fixa no passado ("2026-09-30") o teste
+    // apodrecia — no dia 01/10/2026 a rota de "Upcoming" virou passado e a suíte ficou vermelha sem
+    // nenhum defeito no app (achado na checagem de 01/10).
     mockFrom.mockReturnValue(
       banco({
         data: [
           { id: 'r1', route_date: hoje, status: 'published', route_stops: [{ id: 's1' }, { id: 's2' }] },
-          { id: 'r2', route_date: '2026-09-30', status: 'draft', route_stops: [{ id: 's3' }] },
-          { id: 'r3', route_date: '2026-01-02', status: 'completed', route_stops: [{ id: 's4' }] },
+          { id: 'r2', route_date: addDaysISO(hoje, 3), status: 'draft', route_stops: [{ id: 's3' }] },
+          { id: 'r3', route_date: addDaysISO(hoje, -30), status: 'completed', route_stops: [{ id: 's4' }] },
         ],
       }),
     );
