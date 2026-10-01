@@ -28,11 +28,16 @@ import { colors, radii } from '@/features/theme/tokens';
  * parada passou a ser 2 toques. O 1º é 'arrived'; o 2º é 'finish', que grava pegou + concluiu de uma
  * vez (dois registros, hora do servidor). A parada que já estava em 'picked_up' (rota antiga ou um
  * 2º toque que ficou pela metade) usa o MESMO 'finish' para fechar — nada de status novo.
+ *
+ * ENTREGA (conferência do dono, 01/10/2026 — itens 2 e 5): depois do pick-up a parada está `completed`
+ * mas o cão está NA VAN — falta entregar. `deliver` é o toque da tarde, que grava `delivered_at`
+ * (migração 041). Sem ele o app dava o dia por terminado depois da última busca, às 9 da manhã.
  */
-export function nextActionForStatus(status: DriverStop['status']): DriverAction | null {
+export function nextActionForStatus(status: DriverStop['status'], deliveredAt?: string | null): DriverAction | null {
   if (status === 'pending') return 'arrived';
   if (status === 'arrived') return 'finish';
   if (status === 'picked_up') return 'finish';
+  if (status === 'completed' && !deliveredAt) return 'deliver';
   return null;
 }
 
@@ -40,6 +45,7 @@ export function nextActionForStatus(status: DriverStop['status']): DriverAction 
 export const NEXT_ACTION_LABEL: Partial<Record<DriverAction, string>> = {
   arrived: 'I arrived',
   finish: 'Next',
+  deliver: 'Delivered',
 };
 
 /**

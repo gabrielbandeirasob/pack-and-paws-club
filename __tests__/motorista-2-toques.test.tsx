@@ -203,13 +203,19 @@ describe('2 toques: I arrived e Next', () => {
     });
   });
 
-  it('rota terminada depois do 2º toque: o painel não oferece mais nenhum passo', async () => {
+  it('depois do 2º toque o dia continua: o painel passa a oferecer a ENTREGA', async () => {
     const tela = await abrirTelaDoMotorista();
     await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
     await waitFor(() => expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy());
     await fireEvent.press(tela.getByLabelText('Next stop: Next for Bob'));
 
-    await waitFor(() => expect(tela.getByText('Route finished')).toBeTruthy());
+    /*
+     * ENTREGA (conferência do dono, 01/10/2026 — itens 2 e 5): o 2º toque deixa a parada `completed` com
+     * o cão NA VAN. Antes o app escrevia "Route finished" aqui, às 9 da manhã, e a tarde inteira ficava
+     * sem próximo cão, sem ETA e sem aviso ao tutor. Agora o painel oferece o toque da entrega.
+     */
+    await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Bob')).toBeTruthy());
+    expect(tela.queryByText('Route finished')).toBeNull();
     expect(tela.queryByLabelText('Next stop: Next for Bob')).toBeNull();
   });
 });

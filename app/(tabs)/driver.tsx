@@ -7,7 +7,7 @@ import { todayLocalISO } from '@/features/calendar/dates';
 import { DriverRouteView, type DriverAction, type DriverStop } from '@/features/driver/DriverRouteView';
 import { resolveDriverOptimizationOrigin } from '@/features/driver/driverRouteLocation';
 import { clockInGate, distanceText, estaNaVan, loadVanLocationForDriver, motivoDoClockIn, travaDoClockIn, type OrganizationLocation } from '@/features/organization/locations';
-import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
+import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutosAteParada, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
 import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/features/driver/etaMessage';
 
 import { NextStopCard, nextActionForStatus, nextStopFor } from '@/features/driver/NextStopCard';
@@ -216,10 +216,15 @@ export default function DriverTodayScreen() {
        * do meio. Fila antiga (sem `steps`) grava só o `status`, como sempre.
        */
       let parouPorRede = false;
-      for (const passo of passosDoEvento(event)) {
+      const passosDoDia = passosDoEvento(event);
+      for (const [indicePasso, passo] of passosDoDia.entries()) {
+        // A ENTREGA confirmada sem rede sobe junto do ÚLTIMO passo do evento (o `delivered_at` entra
+        // na mesma escrita, com o carimbo do servidor).
+        const atualizacao: Record<string, unknown> = { status: passo };
+        if (event.deliveredAt && indicePasso === passosDoDia.length - 1) atualizacao.delivered_at = event.deliveredAt;
         const { error } = await supabase
           .from('route_stops')
-          .update({ status: passo })
+          .update(atualizacao)
           .eq('id', event.stopId);
         if (error) {
           if (isNetworkError(error.message)) {
@@ -247,7 +252,7 @@ export default function DriverTodayScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       const { data: routes, error } = await supabase
         .from('routes')
-        .select('id, organization_id, lock_version, published_at, start_location_id, end_location_id, route_stops(id, sequence, dropoff_sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, status_updated_at, eta_notice_at, eta_notice_kind, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
+        .select('id, organization_id, lock_version, published_at, start_location_id, end_location_id, route_stops(id, sequence, dropoff_sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, delivered_at, travel_seconds, dropoff_travel_seconds, status_updated_at, eta_notice_at, eta_notice_kind, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
         .eq('driver_id', user?.id ?? '')
         .eq('route_date', todayLocalISO())
         .eq('status', 'published')
@@ -394,6 +399,44 @@ export default function DriverTodayScreen() {
 
   const act = async (stopId: string, action: DriverAction) => {
     setMessage(null);
+    /*
+     * ENTREGA (conferência do dono, 01/10/2026 — itens 2 e 5). Não é troca de status: o pick-up já
+     * marcou `completed`; aqui grava-se o marco `delivered_at`, que é o que fecha a parada, devolve o
+     * ETA e o botão de avisar na parte da tarde e diz ao gestor em qual entrega o dia está. O horário
+     * oficial continua sendo do SERVIDOR (trigger da migração 041); o ISO do aparelho só entra na fila
+     * offline como referência.
+     */
+    if (action === 'deliver') {
+      const entregueEm = new Date().toISOString();
+      const anterior = stops.find((stop) => stop.id === stopId)?.deliveredAt ?? null;
+      setStops((current) => current.map((stop) => (stop.id === stopId ? { ...stop, deliveredAt: entregueEm } : stop)));
+      try {
+        const { error } = await supabase.from('route_stops').update({ delivered_at: entregueEm }).eq('id', stopId);
+        if (error) throw new Error(error.message);
+        const events = (await loadOutbox()).filter((event) => event.stopId !== stopId);
+        await saveOutbox(events);
+        setPendingSync(events.length);
+        if (events.length === 0) setOffline(false);
+        await load();
+      } catch (reason) {
+        if (isNetworkError(reason)) {
+          const events = enqueueEvent(await loadOutbox(), {
+            stopId,
+            status: 'completed',
+            deliveredAt: entregueEm,
+            createdAt: entregueEm,
+          });
+          await saveOutbox(events);
+          setPendingSync(events.length);
+          setOffline(true);
+          setMessage('You are offline. This change is saved on your device and will sync automatically.');
+          return;
+        }
+        setStops((current) => current.map((stop) => (stop.id === stopId ? { ...stop, deliveredAt: anterior } : stop)));
+        setMessage(reason instanceof Error ? reason.message : 'Could not save the delivery. Try again.');
+      }
+      return;
+    }
     if (action === 'navigate') {
       const stop = stops.find((candidate) => candidate.id === stopId);
       const query = [stop?.address, stop?.city].filter(Boolean).join(', ');
@@ -749,11 +792,16 @@ export default function DriverTodayScreen() {
     void enviarAviso(stop, avisoDe(stop));
   };
 
-  /** Paradas com o ETA de cada uma (o botão de avisar mostra "~12 min" e fica âmbar se atrasar). */
+  /**
+   * Paradas com o ETA de cada uma (o botão de avisar mostra "~12 min" e fica âmbar se atrasar).
+   * O número segue a ROTA quando o gestor otimizou com tráfego (`travel_seconds` na ordem da busca,
+   * `dropoff_travel_seconds` na ordem da entrega) e cai na linha reta da posição quando não há trilha —
+   * era o único cálculo até 01/10/2026 e é exatamente o que o cliente reclamou.
+   */
   const stopsComEta = useMemo(
     () =>
       stops.map((stop) => {
-        const minutos = minutesToStop(position, stop);
+        const minutos = minutosAteParada(stops, stop.id, position);
         return { ...stop, etaMinutes: minutos, lateMinutes: minutos == null ? 0 : lateMinutesForStop(stop, minutos) };
       }),
     [stops, position],
@@ -849,7 +897,7 @@ export default function DriverTodayScreen() {
               <View style={styles.nextStop}>
                 <NextStopCard
                   stop={proximaParada}
-                  nextAction={proximaParada ? nextActionForStatus(proximaParada.status) : null}
+                  nextAction={proximaParada ? nextActionForStatus(proximaParada.status, proximaParada.deliveredAt) : null}
                   onNavigate={(stop) => void act(stop.id, 'navigate')}
                   onAction={(stopId, action) => void act(stopId, action)}
                 />

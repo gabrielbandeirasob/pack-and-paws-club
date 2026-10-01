@@ -19,6 +19,12 @@ export type ParadaComMarcos = {
   pickedUpAt?: string | null;
   completedAt?: string | null;
   skippedAt?: string | null;
+  /**
+   * Marco de ENTREGA (`route_stops.delivered_at`, migration 202610010041). A busca concluída
+   * (`completed_at`) não é a entrega: com o fluxo de 2 toques, a parada fica `completed` no
+   * pick-up e a entrega só chega à tarde — sem este marco a tarde inteira ficava sem registro.
+   */
+  deliveredAt?: string | null;
   /** HH:MM exigido (texto do banco, sem data). */
   exactTime?: string | null;
   /** Fim da janela (texto do banco, sem data). */
@@ -40,7 +46,7 @@ export function jaFeita(parada: Pick<ParadaComMarcos, 'status'>): boolean {
 
 /**
  * Linha de tempo de UMA parada:
- *  - concluída/pendente com marcos → `arrived 08:12 · done 08:18` (só o que existe);
+ *  - concluída/pendente com marcos → `arrived 08:12 · done 08:18 · delivered 14:05` (só o que existe);
  *  - problema → `Problem · 08:14`;
  *  - sem marco nenhum → a previsão da parada (`Must arrive by 08:30` / `until 09:00`) ou `Pending`.
  */
@@ -52,8 +58,10 @@ export function marcosDaParada(parada: ParadaComMarcos): string {
   const partes: string[] = [];
   const chegada = horaCurta(parada.arrivedAt);
   const conclusao = horaCurta(parada.completedAt) ?? horaCurta(parada.pickedUpAt);
+  const entrega = horaCurta(parada.deliveredAt);
   if (chegada) partes.push(`arrived ${chegada}`);
   if (conclusao) partes.push(`done ${conclusao}`);
+  if (entrega) partes.push(`delivered ${entrega}`);
   if (partes.length > 0) return partes.join(' · ');
   if (parada.exactTime) return `Must arrive by ${parada.exactTime.slice(0, 5)}`;
   if (parada.windowEnd) return `Window until ${parada.windowEnd.slice(0, 5)}`;
@@ -64,6 +72,15 @@ export function marcosDaParada(parada: ParadaComMarcos): string {
 export function resumoDaRota(paradas: Pick<ParadaComMarcos, 'status'>[]): string {
   const feitas = paradas.filter(jaFeita).length;
   return `${feitas} of ${paradas.length} done`;
+}
+
+/**
+ * `3 of 6 delivered` — quantas paradas já foram ENTREGUES (marco `delivered_at`). A busca concluída
+ * NÃO conta como entrega: o cliente pediu justamente para ver a tarde, não só a manhã (01/10/2026).
+ */
+export function resumoDaEntrega(paradas: Pick<ParadaComMarcos, 'deliveredAt'>[]): string {
+  const entregues = paradas.filter((parada) => Boolean(parada.deliveredAt)).length;
+  return `${entregues} of ${paradas.length} delivered`;
 }
 
 /** A próxima parada que ainda não terminou (na ordem recebida) — `null` quando acabou. */

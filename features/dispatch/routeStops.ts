@@ -20,6 +20,8 @@ export type ParadaDaRota = {
   pickedUpAt: string | null;
   completedAt: string | null;
   skippedAt: string | null;
+  /** Marco de ENTREGA (migration 202610010041): a tarde da rota, que a busca concluída não registra. */
+  deliveredAt: string | null;
   exactTime: string | null;
   windowEnd: string | null;
 };
@@ -34,6 +36,7 @@ export type ParadaDaLinha = {
   picked_up_at?: string | null;
   completed_at?: string | null;
   skipped_at?: string | null;
+  delivered_at?: string | null;
   exact_time?: string | null;
   window_end?: string | null;
   dog?: { name?: string | null; client?: { name?: string | null; address_line_1?: string | null; city?: string | null } | null } | null;
@@ -60,6 +63,7 @@ export function mapearParada(linha: ParadaDaLinha): ParadaDaRota {
     pickedUpAt: linha.picked_up_at ?? null,
     completedAt: linha.completed_at ?? null,
     skippedAt: linha.skipped_at ?? null,
+    deliveredAt: linha.delivered_at ?? null,
     exactTime: linha.exact_time ?? null,
     windowEnd: linha.window_end ?? null,
   };
@@ -81,7 +85,7 @@ export async function carregarParadasDaRota(
   const { data, error } = await client
     .from('routes')
     .select(
-      'id, route_stops(id, sequence, dropoff_sequence, status, exact_time, window_end, arrived_at, picked_up_at, completed_at, skipped_at, dog:dogs(name, client:clients(name, address_line_1, city)))',
+      'id, route_stops(id, sequence, dropoff_sequence, status, exact_time, window_end, arrived_at, picked_up_at, completed_at, skipped_at, delivered_at, dog:dogs(name, client:clients(name, address_line_1, city)))',
     )
     .eq('id', routeId)
     .maybeSingle();

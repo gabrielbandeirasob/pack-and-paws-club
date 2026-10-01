@@ -34,11 +34,39 @@ describe('DriverRouteView', () => {
     expect(tela.queryByLabelText('Notify owner Bob')).toBeNull();
   });
 
-  it('parada concluída não oferece aviso de ETA', async () => {
-    const concluida: DriverStop[] = [{ ...stops[0], status: 'completed', clientPhone: '+1 415 555 0134', etaMinutes: 5 }];
-    const tela = await render(<DriverRouteView stops={concluida} onAction={jest.fn()} onNotifyOwner={jest.fn()} />);
+  /**
+   * ENTREGA (conferência do dono, 01/10/2026 — itens 2 e 5): o 2º toque ("Next") deixa a parada
+   * `completed` com o cão NA VAN. Até aqui isso desabilitava o aviso ao tutor, e o motorista ficava sem
+   * mandar a mensagem da ENTREGA — o cliente reclamou justamente disso. O aviso só desaparece quando a
+   * entrega é confirmada (`deliveredAt`) ou a parada virou problema.
+   */
+  it('parada concluída COM entrega pendente ainda oferece o aviso (é a mensagem da tarde)', async () => {
+    const naVan: DriverStop[] = [{ ...stops[0], status: 'completed', clientPhone: '+1 415 555 0134', etaMinutes: 5 }];
+    const tela = await render(<DriverRouteView stops={naVan} onAction={jest.fn()} onNotifyOwner={jest.fn()} />);
+
+    expect(tela.getByLabelText('Notify owner Bob')).toBeTruthy();
+    expect(tela.getByText('In the van')).toBeTruthy();
+  });
+
+  it('parada ENTREGUE não oferece aviso (o dia dela acabou)', async () => {
+    const entregue: DriverStop[] = [{
+      ...stops[0], status: 'completed', clientPhone: '+1 415 555 0134', etaMinutes: 5,
+      deliveredAt: '2026-10-01T21:05:00.000Z',
+    }];
+    const tela = await render(<DriverRouteView stops={entregue} onAction={jest.fn()} onNotifyOwner={jest.fn()} />);
 
     expect(tela.queryByLabelText('Notify owner Bob')).toBeNull();
+    expect(tela.getByText('Delivered')).toBeTruthy();
+    expect(tela.getByText(/Delivered at \d{2}:\d{2}/)).toBeTruthy();
+  });
+
+  it('o toque da ENTREGA aparece para o cão que já está na van', async () => {
+    const naVan: DriverStop[] = [{ ...stops[0], status: 'completed' }];
+    const onAction = jest.fn().mockResolvedValue(undefined);
+    const tela = await render(<DriverRouteView stops={naVan} onAction={onAction} />);
+
+    await fireEvent.press(tela.getByRole('button', { name: 'Delivered Bob' }));
+    expect(onAction).toHaveBeenCalledWith('stop-1', 'deliver');
   });
 
   it('mostra que o tutor já foi avisado, com a hora', async () => {
@@ -82,10 +110,21 @@ describe('DriverRouteView', () => {
     expect(chegou.getByRole('button', { name: 'Problem stop-1' })).toBeTruthy();
   });
 
-  it('reveals the completed state after pickup', async () => {
+  it('selo do cão que já foi pego é "In the van" (na van até a entrega)', async () => {
+    // Regra única desde 01/10/2026: "In the van" = o cão está com o motorista (pego ou concluído) e
+    // "Delivered" = entregue. O selo antigo ("Dog picked up"/"Completed") não dizia que faltava entregar.
     const progressed: DriverStop[] = [{ ...stops[0], status: 'picked_up' }];
     const screen = await render(<DriverRouteView stops={progressed} onAction={jest.fn()} />);
-    expect(screen.getByText('Dog picked up')).toBeTruthy();
+    expect(screen.getByText('In the van')).toBeTruthy();
+  });
+
+  it('depois do pick-up o selo vira "In the van" (o dia ainda não acabou)', async () => {
+    // "Completed" às 9 da manhã num dia com 6 entregas pela frente é leitura errada — foi o que o
+    // cliente viu junto com o ETA desaparecendo (conferência do dono, 01/10/2026).
+    const concluida: DriverStop[] = [{ ...stops[0], status: 'completed' }];
+    const screen = await render(<DriverRouteView stops={concluida} onAction={jest.fn()} />);
+    expect(screen.getByText('In the van')).toBeTruthy();
+    expect(screen.queryByText('Completed')).toBeNull();
   });
 
   it('mostra a foto do cao do cadastro na parada (e nada quando o cao nao tem foto)', async () => {
@@ -121,7 +160,8 @@ describe('DriverRouteView', () => {
     const onAction = jest.fn().mockResolvedValue(undefined);
     const feita: DriverStop[] = [{ ...stops[0], status: 'completed' }];
     const screen = await render(<DriverRouteView stops={feita} onAction={onAction} />);
-    expect(screen.getByText('Completed')).toBeTruthy();
+    // O selo passou a dizer "In the van": `completed` é o fim da BUSCA, não do dia (01/10/2026).
+    expect(screen.getByText('In the van')).toBeTruthy();
 
     await fireEvent.press(screen.getByRole('button', { name: 'Navigate to Bob' }));
     expect(onAction).toHaveBeenCalledWith('stop-1', 'navigate');

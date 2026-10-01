@@ -14,6 +14,7 @@ import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
 import { GRACE_MINUTES } from '@/features/driver/eta';
 import { STALE_ROUTE_TITLE, expectedVersion, isStaleRouteError, routeErrorMessage } from '@/features/dispatch/staleRoute';
 import { fetchTravelTimes } from '@/features/dispatch/trafficProvider';
+import type { TravelTimes } from '@/features/dispatch/travelMatrix';
 import { showAlert } from '@/features/ui/alert';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
@@ -83,6 +84,12 @@ export default function DispatchScreen() {
    * calendário não carrega coordenada. O mapa sai da MESMA consulta do dia, sem ida extra ao banco.
    */
   const coordenadasPorCao = useRef<Map<string, Coordenada>>(new Map());
+  /**
+   * Sede PADRÃO da organização, para gravar na rota quando ela nasce (item 1/3 da conferência do dono,
+   * 01/10/2026). As rotas nasciam com `start_location_id` NULL e, sem ele, a trava do clock-in e a
+   * sugestão caíam na van padrão — que estava apontando para um cadastro de TESTE em outra cidade.
+   */
+  const sedePadraoId = useRef<string | null>(null);
   /**
    * Cães adicionados À MÃO pelo gestor. Guardados num ref (e não no estado) para sobreviverem ao
    * recarregamento: o carregamento reconstrói a fila a partir do calendário, e sem isso o cão manual
@@ -177,6 +184,15 @@ export default function DispatchScreen() {
       supabase.from('dogs').select('id, name, client:clients(id, name, latitude, longitude)').eq('organization_id', orgId).eq('active', true),
     ]);
     if (dia !== contexto.current.date) return;
+    /*
+     * A sede PADRÃO da organização é lida junto do dia — em PARALELO e sem bloquear a carga (best-effort):
+     * é ela que vai gravada na rota que nasce. Esperar por esta consulta aqui travava a tela do Dispatch
+     * quando a consulta demorava (o dia não aparecia), e sem ela a rota nascia com `start_location_id`
+     * NULL — que era o defeito original (item 1/3 da conferência, 01/10/2026).
+     */
+    void loadOrganizationLocations(supabase, orgId)
+      .then((vans) => { sedePadraoId.current = vanLocationForRoute(vans, null)?.id ?? null; })
+      .catch(() => { sedePadraoId.current = null; });
     const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? dogResult.error;
     if (firstError) { falhou('dia', firstError.message); return; }
     falhou('dia', null);
@@ -424,7 +440,12 @@ export default function DispatchScreen() {
   const routeIdForDriver = useCallback(async (driverId: string) => {
     if (!organizationId) throw new Error('Organization not found.');
     const { data: route, error: routeError } = await supabase.from('routes').upsert(
-      { organization_id: organizationId, route_date: date, driver_id: driverId, status: 'draft' },
+      {
+        organization_id: organizationId, route_date: date, driver_id: driverId, status: 'draft',
+        // A sede da organização vai gravada na rota (o app não tem seletor de sede ainda): sem isso a
+        // trava do clock-in e a sugestão ficavam reféns da van padrão do momento.
+        start_location_id: sedePadraoId.current ?? undefined,
+      },
       { onConflict: 'organization_id,route_date,driver_id' },
     ).select('id').single();
     if (routeError) throw new Error(routeError.message);
@@ -757,6 +778,42 @@ export default function DispatchScreen() {
     await fecharComAviso(routeId, 'complete', () => trocarStatus(routeId, { status: 'completed' }));
   }, [fecharComAviso, trocarStatus]);
 
+  /**
+   * PERNAS DE VIAGEM da rota (conferência do dono, 01/10/2026 — item 5): grava, por parada, o tempo da
+   * perna que CHEGA nela — `travel_seconds` na ordem da busca e `dropoff_travel_seconds` na ordem da
+   * entrega. É o que faz o ETA do motorista seguir a ROTA (e a mensagem ao tutor sair de um número de
+   * rota) em vez de linha reta da posição atual. A matriz já foi paga UMA vez aqui no Optimize; o
+   * motorista só lê o que ficou gravado — nenhuma chamada nova ao Google.
+   *
+   * Best-effort de propósito: se estas escritas falharem, a ORDEM (que é o que o gestor pediu) já está
+   * aplicada e o ETA do motorista simplesmente cai na estimativa antiga.
+   */
+  const gravarPernasDaRota = useCallback(async (
+    routeId: string,
+    ordemBusca: { dogId: string }[],
+    ordemEntrega: { dogId: string }[],
+    traffic: TravelTimes | null,
+  ) => {
+    if (!traffic) return;
+    const segundos = (ids: string[], posicao: number): number | null => {
+      const minutos = posicao === 0 ? traffic.homeTo(ids[0]) : traffic.between(ids[posicao - 1], ids[posicao]);
+      if (minutos == null) return null;
+      const valor = Math.round(minutos * 60);
+      return valor > 0 ? valor : null;
+    };
+    const busca = ordemBusca.map((stop, i) => ({ dogId: stop.dogId, segundos: segundos(ordemBusca.map((s) => s.dogId), i) }));
+    const entrega = ordemEntrega.map((stop, i) => ({ dogId: stop.dogId, segundos: segundos(ordemEntrega.map((s) => s.dogId), i) }));
+    const porCao = new Map<string, { travel_seconds: number | null; dropoff_travel_seconds: number | null }>();
+    for (const item of busca) porCao.set(item.dogId, { travel_seconds: item.segundos, dropoff_travel_seconds: null });
+    for (const item of entrega) {
+      const atual = porCao.get(item.dogId) ?? { travel_seconds: null, dropoff_travel_seconds: null };
+      porCao.set(item.dogId, { ...atual, dropoff_travel_seconds: item.segundos });
+    }
+    for (const [dogId, pernas] of porCao) {
+      await supabase.from('route_stops').update(pernas).eq('route_id', routeId).eq('dog_id', dogId);
+    }
+  }, []);
+
   const optimize = useCallback(async (routeId: string) => {
     const route = routesRef.current.find((candidate) => candidate.routeId === routeId);
     if (!route) return;
@@ -826,14 +883,24 @@ export default function DispatchScreen() {
         text: 'Apply',
         onPress: () => {
           gravandoOrdens.current.add(routeId);
+          // A ordem da ENTREGA é calculada uma vez: serve para gravar a ordem (RPC) e para gravar as
+          // pernas da tarde logo depois do ok.
+          const entregaIds = ordemDaEntrega(volta.ordem.map((stop, i) => ({ ...stop, dropoffSequence: i + 1 }))).map((stop) => stop.dogId);
           void Promise.resolve(supabase.rpc('apply_route_order', {
             p_route_id: routeId, p_pickup_ids: busca.ordem.map((stop) => stop.dogId),
-            p_dropoff_ids: ordemDaEntrega(volta.ordem.map((stop, i) => ({ ...stop, dropoffSequence: i + 1 }))).map((stop) => stop.dogId),
+            p_dropoff_ids: entregaIds,
             p_esperado: versao,
           })).then(({ error }) => {
             if (!error) {
               versoes.current[routeId] = (versao ?? 1) + 1;
               revisoes.current[routeId] = (revisoes.current[routeId] ?? 0) + 1;
+              /*
+               * PERNAS DE VIAGEM (item 5 da conferência, 01/10/2026): com a ordem aplicada, grava por
+               * parada o tempo da perna que chega nela (busca e entrega). É o dado que o ETA do
+               * motorista lê para seguir a ROTA — a matriz do Google já foi paga aqui, nenhuma
+               * chamada nova. Best-effort: falhar aqui não desfaz a ordem.
+               */
+              void gravarPernasDaRota(routeId, busca.ordem, volta.ordem, traffic.travel);
             }
             if (error) showAlert(isStaleRouteError(error) ? STALE_ROUTE_TITLE : 'Unable to apply the route', routeErrorMessage(error));
           }).catch((erro: { message: string }) => {
@@ -845,7 +912,7 @@ export default function DispatchScreen() {
         },
       },
     ]);
-  }, [versaoDe, carregarRotas]);
+  }, [versaoDe, carregarRotas, gravarPernasDaRota]);
 
   const summary = useMemo(() => ({ date, drivers, dayItems, routes, dogs: caesCadastro, onAddExtraDog: adicionarCaoForaDoCalendario }), [date, drivers, dayItems, routes, caesCadastro, adicionarCaoForaDoCalendario]);
 

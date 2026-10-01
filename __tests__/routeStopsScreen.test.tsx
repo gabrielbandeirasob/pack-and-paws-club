@@ -16,17 +16,17 @@ const emLocal = (hora: number, minuto: number) => new Date(2026, 9, 1, hora, min
 const paradas = [
   {
     id: 'stop-1', sequence: 1, status: 'completed', arrived_at: emLocal(8, 18), picked_up_at: emLocal(8, 18),
-    completed_at: emLocal(8, 18), skipped_at: null, exact_time: null, window_end: null,
+    completed_at: emLocal(8, 18), skipped_at: null, delivered_at: emLocal(14, 5), exact_time: null, window_end: null,
     dog: { name: 'Lucky', client: { name: 'Cristina', address_line_1: '100 Middlefield Rd', city: 'Menlo Park' } },
   },
   {
     id: 'stop-2', sequence: 5, status: 'completed', arrived_at: emLocal(8, 54), picked_up_at: emLocal(8, 55),
-    completed_at: emLocal(8, 55), skipped_at: null, exact_time: null, window_end: null,
+    completed_at: emLocal(8, 55), skipped_at: null, delivered_at: null, exact_time: null, window_end: null,
     dog: { name: 'Oreo', client: { name: 'Andrea', address_line_1: '329 Middlefield Rd', city: 'Palo Alto' } },
   },
   {
     id: 'stop-3', sequence: 7, status: 'pending', arrived_at: null, picked_up_at: null,
-    completed_at: null, skipped_at: null, exact_time: '09:30:00', window_end: null,
+    completed_at: null, skipped_at: null, delivered_at: null, exact_time: '09:30:00', window_end: null,
     dog: { name: 'Winter', client: { name: 'Jez', address_line_1: '5 Oak Ave', city: 'Atherton' } },
   },
 ];
@@ -69,7 +69,7 @@ describe('tela Route stops (gestor)', () => {
     expect(tela.getByText('Andrea · Oreo')).toBeTruthy();
     expect(tela.getByText('Jez · Winter')).toBeTruthy();
     // horas (fuso local do aparelho)
-    expect(tela.getByText('arrived 08:18 · done 08:18')).toBeTruthy();
+    expect(tela.getByText('arrived 08:18 · done 08:18 · delivered 14:05')).toBeTruthy();
     expect(tela.getByText('arrived 08:54 · done 08:55')).toBeTruthy();
     // pendente cai na previsão
     expect(tela.getByText('Must arrive by 09:30')).toBeTruthy();
@@ -84,7 +84,8 @@ describe('tela Route stops (gestor)', () => {
 
     await waitFor(() => expect(tela.getByText('2 of 3 done')).toBeTruthy());
     expect(tela.getByText('Next: Winter · Must arrive by 09:30')).toBeTruthy();
-    expect(tela.getByText('Rafael · Thu, Oct 01 · 2 of 3 done')).toBeTruthy();
+    // resumo do topo: as feitas da BUSCA mais as ENTREGUES da tarde (só a stop-1 foi entregue)
+    expect(tela.getByText('Rafael · Thu, Oct 01 · 2 of 3 done · 1 of 3 delivered')).toBeTruthy();
   });
 
   it('lê a rota pelo id que veio da Home (a tela do gestor não usa outra consulta)', async () => {
@@ -92,6 +93,7 @@ describe('tela Route stops (gestor)', () => {
     await waitFor(() => expect(supabase.from).toHaveBeenCalledWith('routes'));
     const consulta = (supabase.from as jest.Mock).mock.results[0].value;
     expect(consulta.select).toHaveBeenCalledWith(expect.stringContaining('arrived_at'));
+    expect(consulta.select).toHaveBeenCalledWith(expect.stringContaining('delivered_at'));
     expect(consulta.select.mock.results[0].value.eq).toHaveBeenCalledWith('id', 'rota-1');
   });
 

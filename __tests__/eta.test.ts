@@ -53,9 +53,22 @@ describe('nextStopEta', () => {
     expect(eta?.stopId).toBe('s2'); // sequence 1 is still active
   });
 
-  it('returns null when every stop is finished', () => {
+  /**
+   * ENTREGA (conferência do dono, 01/10/2026): `completed` é o fim da BUSCA, não do dia. O cão está na
+   * van e a entrega ainda vai acontecer — o "próximo cão" (e o ETA) continuam existindo até o marco
+   * `deliveredAt`. Antes disto o app dava a rota por terminada depois da última busca, às 9 da manhã.
+   */
+  it('depois das buscas o próximo é a ENTREGA pendente (o dia não acabou)', () => {
     const stops = [stop({ id: 's1', status: 'completed' }), stop({ id: 's2', status: 'skipped' })];
-    expect(nextStopEta(stops, null)).toBeNull();
+    expect(nextStopEta(stops, null)?.stopId).toBe('s1');
+  });
+
+  it('returns null only when every stop is delivered or skipped', () => {
+    const entregues = [
+      stop({ id: 's1', status: 'completed', deliveredAt: '2026-10-01T21:00:00.000Z' }),
+      stop({ id: 's2', status: 'skipped' }),
+    ];
+    expect(nextStopEta(entregues, null)).toBeNull();
   });
 
   it('flags how late the projected arrival is against a window', () => {

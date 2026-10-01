@@ -88,14 +88,30 @@ export default function DriversScreen() {
     const name = editName.trim();
     if (name.length === 0) { showAlert('Name required', 'Give the driver a name.'); return; }
     setSaving(true);
-    const { error: profileError } = await supabase.from('profiles').update({ full_name: name }).eq('id', editing.user_id);
-    const { error: memberError } = await supabase
+    // `.select('id')` é o que revela a ALTERAÇÃO QUE NÃO PEGOU: o PostgREST devolve SUCESSO (sem erro)
+    // quando a policy bloqueia o UPDATE — 0 linhas, nenhum aviso, e o app fingia que salvou (o nome
+    // voltava na recarga; bug relatado pelo cliente em 01/10/2026: "tentou corrigir e voltava").
+    const { data: profileRows, error: profileError } = await supabase
+      .from('profiles')
+      .update({ full_name: name })
+      .eq('id', editing.user_id)
+      .select('id');
+    const { data: memberRows, error: memberError } = await supabase
       .from('organization_members')
       .update({ status: memberStatusFromActive(editActive) })
       .eq('organization_id', organizationId)
-      .eq('user_id', editing.user_id);
+      .eq('user_id', editing.user_id)
+      .select('user_id'); // a tabela não tem `id` (PK = organization_id + user_id)
     setSaving(false);
     if (profileError || memberError) { showAlert('Could not save', (profileError ?? memberError)?.message ?? 'Unknown error'); return; }
+    if (!Array.isArray(profileRows) || profileRows.length === 0) {
+      showAlert('Could not save', 'The name was not saved — your account may not have permission to change this profile.');
+      return;
+    }
+    if (!Array.isArray(memberRows) || memberRows.length === 0) {
+      showAlert('Could not save', 'The status was not saved — your account may not have permission to change this member.');
+      return;
+    }
     setEditing(null);
     await load({ silent: true });
   };

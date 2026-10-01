@@ -3,6 +3,7 @@ import {
   jaFeita,
   marcosDaParada,
   proximaPendente,
+  resumoDaEntrega,
   resumoDaRota,
 } from '@/features/dashboard/stopProgress';
 import { enderecoDaParada, mapearParada, ordenarParadas } from '@/features/dispatch/routeStops';
@@ -52,6 +53,28 @@ describe('marcosDaParada', () => {
     expect(horaCurta(null)).toBeNull();
     expect(marcosDaParada({ status: 'arrived', arrivedAt: 'sem-hora' })).toBe('Pending');
   });
+
+  it('entrega aparece NO MEIO da frase, depois do done (a tarde da rota)', () => {
+    expect(marcosDaParada({
+      status: 'completed',
+      arrivedAt: emLocal(8, 12),
+      completedAt: emLocal(8, 18),
+      deliveredAt: emLocal(14, 5),
+    })).toBe('arrived 08:12 · done 08:18 · delivered 14:05');
+  });
+
+  it('sem o marco de entrega a frase fica igual à de antes (só a manhã)', () => {
+    expect(marcosDaParada({
+      status: 'completed',
+      arrivedAt: emLocal(8, 12),
+      completedAt: emLocal(8, 18),
+      deliveredAt: null,
+    })).toBe('arrived 08:12 · done 08:18');
+  });
+
+  it('entrega sozinha (sem hora de busca registrada) ainda aparece', () => {
+    expect(marcosDaParada({ status: 'completed', deliveredAt: emLocal(16, 25) })).toBe('delivered 16:25');
+  });
 });
 
 describe('resumoDaRota', () => {
@@ -77,6 +100,32 @@ describe('resumoDaRota', () => {
   });
 });
 
+describe('resumoDaEntrega', () => {
+  it('conta só quem tem o marco de entrega (a busca concluída não conta)', () => {
+    expect(resumoDaEntrega([
+      { deliveredAt: '2026-10-01T21:05:00Z' },
+      { deliveredAt: '2026-10-01T22:00:00Z' },
+      { deliveredAt: null },
+      { deliveredAt: null }, // concluída na busca, ainda sem entrega → não conta
+    ])).toBe('2 of 4 delivered');
+  });
+
+  it('rota inteira entregue', () => {
+    expect(resumoDaEntrega([
+      { deliveredAt: '2026-10-01T21:05:00Z' },
+      { deliveredAt: '2026-10-01T21:40:00Z' },
+    ])).toBe('2 of 2 delivered');
+  });
+
+  it('nada entregue ainda', () => {
+    expect(resumoDaEntrega([{ deliveredAt: null }, { deliveredAt: null }])).toBe('0 of 2 delivered');
+  });
+
+  it('sem paradas → 0 of 0 delivered', () => {
+    expect(resumoDaEntrega([])).toBe('0 of 0 delivered');
+  });
+});
+
 describe('paradas da rota (mapeamento da consulta)', () => {
   it('monta a parada com cliente, cão, endereço e marcos', () => {
     const parada = mapearParada({
@@ -92,6 +141,16 @@ describe('paradas da rota (mapeamento da consulta)', () => {
     expect(parada.dogName).toBe('Oreo');
     expect(parada.address).toBe('329 Middlefield Rd, Palo Alto');
     expect(parada.completedAt).toBe('2026-10-01T15:55:09Z');
+  });
+
+  it('lê o marco de entrega (delivered_at → deliveredAt)', () => {
+    const parada = mapearParada({
+      id: 'stop-9', sequence: 2, status: 'completed',
+      delivered_at: '2026-10-01T22:05:00Z',
+      dog: { name: 'Luna', client: { name: 'Filó', address_line_1: '10 Elm St', city: 'Daly City' } },
+    });
+    expect(parada.deliveredAt).toBe('2026-10-01T22:05:00Z');
+    expect(mapearParada({ id: 'stop-10', sequence: 3 }).deliveredAt).toBeNull();
   });
 
   it('sem cliente/cão não inventa nome nem quebra o endereço', () => {

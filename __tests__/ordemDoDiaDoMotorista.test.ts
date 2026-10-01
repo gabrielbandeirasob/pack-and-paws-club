@@ -36,12 +36,18 @@ it('busca escolhe menor sequence entre pending e arrived, antes dos embarcados',
   expect(proximaParadaDoDia([...stops].reverse())?.dogName).toBe('Luna');
 });
 
-it('concluídas e puladas ficam na lista mas nunca são a próxima entrega', () => {
+it('concluídas e puladas ficam na lista: a próxima é a ENTREGA pendente (pulada nunca volta)', () => {
   const stops = paradas.map((s, i) => ({ ...s, status: i === 4 ? 'completed' : i === 3 ? 'skipped' : s.status }));
   expect(nomes(ordenarParadasDoDia(stops))).toEqual(['Lucki', 'Filó', 'Luna', 'Mowgli', 'Kona']);
-  expect(proximaParadaDoDia(stops)?.dogName).toBe('Luna');
+  /*
+   * ENTREGA (conferência do dono, 01/10/2026 — itens 2 e 5): `completed` é o fim da BUSCA, não do dia —
+   * o cão está na van e a entrega continua pendente até o marco `delivered_at`. Na ordem da entrega,
+   * Lucki (dropoff 1) é a primeira; quem foi marcado como problema (Filó) nunca volta.
+   */
+  expect(proximaParadaDoDia(stops)?.dogName).toBe('Lucki');
   expect(proximaParadaDoDia(stops.map((s) => ({ ...s, status: 'skipped' })))).toBeNull();
-  expect(proximaParadaDoDia(stops.map((s) => ({ ...s, status: 'completed' })))).toBeNull();
+  expect(proximaParadaDoDia(stops.map((s) => ({ ...s, status: 'completed' })))).not.toBeNull();
+  expect(proximaParadaDoDia(stops.map((s) => ({ ...s, status: 'completed', deliveredAt: '2026-10-01T21:00:00.000Z' })))).toBeNull();
 });
 
 it('lista vazia não tem próxima parada', () => {

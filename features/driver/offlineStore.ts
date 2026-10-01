@@ -17,6 +17,12 @@ export type DriverEvent = {
   steps?: DriverEventStatus[];
   createdAt: string;
   /**
+   * ENTREGA confirmada sem rede (conferência do dono, 01/10/2026): o toque da tarde grava
+   * `delivered_at` na parada em vez de trocar o status. Guardado aqui para subir quando o sinal
+   * voltar — o mesmo cuidado dos passos do fluxo de 2 toques.
+   */
+  deliveredAt?: string | null;
+  /**
    * Comprovante tirado sem rede. A foto fica no aparelho e sobe para o Storage antes de o status
    * ser aplicado (por isso guardamos o caminho de destino junto do evento).
    */
@@ -106,16 +112,19 @@ export function enqueueEvent(events: DriverEvent[], event: DriverEvent): DriverE
   const jaNaFila = anterior ? passosDoEvento(anterior) : [];
   const novos = passosDoEvento(event);
   const steps = [...jaNaFila, ...novos.filter((passo) => !jaNaFila.includes(passo))];
-  return [...events.filter((existing) => existing.stopId !== event.stopId), { ...event, steps }];
+  // A entrega já registrada no aparelho não se perde quando outro passo entra na mesma fila.
+  const deliveredAt = event.deliveredAt ?? anterior?.deliveredAt ?? null;
+  return [...events.filter((existing) => existing.stopId !== event.stopId), { ...event, steps, deliveredAt }];
 }
 
 /** Applies pending events optimistically to the in-memory stop list. */
 export function applyPendingEvents(stops: DriverStop[], events: DriverEvent[]): DriverStop[] {
   if (events.length === 0) return stops;
-  const byStop = new Map(events.map((event) => [event.stopId, event.status]));
+  const byStop = new Map(events.map((event) => [event.stopId, event]));
   return stops.map((stop) => {
-    const status = byStop.get(stop.id);
-    return status ? { ...stop, status } : stop;
+    const event = byStop.get(stop.id);
+    if (!event) return stop;
+    return { ...stop, status: event.status, deliveredAt: stop.deliveredAt ?? event.deliveredAt ?? null };
   });
 }
 

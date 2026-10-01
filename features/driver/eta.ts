@@ -1,4 +1,5 @@
 import { proximaParadaDoDia } from '@/features/driver/dayOrder';
+import { entregue, ordenarParadasDoDia } from '@/features/driver/dayOrder';
 import { haversineKm } from '@/features/dispatch/routeOptimizer';
 
 export type EtaPosition = { latitude: number; longitude: number };
@@ -14,6 +15,15 @@ export type EtaStop = {
   windowEnd?: string | null;
   exactTime?: string | null;
   status: string;
+  /** Marco de ENTREGA (ISO, carimbado no servidor). Ausente = entrega pendente. */
+  deliveredAt?: string | null;
+  /**
+   * Perna de viagem que CHEGA nesta parada, em segundos, gravada pelo Optimize do gestor com a matriz
+   * do Google (migração 041). `travelSeconds` = ordem da BUSCA; `dropoffTravelSeconds` = ordem da ENTREGA.
+   * Sem esses dados (rota não otimizada com tráfego) o ETA cai na estimativa de linha reta — como era.
+   */
+  travelSeconds?: number | null;
+  dropoffTravelSeconds?: number | null;
 };
 
 export type EtaResult = {
@@ -164,16 +174,87 @@ export function minutesToStop(
   return Math.round(minutesBetweenKm(haversineKm(position.latitude, position.longitude, stop.latitude, stop.longitude), speedKph));
 }
 
+/** Fase da trilha usada para escolher a perna gravada pelo Optimize. */
+type FaseDaRota = 'pickup' | 'dropoff';
+
+const esperaBusca = (stop: { status: string }) => stop.status === 'pending' || stop.status === 'arrived';
+
+const pendenteDeEntrega = (stop: EtaStop) =>
+  !entregue(stop) && (stop.status === 'picked_up' || stop.status === 'completed');
+
+/** Perna (em minutos) que chega nesta parada, na ordem da fase. `null` = sem dado confiável. */
+function pernaDaParada(stop: EtaStop, fase: FaseDaRota): number | null {
+  const segundos = fase === 'dropoff' ? stop.dropoffTravelSeconds : stop.travelSeconds;
+  if (typeof segundos !== 'number' || !Number.isFinite(segundos) || segundos <= 0) return null;
+  return segundos / 60;
+}
+
+/**
+ * ETA POR ROTA (cliente, áudios de 01/10/2026): *"o tempo do driver até chegar ao cliente está contando
+ * errado… as mensagens não estão contando a rota, e sim a posição do motorista"*.
+ *
+ * Aqui a conta SEGUE A TRILHA: soma as pernas que o Optimize gravou (`route_stops.travel_seconds` na
+ * ordem da busca, `dropoff_travel_seconds` na ordem da entrega) da primeira parada que ainda falta até
+ * a parada alvo, mais o tempo de serviço de cada parada intermediária. Não chama a API paga de novo:
+ * a matriz já foi paga uma vez, no Optimize do gestor.
+ *
+ * Devolve `null` quando a trilha não tem as pernas (rota nunca otimizada com tráfego) — quem chama cai
+ * na estimativa de linha reta, que é o comportamento antigo. Nunca inventa zero.
+ */
+export function minutosAteParadaPorRota(
+  stops: EtaStop[],
+  alvoId: string,
+  opcoes: { servicoMin?: number } = {},
+): number | null {
+  const ordenadas = ordenarParadasDoDia(stops);
+  const fase: FaseDaRota = stops.some(esperaBusca) ? 'pickup' : 'dropoff';
+  const alvo = ordenadas.findIndex((stop) => stop.id === alvoId);
+  if (alvo < 0) return null;
+  const inicio = ordenadas.findIndex((stop) => (fase === 'pickup' ? esperaBusca(stop) : pendenteDeEntrega(stop)));
+  if (inicio < 0 || alvo < inicio) return null;
+
+  const servico = opcoes.servicoMin ?? GRACE_MINUTES;
+  let minutos = 0;
+  for (let i = inicio; i <= alvo; i += 1) {
+    const perna = pernaDaParada(ordenadas[i], fase);
+    if (perna == null) return null;
+    minutos += perna;
+    // Parada intermediária ainda custa o serviço (o MESMO número do Optimize e da tolerância).
+    if (i < alvo) minutos += servico;
+  }
+  return Math.round(minutos);
+}
+
+/**
+ * Minutos até uma parada: a ROTA manda; sem os dados da rota, cai na distância em linha reta da posição
+ * atual (o comportamento antigo, e a única opção quando o gestor ainda não otimizou o dia).
+ */
+export function minutosAteParada(
+  stops: EtaStop[],
+  alvoId: string,
+  position: EtaPosition | null,
+  speedKph = DEFAULT_SPEED_KPH,
+): number | null {
+  const daRota = minutosAteParadaPorRota(stops, alvoId);
+  if (daRota != null) return daRota;
+  const alvo = stops.find((stop) => stop.id === alvoId);
+  return alvo ? minutesToStop(position, alvo, speedKph) : null;
+}
+
 /**
  * ETA for the next pending stop from the driver's current position.
  * Also reports how many minutes past its window/deadline the arrival would be.
+ *
+ * O `position` continua sendo a origem quando NÃO há trilha gravada; com a trilha, quem manda é a rota.
  */
 export function nextStopEta(stops: EtaStop[], position: EtaPosition | null, now: Date = new Date(), speedKph = DEFAULT_SPEED_KPH): EtaResult | null {
   const next = proximaParadaDoDia(stops);
   if (!next) return null;
 
-  const minutes =
-    position && next.latitude != null && next.longitude != null
+  const daRota = minutosAteParadaPorRota(stops, next.id);
+  const minutes = daRota != null
+    ? daRota
+    : position && next.latitude != null && next.longitude != null
       ? minutesBetweenKm(haversineKm(position.latitude, position.longitude, next.latitude, next.longitude), speedKph)
       : 0;
 

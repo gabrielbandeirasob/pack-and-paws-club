@@ -48,6 +48,15 @@ export type DriverStop = {
   pickedUpAt?: string | null;
   completedAt?: string | null;
   skippedAt?: string | null;
+  /**
+   * Marco de ENTREGA (migração 041, carimbado no servidor). É o que fecha a parada de verdade: o 2º
+   * toque ("Next") grava `picked_up` + `completed` na hora do pick-up, então sem esta coluna a tarde
+   * inteira ficava sem registro (conferência do dono, 01/10/2026).
+   */
+  deliveredAt?: string | null;
+  /** Pernas de viagem gravadas pelo Optimize do gestor (segundos): ETA por rota, não por linha reta. */
+  travelSeconds?: number | null;
+  dropoffTravelSeconds?: number | null;
   latitude?: number | null;
   longitude?: number | null;
   windowStart?: string | null;
@@ -64,7 +73,7 @@ export type DriverStop = {
  * registros, com o horário carimbado pelo servidor, para o rastro de auditoria não perder o marco do
  * meio. Ele não inventa estado novo: quem grava continua sendo o `act` de `app/(tabs)/driver.tsx`.
  */
-export type DriverAction = 'navigate' | 'arrived' | 'picked_up' | 'completed' | 'problem' | 'finish';
+export type DriverAction = 'navigate' | 'arrived' | 'picked_up' | 'completed' | 'problem' | 'finish' | 'deliver';
 
 type Props = {
   stops: DriverStop[];
@@ -126,13 +135,21 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
       ) : null}
       {naOrdemDasParadas.map((stop, index) => {
         const done = stop.status === 'completed' || stop.status === 'skipped';
+        /*
+         * ENTREGA (conferência do dono, 01/10/2026): `done` marca a BUSCA concluída (é o que pinta o
+         * cartão), mas a parada só sai da fila quando a entrega é confirmada — `deliveredAt` — ou
+         * quando ela virou problema. Sem separar os dois, o botão de avisar o tutor sumia depois do
+         * pick-up e o motorista ficava sem mandar o aviso da ENTREGA (defeito relatado).
+         */
+        const finalizada = stop.status === 'skipped' || Boolean(stop.deliveredAt);
+        const paraEntregar = !finalizada && (stop.status === 'picked_up' || stop.status === 'completed');
         const address = addressLine(stop);
         const posicao = posicoes.get(stop.id);
         // Cabeçalho da PARADA: só quando ela tem mais de um cão (mesmo cliente, mesmo endereço).
         const cabecalhoDaParada = Boolean(posicao && posicao.primeiraDoGrupo && posicao.totalNaTarefa > 1);
         // Aviso de ETA: só faz sentido enquanto a parada está viva e o cliente tem telefone.
         // O botão existe se QUALQUER um dos dois tutores tem telefone — o aviso vai para os dois.
-        const aviso = notifyButtonState({ phone: stop.clientPhone ?? stop.clientPhone2, lateMinutes: stop.lateMinutes, done });
+        const aviso = notifyButtonState({ phone: stop.clientPhone ?? stop.clientPhone2, lateMinutes: stop.lateMinutes, done: finalizada });
         // O cartao inteiro abre a navegacao. Relato do dono (12/09/2026): "ao clicar nao direciona a
         // aplicativo algum" - antes so o botao Navigate fazia isso, e ele SUMIA quando a parada
         // estava concluida (o bloco de acoes ficava atras de `!done`). Perder a navegacao numa parada
@@ -168,7 +185,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
               {/* Numera pela posicao na rota (1, 2, 3...). O painel do Dispatch ja fazia assim;
                   aqui saia o campo cru do banco, que pode vir 0 ("0. Maria Silva"). */}
               <Text style={styles.title}>{posicao?.numero ?? index + 1}. {stop.clientName} · {stop.dogName}</Text>
-              <StatusBadge status={stop.status} />
+              <StatusBadge status={stop.status} entregue={Boolean(stop.deliveredAt)} />
             </View>
             {address ? <Text style={styles.address}>{address}</Text> : null}
             {stop.exactTime ? <Text style={styles.deadline}>⏱ Must arrive by {stop.exactTime}</Text> : stop.windowEnd ? <Text style={styles.deadline}>⏱ Window until {stop.windowEnd}</Text> : null}
@@ -176,11 +193,12 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
                 pedido do cliente em áudio (01/10/2026): "podia aparecer qual cachorro já foi e que
                 hora". É a MESMA frase que o gestor lê na lista da rota (módulo `stopProgress`). */}
             <Text style={styles.marcos}>{marcosDaParada(stop)}</Text>
-            {!done && stop.etaMinutes != null ? (
+            {!finalizada && stop.etaMinutes != null ? (
               <Text style={[styles.eta, (stop.lateMinutes ?? 0) > 0 && styles.etaLate]}>
                 {stop.etaMinutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${stop.etaMinutes} min away` : 'far from your stops'}{(stop.lateMinutes ?? 0) > 0 ? ` · ${stop.lateMinutes} min late` : ''}
               </Text>
             ) : null}
+            {stop.deliveredAt ? <Text style={styles.delivered}>Delivered at {clockText(stop.deliveredAt)}</Text> : null}
             {stop.etaNoticeAt ? <Text style={styles.notified}>Owner notified at {clockText(stop.etaNoticeAt)}</Text> : null}
             {stop.instructions ? <View style={styles.instructions}><Text style={styles.instructionsLabel}>ACCESS INSTRUCTIONS</Text><Text style={styles.instructionsText}>{stop.instructions}</Text></View> : null}
             {stop.medicalNotes ? <View style={[styles.care, styles.careMedical]}><Text style={[styles.careLabel, styles.careLabelMedical]}>⚠ MEDICAL</Text><Text style={styles.careText}>{stop.medicalNotes}</Text></View> : null}
@@ -224,6 +242,16 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
                   ) : null}
                 </>
               ) : null}
+              {/*
+                * ENTREGA — o 3º toque do dia, só na parte da tarde: o cão já está na van (pick-up feito)
+                * e o motorista confirma a entrega na casa do tutor. É o dado que faltava para o gestor
+                * ver em qual entrega o dia está (pedido do dono, 01/10/2026).
+                */}
+              {paraEntregar ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={`Delivered ${stop.dogName}`} onPress={() => fire(stop, 'deliver')} style={[styles.action, styles.actionDelivered]}>
+                  <Text style={styles.actionDeliveredText}>Delivered</Text>
+                </Pressable>
+              ) : null}
             </View>
           </Pressable>
           </View>
@@ -233,14 +261,22 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
   );
 }
 
-function StatusBadge({ status }: { status: DriverStop['status'] }) {
+/**
+ * Selo do estado da parada. Com a ENTREGA separada (01/10/2026), `completed` deixou de ser o fim:
+ * o cão está NA VAN esperando a entrega da tarde. Por isso o selo ganhou o caso "In the van" e o
+ * "Delivered" — "Completed" às 9 da manhã num dia em que faltam 6 entregas era leitura errada.
+ */
+function StatusBadge({ status, entregue }: { status: DriverStop['status']; entregue?: boolean }) {
   const labels: Record<DriverStop['status'], string> = {
     pending: 'Pending', arrived: 'Arrived', picked_up: 'Dog picked up', completed: 'Completed', skipped: 'Problem',
   };
   const colorsByStatus: Record<DriverStop['status'], string> = {
     pending: '#8A6D1F', arrived: colors.forest700, picked_up: '#4E8D5C', completed: '#4E8D5C', skipped: colors.muted,
   };
-  return <Text style={[styles.badge, { color: colorsByStatus[status], backgroundColor: `${colorsByStatus[status]}18` }]}>{labels[status]}</Text>;
+  const emTransito = !entregue && (status === 'picked_up' || status === 'completed');
+  const rotulo = entregue && status !== 'skipped' ? 'Delivered' : emTransito ? 'In the van' : labels[status];
+  const cor = entregue && status !== 'skipped' ? '#2F773D' : emTransito ? '#8A6D1F' : colorsByStatus[status];
+  return <Text style={[styles.badge, { color: cor, backgroundColor: `${cor}18` }]}>{rotulo}</Text>;
 }
 
 const styles = StyleSheet.create({
@@ -263,6 +299,8 @@ const styles = StyleSheet.create({
   eta: { color: colors.forest700, fontSize: 12, fontWeight: '800', marginTop: 4 },
   etaLate: { color: colors.urgency },
   notified: { color: colors.muted, fontSize: 11, marginTop: 4 },
+  /** Marco de entrega do próprio motorista ("Delivered at 14:05"). */
+  delivered: { color: '#2F773D', fontSize: 11, fontWeight: '800', marginTop: 4 },
   instructions: { backgroundColor: '#FBF6E8', borderWidth: 1, borderColor: '#EADFB8', borderRadius: 12, padding: 11, marginTop: 10 },
   instructionsLabel: { color: '#8A6D1F', fontSize: 9, fontWeight: '900', letterSpacing: 0.7 },
   instructionsText: { color: colors.ink, fontSize: 13, lineHeight: 19, marginTop: 4 },
@@ -284,4 +322,7 @@ const styles = StyleSheet.create({
   actionNotifyText: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
   actionLate: { backgroundColor: '#F3D9A4' },
   actionLateText: { color: '#7A5B12', fontWeight: '900', fontSize: 13 },
+  /** Botão de ENTREGA: verde fechado (ação que encerra a parada), distinto do dourado da busca. */
+  actionDelivered: { backgroundColor: colors.forest700 },
+  actionDeliveredText: { color: colors.cream, fontWeight: '900', fontSize: 13 },
 });

@@ -23,6 +23,11 @@ export type DriverStopRow = {
   picked_up_at?: string | null;
   completed_at?: string | null;
   skipped_at?: string | null;
+  /** marco de ENTREGA (migração 041) — o que fecha a parada de verdade na parte da tarde. */
+  delivered_at?: string | null;
+  /** pernas de viagem gravadas pelo Optimize (segundos): ETA por rota, não por linha reta. */
+  travel_seconds?: number | null;
+  dropoff_travel_seconds?: number | null;
   status_updated_at?: string | null;
   /** aviso de ETA já registrado nesta parada (hora do servidor) */
   eta_notice_at?: string | null;
@@ -96,6 +101,9 @@ export function rowToStop(row: DriverStopRow): DriverStop {
     pickedUpAt: row.picked_up_at ?? null,
     completedAt: row.completed_at ?? null,
     skippedAt: row.skipped_at ?? null,
+    deliveredAt: row.delivered_at ?? null,
+    travelSeconds: row.travel_seconds ?? null,
+    dropoffTravelSeconds: row.dropoff_travel_seconds ?? null,
     latitude: client?.latitude ?? null,
     longitude: client?.longitude ?? null,
     windowStart: row.window_start ? row.window_start.slice(0, 5) : null,

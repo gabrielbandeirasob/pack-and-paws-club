@@ -73,8 +73,11 @@ describe('nextStopFor (parada escolhida)', () => {
     expect(nextStopFor([parada({ status: 'skipped' })])).toBeNull();
   });
 
-  it('devolve null quando não há nada pendente', () => {
-    expect(nextStopFor([parada({ status: 'completed' })])).toBeNull();
+  it('devolve null quando não há nada pendente (nem entrega)', () => {
+    // `completed` sem entrega ainda é a PRÓXIMA parada do dia (o cão está na van) — ver itens 2 e 5 da
+    // conferência do dono, 01/10/2026.
+    expect(nextStopFor([parada({ status: 'completed' })])?.id).toBe('stop-1');
+    expect(nextStopFor([parada({ status: 'completed', deliveredAt: '2026-10-01T21:00:00.000Z' })])).toBeNull();
     expect(nextStopFor([])).toBeNull();
   });
 });
@@ -85,7 +88,10 @@ describe('mapa de ações do dia (mesmo caminho da lista)', () => {
     expect(nextActionForStatus('arrived')).toBe('finish');
     // Parada que já estava em picked_up (rota antiga ou 2º toque interrompido) fecha no MESMO botão.
     expect(nextActionForStatus('picked_up')).toBe('finish');
-    expect(nextActionForStatus('completed')).toBeNull();
+    // Depois do pick-up falta ENTREGAR: o toque da tarde é o `deliver` (01/10/2026).
+    expect(nextActionForStatus('completed')).toBe('deliver');
+    // Entregue (ou problema): aí sim nada mais a fazer.
+    expect(nextActionForStatus('completed', '2026-10-01T21:00:00.000Z')).toBeNull();
     expect(nextActionForStatus('skipped')).toBeNull();
   });
 });
@@ -158,6 +164,6 @@ describe('NextStopCard', () => {
   });
 
   it('os rótulos das ações vêm do mesmo mapa visível da lista', () => {
-    expect(NEXT_ACTION_LABEL).toEqual({ arrived: 'I arrived', finish: 'Next' });
+    expect(NEXT_ACTION_LABEL).toEqual({ arrived: 'I arrived', finish: 'Next', deliver: 'Delivered' });
   });
 });

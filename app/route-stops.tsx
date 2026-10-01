@@ -15,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { carregarParadasDaRota, type ParadaDaRota } from '@/features/dispatch/routeStops';
-import { jaFeita, marcosDaParada, proximaPendente, resumoDaRota } from '@/features/dashboard/stopProgress';
+import { jaFeita, marcosDaParada, proximaPendente, resumoDaEntrega, resumoDaRota } from '@/features/dashboard/stopProgress';
 import { formatDayLabel } from '@/features/calendar/dates';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
@@ -68,6 +68,7 @@ export default function RouteStopsScreen() {
   }, [carregar]);
 
   const resumo = useMemo(() => resumoDaRota(paradas), [paradas]);
+  const entrega = useMemo(() => resumoDaEntrega(paradas), [paradas]);
   const proxima = useMemo(() => proximaPendente(paradas), [paradas]);
 
   return (
@@ -80,7 +81,7 @@ export default function RouteStopsScreen() {
         <Text style={styles.sub}>
           {motorista}
           {dia ? ` · ${formatDayLabel(dia)}` : ''}
-          {paradas.length > 0 ? ` · ${resumo}` : ''}
+          {paradas.length > 0 ? ` · ${resumo} · ${entrega}` : ''}
         </Text>
       </View>
 
