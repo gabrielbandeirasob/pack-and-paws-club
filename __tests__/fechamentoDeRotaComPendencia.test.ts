@@ -1,9 +1,10 @@
 import { avisoDeFechamento, paradasPendentes } from '@/features/dispatch/routeClosing';
 
 /**
- * Fechar (completed) ou despublicar (draft) tira a rota da tela do motorista. Com parada pendente, o
- * gestor tem de ler quantas são e QUAIS cães ficam sem a rota. Incidente de 30/09/2026: rota fechada
- * com as 3 paradas pendentes 1 s depois de publicada.
+ * Fechar (completed), despublicar (draft) ou cancelar (cancelled) tira a rota da tela do motorista.
+ * Com parada pendente, o gestor tem de ler quantas são e QUAIS cães ficam sem a rota. Incidente de
+ * 30/09/2026: rota fechada com as 3 paradas pendentes 1 s depois de publicada. O cancelar entrou na
+ * mesma proteção em 01/10/2026 (era o único dos três botões que saía sem perguntar nada).
  */
 describe('paradasPendentes', () => {
   it('devolve só o que não terminou: completed e skipped já são resolvidas', () => {
@@ -46,6 +47,14 @@ describe('avisoDeFechamento', () => {
     expect(aviso.message).toContain('3 stops still pending: Rex, Nina, Bob');
     expect(aviso.message).toContain('The driver will no longer see this route on his phone.');
     expect(aviso.confirmLabel).toBe('Unpublish');
+  });
+
+  it('mesmo aviso para CANCELAR a rota, com o rótulo da ação', () => {
+    const aviso = avisoDeFechamento('cancel', pendentes);
+    expect(aviso.title).toBe('Cancel this route?');
+    expect(aviso.message).toContain('3 stops still pending: Rex, Nina, Bob');
+    expect(aviso.message).toContain('The driver will no longer see this route on his phone.');
+    expect(aviso.confirmLabel).toBe('Cancel route');
   });
 
   it('uma parada pendente fala no singular', () => {

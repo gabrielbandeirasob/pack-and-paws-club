@@ -4,11 +4,11 @@ import DispatchScreen from '@/app/(tabs)/dispatch';
 import { supabase } from '@/lib/supabase';
 
 /**
- * Fechar ("Done") ou despublicar tira a rota da tela do motorista (ele só lê rota `published`).
- * Com parada pendente, a tela NÃO pode escrever o status antes do ok do gestor — e o aviso tem de
- * dizer quantas paradas são e QUAIS cães ficam sem a rota. Incidente de 30/09/2026: o gestor publicou
- * e, 1 segundo depois, a rota virou `completed` com as 3 paradas todas `pending`; o motorista ficou
- * sem a rota do dia, sem aviso.
+ * Fechar ("Done"), despublicar ou CANCELAR (✕) tira a rota da tela do motorista (ele só lê rota
+ * `published`). Com parada pendente, a tela NÃO pode escrever o status antes do ok do gestor — e o
+ * aviso tem de dizer quantas paradas são e QUAIS cães ficam sem a rota. Incidente de 30/09/2026: o
+ * gestor publicou e, 1 segundo depois, a rota virou `completed` com as 3 paradas todas `pending`; o
+ * motorista ficou sem a rota do dia, sem aviso. O ✕ entrou na mesma proteção em 01/10/2026.
  */
 
 const paradasDe = (statuses: string[]) => statuses.map((status, indice) => ({
@@ -140,5 +140,46 @@ describe('rota sem pendências', () => {
     await waitFor(() => expect(mockAtualizacoes).toHaveLength(1));
     expect(mockAtualizacoes[0]).toMatchObject({ status: 'draft', published_at: null });
     expect(alerta).not.toHaveBeenCalled();
+  });
+
+  it('cancela direto, sem confirmação', async () => {
+    mockParadas = paradasDe(['completed', 'skipped', 'completed']);
+    const tela = await montar();
+    await fireEvent.press(tela.getByLabelText('Cancel Rafael route'));
+    await waitFor(() => expect(mockAtualizacoes).toHaveLength(1));
+    expect(mockAtualizacoes[0]).toMatchObject({ status: 'cancelled' });
+    expect(alerta).not.toHaveBeenCalled();
+  });
+});
+
+describe('cancelar rota com paradas pendentes', () => {
+  it('não escreve o status antes do ok e diz quantas paradas e quais cães ficam sem o motorista', async () => {
+    const tela = await montar();
+    await fireEvent.press(tela.getByLabelText('Cancel Rafael route'));
+
+    expect(mockAtualizacoes).toHaveLength(0);
+    expect(alerta).toHaveBeenCalledTimes(1);
+    const [titulo, mensagem, botoes] = alerta.mock.calls[0] as [string, string, AlertButton[]];
+    expect(titulo).toBe('Cancel this route?');
+    expect(mensagem).toContain('3 stops still pending: Luna, Max, Filó');
+    expect(mensagem).toContain('The driver will no longer see this route on his phone.');
+    expect(botoes.map((botao) => botao.text)).toEqual(['Cancel', 'Cancel route']);
+  });
+
+  it('cancelar a confirmação não muda nada', async () => {
+    const tela = await montar();
+    await fireEvent.press(tela.getByLabelText('Cancel Rafael route'));
+    const botoes = alerta.mock.calls[0][2] as AlertButton[];
+    await act(async () => { botoes[0].onPress?.(); });
+    expect(mockAtualizacoes).toHaveLength(0);
+  });
+
+  it('depois do ok cancela com status cancelled', async () => {
+    const tela = await montar();
+    await fireEvent.press(tela.getByLabelText('Cancel Rafael route'));
+    const botoes = alerta.mock.calls[0][2] as AlertButton[];
+    await act(async () => { botoes[1].onPress?.(); });
+    await waitFor(() => expect(mockAtualizacoes).toHaveLength(1));
+    expect(mockAtualizacoes[0]).toMatchObject({ status: 'cancelled' });
   });
 });

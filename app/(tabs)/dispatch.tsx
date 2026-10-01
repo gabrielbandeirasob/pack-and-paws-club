@@ -502,11 +502,12 @@ export default function DispatchScreen() {
   }, [versaoDe, falhaDeEscrita, carregarRotas]);
 
   /**
-   * Fechar ou despublicar TIRA a rota da tela do motorista (ele só lê `status = 'published'`).
+   * Fechar, despublicar ou cancelar TIRA a rota da tela do motorista (ele só lê `status = 'published'`).
    * Com parada ainda pendente, o gestor tem de ver quantas são e QUAIS cães ficam sem a rota, e dar
    * o ok — cancelar não muda nada. Sem pendência, a ação acontece direto como sempre. O texto sai do
    * módulo puro `routeClosing`; aqui só entra a decisão de quando perguntar.
    * Incidente de 30/09/2026: rota fechada com as 3 paradas pendentes 1 s depois de publicada.
+   * O ✕ (cancelar) entrou na mesma proteção em 01/10/2026 — era o único que saía sem perguntar.
    */
   const fecharComAviso = useCallback(
     async (routeId: string, acao: FechamentoDeRota, aplicar: () => Promise<void>) => {
@@ -530,10 +531,11 @@ export default function DispatchScreen() {
     await fecharComAviso(routeId, 'unpublish', () => trocarStatus(routeId, { status: 'draft', published_at: null }));
   }, [fecharComAviso, trocarStatus]);
 
-  // Cancela a rota (status cancelado): sai da operacao e sai da tela do motorista.
+  // Cancela a rota (status cancelado): sai da operacao e sai da tela do motorista — mesma protecao
+  // dos outros dois botoes (com parada pendente, o gestor le quais caes ficam sem a rota e confirma).
   const cancelRoute = useCallback(async (routeId: string) => {
-    await trocarStatus(routeId, { status: 'cancelled' });
-  }, [trocarStatus]);
+    await fecharComAviso(routeId, 'cancel', () => trocarStatus(routeId, { status: 'cancelled' }));
+  }, [fecharComAviso, trocarStatus]);
 
   // Fecha a rota: ela sai da operacao (motorista deixa de ver) e entra no historico.
   const completeRoute = useCallback(async (routeId: string) => {
