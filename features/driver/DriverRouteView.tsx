@@ -4,6 +4,7 @@ import { ordenarParadasDoDia } from '@/features/driver/dayOrder';
 import { notifyButtonState } from '@/features/driver/etaMessage';
 import { ETA_MAXIMO_PLAUSIVEL_MIN } from '@/features/driver/eta';
 import { clockText } from '@/features/driver/shift';
+import { marcosDaParada } from '@/features/dashboard/stopProgress';
 import { agruparEmTarefas, posicoesDasParadas } from '@/features/driver/tasks';
 import { RouteMap } from '@/features/maps/RouteMap';
 import { colors, radii } from '@/features/theme/tokens';
@@ -171,6 +172,10 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
             </View>
             {address ? <Text style={styles.address}>{address}</Text> : null}
             {stop.exactTime ? <Text style={styles.deadline}>⏱ Must arrive by {stop.exactTime}</Text> : stop.windowEnd ? <Text style={styles.deadline}>⏱ Window until {stop.windowEnd}</Text> : null}
+            {/* HORA DE CADA MARCO (chegada/conclusão), carimbada no servidor desde a migration 024 —
+                pedido do cliente em áudio (01/10/2026): "podia aparecer qual cachorro já foi e que
+                hora". É a MESMA frase que o gestor lê na lista da rota (módulo `stopProgress`). */}
+            <Text style={styles.marcos}>{marcosDaParada(stop)}</Text>
             {!done && stop.etaMinutes != null ? (
               <Text style={[styles.eta, (stop.lateMinutes ?? 0) > 0 && styles.etaLate]}>
                 {stop.etaMinutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${stop.etaMinutes} min away` : 'far from your stops'}{(stop.lateMinutes ?? 0) > 0 ? ` · ${stop.lateMinutes} min late` : ''}
@@ -254,6 +259,7 @@ const styles = StyleSheet.create({
   badge: { fontSize: 11, fontWeight: '900', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 12, overflow: 'hidden' },
   address: { color: colors.ink, fontSize: 13, marginTop: 6 },
   deadline: { color: '#8A6D1F', fontSize: 12, fontWeight: '800', marginTop: 5 },
+  marcos: { color: colors.forest700, fontSize: 12, fontWeight: '800', marginTop: 4 },
   eta: { color: colors.forest700, fontSize: 12, fontWeight: '800', marginTop: 4 },
   etaLate: { color: colors.urgency },
   notified: { color: colors.muted, fontSize: 11, marginTop: 4 },

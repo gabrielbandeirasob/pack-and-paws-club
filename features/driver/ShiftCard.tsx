@@ -22,15 +22,24 @@ type Props = {
    * sede: o cartão fica exatamente como sempre foi, sem nenhuma menção a van.
    */
   gateHint?: string | null;
+  /**
+   * A trava da van RECUSOU o clock in porque o motorista está fora do raio. Quando vem preenchido,
+   * o cartão oferece o registro COMO EXCEÇÃO — foi o que faltava para o dia não terminar sem jornada
+   * nenhuma (relato do cliente em 01/10/2026: "não conseguiu dar clock in" e o dia ficou sem
+   * registro). A distância entra no motivo gravado, então o gestor VÊ a exceção no relatório de horas.
+   */
+  foraDaVan?: { distanceKm: number; vanName: string } | null;
   onClockIn: (reason: string) => void;
   onClockOut: (reason: string) => void;
+  /** Registro de exceção pedido pelo motorista depois da recusa (grava a distância no motivo). */
+  onClockInAnyway?: (reason: string) => void;
 };
 
-export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHint = null, onClockIn, onClockOut }: Props) {
-  const [pedindo, setPedindo] = useState<'in' | 'out' | null>(null);
+export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHint = null, foraDaVan = null, onClockIn, onClockOut, onClockInAnyway }: Props) {
+  const [pedindo, setPedindo] = useState<'in' | 'out' | 'in-fora' | null>(null);
   const [motivo, setMotivo] = useState('');
 
-  const abrir = (tipo: 'in' | 'out') => {
+  const abrir = (tipo: 'in' | 'out' | 'in-fora') => {
     setMotivo('');
     setPedindo(tipo);
   };
@@ -40,6 +49,7 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHi
     if (texto.length < 3) return;
     if (pedindo === 'in') onClockIn(texto);
     else if (pedindo === 'out') onClockOut(texto);
+    else if (pedindo === 'in-fora' && onClockInAnyway) onClockInAnyway(texto);
     setPedindo(null);
   };
 
@@ -77,12 +87,30 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHi
 
       {error ? <Text style={styles.erro}>{error}</Text> : null}
 
+      {/* SAÍDA DE EXCEÇÃO: a van é o caminho normal, mas ninguém fica sem jornada. O motivo continua
+          obrigatório e o texto gravado leva a distância (o gestor vê a exceção no relatório de horas). */}
+      {foraDaVan && onClockInAnyway ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Clock in anyway"
+          disabled={busy}
+          onPress={() => abrir('in-fora')}
+          style={({ pressed }) => [styles.botaoExcecao, pressed && styles.pressed, busy && styles.desabilitado]}
+        >
+          <Text style={styles.botaoExcecaoTexto}>Clock in anyway · outside the van</Text>
+        </Pressable>
+      ) : null}
+
       <Modal visible={pedindo !== null} transparent animationType="slide" onRequestClose={() => setPedindo(null)}>
         <View style={styles.fundo}>
           <View style={styles.folha}>
-            <Text style={styles.folhaTitulo}>{pedindo === 'in' ? 'Clock in manually' : 'Clock out manually'}</Text>
+            <Text style={styles.folhaTitulo}>
+              {pedindo === 'out' ? 'Clock out manually' : pedindo === 'in-fora' ? 'Clock in outside the van' : 'Clock in manually'}
+            </Text>
             <Text style={styles.folhaSub}>
-              Only when the automatic record does not cover it (you forgot, or something came up). The manager sees this was entered by hand.
+              {pedindo === 'in-fora' && foraDaVan
+                ? `This is recorded as an exception: your start carries the distance from "${foraDaVan.vanName}", and the manager sees it in the driver hours.`
+                : 'Only when the automatic record does not cover it (you forgot, or something came up). The manager sees this was entered by hand.'}
             </Text>
             <TextInput
               accessibilityLabel="Reason for the manual record"
@@ -124,6 +152,8 @@ const styles = StyleSheet.create({
   acoes: { flexDirection: 'row', gap: 8, marginTop: 11 },
   botao: { flex: 1, borderWidth: 1.5, borderColor: colors.forest700, borderRadius: 12, paddingVertical: 11, alignItems: 'center' },
   botaoPrincipal: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
+  botaoExcecao: { borderWidth: 1.5, borderColor: colors.urgency, borderRadius: 12, paddingVertical: 11, alignItems: 'center', marginTop: 8 },
+  botaoExcecaoTexto: { color: colors.urgency, fontWeight: '900', fontSize: 12.5 },
   botaoTexto: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
   botaoTextoPrincipal: { color: 'white' },
   erro: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginTop: 9, lineHeight: 17 },

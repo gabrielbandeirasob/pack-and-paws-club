@@ -65,6 +65,12 @@ type Props = {
   /** Progresso do dia somando TODAS as rotas (pedido do cliente em 22/09/2026). */
   progress: { done: number; total: number };
   routes: DashboardRoute[];
+  /**
+   * Toque no cartão do motorista → lista dos pick-ups daquela rota, com a hora de cada um
+   * (pedido do cliente em áudio, 01/10/2026). Sem a prop o cartão fica como sempre foi (só leitura),
+   * para não mexer nos testes nem no comportamento de quem não passa a função.
+   */
+  onOpenRoute?: (routeId: string) => void;
   /** 5 indicadores + pack + fechamento do dia (operação, 26/09/2026). */
   day: DashboardDaySection;
   onOpenProgress: () => void;
@@ -99,7 +105,7 @@ export type DashboardDayNav = {
 /** Quanto o dedo precisa andar para valer como "arrastou para o lado" (não é toque, não é scroll). */
 const ARRASTO_MINIMO = 60;
 
-export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, initials, daycare, boarding, progress, routes, day, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours, onOpenWeekSummary, weekSummaryHint }: Props) {
+export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, initials, daycare, boarding, progress, routes, day, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours, onOpenWeekSummary, weekSummaryHint, onOpenRoute }: Props) {
   const [folhaAberta, setFolhaAberta] = useState(false);
 
   /**
@@ -264,7 +270,13 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
           </View>
         ) : (
           routes.map((route) => (
-            <View key={route.id} style={styles.routeCard}>
+            <Pressable
+              key={route.id}
+              accessibilityRole="button"
+              accessibilityLabel={onOpenRoute ? `Open ${route.driverName} route` : undefined}
+              onPress={onOpenRoute ? () => onOpenRoute(route.id) : undefined}
+              style={({ pressed }) => [styles.routeCard, pressed && onOpenRoute ? styles.routeCardPressed : null]}
+            >
               <View style={styles.routeTop}>
                 <View style={styles.driverBlock}>
                   <View style={styles.driverAvatar}><Text style={styles.driverInitial}>{route.driverName.charAt(0).toUpperCase()}</Text></View>
@@ -282,8 +294,11 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
               </View>
               <View style={styles.routeBottom}>
                 <Text style={styles.muted}>{route.nextLabel ?? 'All stops done'}</Text>
+                {/* O cliente pediu para ABRIR a lista de pick-ups daquele motorista (áudio de
+                    01/10/2026): a seta é o convite ao toque, e sem a prop o cartão fica como era. */}
+                {onOpenRoute ? <Text style={styles.routeSeta}>›</Text> : null}
               </View>
-            </View>
+            </Pressable>
           ))
         )}
 
@@ -390,7 +405,7 @@ const styles = StyleSheet.create({
   dayCenter:{flex:1,alignItems:'center'},
   dayHint:{color:'#A9BFA6',fontSize:10.5,marginTop:3},
   dayPill:{marginTop:5,borderWidth:1,borderColor:colors.gold,borderRadius:20,paddingHorizontal:12,paddingVertical:5},
-  dayPillText:{color:colors.gold,fontSize:11,fontWeight:'800'},greeting:{color:'white',fontFamily:'serif',fontSize:29,fontWeight:'700',lineHeight:34,marginTop:6,maxWidth:310},statsRow:{flexDirection:'row',gap:9,paddingHorizontal:18,marginTop:-27},statsRow2:{flexDirection:'row',gap:9,paddingHorizontal:18,marginTop:9},stat:{flex:1,backgroundColor:colors.paper,borderRadius:radii.medium,padding:14,shadowColor:colors.forest900,shadowOpacity:.08,shadowRadius:14,shadowOffset:{width:0,height:6},elevation:2},statValue:{color:colors.forest700,fontFamily:'serif',fontWeight:'800',fontSize:23},muted:{color:colors.muted,fontSize:11},sectionTitleRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:20,marginTop:24,marginBottom:11},sectionTitle:{fontFamily:'serif',fontWeight:'800',fontSize:18,color:colors.ink,marginHorizontal:20,marginTop:22,marginBottom:11},link:{color:colors.forest700,fontWeight:'800'},routeCard:{backgroundColor:colors.paper,borderWidth:1,borderColor:colors.line,borderRadius:radii.large,padding:16,marginHorizontal:18,marginBottom:11},routeTop:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},driverBlock:{flexDirection:'row',alignItems:'center',gap:11},driverAvatar:{width:38,height:38,borderRadius:12,backgroundColor:colors.sage,alignItems:'center',justifyContent:'center'},driverInitial:{color:colors.forest700,fontWeight:'900'},driverName:{fontWeight:'800',color:colors.ink},statusPill:{backgroundColor:'#E3F1DF',borderRadius:20,paddingHorizontal:9,paddingVertical:6},statusText:{color:'#2E6334',fontSize:11,fontWeight:'800'},routeBottom:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginTop:15},dogs:{fontSize:18},quickRow:{flexDirection:'row',gap:10,paddingHorizontal:18},quickCard:{flex:1,backgroundColor:colors.paper,borderRadius:radii.medium,borderWidth:1,borderColor:colors.line,padding:15,minHeight:92},quickIcon:{color:colors.forest700,fontSize:25,fontWeight:'500'},quickText:{color:colors.ink,fontWeight:'800',fontSize:13,marginTop:8},
+  dayPillText:{color:colors.gold,fontSize:11,fontWeight:'800'},greeting:{color:'white',fontFamily:'serif',fontSize:29,fontWeight:'700',lineHeight:34,marginTop:6,maxWidth:310},statsRow:{flexDirection:'row',gap:9,paddingHorizontal:18,marginTop:-27},statsRow2:{flexDirection:'row',gap:9,paddingHorizontal:18,marginTop:9},stat:{flex:1,backgroundColor:colors.paper,borderRadius:radii.medium,padding:14,shadowColor:colors.forest900,shadowOpacity:.08,shadowRadius:14,shadowOffset:{width:0,height:6},elevation:2},statValue:{color:colors.forest700,fontFamily:'serif',fontWeight:'800',fontSize:23},muted:{color:colors.muted,fontSize:11},sectionTitleRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:20,marginTop:24,marginBottom:11},sectionTitle:{fontFamily:'serif',fontWeight:'800',fontSize:18,color:colors.ink,marginHorizontal:20,marginTop:22,marginBottom:11},link:{color:colors.forest700,fontWeight:'800'},routeCard:{backgroundColor:colors.paper,borderWidth:1,borderColor:colors.line,borderRadius:radii.large,padding:16,marginHorizontal:18,marginBottom:11},routeCardPressed:{opacity:.75},routeSeta:{color:colors.forest700,fontWeight:'800',fontSize:16},routeTop:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},driverBlock:{flexDirection:'row',alignItems:'center',gap:11},driverAvatar:{width:38,height:38,borderRadius:12,backgroundColor:colors.sage,alignItems:'center',justifyContent:'center'},driverInitial:{color:colors.forest700,fontWeight:'900'},driverName:{fontWeight:'800',color:colors.ink},statusPill:{backgroundColor:'#E3F1DF',borderRadius:20,paddingHorizontal:9,paddingVertical:6},statusText:{color:'#2E6334',fontSize:11,fontWeight:'800'},routeBottom:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginTop:15},dogs:{fontSize:18},quickRow:{flexDirection:'row',gap:10,paddingHorizontal:18},quickCard:{flex:1,backgroundColor:colors.paper,borderRadius:radii.medium,borderWidth:1,borderColor:colors.line,padding:15,minHeight:92},quickIcon:{color:colors.forest700,fontSize:25,fontWeight:'500'},quickText:{color:colors.ink,fontWeight:'800',fontSize:13,marginTop:8},
   sectionTitleInline:{fontFamily:'serif',fontWeight:'800',fontSize:18,color:colors.ink},
   emptyTitle:{fontFamily:'serif',fontWeight:'800',fontSize:15,color:colors.forest900,marginBottom:5},
   statDestaque:{backgroundColor:colors.gold},

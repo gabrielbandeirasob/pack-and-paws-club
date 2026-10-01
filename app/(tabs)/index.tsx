@@ -576,6 +576,19 @@ export default function HomeScreen() {
             onOpenDaySummary: () => router.push('/day-summary'),
           }}
           onOpenProgress={() => router.push({ pathname: '/day-progress', params: { day: selectedDay } })}
+          // Toque no motorista em "Today's routes" → lista dos pick-ups com a hora de cada um
+          // (cliente, áudio de 01/10/2026). O nome do motorista vai junto para o cabeçalho da tela
+          // não precisar de consulta extra.
+          onOpenRoute={(routeId) =>
+            router.push({
+              pathname: '/route-stops',
+              params: {
+                route: routeId,
+                driver: routes.find((rota) => rota.id === routeId)?.driverName ?? '',
+                day: selectedDay,
+              },
+            })
+          }
           onOpenDispatch={() => router.push('/dispatch')}
           onOpenClients={() => router.push('/clients')}
           onNewReservation={() => router.push('/calendar')}

@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DriverRouteView, type DriverAction, type DriverStop } from '@/features/driver/DriverRouteView';
 import { resolveDriverOptimizationOrigin } from '@/features/driver/driverRouteLocation';
-import { clockInGate, distanceText, estaNaVan, loadVanLocationForDriver, type OrganizationLocation } from '@/features/organization/locations';
+import { clockInGate, distanceText, estaNaVan, loadVanLocationForDriver, motivoDoClockIn, type OrganizationLocation } from '@/features/organization/locations';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
 import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/features/driver/etaMessage';
 
@@ -73,6 +73,12 @@ export default function DriverTodayScreen() {
   const [routeVersion, setRouteVersion] = useState<number | null>(null);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [position, setPosition] = useState<LocationUpdate | null>(null);
+  /**
+   * Preenchido quando a trava da van RECUSOU o clock in por distância: é o que faz o cartão oferecer
+   * o registro como exceção (relato do cliente de 01/10/2026 — dia sem jornada porque o toque foi
+   * recusado e não havia saída nenhuma).
+   */
+  const [foraDaVan, setForaDaVan] = useState<{ distanceKm: number; vanName: string } | null>(null);
   const [eta, setEta] = useState<EtaResult | null>(null);
   /**
    * FOTO DE COMPROVANTE — REMOVIDA do app do motorista (pedido do dono, 26/09/2026).
@@ -534,13 +540,18 @@ export default function DriverTodayScreen() {
    */
   const gateHint = useMemo(() => {
     if (!vanLocation) return null;
-    if (!position) return `O clock in abre na van "${vanLocation.name}" (raio de ${vanLocation.radiusMeters} m).`;
+    // Endereço da van junto do nome: foi o que faltou para o cliente enxergar que a van da trava
+    // estava cadastrada em outro lugar (relato de 01/10/2026 — o motorista "na van" e o app dizendo
+    // 15,8 km). Com o endereço na tela, dá para conferir o cadastro em segundos.
+    const endereco = [vanLocation.addressLine1, vanLocation.city].filter(Boolean).join(', ');
+    const onde = endereco ? `"${vanLocation.name}" (${endereco})` : `"${vanLocation.name}"`;
+    if (!position) return `O clock in abre na van ${onde} (raio de ${vanLocation.radiusMeters} m).`;
     const trava = clockInGate({ location: vanLocation, position });
-    if (trava.kind === 'inside') return `Você está na van "${vanLocation.name}" — o clock in está aberto.`;
+    if (trava.kind === 'inside') return `Você está na van ${onde} — o clock in está aberto.`;
     if (trava.kind === 'outside') {
-      return `O clock in abre na van "${vanLocation.name}" — você está a ${distanceText(trava.distanceKm ?? 0)} (raio de ${vanLocation.radiusMeters} m).`;
+      return `O clock in abre na van ${onde} — você está a ${distanceText(trava.distanceKm ?? 0)} (raio de ${vanLocation.radiusMeters} m).`;
     }
-    return `O clock in abre na van "${vanLocation.name}" (raio de ${vanLocation.radiusMeters} m).`;
+    return `O clock in abre na van ${onde} (raio de ${vanLocation.radiusMeters} m).`;
   }, [vanLocation, position]);
 
   const recarregarJornadas = async (motorista: string) => {
@@ -554,11 +565,15 @@ export default function DriverTodayScreen() {
     return fila;
   };
 
-  /** Clock in MANUAL: exceção (esqueceu), por isso o motivo é obrigatório no banco. */
-  const clockIn = async (motivo: string) => {
+  /** Clock in MANUAL: exceção (esqueceu), por isso o motivo é obrigatório no banco.
+   *  `excecao` = o motorista escolheu registrar mesmo FORA do raio da van (botão "Clock in anyway"). */
+  const clockIn = async (motivo: string, excecao = false) => {
     setShiftBusy(true);
     setShiftError(null);
     const startedAt = new Date().toISOString();
+    // Declarado FORA do try: a fila offline do catch também grava o motivo (com a distância, quando
+    // o registro é a exceção "fora da van").
+    let motivoGravado = motivo;
     try {
       if (!organizationId || !driverId) throw new Error('Organization not found for this account.');
 
@@ -567,37 +582,60 @@ export default function DriverTodayScreen() {
        *
        * Sem sede cadastrada (`vanLocation` nulo) a resposta é `allowed` na hora e o fluxo segue
        * idêntico ao de antes. Com sede: posição fresca do GPS (com o último ponto do
-       * compartilhamento como reserva) e a distância em linha reta até a van; fora do raio o
-       * registro NÃO acontece e o motivo aparece no cartão da jornada. Sem posição (web, permissão
-       * negada, GPS sem fix) também não trava — o motorista não fica sem conseguir trabalhar — mas
-       * fica avisado de que não deu para conferir.
+       * compartilhamento como reserva) e a distância em linha reta até a van.
+       *
+       * ⚠️ CORREÇÃO DE 01/10/2026 — A TRAVA NÃO PODE IMPEDIR O TRABALHO. O cliente relatou o
+       * motorista sem conseguir dar o clock in ("mesmo chegando na van") e o dia terminou SEM
+       * jornada nenhuma registrada: a recusa sumia com o registro em vez de registrar a exceção.
+       * Agora o clock in manual SEMPRE grava; estando FORA do raio, a distância entra no MOTIVO
+       * (`start_reason`) — o gestor continua vendo a exceção no relatório de horas e o motorista
+       * não fica sem trabalhar. Dentro do raio nada muda (é o que marca a partida na van).
        */
-      const trava = clockInGate({
-        location: vanLocation,
-        position: await resolveDriverOptimizationOrigin(getCurrentDriverLocation, position),
-      });
-      if (!trava.allowed) {
+      const posicaoAgora = await resolveDriverOptimizationOrigin(getCurrentDriverLocation, position);
+      const trava = clockInGate({ location: vanLocation, position: posicaoAgora });
+      /*
+       * A regra da OPERAÇÃO continua de pé: o caminho NORMAL exige a van — fora do raio o registro
+       * não acontece e o motivo aparece no cartão. Mas recusar não pode deixar o motorista SEM
+       * jornada (foi o que aconteceu em 01/10/2026: clock in recusado, dia sem nenhum registro), então
+       * o cartão passa a oferecer a saída explícita: `excecao` = registro pedido pelo motorista em
+       * "Clock in anyway", que grava a DISTÂNCIA dentro do motivo — o gestor vê a exceção no
+       * relatório de horas em vez de não ver jornada nenhuma.
+       */
+      if (!trava.allowed && !excecao) {
+        setForaDaVan(
+          trava.kind === 'outside'
+            ? { distanceKm: trava.distanceKm ?? 0, vanName: vanLocation?.name ?? 'van' }
+            : null,
+        );
         setShiftError(trava.message);
         return;
       }
+      setForaDaVan(null);
       if (trava.kind === 'inside') {
         // Chegou na van: é aqui que a jornada passa a começar (ver `journey` e migration 034).
         vanArrivalRef.current = startedAt;
         setVanArrivalAt(startedAt);
       }
+      motivoGravado = motivoDoClockIn(motivo, trava, vanLocation?.name ?? 'van');
 
-      const resultado = await startManualShift(supabase, { organizationId, driverId, routeId, reason: motivo, startedAt });
+      const resultado = await startManualShift(supabase, { organizationId, driverId, routeId, reason: motivoGravado, startedAt });
       if (resultado.mode === 'already-open') {
         setShiftError('You already have a journey open.');
         return;
       }
       await recarregarJornadas(driverId);
       // Sem posição, o registro vale (não travamos), mas o motorista fica sabendo que não deu
-      // para conferir a van — o gestor não é avisado de nada porque não houve recusa.
-      setMessage(trava.kind === 'no-position' ? trava.message : 'Journey started — manual record.');
+      // para conferir a van. Fora do raio, o registro é a EXCEÇÃO que ele pediu.
+      setMessage(
+        trava.kind === 'outside'
+          ? 'Journey started — recorded as an exception (outside the van).'
+          : trava.kind === 'no-position'
+            ? trava.message
+            : 'Journey started — manual record.',
+      );
     } catch (causa) {
       if (isNetworkError(causa)) {
-        await guardarNaFila({ kind: 'shift', startedAt, endedAt: null, startReason: motivo, endReason: null, routeId, queuedAt: startedAt });
+        await guardarNaFila({ kind: 'shift', startedAt, endedAt: null, startReason: motivoGravado, endReason: null, routeId, queuedAt: startedAt });
         setMessage('No connection: the journey is saved on your phone and will sync automatically.');
       } else {
         setShiftError(shiftErrorMessage(causa));
@@ -796,7 +834,9 @@ export default function DriverTodayScreen() {
                   busy={shiftBusy}
                   error={shiftError}
                   gateHint={gateHint}
+                  foraDaVan={foraDaVan}
                   onClockIn={(motivo) => void clockIn(motivo)}
+                  onClockInAnyway={(motivo) => void clockIn(motivo, true)}
                   onClockOut={(motivo) => void clockOut(motivo)}
                 />
               </View>

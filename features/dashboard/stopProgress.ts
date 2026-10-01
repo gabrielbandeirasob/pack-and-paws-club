@@ -1,0 +1,72 @@
+/**
+ * MARCOS DE TEMPO DA PARADA — o que o gestor e o motorista leem.
+ *
+ * Pedido do CLIENTE (áudios de 01/10/2026, encaminhados pelo dono): *"no Today's Routes seria ideal se
+ * você conseguisse clicar no driver e abrir uma lista dos pick-up que tem e os que ainda falta e que
+ * hora foi feita cada pick-up"* e, na tela do motorista, *"podia aparecer qual cachorro já foi e que
+ * hora"*. O banco JÁ carimba os marcos no servidor desde a migration 024 (`arrived_at`,
+ * `picked_up_at`, `completed_at`, `skipped_at`) — faltava a tela mostrar.
+ *
+ * Módulo puro de propósito: as duas telas (painel do gestor e app do motorista) usam a MESMA frase,
+ * e a regra fica testável sem UI. A hora é lida no fuso do APARELHO (`Date` local) — é a hora de
+ * relógio que quem opera vê, e a mesma que o nome do arquivo de gravação/rota registra.
+ */
+
+/** O mínimo que uma parada precisa ter para a linha de tempo ser montada. */
+export type ParadaComMarcos = {
+  status: string;
+  arrivedAt?: string | null;
+  pickedUpAt?: string | null;
+  completedAt?: string | null;
+  skippedAt?: string | null;
+  /** HH:MM exigido (texto do banco, sem data). */
+  exactTime?: string | null;
+  /** Fim da janela (texto do banco, sem data). */
+  windowEnd?: string | null;
+};
+
+/** HH:MM na hora do aparelho. `null` quando não há marco (ou o valor não é uma data). */
+export function horaCurta(iso?: string | null): string | null {
+  if (!iso) return null;
+  const quando = new Date(iso);
+  if (Number.isNaN(quando.getTime())) return null;
+  return `${String(quando.getHours()).padStart(2, '0')}:${String(quando.getMinutes()).padStart(2, '0')}`;
+}
+
+/** A parada já terminou? (`completed` e `skipped`/problema contam como resolvidas.) */
+export function jaFeita(parada: Pick<ParadaComMarcos, 'status'>): boolean {
+  return parada.status === 'completed' || parada.status === 'skipped';
+}
+
+/**
+ * Linha de tempo de UMA parada:
+ *  - concluída/pendente com marcos → `arrived 08:12 · done 08:18` (só o que existe);
+ *  - problema → `Problem · 08:14`;
+ *  - sem marco nenhum → a previsão da parada (`Must arrive by 08:30` / `until 09:00`) ou `Pending`.
+ */
+export function marcosDaParada(parada: ParadaComMarcos): string {
+  if (parada.status === 'skipped') {
+    const quando = horaCurta(parada.skippedAt) ?? horaCurta(parada.arrivedAt);
+    return quando ? `Problem · ${quando}` : 'Problem';
+  }
+  const partes: string[] = [];
+  const chegada = horaCurta(parada.arrivedAt);
+  const conclusao = horaCurta(parada.completedAt) ?? horaCurta(parada.pickedUpAt);
+  if (chegada) partes.push(`arrived ${chegada}`);
+  if (conclusao) partes.push(`done ${conclusao}`);
+  if (partes.length > 0) return partes.join(' · ');
+  if (parada.exactTime) return `Must arrive by ${parada.exactTime.slice(0, 5)}`;
+  if (parada.windowEnd) return `Window until ${parada.windowEnd.slice(0, 5)}`;
+  return 'Pending';
+}
+
+/** `4 of 6 done` — o resumo que abre a lista (o que o cliente pediu: o que já foi e o que falta). */
+export function resumoDaRota(paradas: Pick<ParadaComMarcos, 'status'>[]): string {
+  const feitas = paradas.filter(jaFeita).length;
+  return `${feitas} of ${paradas.length} done`;
+}
+
+/** A próxima parada que ainda não terminou (na ordem recebida) — `null` quando acabou. */
+export function proximaPendente<T extends ParadaComMarcos>(paradas: T[]): T | null {
+  return paradas.find((parada) => !jaFeita(parada)) ?? null;
+}

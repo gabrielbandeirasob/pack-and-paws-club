@@ -185,6 +185,20 @@ export function clockInGate(entrada: {
   return { allowed: false, kind: 'outside', distanceKm: km, ...base, message: foraDoRaioMensagem(location, km) };
 }
 
+/**
+ * MOTIVO GRAVADO no clock in manual.
+ *
+ * Regra da operação (25/09/2026): o caminho normal do clock in exige a van. Mas recusar não pode
+ * deixar o motorista SEM jornada — foi o que aconteceu em 01/10/2026 (clock in recusado e o dia
+ * inteiro sem nenhum registro). Quando ele registra de fora do raio ("Clock in anyway"), a distância
+ * entra no MOTIVO gravado em `driver_shifts.start_reason`: o gestor vê a exceção no relatório de horas
+ * em vez de não ver jornada nenhuma.
+ */
+export function motivoDoClockIn(motivo: string, trava: ClockInGate, vanName: string): string {
+  if (trava.kind !== 'outside') return motivo;
+  return `${motivo} — started outside the van "${vanName}" (${distanceText(trava.distanceKm ?? 0)})`;
+}
+
 /** Atalho para a tela: o motorista está no raio da van? (falso quando não dá para saber) */
 export function estaNaVan(location: OrganizationLocation | null | undefined, position: LocationUpdate | null | undefined): boolean {
   return clockInGate({ location, position }).kind === 'inside';
