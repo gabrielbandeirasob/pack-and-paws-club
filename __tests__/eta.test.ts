@@ -1,4 +1,4 @@
-import { isPastDeadline, minutesAgo, minutesBetweenKm, nextStopEta, type EtaStop } from '@/features/driver/eta';
+import { GRACE_MINUTES, isPastDeadline, lateMinutesForStop, minutesAgo, minutesBetweenKm, nextStopEta, type EtaStop } from '@/features/driver/eta';
 
 let nextSequence = 1;
 const stop = (overrides: Partial<EtaStop> & { id: string }): EtaStop => ({
@@ -79,5 +79,56 @@ describe('isPastDeadline', () => {
     expect(isPastDeadline('09:00', null, now)).toBe(false);
     expect(isPastDeadline(null, '08:15', now)).toBe(true);
     expect(isPastDeadline(null, null, now)).toBe(false);
+  });
+});
+
+/**
+ * TOLERÂNCIA DE 3 MINUTOS (pedido do cliente, áudios de 30/09/2026): "imagina, eu vou descer para
+ * pegar um cachorro, vai levar uns dois minutinhos, três minutinhos" → o app NÃO pode marcar atrasado
+ * na hora. Fronteira exata: 2 min 59 s depois do prazo ainda não é atraso; 3 min 01 s é.
+ */
+describe('tolerância de atraso (grace period de 3 minutos)', () => {
+  const prazo = '10:00';
+  /** 09/09/2026, no fuso local do teste. */
+  const as = (h: number, m: number, s = 0) => new Date(2026, 8, 9, h, m, s);
+
+  it('a tolerância é UM número só, de 3 minutos', () => {
+    expect(GRACE_MINUTES).toBe(3);
+  });
+
+  it('nada aparece como atrasado antes de 3 minutos do prazo', () => {
+    expect(isPastDeadline(prazo, null, as(9, 59))).toBe(false);
+    expect(isPastDeadline(prazo, null, as(10, 0))).toBe(false);
+    expect(isPastDeadline(prazo, null, as(10, 2, 59))).toBe(false); // 2 min 59 s: dentro da tolerância
+    expect(isPastDeadline(prazo, null, as(10, 3))).toBe(false); // exatamente 3 min: borda, ainda não
+    expect(isPastDeadline(prazo, null, as(10, 3, 1))).toBe(true); // 3 min 01 s: já é atraso
+  });
+
+  it('a tolerância vale também para o horário exato (Must arrive by)', () => {
+    expect(isPastDeadline(null, '08:15', as(8, 17))).toBe(false);
+    expect(isPastDeadline(null, '08:15', as(8, 19))).toBe(true);
+  });
+
+  it('lateMinutesForStop: 0 dentro da tolerância e o atraso REAL depois dela', () => {
+    // 2 min 59 s depois do prazo → ainda dentro: nada de atraso
+    expect(lateMinutesForStop({ windowEnd: prazo }, 2 + 59 / 60, as(10, 0))).toBe(0);
+    // 3 min 01 s depois do prazo → já é atraso, e o número mostrado é o atraso de verdade
+    expect(lateMinutesForStop({ windowEnd: prazo }, 3 + 1 / 60, as(10, 0))).toBe(3);
+    expect(lateMinutesForStop({ windowEnd: prazo }, 5, as(10, 0))).toBe(5);
+    // atraso já acumulado no relógio (chegou 10:07 para um prazo de 10:00)
+    expect(lateMinutesForStop({ windowEnd: prazo }, 0, as(10, 7))).toBe(7);
+  });
+
+  it('nextStopEta usa a MESMA tolerância para decidir o aviso', () => {
+    // Sem posição, o motorista está "chegando agora" (0 min): prazo 3 min atrás = dentro da tolerância.
+    expect(nextStopEta([stop({ id: 's1', windowEnd: '07:57' })], null, as(8, 0))?.lateMinutes).toBe(0);
+    // Prazo 4 min atrás: passou da tolerância → o atraso real aparece.
+    expect(nextStopEta([stop({ id: 's1', windowEnd: '07:56' })], null, as(8, 0))?.lateMinutes).toBe(4);
+  });
+
+  it('REGRESSÃO: parada sem prazo continua nunca atrasada', () => {
+    expect(isPastDeadline(null, null, as(23, 59))).toBe(false);
+    expect(lateMinutesForStop({ windowEnd: null, exactTime: null }, 10, as(10, 0))).toBe(0);
+    expect(nextStopEta([stop({ id: 's1' })], null, as(23, 59))?.lateMinutes).toBe(0);
   });
 });

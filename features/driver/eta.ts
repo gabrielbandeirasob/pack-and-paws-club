@@ -26,6 +26,20 @@ export type EtaResult = {
 
 const DEFAULT_SPEED_KPH = 25;
 
+/**
+ * Os 3 minutos do pedido do cliente (áudios de 30/09/2026), decididos pelo dono.
+ *
+ * O MESMO número governa DUAS contas, de propósito ("os 3 minutos valem tanto no cálculo da rota
+ * quanto na tolerância de atraso"):
+ *  1. TOLERÂNCIA DE ATRASO — a parada só aparece como atrasada depois de 3 min do prazo
+ *     (`isPastDeadline`, `lateMinutesForStop`, `nextStopEta`, neste módulo): o motorista desce,
+ *     toca a campainha e pega o cão sem que o app marque "late" na hora;
+ *  2. TEMPO POR PICK-UP na rota — o Optimize do gestor soma 3 min de serviço por parada
+ *     (`app/(tabs)/dispatch.tsx`), no lugar do padrão de 8 min.
+ * Um número só = uma verdade sobre "3 minutos"; mudar aqui muda os dois lugares.
+ */
+export const GRACE_MINUTES = 3;
+
 function hhmmToMinutes(value: string | null | undefined): number | null {
   if (!value) return null;
   const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
@@ -37,16 +51,25 @@ export function minutesBetweenKm(km: number, speedKph = DEFAULT_SPEED_KPH): numb
   return (km / speedKph) * 60;
 }
 
-/** Local minutes since midnight for a Date (used to compare against windows). */
+/**
+ * Local minutes since midnight for a Date (used to compare against windows).
+ * Inclui a fração de segundo: a tolerância de 3 min (GRACE_MINUTES) é conferida no segundo, não
+ * arredondada para o minuto — "3 min 01 s depois do prazo" já é atraso.
+ */
 export function minutesOfDay(date: Date): number {
-  return date.getHours() * 60 + date.getMinutes();
+  return date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
 }
 
-/** True when the current local time is already past the stop's deadline (window end or exact time). */
+/**
+ * True when the current local time is past the stop's deadline (window end or exact time) PLUS the
+ * tolerance of GRACE_MINUTES: até 3 minutos depois do prazo a parada NÃO é atrasada (pedido do
+ * cliente, 30/09/2026 — "imagina, eu vou descer para pegar um cachorro, vai levar uns dois
+ * minutinhos, três minutinhos").
+ */
 export function isPastDeadline(windowEnd?: string | null, exactTime?: string | null, now: Date = new Date()): boolean {
   const deadline = hhmmToMinutes(exactTime ?? windowEnd);
   if (deadline == null) return false;
-  return minutesOfDay(now) > deadline;
+  return minutesOfDay(now) > deadline + GRACE_MINUTES;
 }
 
 /** Minutes elapsed since an ISO timestamp (never negative). */
@@ -104,6 +127,17 @@ export function frescorDaPosicao(isoTimestamp: string, agora: Date = new Date())
 export const ETA_MAXIMO_PLAUSIVEL_MIN = 240;
 
 /**
+ * Minutos de atraso que a tela mostra, com a tolerância de GRACE_MINUTES:
+ *  - dentro da tolerância (até 3 min depois do prazo) = 0 (o app não marca atrasado na hora);
+ *  - passada a tolerância = o atraso REAL, arredondado (nada de maquiar o quanto passou do prazo).
+ */
+function minutosDeAtraso(projected: number, deadline: number | null): number {
+  if (deadline == null) return 0;
+  const atraso = projected - deadline;
+  return atraso > GRACE_MINUTES ? Math.round(atraso) : 0;
+}
+
+/**
  * Atraso projetado para UMA parada: quanto a chegada passaria da janela/horário exato.
  * Mesma conta do banner da próxima parada, usada no botão "avisar o tutor" (âmbar quando atrasa).
  */
@@ -114,8 +148,7 @@ export function lateMinutesForStop(
 ): number {
   const deadline = hhmmToMinutes(stop.exactTime ?? stop.windowEnd);
   if (deadline == null) return 0;
-  const projected = minutesOfDay(now) + Math.max(0, minutes);
-  return projected > deadline ? Math.round(projected - deadline) : 0;
+  return minutosDeAtraso(minutesOfDay(now) + Math.max(0, minutes), deadline);
 }
 
 /**
@@ -146,7 +179,7 @@ export function nextStopEta(stops: EtaStop[], position: EtaPosition | null, now:
 
   const deadline = hhmmToMinutes(next.exactTime ?? next.windowEnd);
   const projected = minutesOfDay(now) + minutes;
-  const lateMinutes = deadline != null && projected > deadline ? Math.round(projected - deadline) : 0;
+  const lateMinutes = minutosDeAtraso(projected, deadline);
 
   return {
     stopId: next.id,
