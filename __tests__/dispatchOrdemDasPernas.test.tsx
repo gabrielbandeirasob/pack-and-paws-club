@@ -1,12 +1,25 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import DispatchScreen from '@/app/(tabs)/dispatch';
+import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
 import { fetchTravelTimes } from '@/features/dispatch/trafficProvider';
 import { supabase } from '@/lib/supabase';
 
 jest.mock('@/features/dispatch/trafficProvider', () => ({
   fetchTravelTimes: jest.fn(async () => ({ travel: null, source: 'estimated' })),
 }));
+
+/**
+ * Otimizador com espião: o comportamento é o REAL (a ordem continua sendo calculada de verdade) e o
+ * teste consegue provar COM QUE OPÇÕES a tela chamou — é assim que se trava o "3 min por pick-up"
+ * (pedido do cliente, 30/09/2026), que antes ficava no padrão de 8 min.
+ */
+jest.mock('@/features/dispatch/routeOptimizer', () => {
+  const real = jest.requireActual('@/features/dispatch/routeOptimizer');
+  return { ...real, optimizeRoute: jest.fn(real.optimizeRoute) };
+});
+
+const optimizeRouteEspiao = optimizeRoute as unknown as jest.Mock;
 
 const mockParadas = ['Luna', 'Max', 'Filó'].map((nome, indice) => ({
   dog_id: nome, sequence: indice + 1, status: 'pending', priority: 'normal',
@@ -166,6 +179,11 @@ it('Optimize mostra duas listas e conflitos, usa uma matriz e aplica numa única
     const tela = await montar();
     await fireEvent.press(tela.getByRole('button', { name: 'Optimize Rafael route' }));
     expect(fetchTravelTimes).toHaveBeenCalledTimes(1);
+    // 3 min por pick-up nas DUAS pernas (busca e entrega) — o pedido do cliente, 30/09/2026.
+    expect(optimizeRouteEspiao).toHaveBeenCalledTimes(2);
+    for (const [, opcoesDaChamada] of optimizeRouteEspiao.mock.calls) {
+      expect(opcoesDaChamada).toMatchObject({ serviceMinutes: 3 });
+    }
     const [, mensagem, botoes] = alerta.mock.calls[0];
     expect(mensagem).toContain('Pick-up:\n• 1. Filó');
     expect(mensagem).toContain('Drop-off:\n• 1. Luna');

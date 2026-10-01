@@ -56,6 +56,30 @@ describe('optimizeRoute — acceptance criterion of Fase 6', () => {
   });
 });
 
+describe('optimizeRoute — tempo de serviço por parada (3 min por pick-up)', () => {
+  /**
+   * Pedido do cliente (áudios de 30/09/2026): "na hora de calcular a rota tem como botar ali…
+   * normalmente pôr três minutinhos, né, por pick-up". O otimizador JÁ tinha `serviceMinutes`
+   * (padrão 8) e a tela nunca passava — aqui o vetor trava o número usado pelo Dispatch.
+   * As duas paradas ficam na MESMA coordenada, então o único tempo entre elas é o de serviço.
+   */
+  const paradas: OptimizeStop[] = [
+    stop({ dogId: 'a', dogName: 'A', longitude: 0.01 }),
+    stop({ dogId: 'b', dogName: 'B', longitude: 0.01 }),
+  ];
+  const opcoes = { homeLatitude: 0, homeLongitude: 0, startAtMinutes: 480, speedKph: 50 };
+  const intervalo = (route: ReturnType<typeof optimizeRoute>) =>
+    (hhmmToMinutes(route.stops[1].plannedArrival) ?? 0) - (hhmmToMinutes(route.stops[0].plannedArrival) ?? 0);
+
+  it('com serviceMinutes 3 a 2ª parada chega 3 min depois da 1ª (o valor que o Dispatch manda)', () => {
+    expect(intervalo(optimizeRoute(paradas, { ...opcoes, serviceMinutes: 3 }))).toBe(3);
+  });
+
+  it('o padrão antigo (sem opção) continua sendo 8 min por parada — a mudança é da tela', () => {
+    expect(intervalo(optimizeRoute(paradas, opcoes))).toBe(8);
+  });
+});
+
 describe('optimizeRoute — feasibility', () => {
   it('flags an infeasible schedule when a window cannot be reached', () => {
     // Both stops open at 08:00 and close at 08:05; each is 20 min from home in opposite directions.

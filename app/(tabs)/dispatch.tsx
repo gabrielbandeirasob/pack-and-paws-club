@@ -9,6 +9,7 @@ import { juntarIrmaosDeCasa, vaoJunto } from '@/features/dispatch/houseMates';
 import { criarFilaDeEscrita, trocarNaOrdem } from '@/features/dispatch/reorderQueue';
 import { ordemDaBusca, ordemDaEntrega, ordenarComTravas, pinDaParada, type Travas, type Perna } from '@/features/dispatch/orderPins';
 import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
+import { GRACE_MINUTES } from '@/features/driver/eta';
 import { STALE_ROUTE_TITLE, expectedVersion, isStaleRouteError, routeErrorMessage } from '@/features/dispatch/staleRoute';
 import { fetchTravelTimes } from '@/features/dispatch/trafficProvider';
 import { showAlert } from '@/features/ui/alert';
@@ -549,7 +550,10 @@ export default function DispatchScreen() {
         exactTime: stop.exactTime,
         priority: stop.priority,
       })),
-      { travel: traffic.travel },
+      // 3 min de serviço por pick-up (pedido do cliente, 30/09/2026 "três minutinhos por pick-up"):
+      // até aqui a tela NÃO passava nada e o otimizador usava o padrão de 8 min. O número é o MESMO
+      // da tolerância de atraso do motorista (GRACE_MINUTES) — decisão do dono, um valor só.
+      { travel: traffic.travel, serviceMinutes: GRACE_MINUTES },
     );
     if (!result.feasible) {
       showAlert('Cannot optimize this route', result.reason ?? 'The schedule is infeasible.');
@@ -558,7 +562,7 @@ export default function DispatchScreen() {
     // As janelas existentes são de busca; a entrega usa a mesma matriz, sem janelas da manhã.
     const entrega = optimizeRoute(ordemDaEntrega(sorted).map((stop) => ({
       ...stop, windowStart: null, windowEnd: null, exactTime: null,
-    })), { travel: traffic.travel });
+    })), { travel: traffic.travel, serviceMinutes: GRACE_MINUTES });
     if (!entrega.feasible) {
       showAlert('Cannot optimize this route', entrega.reason ?? 'The schedule is infeasible.'); return;
     }
