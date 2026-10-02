@@ -19,7 +19,7 @@ import type { TravelTimes } from '@/features/dispatch/travelMatrix';
 import { showAlert } from '@/features/ui/alert';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
-import { loadOrganizationLocations, vanDaRota, vanLocationForRoute } from '@/features/organization/locations';
+import { loadOrganizationLocations, vanDaRota, vanLocationForRoute, yardDaOrganizacao } from '@/features/organization/locations';
 import { sugerirRotas, type BlocoSugerido, type SugestaoDeRotas } from '@/features/dispatch/routeSuggestion';
 
 type DriverRow = { user_id: string; role: 'manager' | 'driver'; profiles: { full_name: string | null } | null };
@@ -92,6 +92,11 @@ export default function DispatchScreen() {
    * sugestão caíam na van padrão — que estava apontando para um cadastro de TESTE em outra cidade.
    */
   const sedePadraoId = useRef<string | null>(null);
+  /**
+   * O YARD da organização (pedido do cliente, 02/10/2026: *"as rota de pick up não tão acabando no
+   * yard"*). A rota nasce com esse ponto como FIM, para o dia fechar onde os cães ficam.
+   */
+  const yardId = useRef<string | null>(null);
   /**
    * VANS DA ORGANIZAÇÃO + a van ESCOLHIDA por motorista (pergunta do dono, 01/10/2026: *"vamos supor que
    * tenhas várias vans, o erro não vai se repetir?"*). A escolha vale para a rota que já existe (update
@@ -190,10 +195,12 @@ export default function DispatchScreen() {
     try {
       const carregadas = await loadOrganizationLocations(supabase, orgId);
       sedePadraoId.current = vanLocationForRoute(carregadas, null)?.id ?? null;
+      yardId.current = yardDaOrganizacao(carregadas)?.id ?? null;
       setVans(carregadas.map((local) => ({ id: local.id, name: local.name, isDefault: local.isDefault })));
     } catch {
       // Best-effort: sem a lista o cartão fica como era (sem o seletor) — não derruba o dia por isso.
       sedePadraoId.current = null;
+      yardId.current = null;
     }
   }, []);
 
@@ -534,6 +541,9 @@ export default function DispatchScreen() {
     const { data, error } = await supabase.from('routes').insert({
       organization_id: organizationId, route_date: date, driver_id: driverId, status: 'draft',
       start_location_id: vanParaRota(driverId),
+      // O FIM da rota: o yard (onde o pick-up termina). Sem yard cadastrado, fica sem fim — a tela do
+      // motorista cai na van. Nunca sobrescreve rota existente (a função só cria).
+      end_location_id: yardId.current,
     }).select('id').single();
     if (error) {
       if ((error as { code?: string }).code === '23505') {

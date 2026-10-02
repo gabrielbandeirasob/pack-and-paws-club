@@ -25,6 +25,11 @@ const mockEstado: {
   recusaDoServidor: string | null;
   /** `true` = o `update` responde SUCESSO com ZERO linha (policy bloqueou). */
   escritaSemLinha: boolean;
+  /** `delivered_at` da parada no "banco" (a entrega confirmada, migration 041). */
+  deliveredAtDaParada: string | null;
+  /** Sedes que a ROTA aponta (o fim = o yard, pedido do cliente 02/10/2026). */
+  startLocationId: string | null;
+  endLocationId: string | null;
 } = {
   atualizacoes: [],
   rpcs: [],
@@ -32,16 +37,22 @@ const mockEstado: {
   falhaDeRede: false,
   recusaDoServidor: null,
   escritaSemLinha: false,
+  deliveredAtDaParada: null,
+  startLocationId: null,
+  endLocationId: null,
 };
 
 /** Rota publicada de hoje com UMA parada pendente (o caminho curto: chegou → pegou+concluiu). */
+/** Sedes da organização (van/yard). Vazio por padrão: os testes antigos não precisam delas. */
+let mockLocais: unknown[] = [];
+
 const mockRota = () => ({
   id: 'r1',
   organization_id: 'org-1',
   lock_version: 3,
   published_at: '2026-09-30T12:00:00.000Z',
-  start_location_id: null,
-  end_location_id: null,
+  start_location_id: mockEstado.startLocationId,
+  end_location_id: mockEstado.endLocationId,
   organization: { proof_pickup_required: false, proof_dropoff_required: false },
   route_stops: [
     {
@@ -59,6 +70,7 @@ const mockRota = () => ({
       picked_up_at: null,
       completed_at: null,
       skipped_at: null,
+      delivered_at: mockEstado.deliveredAtDaParada,
       status_updated_at: null,
       eta_notice_at: null,
       eta_notice_kind: null,
@@ -83,7 +95,11 @@ const mockRota = () => ({
 });
 
 jest.mock('@/lib/supabase', () => {
-  const dados = (tabela: string) => (tabela === 'routes' ? [mockRota()] : []);
+  const dados = (tabela: string) => (
+    tabela === 'routes' ? [mockRota()]
+      : tabela === 'organization_locations' ? mockLocais
+        : []
+  );
   const cadeia = (tabela: string) => {
     const chain: Record<string, unknown> = { __tabela: tabela };
     let payloadDoUpdate: Record<string, unknown> | null = null;
@@ -120,6 +136,9 @@ jest.mock('@/lib/supabase', () => {
         // O servidor aceitou: o "banco" falso passa a devolver o status novo na releitura.
         if (tabela === 'route_stops' && typeof payloadDoUpdate.status === 'string') {
           mockEstado.statusDaParada = payloadDoUpdate.status as typeof mockEstado.statusDaParada;
+        }
+        if (tabela === 'route_stops' && typeof payloadDoUpdate.delivered_at === 'string') {
+          mockEstado.deliveredAtDaParada = payloadDoUpdate.delivered_at as string;
         }
         // Escrita com `.select('id')`: o PostgREST devolve a linha atingida (é o que faz o app
         // perceber um UPDATE que não pegou linha nenhuma).
@@ -334,5 +353,45 @@ it('depois do toque a tela NÃO volta para o "carregando"', async () => {
     await act(async () => { await lista.props.refreshControl.props.onRefresh(); });
 
     await waitFor(() => expect(mockEstado.statusDaParada).toBe('arrived'));
+  });
+
+  /**
+   * 🪤 PEDIDO DO CLIENTE (02/10/2026, print encaminhado pelo dono): *"as rota de pick up não tão
+   * acabando no yard. E as de drop off não tão acabando no local da van. Tem como adicionar isso
+   * automaticamente?"* — depois da última BUSCA a lista tem de mostrar o destino final (o yard) e, no
+   * fim do dia, o retorno para a van.
+   */
+  it('a rota FECHA no yard depois da busca e volta para a van no fim do dia', async () => {
+    mockLocais = [
+      { id: 'van-1', name: 'Van 1', kind: 'van', address_line_1: '3111 La Selva', city: 'San Mateo', latitude: 37.5427669, longitude: -122.2849451, radius_meters: 300, is_default: true },
+      { id: 'yard-1', name: 'Yard', kind: 'yard', address_line_1: '1089 Memorex Drive', city: 'Santa Clara', latitude: 37.362643, longitude: -122.9527423, radius_meters: 300, is_default: false },
+    ];
+    mockEstado.startLocationId = 'van-1';
+    mockEstado.endLocationId = 'yard-1';
+    try {
+      const tela = await abrirTelaDoMotorista();
+
+      // Enquanto tem busca pendente, não existe fechamento (a rota ainda está indo buscar).
+      expect(tela.queryByTestId('route-closing')).toBeNull();
+
+      // Dois toques fecham a busca: o cão está na van → o dia vai para o YARD.
+      await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+      await waitFor(() => expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy());
+      await fireEvent.press(tela.getByLabelText('Next stop: Next for Bob'));
+
+      await waitFor(() => expect(tela.getByText('Back to the yard')).toBeTruthy());
+      expect(tela.getByText('1089 Memorex Drive · Santa Clara')).toBeTruthy();
+      expect(tela.getByText('All dogs on board — drop them at the yard.')).toBeTruthy();
+
+      // Entrega confirmada: o dia fecha voltando para a VAN.
+      mockEstado.statusDaParada = 'picked_up';
+      await fireEvent.press(tela.getByLabelText('Delivered Bob'));
+      await waitFor(() => expect(tela.getByText('Back to the van')).toBeTruthy());
+      expect(tela.getByText('All dogs delivered — the day ends here.')).toBeTruthy();
+    } finally {
+      mockLocais = [];
+      mockEstado.startLocationId = null;
+      mockEstado.endLocationId = null;
+    }
   });
 });

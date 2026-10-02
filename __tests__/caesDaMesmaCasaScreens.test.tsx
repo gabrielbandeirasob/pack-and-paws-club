@@ -37,7 +37,10 @@ let mockParadasDaRota: unknown[] = [];
 /** Status da rota que o banco devolve (o motorista JÁ na rua tem rota `published`). */
 let mockStatusDaRota: 'draft' | 'published' = 'draft';
 /** Toda escrita que o app tentou (tabela + método) — é assim que se prova que ele NÃO escreveu. */
-const mockEscritas: Array<{ tabela: string; metodo: string }> = [];
+const mockEscritas: Array<{ tabela: string; metodo: string; payload?: Record<string, unknown> }> = [];
+
+/** Sedes da organização (van/yard) — o yard é o FIM da rota (pedido do cliente, 02/10/2026). */
+let mockLocais: unknown[] = [];
 const mockEventos: Record<string, () => void> = {};
 jest.mock('@/lib/supabase', () => ({
   supabase: {
@@ -48,7 +51,8 @@ jest.mock('@/lib/supabase', () => ({
       for (const metodo of ['select', 'eq', 'in', 'limit', 'order', 'update', 'delete', 'upsert', 'insert']) {
         consulta[metodo] = (...args: unknown[]) => {
           if (metodo === 'select') selecao = args[0] as string;
-          if (['insert', 'upsert', 'update', 'delete'].includes(metodo)) mockEscritas.push({ tabela, metodo });
+          if (['insert', 'upsert', 'update'].includes(metodo)) mockEscritas.push({ tabela, metodo, payload: args[0] as Record<string, unknown> });
+          if (metodo === 'delete') mockEscritas.push({ tabela, metodo });
           return consulta;
         };
       }
@@ -59,7 +63,8 @@ jest.mock('@/lib/supabase', () => ({
             : [{ user_id: 'motorista', role: 'driver', profiles: { full_name: 'Rafael' } }]
           : tabela === 'reservations' ? mockReservas
             : tabela === 'routes' ? (mockParadasDaRota.length > 0 ? [{ id: 'rota', driver_id: 'motorista', status: mockStatusDaRota, lock_version: 5, route_stops: mockParadasDaRota }] : [])
-              : [],
+              : tabela === 'organization_locations' ? mockLocais
+                : [],
         error: null,
       }).then(resolver);
       return consulta;
@@ -82,6 +87,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockParadasDaRota = [];
   mockStatusDaRota = 'draft';
+  mockLocais = [];
   mockEscritas.length = 0;
   confirmar = [];
   rpc.mockImplementation(() => new Promise((resolve) => confirmar.push(resolve)));
@@ -165,3 +171,24 @@ it('atribuir cão a um motorista que já está na rua NÃO mexe na rota publicad
   expect(mockEscritas.filter((e) => e.tabela === 'routes')).toEqual([]);
   expect(mockStatusDaRota).toBe('published');
 });
+
+/**
+ * PEDIDO DO CLIENTE (02/10/2026, print encaminhado pelo dono): *"as rota de pick up não tão acabando
+   * no yard... tem como adicionar isso automaticamente?"* — a rota NASCE com o fim apontando para o
+   * yard cadastrado pelo gestor (é onde o pick-up termina).
+   */
+  it('a rota nasce com o FIM no yard (automático, sem o gestor escolher)', async () => {
+    mockLocais = [
+      { id: 'van-1', name: 'Van 1', kind: 'van', address_line_1: '3111 La Selva', city: 'San Mateo', latitude: 37.5427669, longitude: -122.2849451, radius_meters: 300, is_default: true },
+      { id: 'yard-1', name: 'Yard', kind: 'yard', address_line_1: '1089 Memorex Drive', city: 'Santa Clara', latitude: 37.362643, longitude: -122.9527423, radius_meters: 300, is_default: false },
+    ];
+    const tela = await montar();
+
+    await fireEvent.press(tela.getByRole('button', { name: 'Assign Chuck · Sammy' }));
+    await fireEvent.press(tela.getByRole('button', { name: 'Driver Rafael' }));
+    await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
+    await waitFor(() => expect(mockEscritas.some((e) => e.tabela === 'routes')).toBe(true));
+
+    const criacao = mockEscritas.find((e) => e.tabela === 'routes' && e.metodo === 'insert');
+    expect(criacao?.payload).toMatchObject({ end_location_id: 'yard-1' });
+  });

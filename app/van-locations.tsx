@@ -210,8 +210,8 @@ export default function VanLocationsScreen() {
         <Text style={styles.eyebrow}>PACK & PAWS CLUB</Text>
         <Text style={styles.title}>Van &amp; yard</Text>
         <Text style={styles.subtitle}>
-          Where each driver starts and ends. With a van saved, the clock in only opens near it — leave this empty
-          and drivers keep clocking in from anywhere.
+          The VAN is where the day starts: the clock in only opens near it (leave it empty and drivers clock in
+          from anywhere). The YARD is where the pick-up run ends — register it so the route closes there.
         </Text>
       </View>
 
@@ -225,10 +225,10 @@ export default function VanLocationsScreen() {
             {locais.length === 0 && !error ? (
               <View style={styles.vazio}>
                 <Text style={styles.vazioEmoji}>🚚</Text>
-                <Text style={styles.vazioTitulo}>No van saved yet</Text>
+                <Text style={styles.vazioTitulo}>No van or yard saved yet</Text>
                 <Text style={styles.vazioTexto}>
-                  Nothing changes for the drivers until you save the first van. Add it when the team decides where the
-                  day starts.
+                  Nothing changes for the drivers until you save the first van. Add the van (where the day starts)
+                  and, if you have one, the yard (where the pick-up run ends).
                 </Text>
               </View>
             ) : null}
@@ -282,11 +282,11 @@ export default function VanLocationsScreen() {
             {!formAberto ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Add a van"
+                accessibilityLabel="Add a van or yard"
                 onPress={abrirNovo}
                 style={({ pressed }) => [styles.botao, pressed && styles.pressed]}
               >
-                <Text style={styles.botaoTexto}>Add a van</Text>
+                <Text style={styles.botaoTexto}>Add a van or yard</Text>
               </Pressable>
             ) : (
               <View style={styles.form} testID="formulario-sede">
@@ -318,6 +318,8 @@ export default function VanLocationsScreen() {
                     </Pressable>
                   ))}
                 </View>
+                {/* O que o tipo ESCOLHIDO significa (pedido do dono, 02/10/2026: o botão dizia só "van"). */}
+                <Text style={styles.tipoDica}>{kindHint(draft.kind)}</Text>
 
                 <Text style={styles.rotulo}>Address</Text>
                 <TextInput
@@ -463,6 +465,7 @@ const styles = StyleSheet.create({
   tipoOpcao: { flex: 1, borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingVertical: 9, alignItems: 'center', backgroundColor: colors.cream },
   tipoAtivo: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
   tipoTexto: { color: colors.forest700, fontWeight: '800', fontSize: 13 },
+  tipoDica: { fontSize: 12, color: colors.muted, marginTop: 6, lineHeight: 16 },
   tipoTextoAtivo: { color: 'white' },
   dica: { color: colors.muted, fontSize: 11, marginTop: 6, lineHeight: 16 },
   linhaPadrao: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },

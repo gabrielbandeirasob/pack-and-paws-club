@@ -123,9 +123,11 @@ describe('tela do gestor: Van & yard', () => {
     const Tela = require('../app/van-locations').default;
     const tela = await render(<Tela />);
 
-    await waitFor(() => expect(tela.getByText('No van saved yet')).toBeTruthy());
+    await waitFor(() => expect(tela.getByText('No van or yard saved yet')).toBeTruthy());
     expect(tela.getByText(/Nothing changes for the drivers until you save the first van/)).toBeTruthy();
-    expect(tela.getByLabelText('Add a van')).toBeTruthy();
+    // O texto agora explica os DOIS conceitos (vistoria 02/10/2026: o botão dizia só "van").
+    expect(tela.getByText(/the yard \(where the pick-up run ends\)/)).toBeTruthy();
+    expect(tela.getByLabelText('Add a van or yard')).toBeTruthy();
   });
 
   it('cadastro por endereço: grava a coordenada do geocoding e marca a van padrão', async () => {
@@ -137,8 +139,8 @@ describe('tela do gestor: Van & yard', () => {
     const Tela = require('../app/van-locations').default;
     const tela = await render(<Tela />);
 
-    await waitFor(() => expect(tela.getByLabelText('Add a van')).toBeTruthy());
-    await fireEvent.press(tela.getByLabelText('Add a van'));
+    await waitFor(() => expect(tela.getByLabelText('Add a van or yard')).toBeTruthy());
+    await fireEvent.press(tela.getByLabelText('Add a van or yard'));
     await fireEvent.changeText(tela.getByLabelText('Van name'), 'Van — Palo Alto');
     await fireEvent.changeText(tela.getByLabelText('Van address'), '1 Van Way');
     await fireEvent.changeText(tela.getByLabelText('Van city'), 'Palo Alto');
@@ -160,8 +162,8 @@ describe('tela do gestor: Van & yard', () => {
     const Tela = require('../app/van-locations').default;
     const tela = await render(<Tela />);
 
-    await waitFor(() => expect(tela.getByLabelText('Add a van')).toBeTruthy());
-    await fireEvent.press(tela.getByLabelText('Add a van'));
+    await waitFor(() => expect(tela.getByLabelText('Add a van or yard')).toBeTruthy());
+    await fireEvent.press(tela.getByLabelText('Add a van or yard'));
     await fireEvent.changeText(tela.getByLabelText('Van name'), 'Van — Sem Endereço');
     await fireEvent.changeText(tela.getByLabelText('Van address'), 'rua que não existe 123');
     await fireEvent.press(tela.getByLabelText('Save van'));

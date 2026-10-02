@@ -1,6 +1,7 @@
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ordenarParadasDoDia } from '@/features/driver/dayOrder';
+import type { FechamentoDaRota } from '@/features/driver/routeClosing';
 import { notifyButtonState } from '@/features/driver/etaMessage';
 import { ETA_MAXIMO_PLAUSIVEL_MIN } from '@/features/driver/eta';
 import { clockText } from '@/features/driver/shift';
@@ -80,6 +81,12 @@ type Props = {
   onAction: (stopId: string, action: DriverAction) => Promise<void>;
   /** Abre o mensageiro com o aviso de ETA pronto para o tutor (pedido do cliente, 16/09/2026). */
   onNotifyOwner?: (stop: DriverStop) => void;
+  /**
+   * ONDE A ROTA FECHA (pedido do cliente, 02/10/2026 — *"as rota de pick up não tão acabando no yard...
+   * e as de drop off não tão acabando no local da van"*): o cartão do fim entra depois da lista, quando
+   * a busca termina (vai para o yard) e quando a entrega termina (volta para a van).
+   */
+  closing?: FechamentoDaRota | null;
 };
 
 function addressLine(stop: DriverStop): string | null {
@@ -87,7 +94,7 @@ function addressLine(stop: DriverStop): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
+export function DriverRouteView({ stops, onAction, onNotifyOwner, closing }: Props) {
   const fire = (stop: DriverStop, action: DriverAction) => onAction(stop.id, action);
   const ordered = ordenarParadasDoDia(stops);
   /**
@@ -257,6 +264,19 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner }: Props) {
           </View>
         );
       })}
+
+      {/*
+        * O FIM DA ROTA (pedido do cliente, 02/10/2026). Sem ação para tocar: é o destino que faltava —
+        * antes a lista acabava no último cão e o motorista não via que o dia ainda tinha uma perna.
+        */}
+      {closing ? (
+        <View style={styles.closing} testID="route-closing">
+          <Text style={styles.closingTag}>{closing.kind === 'yard' ? 'YARD' : 'VAN'}</Text>
+          <Text style={styles.closingTitle}>{closing.title}</Text>
+          <Text style={styles.closingSub}>{closing.subtitle}</Text>
+          {closing.address ? <Text style={styles.closingAddress}>{closing.address}</Text> : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -317,6 +337,19 @@ const styles = StyleSheet.create({
   actionGold: { backgroundColor: colors.gold },
   actionGoldText: { color: colors.forest900, fontWeight: '900', fontSize: 13 },
   actionProblem: { backgroundColor: '#FBEAE6' },
+  closing: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: radii.medium,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.paper,
+    gap: 2,
+  },
+  closingTag: { fontSize: 11, fontWeight: '800', letterSpacing: 1, color: colors.muted },
+  closingTitle: { fontSize: 16, fontWeight: '800', color: colors.ink },
+  closingSub: { fontSize: 12, color: colors.muted, lineHeight: 16 },
+  closingAddress: { fontSize: 13, color: colors.forest700, marginTop: 2 },
   actionProblemText: { color: colors.urgency, fontWeight: '900', fontSize: 13 },
   actionNotify: { backgroundColor: colors.sage },
   actionNotifyText: { color: colors.forest700, fontWeight: '900', fontSize: 13 },

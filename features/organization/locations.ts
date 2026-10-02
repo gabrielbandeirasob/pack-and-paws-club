@@ -402,6 +402,43 @@ export async function loadVanLocationForDriver(
   }
 }
 
+/**
+ * O YARD da organização — a sede onde a rota de PICK-UP termina.
+ *
+ * Pedido do CLIENTE (02/10/2026, print encaminhado pelo dono): *"as rota de pick up não tão acabando no
+ * yard... tem como adicionar isso automaticamente?"*. O gestor cadastra esse ponto em "Van & yard" com o
+ * tipo **Yard** (a própria tela já explicava: *"Where the pick up run ends"*) — aqui só se escolhe qual é.
+ * Se houver mais de um, vale o marcado como padrão; senão o primeiro em ordem de nome.
+ */
+export function yardDaOrganizacao(locations: OrganizationLocation[]): OrganizationLocation | null {
+  const yards = locations.filter((local) => local.kind === 'yard');
+  if (yards.length === 0) return null;
+  return yards.find((local) => local.isDefault) ?? [...yards].sort((a, b) => a.name.localeCompare(b.name))[0];
+}
+
+/**
+ * Carrega o fim da rota para a tela do motorista: a sede que a ROTA aponta (`routes.end_location_id`) e,
+ * sem ela, o yard da organização. Best-effort como o resto do módulo: falha devolve `null` (o motorista
+ * nunca fica travado por uma consulta que não respondeu) e a tela simplesmente não mostra o fechamento.
+ */
+export async function loadRouteEndLocationForDriver(
+  client: SupabaseClient,
+  params: { organizationId: string; endLocationId?: string | null },
+): Promise<OrganizationLocation | null> {
+  try {
+    const { data, error } = await client
+      .from('organization_locations')
+      .select(LOCATION_COLUMNS)
+      .eq('organization_id', params.organizationId);
+    if (error) return null;
+    const locais = locationsFromRows(data);
+    const apontado = params.endLocationId ? locais.find((local) => local.id === params.endLocationId) : null;
+    return apontado ?? yardDaOrganizacao(locais);
+  } catch {
+    return null;
+  }
+}
+
 export type SaveLocationParams = {
   organizationId: string;
   /** id existente = edição; ausente = sede nova */

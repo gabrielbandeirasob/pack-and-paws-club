@@ -6,11 +6,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DriverRouteView, type DriverAction, type DriverStop } from '@/features/driver/DriverRouteView';
 import { resolveDriverOptimizationOrigin } from '@/features/driver/driverRouteLocation';
-import { clockInGate, distanceText, estaNaVan, loadVanLocationForDriver, motivoDoClockIn, travaDoClockIn, type OrganizationLocation } from '@/features/organization/locations';
+import { clockInGate, distanceText, estaNaVan, loadRouteEndLocationForDriver, loadVanLocationForDriver, motivoDoClockIn, travaDoClockIn, type OrganizationLocation } from '@/features/organization/locations';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutosAteParada, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
 import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/features/driver/etaMessage';
 
 import { NextStopCard, nextActionForStatus, nextStopFor } from '@/features/driver/NextStopCard';
+import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
 import { savePendingWrites, enqueuePending, flushPendingWrites, loadPendingWrites, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
 import { ShiftCard } from '@/features/driver/ShiftCard';
 import { shiftErrorMessage, shiftState, type ManualShift } from '@/features/driver/shift';
@@ -129,6 +130,8 @@ export default function DriverTodayScreen() {
    * exatamente como sempre foi. A trava existe SÓ quando este valor tem algo (opt-in).
    */
   const [vanLocation, setVanLocation] = useState<OrganizationLocation | null>(null);
+  /** Onde a rota FECHA (o yard) — pedido do cliente, 02/10/2026. */
+  const [yardLocation, setYardLocation] = useState<OrganizationLocation | null>(null);
   /** Chegada à van observada (a jornada deduzida passa a começar aqui, e não no primeiro cão). */
   const [vanArrivalAt, setVanArrivalAt] = useState<string | null>(null);
   const vanArrivalRef = useRef<string | null>(null);
@@ -332,6 +335,18 @@ export default function DriverTodayScreen() {
             paradas: paradasDaLinha(route.route_stops),
           }),
         );
+        /**
+         * ONDE A ROTA FECHA (pedido do cliente, 02/10/2026 — *"as rota de pick up não tão acabando no
+         * yard"*): a sede que a ROTA aponta como fim (`end_location_id`) e, sem ela, o yard cadastrado
+         * pelo gestor em "Van & yard". Best-effort igual à van: sem resposta, a tela não mostra o
+         * fechamento (o motorista nunca fica sem a rota por causa disso).
+         */
+        setYardLocation(
+          await loadRouteEndLocationForDriver(supabase, {
+            organizationId: route.organization_id,
+            endLocationId: route.end_location_id ?? null,
+          }),
+        );
         setOffline(false);
       } else {
         // Route finished/not published: drop the cached copy (sensitive instructions must not linger).
@@ -340,6 +355,7 @@ export default function DriverTodayScreen() {
         setRouteVersion(null);
         setOrganizationId(null);
         setVanLocation(null);
+        setYardLocation(null);
       }
       // Retention: prune stale positions opportunistically.
       void supabase.rpc('cleanup_driver_locations');
@@ -926,6 +942,21 @@ export default function DriverTodayScreen() {
    */
   const proximaParada = useMemo(() => nextStopFor(stopsComEta), [stopsComEta]);
 
+  /**
+   * ONDE A ROTA FECHA (pedido do cliente, 02/10/2026): depois da última BUSCA o dia vai para o YARD;
+   * depois da última ENTREGA, volta para a VAN. Antes a rota "acabava" no último cão e o motorista não
+   * sabia que ainda faltava voltar.
+   */
+  const fechamento = useMemo(
+    () => fechamentoDaRota({
+      buscaTerminou: buscaTerminou(stops),
+      entregaTerminou: entregaTerminou(stops),
+      yard: yardLocation,
+      van: vanLocation,
+    }),
+    [stops, yardLocation, vanLocation],
+  );
+
   // A trava acompanha a visão: o gestor que ligou o interruptor também pode dirigir.
   const { liberado, role, isLoading: carregandoPapel } = useRoleGuard('driver');
   if (!liberado) {
@@ -1051,7 +1082,7 @@ export default function DriverTodayScreen() {
                   onNotifyOwner={avisarTutor}
                 />
               </View>
-              <DriverRouteView stops={stopsComEta} onAction={act} onNotifyOwner={avisarTutor} />
+              <DriverRouteView stops={stopsComEta} onAction={act} onNotifyOwner={avisarTutor} closing={fechamento} />
             </>
           )}
         </View>
