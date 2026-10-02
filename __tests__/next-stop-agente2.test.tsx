@@ -43,18 +43,20 @@ function parada(over: Partial<DriverStop> = {}): DriverStop {
 }
 
 /** Props obrigatórias do painel (callbacks espiões). O `render` desta versão é assíncrono. */
-async function painel(stop: DriverStop | null) {
+async function painel(stop: DriverStop | null, comAviso = false) {
   const onNavigate = jest.fn();
   const onAction = jest.fn();
+  const onNotifyOwner = jest.fn();
   const tela = await render(
     <NextStopCard
       stop={stop}
-      nextAction={stop ? nextActionForStatus(stop.status) : null}
+      nextAction={stop ? nextActionForStatus(stop.status, stop.deliveredAt) : null}
       onNavigate={onNavigate}
       onAction={onAction}
+      onNotifyOwner={comAviso ? onNotifyOwner : undefined}
     />,
   );
-  return { tela, onNavigate, onAction };
+  return { tela, onNavigate, onAction, onNotifyOwner };
 }
 
 describe('nextStopFor (parada escolhida)', () => {
@@ -103,6 +105,37 @@ describe('NextStopCard', () => {
     expect(tela.getByText('Maria · Bob')).toBeTruthy();
     expect(tela.getByText('123 Main St · San Francisco')).toBeTruthy();
     expect(tela.getByText('~12 min away')).toBeTruthy();
+  });
+
+  /**
+   * AVISAR O TUTOR NO CARTÃO GRANDE (o dono procurou aqui e não achou, 01/10/2026: *"n vi essa opçao"*).
+   * Antes o botão existia só na lista, mais abaixo na tela.
+   */
+  it('o cartão da próxima parada tem o aviso ao tutor e ele chama o mesmo caminho da lista', async () => {
+    const { tela, onNotifyOwner } = await painel(parada({ dogName: 'Bob', clientPhone: '+1 (415) 601-1820' }), true);
+    fireEvent.press(tela.getByLabelText('Next stop: notify owner Bob'));
+    expect(onNotifyOwner).toHaveBeenCalledTimes(1);
+    expect(onNotifyOwner.mock.calls[0][0].dogName).toBe('Bob');
+  });
+
+  it('cliente sem telefone: o botão aparece apagado COM o motivo (não some calado)', async () => {
+    const { tela } = await painel(parada({ dogName: 'Bob', clientPhone: null, clientPhone2: null }), true);
+    const botao = tela.getByLabelText('Next stop: notify owner Bob');
+    expect(botao.props.accessibilityState).toMatchObject({ disabled: true });
+    expect(tela.getByText(/No phone number on this client/)).toBeTruthy();
+  });
+
+  it('parada já entregue não oferece aviso de novo', async () => {
+    const { tela } = await painel(
+      parada({ dogName: 'Bob', clientPhone: '+1 (415) 601-1820', deliveredAt: '2026-10-01T21:00:00.000Z' }),
+      true,
+    );
+    expect(tela.getByLabelText('Next stop: notify owner Bob').props.accessibilityState).toMatchObject({ disabled: true });
+  });
+
+  it('sem a prop, o cartão fica como era (nada de botão órfão)', async () => {
+    const { tela } = await painel(parada({ dogName: 'Bob', clientPhone: '+1 (415) 601-1820' }));
+    expect(tela.queryByLabelText('Next stop: notify owner Bob')).toBeNull();
   });
 
   it('marca o atraso quando o ETA passa da janela', async () => {

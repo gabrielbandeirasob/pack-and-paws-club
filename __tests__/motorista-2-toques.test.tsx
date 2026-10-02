@@ -218,4 +218,25 @@ describe('2 toques: I arrived e Next', () => {
     expect(tela.queryByText('Route finished')).toBeNull();
     expect(tela.queryByLabelText('Next stop: Next for Bob')).toBeNull();
   });
+
+/**
+ * TOQUE NÃO PODE RECARREGAR A TELA INTEIRA (queixa do dono, 01/10/2026: *"toda vez que eu apertava next,
+ * ou arrive a tela inteira carregava, o que deixa o aplicativo lento e pesado"*).
+ *
+ * Antes cada toque chamava a carga completa (rota, van, jornada e fila) com o spinner por cima — e ainda
+ * levava uma SEGUNDA recarga do evento de tempo real da própria escrita. Agora a recarga pós-escrita é
+ * silenciosa: a lista fica na tela e o banco reconcilia por baixo.
+ */
+it('depois do toque a tela NÃO volta para o "carregando"', async () => {
+  const tela = await abrirTelaDoMotorista();
+  expect(tela.queryByTestId('driver-loading')).toBeNull();
+
+  await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+  await waitFor(() => expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy());
+  expect(tela.queryByTestId('driver-loading')).toBeNull();
+
+  await fireEvent.press(tela.getByLabelText('Next stop: Next for Bob'));
+  await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Bob')).toBeTruthy());
+  expect(tela.queryByTestId('driver-loading')).toBeNull();
+});
 });

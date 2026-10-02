@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { DriverAction, DriverStop } from '@/features/driver/DriverRouteView';
 import { ETA_MAXIMO_PLAUSIVEL_MIN } from '@/features/driver/eta';
+import { notifyButtonState } from '@/features/driver/etaMessage';
 import { colors, radii } from '@/features/theme/tokens';
 
 /**
@@ -69,9 +70,15 @@ type Props = {
   onNavigate: (stop: DriverStop) => void;
   /** Executa a ação no MESMO `act` da tela do motorista (status, foto e fila offline saem de lá). */
   onAction: (stopId: string, action: DriverAction) => void;
+  /**
+   * Avisar o tutor (SMS com o ETA). Fica TAMBÉM aqui, no cartão grande da próxima parada, porque foi
+   * aqui que o dono olhou e não achou (01/10/2026: *"n vi essa opçao"*) — o botão existia só na lista,
+   * mais abaixo. Sem a prop o cartão fica como era.
+   */
+  onNotifyOwner?: (stop: DriverStop) => void;
 };
 
-export function NextStopCard({ stop, nextAction, onNavigate, onAction }: Props) {
+export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyOwner }: Props) {
   // Sem parada pendente: o painel continua no topo (o motorista não procura botão que não existe mais),
   // mas sem nenhuma ação — nada de oferecer passo para uma rota que acabou.
   if (!stop) {
@@ -87,6 +94,17 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction }: Props) 
   const endereco = [stop.address, stop.city].filter(Boolean).join(' · ');
   const atraso = stop.lateMinutes ?? 0;
   const minutos = stop.etaMinutes;
+  /*
+   * AVISAR O TUTOR no cartão grande (o dono procurou aqui e não achou, 01/10/2026: *"n vi essa opçao"*).
+   * Mesma regra da lista — quem decide rótulo e permissão é `notifyButtonState` —, mas AQUI o botão
+   * aparece SEMPRE: desabilitado e com o motivo embaixo quando não dá para avisar. Antes ele simplesmente
+   * não existia no cartão, e o motorista ficava sem saber se o app faz isso ou não.
+   */
+  const aviso = notifyButtonState({
+    phone: stop.clientPhone ?? stop.clientPhone2,
+    lateMinutes: stop.lateMinutes,
+    done: Boolean(stop.deliveredAt) || stop.status === 'skipped',
+  });
 
   return (
     <View style={styles.card}>
@@ -120,7 +138,23 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction }: Props) 
             <Text style={styles.actionGoldText}>{NEXT_ACTION_LABEL[nextAction] ?? nextAction}</Text>
           </Pressable>
         ) : null}
+        {/* 3) AVISAR O TUTOR — o mesmo SMS da lista, aqui onde o motorista já está olhando. */}
+        {onNotifyOwner ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !aviso.enabled }}
+            accessibilityLabel={`Next stop: notify owner ${stop.dogName}`}
+            disabled={!aviso.enabled}
+            onPress={() => onNotifyOwner(stop)}
+            style={[styles.action, aviso.tone === 'late' ? styles.actionLate : styles.actionNotify, !aviso.enabled && styles.actionOff]}
+          >
+            <Text style={aviso.tone === 'late' ? styles.actionLateText : styles.actionNotifyText}>
+              {aviso.tone === 'late' ? 'Notify owner · late' : 'Notify owner'}
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
+      {onNotifyOwner && aviso.hint ? <Text style={styles.notifyHint}>{aviso.hint}</Text> : null}
     </View>
   );
 }
@@ -141,6 +175,14 @@ const styles = StyleSheet.create({
   action: { borderRadius: 12, paddingVertical: 11, paddingHorizontal: 15, flexGrow: 1, alignItems: 'center', minWidth: 110 },
   actionDark: { backgroundColor: colors.forest700 },
   actionDarkText: { color: 'white', fontWeight: '900', fontSize: 13 },
+  /** Avisar o tutor: sage quando é só o ETA, âmbar quando já está atrasado (cores da lista). */
+  actionNotify: { backgroundColor: colors.sage },
+  actionNotifyText: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
+  actionLate: { backgroundColor: '#F3D9A4' },
+  actionLateText: { color: '#7A5B12', fontWeight: '900', fontSize: 13 },
+  /** Sem telefone no cadastro: o botão fica visível, apagado, com o motivo embaixo. */
+  actionOff: { opacity: 0.5 },
+  notifyHint: { color: colors.muted, fontSize: 11, lineHeight: 15, marginTop: 6 },
   actionGold: { backgroundColor: colors.gold },
   actionGoldText: { color: colors.forest900, fontWeight: '900', fontSize: 13 },
   actionPhoto: { backgroundColor: colors.sage },

@@ -261,9 +261,21 @@ export default function DriverTodayScreen() {
     return remaining.length === 0;
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setMessage(null);
+  /**
+   * Carrega a rota do dia.
+   *
+   * `silencioso` = recarga SEM a tela de "carregando": usada depois de uma escrita do PRÓPRIO motorista
+   * (os toques de I arrived / Next / Delivered, que já apareceram na hora na tela) e nas mudanças que
+   * chegam por tempo real. Queixa do dono (01/10/2026): *"toda vez que eu apertava next, ou arrive a tela
+   * inteira carregava, o que deixa o aplicativo lento e pesado"* — cada toque refazia TUDO (rota, van,
+   * jornada e fila) com o spinner por cima, e ainda levava uma segunda recarga do evento de tempo real
+   * da própria escrita. Silencioso mantém a lista na tela e reconcilia por baixo.
+   */
+  const load = useCallback(async (silencioso = false) => {
+    if (!silencioso) {
+      setLoading(true);
+      setMessage(null);
+    }
     const events = await loadOutbox();
     setPendingSync(events.length);
 
@@ -356,7 +368,8 @@ export default function DriverTodayScreen() {
     let channel = supabase.channel(`driver-route-${routeId ?? 'today'}`);
     const scheduleReload = () => {
       if (realtimeRefresh.current) clearTimeout(realtimeRefresh.current);
-      realtimeRefresh.current = setTimeout(() => void load(), 800);
+      // Silencioso: é a escrita do próprio motorista chegando de volta pelo banco (não pode piscar).
+      realtimeRefresh.current = setTimeout(() => void load(true), 800);
     };
     channel = channel.on('postgres_changes', { event: '*', schema: 'public', table: 'routes' }, scheduleReload);
     if (routeId) {
@@ -439,7 +452,7 @@ export default function DriverTodayScreen() {
         await saveOutbox(events);
         setPendingSync(events.length);
         if (events.length === 0) setOffline(false);
-        await load();
+        void load(true);
       } catch (reason) {
         if (isNetworkError(reason)) {
           const events = enqueueEvent(await loadOutbox(), {
@@ -530,7 +543,7 @@ export default function DriverTodayScreen() {
       await saveOutbox(events);
       setPendingSync(events.length);
       if (events.length === 0) setOffline(false);
-      await load();
+      void load(true);
     } catch (reason) {
       // Falha de rede: a fila local existe para isso — o passo sobe sozinho quando o sinal voltar.
       // Qualquer outra falha devolve o cartão ao estado do BANCO e mostra o motivo na tela: nada de
@@ -794,7 +807,7 @@ export default function DriverTodayScreen() {
     const phase = phaseForStop(stop.status);
     try {
       await markEtaNotice(supabase, stop.id, phase);
-      await load();
+      void load(true);
       setMessage('Notice recorded — the office can see you warned the owner.');
     } catch (causa) {
       if (isNetworkError(causa)) {
@@ -891,7 +904,7 @@ export default function DriverTodayScreen() {
           </View>
         ) : null}
         <View style={styles.body}>
-          {loading ? <ActivityIndicator style={styles.center} color={colors.gold} size="large" /> : stops.length === 0 ? (
+          {loading ? <ActivityIndicator testID="driver-loading" style={styles.center} color={colors.gold} size="large" /> : stops.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyEmoji}>🚚</Text>
               <Text style={styles.emptyTitle}>No published route today</Text>
@@ -922,6 +935,8 @@ export default function DriverTodayScreen() {
                   nextAction={proximaParada ? nextActionForStatus(proximaParada.status, proximaParada.deliveredAt) : null}
                   onNavigate={(stop) => void act(stop.id, 'navigate')}
                   onAction={(stopId, action) => void act(stopId, action)}
+                  // O aviso ao tutor também no cartão grande (o dono procurou aqui, 01/10/2026).
+                  onNotifyOwner={avisarTutor}
                 />
               </View>
               <DriverRouteView stops={stopsComEta} onAction={act} onNotifyOwner={avisarTutor} />
