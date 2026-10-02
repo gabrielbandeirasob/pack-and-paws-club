@@ -311,7 +311,7 @@ const styles = StyleSheet.create({
   careLabelMedical: { color: colors.urgency },
   careText: { color: colors.ink, fontSize: 13, lineHeight: 19, marginTop: 4 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 13 },
-  action: { borderRadius: 12, paddingVertical: 11, paddingHorizontal: 15, flexGrow: 1, alignItems: 'center', minWidth: 120 },
+  action: { borderRadius: 12, paddingVertical: 14, paddingHorizontal: 15, flexGrow: 1, alignItems: 'center', minWidth: 120 },
   actionDark: { backgroundColor: colors.forest700 },
   actionDarkText: { color: 'white', fontWeight: '900', fontSize: 13 },
   actionGold: { backgroundColor: colors.gold },

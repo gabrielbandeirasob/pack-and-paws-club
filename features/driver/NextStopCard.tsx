@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
   etaLate: { color: colors.urgency },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 13 },
   /** Mesmas medidas dos botões da lista (DriverRouteView) para o toque não mudar de tamanho na tela. */
-  action: { borderRadius: 12, paddingVertical: 11, paddingHorizontal: 15, flexGrow: 1, alignItems: 'center', minWidth: 110 },
+  action: { borderRadius: 12, paddingVertical: 14, paddingHorizontal: 15, flexGrow: 1, alignItems: 'center', minWidth: 110 },
   actionDark: { backgroundColor: colors.forest700 },
   actionDarkText: { color: 'white', fontWeight: '900', fontSize: 13 },
   /** Avisar o tutor: sage quando é só o ETA, âmbar quando já está atrasado (cores da lista). */

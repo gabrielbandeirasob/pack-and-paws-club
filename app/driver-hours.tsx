@@ -159,7 +159,7 @@ export default function DriverHoursScreen() {
                 <Text style={styles.exportarTexto}>Export spreadsheet (CSV)</Text>
               </Pressable>
             ) : null}
-            <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} style={styles.voltar}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={12} style={styles.voltar}>
               <Text style={styles.voltarTexto}>Back</Text>
             </Pressable>
           </ScrollView>

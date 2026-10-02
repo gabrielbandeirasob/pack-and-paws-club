@@ -407,7 +407,7 @@ export default function VanLocationsScreen() {
               </View>
             )}
 
-            <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} style={styles.voltar}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={12} style={styles.voltar}>
               <Text style={styles.voltarTexto}>Back</Text>
             </Pressable>
           </ScrollView>
@@ -435,7 +435,7 @@ const styles = StyleSheet.create({
   endereco: { color: colors.ink, fontSize: 13, marginTop: 7 },
   coordenada: { color: colors.muted, fontSize: 12, marginTop: 3 },
   acoes: { flexDirection: 'row', gap: 8, marginTop: 11, flexWrap: 'wrap' },
-  acao: { borderWidth: 1.5, borderColor: colors.forest700, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7 },
+  acao: { borderWidth: 1.5, borderColor: colors.forest700, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 12 },
   acaoTexto: { color: colors.forest700, fontWeight: '900', fontSize: 12 },
   acaoPerigo: { borderColor: colors.urgency },
   acaoPerigoTexto: { color: colors.urgency, fontWeight: '900', fontSize: 12 },

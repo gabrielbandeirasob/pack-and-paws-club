@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
   muted: { color: colors.muted, fontSize: 12, marginTop: 3 },
   dogRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   quickRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  quickButton: { flex: 1, backgroundColor: colors.sage, borderRadius: 11, paddingVertical: 9, alignItems: 'center' },
+  quickButton: { flex: 1, backgroundColor: colors.sage, borderRadius: 11, paddingVertical: 12, alignItems: 'center' },
   quickText: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
   filterChip: { alignSelf: 'flex-start', backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 7, marginTop: 10 },
   filterChipText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },

@@ -74,7 +74,7 @@ export default function RouteStopsScreen() {
   return (
     <SafeAreaView style={styles.tela} edges={['top']}>
       <View style={styles.topo}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={styles.voltar}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} hitSlop={12} style={styles.voltar}>
           <Text style={styles.voltarTexto}>‹ Back</Text>
         </Pressable>
         <Text style={styles.titulo}>Route stops</Text>

@@ -713,6 +713,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
                     accessibilityRole="radio"
                     accessibilityState={{ checked: ativa }}
                     accessibilityLabel={`Use ${van.name} for ${driver.name}`}
+                    hitSlop={{ top: 7, bottom: 7, left: 2, right: 2 }}
                     disabled={salvandoVan || working || route?.status === 'completed' || route?.status === 'cancelled'}
                     onPress={() => void escolherVan(van.id)}
                     style={[styles.vanChip, ativa ? styles.vanChipAtiva : null]}
@@ -803,7 +804,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
                 </Pressable>
               </>
             ) : null}
-            <Pressable accessibilityRole="button" accessibilityLabel={`Options for ${stop.dogName}`} onPress={() => route && setSheet({ mode: 'edit', route, stop })} hitSlop={8}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Options for ${stop.dogName}`} onPress={() => route && setSheet({ mode: 'edit', route, stop })} hitSlop={12}>
               <Text style={styles.optionsText}>⋯</Text>
             </Pressable>
           </View>
@@ -901,13 +902,13 @@ const styles = StyleSheet.create({
   vanLinha: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8 },
   vanRotulo: { color: colors.muted, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.4 },
   vanChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, flexShrink: 1 },
-  vanChip: { borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 3, backgroundColor: 'white' },
+  vanChip: { borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: 'white' },
   vanChipAtiva: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
   vanChipTexto: { color: colors.forest700, fontSize: 11, fontWeight: '800' },
   vanChipTextoAtivo: { color: 'white' },
   vanAuto: { color: colors.muted, fontSize: 10.5, fontStyle: 'italic' },
   // Atalho para a lista de paradas com hora (o dono procurou aqui, 01/10/2026).
-  stopListLink: { alignSelf: 'flex-start', marginTop: 8, paddingVertical: 4 },
+  stopListLink: { alignSelf: 'flex-start', marginTop: 8, paddingVertical: 10 },
   stopListText: { color: colors.forest700, fontSize: 11.5, fontWeight: '800', textDecorationLine: 'underline' },
   sugestaoBloco: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 11, marginBottom: 9, backgroundColor: '#FAFBF7' },
   sugestaoMotorista: { color: colors.ink, fontWeight: '800', fontSize: 13, marginBottom: 4 },
@@ -933,7 +934,7 @@ const styles = StyleSheet.create({
    */
   houseHint: { color: colors.forest900, backgroundColor: colors.sage, borderRadius: 10, padding: 9, fontSize: 12, marginBottom: 10 },
   driverOptions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
-  driverOption: { backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
+  driverOption: { backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   driverOptionActive: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
   driverOptionText: { color: colors.ink, fontWeight: '800', fontSize: 13 },
   driverOptionTextActive: { color: 'white' },

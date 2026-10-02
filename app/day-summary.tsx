@@ -91,7 +91,7 @@ export default function DaySummaryScreen() {
     <SafeAreaView style={styles.tela} edges={['top']}>
       <ScrollView contentContainerStyle={styles.conteudo} showsVerticalScrollIndicator={false}>
         <View style={styles.topo}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} style={styles.voltar}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={12} style={styles.voltar}>
             <Text style={styles.voltarTexto}>‹ Back</Text>
           </Pressable>
           <Text style={styles.titulo}>Day summary</Text>

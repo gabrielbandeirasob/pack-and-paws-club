@@ -140,7 +140,7 @@ export default function DayProgressScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <View style={styles.topo}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={12}>
           <Text style={styles.voltar}>‹ Back</Text>
         </Pressable>
         <Text style={styles.titulo}>Today&apos;s progress</Text>

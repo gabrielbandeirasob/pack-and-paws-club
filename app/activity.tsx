@@ -122,7 +122,7 @@ export default function ActivityScreen() {
             <Text style={styles.quando}>{linha.quando}</Text>
           </View>
         )) : null}
-        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} style={styles.voltar}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={12} style={styles.voltar}>
           <Text style={styles.voltarTexto}>Back</Text>
         </Pressable>
       </ScrollView>

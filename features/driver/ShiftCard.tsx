@@ -169,9 +169,9 @@ const styles = StyleSheet.create({
   /** Onde o clock in abre (só existe quando a organização cadastrou a sede/van). */
   gateHint: { color: '#7A5B12', backgroundColor: '#FBF0D9', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, fontSize: 12, fontWeight: '800', marginTop: 8, lineHeight: 17, overflow: 'hidden' },
   acoes: { flexDirection: 'row', gap: 8, marginTop: 11 },
-  botao: { flex: 1, borderWidth: 1.5, borderColor: colors.forest700, borderRadius: 12, paddingVertical: 11, alignItems: 'center' },
+  botao: { flex: 1, borderWidth: 1.5, borderColor: colors.forest700, borderRadius: 12, paddingVertical: 13, alignItems: 'center', justifyContent: 'center', minHeight: 44 },
   botaoPrincipal: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
-  botaoExcecao: { borderWidth: 1.5, borderColor: colors.urgency, borderRadius: 12, paddingVertical: 11, alignItems: 'center', marginTop: 8 },
+  botaoExcecao: { borderWidth: 1.5, borderColor: colors.urgency, borderRadius: 12, paddingVertical: 13, alignItems: 'center', justifyContent: 'center', minHeight: 44, marginTop: 8 },
   botaoExcecaoTexto: { color: colors.urgency, fontWeight: '900', fontSize: 12.5 },
   botaoTexto: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
   botaoTextoPrincipal: { color: 'white' },
