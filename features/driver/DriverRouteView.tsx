@@ -56,6 +56,13 @@ export type DriverStop = {
    * inteira ficava sem registro (conferência do dono, 01/10/2026).
    */
   deliveredAt?: string | null;
+  /**
+   * Transferência de cão entre motoristas no meio do dia (item 5, migration 052): o gestor moveu este
+   * cão da rota de OUTRO motorista. O histórico (marcos) vem junto na transferência, então a entrega
+   * segue habilitada; o motorista lê de quem recebeu e a hora.
+   */
+  handedFromName?: string | null;
+  handedAt?: string | null;
   /** Pernas de viagem gravadas pelo Optimize do gestor (segundos): ETA por rota, não por linha reta. */
   travelSeconds?: number | null;
   dropoffTravelSeconds?: number | null;
@@ -207,6 +214,10 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing }: Pro
               </Text>
             ) : null}
             {stop.deliveredAt ? <Text style={styles.delivered}>Delivered at {clockText(stop.deliveredAt)}</Text> : null}
+            {/* Transferência de cão entre motoristas (item 5, migration 052): de quem veio e a hora. */}
+            {stop.handedFromName ? (
+              <Text style={styles.notified}>Received from {stop.handedFromName}{stop.handedAt ? ` · ${clockText(stop.handedAt)}` : ''}</Text>
+            ) : null}
             {stop.etaNoticeAt ? <Text style={styles.notified}>Owner notified at {clockText(stop.etaNoticeAt)}</Text> : null}
             {stop.instructions ? <View style={styles.instructions}><Text style={styles.instructionsLabel}>ACCESS INSTRUCTIONS</Text><Text style={styles.instructionsText}>{stop.instructions}</Text></View> : null}
             {stop.medicalNotes ? <View style={[styles.care, styles.careMedical]}><Text style={[styles.careLabel, styles.careLabelMedical]}>⚠ MEDICAL</Text><Text style={styles.careText}>{stop.medicalNotes}</Text></View> : null}

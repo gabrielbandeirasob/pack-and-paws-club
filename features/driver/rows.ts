@@ -25,6 +25,9 @@ export type DriverStopRow = {
   skipped_at?: string | null;
   /** marco de ENTREGA (migração 041) — o que fecha a parada de verdade na parte da tarde. */
   delivered_at?: string | null;
+  /** Transferência de cão entre motoristas (migration 052, item 5): de quem veio e quando. */
+  handed_from_name?: string | null;
+  handed_at?: string | null;
   /** pernas de viagem gravadas pelo Optimize (segundos): ETA por rota, não por linha reta. */
   travel_seconds?: number | null;
   dropoff_travel_seconds?: number | null;
@@ -102,6 +105,8 @@ export function rowToStop(row: DriverStopRow): DriverStop {
     completedAt: row.completed_at ?? null,
     skippedAt: row.skipped_at ?? null,
     deliveredAt: row.delivered_at ?? null,
+    handedFromName: row.handed_from_name ?? null,
+    handedAt: row.handed_at ?? null,
     travelSeconds: row.travel_seconds ?? null,
     dropoffTravelSeconds: row.dropoff_travel_seconds ?? null,
     latitude: client?.latitude ?? null,

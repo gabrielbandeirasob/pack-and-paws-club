@@ -35,6 +35,27 @@ describe('DriverRouteView', () => {
   });
 
   /**
+   * TRANSFERÊNCIA DE CÃO ENTRE MOTORISTAS (item 5 do documento do cliente, 25/09/2026 — migration 052):
+   * o gestor passa um cão da rota de um motorista para a de outro no meio do dia ("por escolha do
+   * chefe"). O cão chega com o histórico preservado e a tela diz DE QUEM ele veio e a hora; sem isso o
+   * motorista não sabia se aquele cão era dele ou do colega.
+   */
+  it('mostra de quem o cão foi transferido e a hora', async () => {
+    const transferido: DriverStop[] = [
+      { ...stops[0], handedFromName: 'Jordan', handedAt: '2026-10-02T17:05:00.000Z' },
+    ];
+    const tela = await render(<DriverRouteView stops={transferido} onAction={jest.fn()} />);
+
+    expect(tela.getByText(/^Received from Jordan · \d{1,2}:\d{2}/)).toBeTruthy();
+  });
+
+  it('sem transferência, a tela não fala em "Received from"', async () => {
+    const tela = await render(<DriverRouteView stops={[stops[0]]} onAction={jest.fn()} />);
+
+    expect(tela.queryByText(/Received from/)).toBeNull();
+  });
+
+  /**
    * ENTREGA (conferência do dono, 01/10/2026 — itens 2 e 5): o 2º toque ("Next") deixa a parada
    * `completed` com o cão NA VAN. Até aqui isso desabilitava o aviso ao tutor, e o motorista ficava sem
    * mandar a mensagem da ENTREGA — o cliente reclamou justamente disso. O aviso só desaparece quando a
