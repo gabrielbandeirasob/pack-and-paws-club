@@ -507,17 +507,39 @@ export default function DispatchScreen() {
     [vans.length],
   );
 
+  /**
+   * A rota do motorista naquele dia: **cria se não existir e NUNCA mexe no que já existe**.
+   *
+   * 🪤 ACHADO DA VISTORIA (02/10/2026) — era um `upsert` com `status: 'draft'` e o `assign` chama esta
+   * função SEMPRE (mesmo quando a rota já existe). Resultado: atribuir um cão a um motorista que já
+   * estava na rua **devolvia a rota dele para rascunho** — e o app do motorista só lê rota `published`,
+   * então a rota sumia do celular dele no meio do dia, sem aviso nenhum. Mesma família do incidente de
+   * 30/09/2026 (rota publicada que virava `completed` com paradas pendentes).
+   *
+   * Dois aparelhos criando ao mesmo tempo: o banco tem UNIQUE (organização, dia, motorista) — se o insert
+   * perder a corrida (23505), relê a rota que o outro aparelho criou.
+   */
   const routeIdForDriver = useCallback(async (driverId: string) => {
     if (!organizationId) throw new Error('Organization not found.');
-    const { data: route, error: routeError } = await supabase.from('routes').upsert(
-      {
-        organization_id: organizationId, route_date: date, driver_id: driverId, status: 'draft',
-        start_location_id: vanParaRota(driverId),
-      },
-      { onConflict: 'organization_id,route_date,driver_id' },
-    ).select('id').single();
-    if (routeError) throw new Error(routeError.message);
-    return (route as { id: string }).id;
+    const existente = routesRef.current.find((item) => item.driverId === driverId);
+    if (existente) return existente.routeId;
+
+    const { data, error } = await supabase.from('routes').insert({
+      organization_id: organizationId, route_date: date, driver_id: driverId, status: 'draft',
+      start_location_id: vanParaRota(driverId),
+    }).select('id').single();
+    if (error) {
+      if ((error as { code?: string }).code === '23505') {
+        const { data: outra } = await supabase
+          .from('routes').select('id')
+          .eq('organization_id', organizationId).eq('route_date', date).eq('driver_id', driverId)
+          .single();
+        const id = (outra as { id: string } | null)?.id;
+        if (id) return id;
+      }
+      throw new Error(error.message);
+    }
+    return (data as { id: string }).id;
   }, [organizationId, date, vanParaRota]);
 
   /**

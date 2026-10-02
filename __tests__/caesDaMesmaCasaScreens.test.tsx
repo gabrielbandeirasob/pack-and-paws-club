@@ -34,6 +34,10 @@ const mockReservas = [
 ];
 
 let mockParadasDaRota: unknown[] = [];
+/** Status da rota que o banco devolve (o motorista JÁ na rua tem rota `published`). */
+let mockStatusDaRota: 'draft' | 'published' = 'draft';
+/** Toda escrita que o app tentou (tabela + método) — é assim que se prova que ele NÃO escreveu. */
+const mockEscritas: Array<{ tabela: string; metodo: string }> = [];
 const mockEventos: Record<string, () => void> = {};
 jest.mock('@/lib/supabase', () => ({
   supabase: {
@@ -44,6 +48,7 @@ jest.mock('@/lib/supabase', () => ({
       for (const metodo of ['select', 'eq', 'in', 'limit', 'order', 'update', 'delete', 'upsert', 'insert']) {
         consulta[metodo] = (...args: unknown[]) => {
           if (metodo === 'select') selecao = args[0] as string;
+          if (['insert', 'upsert', 'update', 'delete'].includes(metodo)) mockEscritas.push({ tabela, metodo });
           return consulta;
         };
       }
@@ -53,7 +58,7 @@ jest.mock('@/lib/supabase', () => ({
           ? selecao === 'organization_id' ? [{ organization_id: 'clube' }]
             : [{ user_id: 'motorista', role: 'driver', profiles: { full_name: 'Rafael' } }]
           : tabela === 'reservations' ? mockReservas
-            : tabela === 'routes' ? (mockParadasDaRota.length > 0 ? [{ id: 'rota', driver_id: 'motorista', status: 'draft', lock_version: 5, route_stops: mockParadasDaRota }] : [])
+            : tabela === 'routes' ? (mockParadasDaRota.length > 0 ? [{ id: 'rota', driver_id: 'motorista', status: mockStatusDaRota, lock_version: 5, route_stops: mockParadasDaRota }] : [])
               : [],
         error: null,
       }).then(resolver);
@@ -76,6 +81,8 @@ let confirmar: ((valor: { data: null; error: { message: string } | null }) => vo
 beforeEach(() => {
   jest.clearAllMocks();
   mockParadasDaRota = [];
+  mockStatusDaRota = 'draft';
+  mockEscritas.length = 0;
   confirmar = [];
   rpc.mockImplementation(() => new Promise((resolve) => confirmar.push(resolve)));
 });
@@ -129,4 +136,32 @@ it('um clique manda as duas paradas, com a versão da rota andando a cada escrit
   });
   // O cão da outra casa continua na fila de quem não tem motorista.
   expect(tela.getByRole('button', { name: 'Assign Chuck · Sammy' })).toBeTruthy();
+});
+
+/**
+ * ATRIBUIR CÃO NÃO PODE TIRAR A ROTA DO MOTORISTA DA RUA (achado CRÍTICO da vistoria, 02/10/2026).
+ *
+ * `assign` chama `routeIdForDriver` SEMPRE e a função fazia `upsert ... status: 'draft'`: atribuir mais
+ * um cão a um motorista que já estava dirigindo devolvia a rota dele para RASCUNHO — e o app do motorista
+ * só lê rota `published`, então a rota sumia do celular dele no meio do dia, sem aviso.
+ */
+it('atribuir cão a um motorista que já está na rua NÃO mexe na rota publicada', async () => {
+  mockParadasDaRota = [
+    { dog_id: 'ollie', sequence: 1, status: 'pending', priority: 'normal', window_start: null, window_end: null, exact_time: null, dog: { id: 'ollie', name: 'Ollie', client: { name: 'Jose', latitude: null, longitude: null } } },
+  ];
+  mockStatusDaRota = 'published';
+  mockEscritas.length = 0;
+  const tela = await montar();
+
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Chuck · Sammy' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Driver Rafael' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
+  await waitFor(() => expect(rpc).toHaveBeenCalledTimes(1));
+  await act(async () => confirmar[0]({ data: null, error: null }));
+
+  // O cão entrou na rota do motorista (a escrita da parada aconteceu)...
+  expect(rpc).toHaveBeenCalledWith('assign_stop_to_route', expect.objectContaining({ p_route_id: 'rota', p_dog_id: 'sammy' }));
+  // ...e a ROTA em si não foi tocada: nada de insert/upsert/update em `routes`.
+  expect(mockEscritas.filter((e) => e.tabela === 'routes')).toEqual([]);
+  expect(mockStatusDaRota).toBe('published');
 });
