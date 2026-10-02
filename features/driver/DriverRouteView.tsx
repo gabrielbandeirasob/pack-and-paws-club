@@ -167,7 +167,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing }: Pro
             {cabecalhoDaParada && posicao ? (
               <View style={styles.groupHeader}>
                 <Text style={styles.groupTitle}>
-                  Stop {posicao.numero} · {posicao.clientName} · {posicao.totalNaTarefa} dogs
+                  Stop {posicao.numero} · {posicao.totalNaTarefa} dogs
                 </Text>
                 <Text style={styles.groupHint}>
                   Same address · {posicao.resolvidos}/{posicao.totalNaTarefa} done
@@ -192,7 +192,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing }: Pro
               ) : null}
               {/* Numera pela posicao na rota (1, 2, 3...). O painel do Dispatch ja fazia assim;
                   aqui saia o campo cru do banco, que pode vir 0 ("0. Maria Silva"). */}
-              <Text style={styles.title}>{posicao?.numero ?? index + 1}. {stop.clientName} · {stop.dogName}</Text>
+              <Text style={styles.title}>{posicao?.numero ?? index + 1}. {stop.dogName}</Text>
               <StatusBadge status={stop.status} entregue={Boolean(stop.deliveredAt)} />
             </View>
             {address ? <Text style={styles.address}>{address}</Text> : null}

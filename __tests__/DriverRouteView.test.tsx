@@ -75,12 +75,12 @@ describe('DriverRouteView', () => {
 
     expect(tela.getByText(/Owner notified at \d{2}:\d{2}/)).toBeTruthy();
   });
-  it('lists ordered stops with client, dog, address and instructions', async () => {
+  it('lists ordered stops with dog, address and instructions', async () => {
     const screen = await render(<DriverRouteView stops={stops} onAction={jest.fn()} />);
-    expect(screen.getByText('1. Maria · Bob')).toBeTruthy();
+    expect(screen.getByText('1. Bob')).toBeTruthy();
     expect(screen.getByText('123 Main St · Goiania')).toBeTruthy();
     expect(screen.getByText('Call box 185. Key inside lockbox.')).toBeTruthy();
-    expect(screen.getByText('2. John · Luna')).toBeTruthy();
+    expect(screen.getByText('2. Luna')).toBeTruthy();
   });
 
   it('fires stop actions for the right stop', async () => {
@@ -145,16 +145,16 @@ describe('DriverRouteView', () => {
   });
 
   it('numera as paradas pela posicao, mesmo se o banco trouxer sequence 0', async () => {
-    // Visto no teste na web: a tela mostrava "0. Maria Silva" porque o sequence vinha 0
+    // Visto no teste na web: a tela mostrava "0. <nome>" porque o sequence vinha 0
     // (o painel do Dispatch numerava 1, 2 — a tela do motorista usava o campo cru).
     const zerados: DriverStop[] = [
       { ...stops[0], sequence: 0 },
       { ...stops[1], sequence: 0 },
     ];
     const screen = await render(<DriverRouteView stops={zerados} onAction={jest.fn()} />);
-    expect(screen.getByText('1. Maria · Bob')).toBeTruthy();
-    expect(screen.getByText('2. John · Luna')).toBeTruthy();
-    expect(screen.queryByText('0. Maria · Bob')).toBeNull();
+    expect(screen.getByText('1. Bob')).toBeTruthy();
+    expect(screen.getByText('2. Luna')).toBeTruthy();
+    expect(screen.queryByText('0. Bob')).toBeNull();
   });
 
   it('parada concluida continua navegavel: o cartao e o botao levam ao mapa', async () => {

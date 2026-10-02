@@ -279,10 +279,13 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
   /** Seção separada: já estão na van (sem pickup), mas o gestor pode incluir na rota à mão. */
   const naVan = useMemo(() => dayItems.filter((item) => item.inVan && !assignedDogIds.has(item.dogId)), [dayItems, assignedDogIds]);
   /**
-   * 🪤 CLIENTE (print de 02/10/2026, encaminhado pelo dono): *"tô fazendo as rotas e tá aparecendo os
-   * boarding na lista"*. Eles NÃO são parada de rota (contrato do Total Pack, 28/09/2026: contam no
-   * pack, não na rota) — mas continuam à mão porque o gestor pode precisar que um volte para casa
-   * (pedido de 23/09/2026). Solução: a seção nasce RECOLHIDA e abre no toque.
+   * 🪤 CLIENTE (áudio de 02/10/2026): *"como ela está em boarding, ele não devia estar criando esse
+   * cachorro na volta… ela não tem drop-off para ela, porque ela termina junto com a van"*. Boarding
+   * NÃO é parada de rota e NUNCA tem drop-off (decisão do dono no mesmo dia: *"boarding nunca entre no
+   * drop-off"*; contrato do Total Pack de 28/09/2026). A seção continua existindo só para o gestor VER
+   * quem já está na van — sem botão de incluir na rota, que era justamente por onde um boarding entrava
+   * na volta. Nasce RECOLHIDA e abre no toque (print do cliente, 02/10/2026: *"tá aparecendo os boarding
+   * na lista"*).
    */
   const [mostrarNaVan, setMostrarNaVan] = useState(false);
   const routesByDriver = useMemo(() => new Map(routes.map((route) => [route.driverId, route])), [routes]);
@@ -398,9 +401,11 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
         </View>
 
         {/*
-          Cão em boarding que também faz daycare no dia: já acorda dentro da van, então não pede
-          pickup (pedido do cliente, 23/09/2026). Fica AQUI, e não na fila de cima, porque o gestor
-          ainda pode precisar incluí-lo na rota — quando ele tiver de voltar para casa.
+          Cão em boarding que também faz daycare no dia: já acorda dentro da van e TERMINA o dia nela —
+          não é parada de rota e NÃO tem drop-off (decisão do dono, 02/10/2026: *"boarding nunca entre no
+          drop-off"*; contrato do Total Pack, 28/09/2026). Esta seção é só INFORMATIVA (quem já está na
+          van): antes ela deixava o gestor incluir à mão "caso precise voltar para casa", e era por aí
+          que um boarding entrava na rota de volta — o que o cliente apontou no áudio de 02/10/2026.
         */}
         {naVan.length > 0 ? (
           <View style={styles.unassigned} testID="dispatch-ja-na-van">
@@ -421,19 +426,18 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
             {mostrarNaVan ? (
               <>
                 <Text style={styles.muted}>
-                  They start the day in the van, so they don&apos;t need a pickup — they are not route stops.
-                  Add one only if it has to go back home today.
+                  They start the day in the van and finish it there too — they are not route stops and never
+                  have a drop-off. This list is just so you can see who is already in the van.
                 </Text>
                 {naVan.map((item) => (
-                  <Pressable
+                  <View
                     key={item.dogId}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Add boarding ${item.clientName} · ${item.dogName}`}
-                    onPress={() => setSheet({ mode: 'assign', item })}
+                    testID={`boarding-na-van-${item.dogId}`}
+                    accessibilityLabel={`Boarding ${item.clientName} · ${item.dogName} — already in the van`}
                     style={[styles.chip, styles.chipVan]}
                   >
                     <Text style={styles.chipText}>{item.clientName} · {item.dogName}</Text>
-                  </Pressable>
+                  </View>
                 ))}
               </>
             ) : null}

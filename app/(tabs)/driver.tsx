@@ -1211,8 +1211,8 @@ export default function DriverTodayScreen() {
           <View style={[styles.etaBanner, eta.lateMinutes > 0 && styles.etaBannerLate]} accessibilityRole="alert">
             <Text style={[styles.etaText, eta.lateMinutes > 0 && styles.etaTextLate]}>
               {eta.lateMinutes > 0
-                ? `⚠️ Running ${eta.lateMinutes} min late for ${eta.clientName} · ${eta.dogName}`
-                : `Next: ${eta.clientName} · ${eta.dogName} — ${!eta.temBase ? 'route not timed yet' : eta.minutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${eta.minutes} min away` : 'far from your stops'}${position ? '' : ' (sharing location…)'}`}
+                ? `⚠️ Running ${eta.lateMinutes} min late for ${eta.dogName}`
+                : `Next: ${eta.dogName} — ${!eta.temBase ? 'route not timed yet' : eta.minutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${eta.minutes} min away` : 'far from your stops'}${position ? '' : ' (sharing location…)'}`}
             </Text>
           </View>
         ) : null}

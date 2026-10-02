@@ -95,10 +95,10 @@ describe('DispatchBoard', () => {
 
   /**
    * Cão em boarding que também faz daycare no dia: já acorda dentro da van, então NÃO pode aparecer
-   * na fila de pickup (pedido do cliente, áudio de 23/09/2026) — mas continua à mão do gestor numa
-   * seção separada, para o caso de ele precisar voltar para casa.
+   * na fila de pickup (pedido do cliente, áudio de 23/09/2026). Decisão do dono (02/10/2026):
+   * boarding NUNCA entra no drop-off — a seção separada é só INFORMATIVA, sem botão de incluir.
    */
-  it('cão que já está na van sai da fila e aparece na seção separada, podendo ser incluído à mão', async () => {
+  it('cão em boarding sai da fila e aparece só INFORMATIVO na seção separada — não dá para pôr na rota', async () => {
     const onAssign = jest.fn().mockResolvedValue(undefined);
     const comVan: DispatchStopItem[] = [
       ...dayItems,
@@ -112,17 +112,14 @@ describe('DispatchBoard', () => {
     expect(screen.getByText('Boarding — already in the van (1) ▸')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Assign Amor · Filó' })).toBeNull();
 
-    // 🪤 CLIENTE (02/10/2026): o boarding NÃO aparece na lista enquanto o gestor não pedir — ele não é
-    // parada de rota. A seção nasce recolhida; o chip só existe depois de abrir.
-    expect(screen.queryByRole('button', { name: 'Add boarding Amor · Filó' })).toBeNull();
+    // 🪤 CLIENTE (02/10/2026): o boarding é só informação — abre no toque, mostra o chip, e NÃO existe
+    // nenhum botão para jogá-lo na rota (era por aí que ele aparecia na rota de volta/drop-off).
     await fireEvent.press(screen.getByRole('button', { name: 'Show boarding dogs already in the van' }));
     expect(screen.getByText('Boarding — already in the van (1) ▾')).toBeTruthy();
-
-    // E dá para incluir na rota à mão (a volta para casa).
-    await fireEvent.press(screen.getByRole('button', { name: 'Add boarding Amor · Filó' }));
-    await fireEvent.press(screen.getByRole('button', { name: 'Driver Jordan' }));
-    await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
-    expect(onAssign).toHaveBeenCalledWith('dog-filo', 'driver-jordan', { windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' });
+    expect(screen.getByTestId('boarding-na-van-dog-filo')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Add boarding Amor · Filó' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Assign Amor · Filó' })).toBeNull();
+    expect(onAssign).not.toHaveBeenCalled();
   });
 
   it('requires a driver before assigning', async () => {

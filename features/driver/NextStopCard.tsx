@@ -162,7 +162,7 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
           </Pressable>
         ) : null}
         <View style={styles.dogTextBox}>
-          <Text style={styles.title}>{stop.clientName} · {stop.dogName}</Text>
+          <Text style={styles.title}>{stop.dogName}</Text>
           {endereco ? <Text style={styles.address}>{endereco}</Text> : null}
           {minutos != null ? (
             <Text style={[styles.eta, atraso > 0 && styles.etaLate]}>
@@ -232,7 +232,7 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
             accessibilityLabel={`Bigger photo of ${stop.dogName} — tap to close`}
           >
             <Image testID="next-stop-photo-full" source={{ uri: stop.dogPhotoUrl }} style={styles.photoFull} resizeMode="contain" />
-            <Text style={styles.photoCaption}>{stop.dogName} · {stop.clientName}</Text>
+            <Text testID="next-stop-photo-caption" style={styles.photoCaption}>{stop.dogName}</Text>
             <Text style={styles.photoHint}>Tap anywhere to close</Text>
           </Pressable>
         </Modal>

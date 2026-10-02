@@ -126,10 +126,10 @@ describe('saídas do dia (Problem disponível na entrega)', () => {
 });
 
 describe('NextStopCard', () => {
-  it('mostra o próximo cão com cliente, endereço e ETA', async () => {
+  it('mostra o próximo cão com endereço e ETA', async () => {
     const { tela } = await painel(parada({ etaMinutes: 12, lateMinutes: 0 }));
     expect(tela.getByText('NEXT STOP')).toBeTruthy();
-    expect(tela.getByText('Maria · Bob')).toBeTruthy();
+    expect(tela.getByText('Bob')).toBeTruthy();
     expect(tela.getByText('123 Main St · San Francisco')).toBeTruthy();
     expect(tela.getByText('~12 min away')).toBeTruthy();
   });

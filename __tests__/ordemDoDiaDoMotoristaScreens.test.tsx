@@ -24,7 +24,7 @@ it('lista, números, mapa e próximo cão mudam juntos ao terminar a última bus
   const tela = await render(<Tela paradas={manha} />);
   const conferir = (nomes: string[]) => {
     expect(tela.getAllByLabelText(/^Open navigation for /).map((n) => n.props.accessibilityLabel)).toEqual(nomes.map((n) => `Open navigation for ${n}`));
-    nomes.forEach((nome, i) => expect(tela.getByText(`${i + 1}. Ana · ${nome}`)).toBeTruthy());
+    nomes.forEach((nome, i) => expect(tela.getByText(`${i + 1}. ${nome}`)).toBeTruthy());
     expect(tela.getByLabelText(`Next stop: navigate to ${nomes[0]}`)).toBeTruthy();
     const chamadas = jest.mocked(RouteMap).mock.calls;
     expect(chamadas[chamadas.length - 1][0].stops.map((s) => [s.dogName, s.sequence])).toEqual(nomes.map((n, i) => [n, i + 1]));

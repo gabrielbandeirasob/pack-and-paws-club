@@ -77,7 +77,9 @@ describe('NEXT STOP — foto do cão', () => {
     fireEvent.press(tela.getByLabelText('Photo of Bob — tap to see it bigger'));
 
     await waitFor(() => expect(tela.getByLabelText('Bigger photo of Bob — tap to close')).toBeTruthy());
-    expect(tela.getByText('Bob · Maria')).toBeTruthy();
+    // A legenda da foto grande é só o nome do cão (o título do cartão, atrás, também mostra "Bob").
+    expect(tela.getByTestId('next-stop-photo-caption')).toBeTruthy();
+    expect(tela.getAllByText('Bob').length).toBeGreaterThanOrEqual(2);
     expect(tela.getByText('Tap anywhere to close')).toBeTruthy();
   });
 
@@ -97,7 +99,7 @@ describe('NEXT STOP — foto do cão', () => {
     expect(tela.queryByLabelText('Photo of Bob')).toBeNull();
     expect(tela.queryByLabelText('Photo of Bob — tap to see it bigger')).toBeNull();
     // O resto do cartão não pode ter sido empurrado para fora.
-    expect(tela.getByText('Maria · Bob')).toBeTruthy();
+    expect(tela.getByText('Bob')).toBeTruthy();
     expect(tela.getByText('123 Main St · San Francisco')).toBeTruthy();
     expect(tela.getByText(/min away/)).toBeTruthy();
   });
