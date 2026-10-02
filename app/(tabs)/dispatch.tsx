@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 
 import { buildDay, transportPool, vanPool, type DogRef, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
-import { todayLocalISO } from '@/features/calendar/dates';
+import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
 import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem, type DispatchVan } from '@/features/dispatch/DispatchBoard';
 import { juntarIrmaosDeCasa, vaoJunto } from '@/features/dispatch/houseMates';
 import { avisoDeFalhaParcial, type FalhaParcial } from '@/features/dispatch/partialWrite';
@@ -211,6 +211,13 @@ export default function DispatchScreen() {
 
   const carregarDia = useCallback(async () => {
     const { orgId, date: dia } = contexto.current;
+    /**
+     * 🪤 ACHADO DA AUDITORIA (02/10/2026): o Dispatch lia o histórico INTEIRO de reservas e exceções a
+     * cada carga (sem data nem limite) — a tela ia ficando lenta a cada mês de uso e o índice de data
+     * nem era usado. A MESMA janela da Home (−30 dias atrás, +180 à frente) acompanha o dia.
+     */
+    const janelaDe = addDaysISO(dia, -30);
+    const janelaAte = addDaysISO(dia, 180);
     const [driverResult, reservationResult, recurringResult, exceptionResult, dogResult] = await Promise.all([
       /**
        * Quem pode receber rota: motoristas E gestores. O gestor também faz pick-up/drop-off (áudio do
@@ -218,9 +225,9 @@ export default function DispatchScreen() {
        * segundo vínculo. Na tela ele aparece marcado como "· manager".
        */
       supabase.from('organization_members').select('user_id, role, profiles(full_name)').eq('organization_id', orgId).in('role', ['driver', 'manager']).eq('status', 'active'),
-      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('status', 'confirmed'),
+      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('active', true),
-      supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId),
+      supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId).gte('end_date', janelaDe).lte('start_date', janelaAte),
       // Cadastro completo (cão ativo): alimenta o "Add any dog" do Dispatch.
       supabase.from('dogs').select('id, name, client:clients(id, name, latitude, longitude)').eq('organization_id', orgId).eq('active', true),
     ]);
@@ -417,7 +424,8 @@ export default function DispatchScreen() {
     const channel = supabase
       .channel(`dispatch-${organizationId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'routes', filter: `organization_id=eq.${organizationId}` }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'route_stops' }, refresh)
+      // Filtro por organização (auditoria 02/10/2026): sem ele, o tempo real recebia as paradas de QUALQUER org.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'route_stops', filter: `organization_id=eq.${organizationId}` }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_locations', filter: `organization_id=eq.${organizationId}` }, atualizarPosicoes)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'organization_locations', filter: `organization_id=eq.${organizationId}` }, atualizarVans)
       .subscribe();
@@ -859,8 +867,23 @@ export default function DispatchScreen() {
   }, [fila, versaoDe, falhaDeEscrita, carregarRotas]);
 
   const removeStop = useCallback(async (routeId: string, dogId: string) => {
-    const { error } = await supabase.from('route_stops').delete().eq('route_id', routeId).eq('dog_id', dogId);
+    /**
+     * 🪤 ACHADO DA AUDITORIA (02/10/2026): o DELETE não conferia linha. Com a policy bloqueando, o
+     * PostgREST devolve SUCESSO com 0 linhas — a parada sumia da tela e continuava no banco.
+     * `.select('id')` + 0 linha = aviso, sem fingir que removeu.
+     */
+    const { data: removidas, error } = await supabase
+      .from('route_stops')
+      .delete()
+      .eq('route_id', routeId)
+      .eq('dog_id', dogId)
+      .select('id');
     falhaDeEscrita(error);
+    if (!removidas || removidas.length === 0) {
+      showAlert('Unable to remove this stop', 'The stop was not removed. Ask the manager to check your access.');
+      await carregarRotas();
+      return;
+    }
     await marcarRotaAlterada(routeId);
     await carregarRotas();
   }, [falhaDeEscrita, marcarRotaAlterada, carregarRotas]);
@@ -1008,7 +1031,17 @@ export default function DispatchScreen() {
     const sorted = ordemDaBusca(route.stops);
     const finished = sorted.filter((stop) => stop.status === 'completed' || stop.status === 'skipped');
     const remaining = sorted.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped');
-    if (sorted.length < 2) return;
+    // "Não há o que otimizar" AVISA (auditoria 02/10/2026): antes a tela voltava muda e o gestor
+    // não sabia por que o botão não fez nada.
+    if (remaining.length < 2) {
+      showAlert(
+        'Nothing to optimize',
+        remaining.length === 0
+          ? 'Every stop on this route is already done or skipped — there is nothing left to order.'
+          : 'There is only one stop left to order, so the route is already set.',
+      );
+      return;
+    }
 
     // Tempos reais de transito (servidor). Sem funcao/chave/internet, cai na estimativa de
     // linha reta e o gestor nem percebe atraso: a espera e limitada por timeout curto.
@@ -1058,19 +1091,29 @@ export default function DispatchScreen() {
      * o dia), então a primeira perna conta daí; sem yard cadastrado, cai na base (a van), como era.
      */
     const origemDaEntrega = yardCoords.current;
-    const entrega = optimizeRoute(ordemDaEntrega(sorted).map((stop) => ({
+    /**
+     * 🪤 ACHADO DA AUDITORIA (02/10/2026): a perna de ENTREGA recebia TODAS as paradas — inclusive
+     * concluídas/puladas, que podem não ter coordenada (o cão já saiu) e faziam o Optimize INTEIRO
+     * falhar com "Cannot optimize this route". O otimizador da tarde agora recebe só as ELEGÍVEIS
+     * (não `completed`/`skipped`); as concluídas ficam fixas no início, como na busca.
+     */
+    const entrega = optimizeRoute(ordemDaEntrega(remaining).map((stop) => ({
       ...stop, windowStart: null, windowEnd: null, exactTime: null,
     })), { travel: traffic.travel, serviceMinutes: GRACE_MINUTES }, origemDaEntrega);
     if (!entrega.feasible) {
       showAlert('Cannot optimize this route', entrega.reason ?? 'The schedule is infeasible.'); return;
     }
     const travasBusca = sorted.map((stop) => ({ dogId: stop.dogId, pin: pinDaParada(stop, 'pickup') }));
+    const travasEntrega = sorted.map((stop) => ({ dogId: stop.dogId, pin: pinDaParada(stop, 'dropoff') }));
     // Concluídas ocupam o início; qualquer trava incompatível aparece como conflito.
     const busca = ordenarComTravas([...finished, ...result.stops], [
       ...finished.map((stop, i) => ({ dogId: stop.dogId, pin: { tipo: 'fixed' as const, posicao: i + 1 } })),
       ...travasBusca,
     ], sorted.length);
-    const volta = ordenarComTravas(entrega.stops, sorted.map((stop) => ({ dogId: stop.dogId, pin: pinDaParada(stop, 'dropoff') })), sorted.length);
+    const volta = ordenarComTravas([...finished, ...entrega.stops], [
+      ...finished.map((stop, i) => ({ dogId: stop.dogId, pin: { tipo: 'fixed' as const, posicao: i + 1 } })),
+      ...travasEntrega,
+    ], sorted.length);
     const linhas = (ordem: { dogName: string }[]) => ordem.map((stop, i) => `• ${i + 1}. ${stop.dogName}`).join('\n');
     const conflitos = (resultado: typeof busca, perna: string) => resultado.conflitos.map((conflito) =>
       `${perna}: ${conflito.motivo === 'collision' ? 'Conflicting locks' : 'Position outside route'} #${conflito.posicao}: ${conflito.dogIds.map((id) => sorted.find((stop) => stop.dogId === id)?.dogName ?? id).join(', ')}`);

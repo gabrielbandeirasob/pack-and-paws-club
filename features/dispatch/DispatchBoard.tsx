@@ -865,7 +865,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.forest700 },
   scroll: { flex: 1, backgroundColor: colors.cream },
   header: { backgroundColor: colors.forest700, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 18, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
-  eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
+  eyebrow: { color: colors.gold, fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
   dateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
   title: { color: 'white', fontFamily: 'serif', fontSize: 24, fontWeight: '800', textTransform: 'capitalize' },
   arrow: { width: 42, height: 38, alignItems: 'center', justifyContent: 'center' },
@@ -908,7 +908,7 @@ const styles = StyleSheet.create({
   stopName: { color: colors.ink, fontWeight: '800', fontSize: 14 },
   badgeRow: { flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' },
   badge: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
-  badgeText: { fontSize: 10, fontWeight: '900' },
+  badgeText: { fontSize: 12, fontWeight: '900' },
   stopActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   moveButton: { minWidth: 44, minHeight: 44, padding: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.sage, borderColor: colors.line, borderWidth: 1, borderRadius: radii.small },
   moveText: { color: colors.forest700, fontSize: 18, fontWeight: '900' },
@@ -923,8 +923,10 @@ const styles = StyleSheet.create({
     minHeight: 44, // alvo de toque (vistoria 02/10/2026)
     gap: 8,
   },
-  naVanToque: { color: colors.gold, fontSize: 12, fontWeight: '700' },
-  unassignedTitle: { color: colors.muted, textTransform: 'uppercase', fontWeight: '900', fontSize: 11, marginBottom: 10 },
+  // 🪤 M4 DA AUDITORIA (02/10/2026): o "Show/Hide" era `colors.gold` sobre o cartão claro (~2,3:1).
+  // Cor de TEXTO vira `forest700`; o gold continua nas bordas/fundos.
+  naVanToque: { color: colors.forest700, fontSize: 12, fontWeight: '700' },
+  unassignedTitle: { color: colors.muted, textTransform: 'uppercase', fontWeight: '900', fontSize: 12, marginBottom: 10 },
   sugestaoLista: { maxHeight: 400, flexShrink: 1 },
   sugestaoParticipantes: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
   /** Rota em rascunho: uma linha fina, âmbar, dizendo que o motorista ainda não vê (não é erro). */
@@ -932,7 +934,7 @@ const styles = StyleSheet.create({
   sugestaoErro: { color: colors.urgency, fontSize: 11.5, fontWeight: '700', marginBottom: 8 },
   // VAN POR MOTORISTA (dono, 01/10/2026): uma linha fina, discreta — só aparece com 2+ vans cadastradas.
   vanLinha: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8 },
-  vanRotulo: { color: colors.muted, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.4 },
+  vanRotulo: { color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
   vanChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, flexShrink: 1 },
   vanChip: { borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: 'white' },
   vanChipAtiva: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
@@ -946,7 +948,8 @@ const styles = StyleSheet.create({
   sugestaoMotorista: { color: colors.ink, fontWeight: '800', fontSize: 13, marginBottom: 4 },
   sugestaoCao: { color: colors.muted, fontSize: 12, lineHeight: 17 },
   sugestaoAviso: { color: colors.forest900, backgroundColor: colors.sage, borderRadius: 10, padding: 9, fontSize: 11.5, marginBottom: 10 },
-  chip: { backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 7, borderWidth: 1, borderColor: colors.line },
+  // M5 da auditoria (02/10/2026): o chip de cão não listado tinha ~31 pt de alvo; sobe para 44 pt.
+  chip: { backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 7, borderWidth: 1, borderColor: colors.line, minHeight: 44, justifyContent: 'center' },
   chipText: { color: colors.ink, fontWeight: '800', fontSize: 13 },
   /** Botão "Add any dog": pontilhado como a moldura da fila, para não parecer um cão já listado. */
   chipAdd: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#B9C4B9', borderRadius: radii.medium, paddingVertical: 9, paddingHorizontal: 12, marginTop: 6, alignSelf: 'flex-start', backgroundColor: '#FFFFFF' },
@@ -979,7 +982,7 @@ const styles = StyleSheet.create({
   timeTarget: { backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, alignSelf: 'stretch' },
   timeTargetHalf: { flex: 1, alignSelf: 'auto' },
   timeTargetActive: { borderColor: colors.gold, backgroundColor: '#F8F1E1' },
-  timeTargetLabel: { color: colors.muted, fontWeight: '800', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4 },
+  timeTargetLabel: { color: colors.muted, fontWeight: '800', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.4 },
   timeTargetValue: { color: colors.ink, fontWeight: '800', fontSize: 16, marginTop: 3 },
   timeTargetPlaceholder: { color: colors.muted, fontWeight: '500' },
   error: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginTop: 10 },

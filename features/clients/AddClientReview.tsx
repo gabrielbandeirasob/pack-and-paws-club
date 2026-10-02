@@ -124,9 +124,26 @@ export function AddClientReview({ initial, existingClient = null, initialDogName
                   autoCapitalize="words"
                   returnKeyType="done"
                   value={valor}
-                  onChangeText={(texto) =>
-                    setCamposDeCao((atual) => atual.map((item, i) => (i === indice ? texto : item)))
-                  }
+                  onChangeText={(texto) => {
+                    setCamposDeCao((atual) => atual.map((item, i) => (i === indice ? texto : item)));
+                    /**
+                     * 🪤 B2 DA AUDITORIA (02/10/2026): a foto era indexada pelo NOME do cão
+                     * (`dogPhotoKey`). Renomear o cão depois de escolher a foto deixava a chave velha
+                     * no mapa e a miniatura sumia — o cadastro salvava sem foto. Migra a chave junto
+                     * com o nome digitado (a chave ignora caixa/acento, então "Filó"→"FILO" não mexe).
+                     */
+                    const de = dogPhotoKey(valor);
+                    const para = dogPhotoKey(texto);
+                    if (de !== para) {
+                      setDogPhotos((prev) => {
+                        if (!(de in prev)) return prev;
+                        const copia = { ...prev };
+                        copia[para] = copia[de];
+                        delete copia[de];
+                        return copia;
+                      });
+                    }
+                  }}
                   style={[styles.input, styles.dogNameInput]}
                   placeholder={indice === 0 ? 'e.g. Bob' : 'e.g. Kona'}
                 />

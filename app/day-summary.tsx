@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
   quadroRotulo: { color: colors.muted, fontSize: 11 },
   quadroRotuloDestaque: { color: colors.forest900, fontWeight: '700' },
   quadroLegenda: { color: colors.forest900, fontSize: 12, lineHeight: 15, opacity: 0.75, marginTop: 2 },
-  rotulo: { color: colors.muted, fontSize: 10.5, fontWeight: '700', marginTop: 8, letterSpacing: 0.3 },
+  rotulo: { color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: 8, letterSpacing: 0.3 },
   valor: { color: colors.ink, fontSize: 14, marginTop: 2 },
   vazio: { color: colors.muted, fontSize: 12 },
   linhaPack: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.line },

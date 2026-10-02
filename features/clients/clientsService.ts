@@ -1,3 +1,5 @@
+import type { NewClientInput } from './types';
+
 /**
  * Regras de edicao de cliente / cao (puras, testaveis).
  *
@@ -106,6 +108,34 @@ export function clientUpdatePayload(current: EditableClient, values: ClientFormV
     payload.longitude = null;
   }
   return payload;
+}
+
+/**
+ * Payload do INSERT do cliente — SÓ as colunas reais de `clients`.
+ *
+ * 🪤 ACHADO DA AUDITORIA (02/10/2026): o cadastro pelo "Add from Contacts" espalhava `...payload.client`
+ * no insert, e o contato do iPhone pode trazer `pickup_access_instructions` (de `mapContact.ts`).
+ * Essa coluna NÃO existe em `clients` — vive em `client_instructions` — e o PostgREST recusa o insert
+ * INTEIRO: o cliente do iPhone que TEM anotação simplesmente não salvava.
+ *
+ * As colunas abaixo são as do schema inicial (`202609090001`) + `second_owner_*` (migração 037).
+ * `pickup_access_instructions`/`contains_access_code` ficam de fora de propósito — quem grava é o
+ * `client_instructions` (ver `planContactAdd`/`saveClient`).
+ */
+export function clientInsertPayload(input: NewClientInput, organizationId: string): Record<string, unknown> {
+  return {
+    organization_id: organizationId,
+    name: input.name,
+    phone: input.phone,
+    second_owner_name: input.second_owner_name ?? null,
+    second_owner_phone: input.second_owner_phone ?? null,
+    address_line_1: input.address_line_1,
+    address_line_2: input.address_line_2,
+    city: input.city,
+    state: input.state,
+    postal_code: input.postal_code,
+    source_contact_identifier: input.source_contact_identifier,
+  };
 }
 
 /** Payload do UPDATE/INSERT do cachorro. */

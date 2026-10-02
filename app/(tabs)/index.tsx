@@ -38,7 +38,9 @@ import {
 import { DriveSwitchRow } from '@/features/auth/DriveSwitchRow';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { landingRouteForRole } from '@/features/navigation/roleTabs';
+import { showAlert } from '@/features/ui/alert';
 import { haversineKm } from '@/features/dispatch/routeOptimizer';
+import { rotuloDeStatus, type RouteStatus } from '@/features/dispatch/routeStatusLabel';
 import { isPastDeadline, nextStopEta } from '@/features/driver/eta';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
@@ -74,7 +76,7 @@ type StopRow = {
   updated_at: string | null;
   dog: { name: string; client: { latitude: number | null; longitude: number | null } };
 };
-type RouteRow = { id: string; driver_id: string; status: 'draft' | 'published'; route_stops: StopRow[] };
+type RouteRow = { id: string; driver_id: string; status: RouteStatus; route_stops: StopRow[] };
 type LocationRow = { driver_id: string; latitude: number; longitude: number; updated_at: string };
 
 const KM_PER_MILE = 1.609344;
@@ -107,7 +109,9 @@ function routeMiles(stops: StopRow[]): number {
   return Math.round(km / KM_PER_MILE);
 }
 
-function toDashboardRoute(
+// `toDashboardRoute` exportado para o teste travar o rótulo de CADA status (auditoria 02/10/2026:
+// uma rota cancelada aparecia como 'Draft' na Home).
+export function toDashboardRoute(
   route: RouteRow,
   driversById: Record<string, string>,
   location: { latitude: number; longitude: number } | null,
@@ -120,11 +124,19 @@ function toDashboardRoute(
       stop.status === 'pending' && isPastDeadline(stop.window_end?.slice(0, 5) ?? null, stop.exact_time?.slice(0, 5) ?? null),
     );
 
-  let statusLabel = 'Ready';
-  if (route.status !== 'published') statusLabel = 'Draft';
-  else if (stops.length > 0 && finished.length === stops.length) statusLabel = 'Done';
-  else if (late) statusLabel = 'Late';
-  else if (stops.some((stop) => stop.status === 'arrived' || stop.status === 'picked_up')) statusLabel = 'In progress';
+  /**
+   * Rótulo do status: rascunho / publicada / concluída / cancelada. Antes QUALQUER status fora de
+   * `published` virava 'Draft', então uma rota cancelada (ou já concluída) aparecia na Home como
+   * rascunho — o gestor lia o contrário do que aconteceu. A tabela é a MESMA do Dispatch
+   * (`rotuloDeStatus`); tiramos só o separador ` · `.
+   */
+  let statusLabel = rotuloDeStatus(route.status).replace(/^ · /, '');
+  if (route.status === 'published') {
+    if (stops.length > 0 && finished.length === stops.length) statusLabel = 'Done';
+    else if (late) statusLabel = 'Late';
+    else if (stops.some((stop) => stop.status === 'arrived' || stop.status === 'picked_up')) statusLabel = 'In progress';
+    else statusLabel = 'Ready';
+  }
 
   const next = stops.find((stop) => stop.status !== 'completed' && stop.status !== 'skipped');
   const eta = nextStopEta(
@@ -198,6 +210,15 @@ export default function HomeScreen() {
   const [selectedDay, setSelectedDay] = useState<string>(() => todayLocalISO());
   const hojeISO = todayLocalISO();
   const isToday = selectedDay === hojeISO;
+  /**
+   * 🪤 GUARDA DE VERSÃO (auditoria 02/10/2026): o swipe de dia dispara uma carga por dia e as
+   * respostas podem voltar FORA DE ORDEM. `diaAtualRef` guarda o dia que está de fato na tela e
+   * `leituraHome` a última carga pedida; uma resposta velha (dia ou sequência) é DESCARTADA em vez
+   * de sobrescrever o dia novo — é o mesmo padrão do Dispatch.
+   */
+  const diaAtualRef = useRef(selectedDay);
+  diaAtualRef.current = selectedDay;
+  const leituraHome = useRef(0);
   /** Sábado (6) é o dia em que a semana fecha — o atalho do resumo diz isso. */
   const ehSabado = weekdayOfISO(hojeISO) === 6;
 
@@ -222,6 +243,7 @@ export default function HomeScreen() {
   const load = useCallback(async (opcoes?: { silencioso?: boolean }) => {
     if (!opcoes?.silencioso) setLoading(true);
     setError(null);
+    const consulta = ++leituraHome.current;
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       setLoading(false);
@@ -262,7 +284,10 @@ export default function HomeScreen() {
         .from('routes')
         .select('id, driver_id, status, route_stops(id, sequence, status, window_end, exact_time, updated_at, dog:dogs(name, client:clients(latitude, longitude)))')
         .eq('organization_id', organizationId)
-        .eq('route_date', dia),
+        .eq('route_date', dia)
+        // Só rotas VIVAS (rascunho/publicada) entram no dia: uma rota cancelada trazia paradas
+        // pendentes para o "X of Y dogs done" e o progresso mentia (auditoria 02/10/2026).
+        .in('status', ['draft', 'published']),
       supabase.from('driver_locations').select('driver_id, latitude, longitude, updated_at').eq('organization_id', organizationId),
       // Plano do dia, to-do list e pack do dia (migração 035) — sempre do dia escolhido.
       supabase.from('daily_plans').select('revenue_cents, walk_location, photo_idea').eq('organization_id', organizationId).eq('day', dia).maybeSingle(),
@@ -281,6 +306,11 @@ export default function HomeScreen() {
       planResult.error ??
       todoResult.error ??
       packResult.error;
+    /**
+     * Descarta a resposta cujo dia já não é o atual (ou que foi superada por uma carga mais nova):
+     * sem isso, voltar rápido no swipe fazia a tela mostrar os dados do dia anterior.
+     */
+    if (consulta !== leituraHome.current || dia !== diaAtualRef.current) return;
     if (firstError) {
       setError(firstError.message);
       setLoading(false);
@@ -355,10 +385,16 @@ export default function HomeScreen() {
       ((locationResult.data as unknown as LocationRow[]) ?? []).map((row) => [row.driver_id, { latitude: row.latitude, longitude: row.longitude }]),
     );
     const routeRows = ((routeResult.data as unknown as RouteRow[]) ?? []).sort((a, b) => a.id.localeCompare(b.id));
-    setRoutes(routeRows.map((row) => toDashboardRoute(row, driversById, locations[row.driver_id] ?? null)));
+    /**
+     * 🪤 Defesa em profundidade (auditoria 02/10/2026): além do filtro na consulta, a própria tela
+     * descarta o que não for rascunho/publicada — assim o progresso do dia nunca conta as paradas de
+     * uma rota cancelada, mesmo que ela chegue por outro caminho (realtime, cache, mock de teste).
+     */
+    const rotasVivas = routeRows.filter((row) => row.status === 'draft' || row.status === 'published');
+    setRoutes(rotasVivas.map((row) => toDashboardRoute(row, driversById, locations[row.driver_id] ?? null)));
 
-    // Total Pack e progresso do dia: um ponto = um cão, somando todas as rotas de hoje.
-    const packRoutes: PackRoute[] = routeRows.map((row) => ({
+    // Total Pack e progresso do dia: um ponto = um cão, somando as rotas VIVAS de hoje.
+    const packRoutes: PackRoute[] = rotasVivas.map((row) => ({
       driverName: driversById[row.driver_id] ?? 'Driver',
       status: row.status,
       stops: [...row.route_stops]
@@ -505,14 +541,24 @@ export default function HomeScreen() {
     async (values: { walkLocation: string; photoIdea: string }) => {
       if (!organizationId) return;
       setPlanBusy(true);
-      await comTratamento(async () => {
+      /**
+       * 🪤 ACHADO DA AUDITORIA (02/10/2026): o `comTratamento` engolia o erro da escrita e a tela
+       * avisava "Saved" mesmo quando o banco recusou (policy bloqueando = PostgREST devolve sucesso
+       * com 0 linhas). Agora só avisa "Saved" quando GRAVOU; se falhar, diz o motivo e recarrega.
+       */
+      try {
         await saveDayPlan(supabase, { organizationId, day: selectedDay, walkLocation: values.walkLocation, photoIdea: values.photoIdea });
-      });
+      } catch (erro) {
+        showAlert('Could not save the day plan', erro instanceof Error ? erro.message : 'The plan was not saved. Try again.');
+        void load({ silencioso: true });
+        setPlanBusy(false);
+        return;
+      }
       setPlan((atual) => ({ ...atual, walkLocation: values.walkLocation || null, photoIdea: values.photoIdea || null }));
       setPlanBusy(false);
       salvouAviso();
     },
-    [comTratamento, selectedDay, organizationId, salvouAviso],
+    [load, selectedDay, organizationId, salvouAviso],
   );
 
   useFocusEffect(

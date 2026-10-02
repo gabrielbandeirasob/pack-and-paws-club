@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
   xTexto: { color: colors.urgency, fontWeight: '900', fontSize: 15 },
   xTextoVoltar: { color: colors.forest700 },
   pilha: { marginTop: 11 },
-  rotuloCaminhante: { color: colors.muted, fontSize: 11, marginBottom: 6 },
+  rotuloCaminhante: { color: colors.muted, fontSize: 12, marginBottom: 6 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   chip: { borderWidth: 1, borderColor: colors.line, borderRadius: 20, paddingHorizontal: 11, paddingVertical: 7, backgroundColor: colors.paper },
   chipOn: { backgroundColor: colors.forest700, borderColor: colors.forest700 },

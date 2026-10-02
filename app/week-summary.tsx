@@ -223,7 +223,7 @@ const styles = StyleSheet.create({
   diasLinha: { flexDirection: 'row', gap: 6, marginHorizontal: 18, marginTop: 16 },
   chipDia: { flex: 1, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, paddingVertical: 8, alignItems: 'center' },
   chipHoje: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
-  chipDiaTexto: { color: colors.muted, fontSize: 10, fontWeight: '700' },
+  chipDiaTexto: { color: colors.muted, fontSize: 12, fontWeight: '700' },
   chipDiaTextoHoje: { color: 'white' },
   chipNumero: { color: colors.forest700, fontFamily: 'serif', fontWeight: '800', fontSize: 16, marginTop: 2 },
   cartao: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.large, padding: 16, marginHorizontal: 18, marginTop: 12 },

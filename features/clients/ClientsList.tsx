@@ -168,7 +168,11 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, padding: 15, marginBottom: 10 },
   pressedCard: { opacity: 0.7 },
   cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  editHint: { color: colors.gold, fontWeight: '800', fontSize: 12 },
+  /**
+   * 🪤 M4 DA AUDITORIA (02/10/2026): o "Edit ›" era `colors.gold` (C7A75C) sobre o cartão claro —
+   * 2,27:1 no papel, abaixo do mínimo de 4,5:1. Passa a `forest700`; o gold fica só como fundo/borda.
+   */
+  editHint: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
   inactiveChip: { color: colors.muted, fontWeight: '900', fontSize: 10, letterSpacing: 0.8, backgroundColor: colors.sage, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, overflow: 'hidden' },
   clientName: { fontFamily: 'serif', fontSize: 17, fontWeight: '800', color: colors.forest900 },
   muted: { color: colors.muted, fontSize: 12, marginTop: 3 },

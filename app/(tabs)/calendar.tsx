@@ -108,7 +108,13 @@ export default function CalendarScreen() {
     setDogs(((dogResult.data as unknown as DogRow[]) ?? []).map((row) => ({ id: row.id, dogName: row.name, clientName: row.client.name, clientId: row.client.id })));
     jaCarregou.current = true;
     setLoading(false);
-  }, []);
+    /**
+     * 🪤 ACHADO DA AUDITORIA (02/10/2026 — regressão do dia): a janela de datas usa `selectedDay`, mas o
+     * `useCallback` fechava com `[]`. A janela ficava CONGELADA no dia da montagem: navegar para frente
+     * parava de trazer os dados. `selectedDay` entra nas deps para a janela acompanhar o dia (e o
+     * `useFocusEffect` recarrega quando o dia muda).
+     */
+  }, [selectedDay]);
 
   useFocusEffect(
     useCallback(() => {

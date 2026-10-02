@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
   cartao: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.large, padding: 16, marginHorizontal: 18, marginTop: 12 },
   titulo: { fontFamily: 'serif', fontWeight: '800', fontSize: 16, color: colors.ink },
   sub: { color: colors.muted, fontSize: 11.5, marginTop: 3, marginBottom: 10 },
-  rotulo: { color: colors.muted, fontSize: 10.5, fontWeight: '700', marginBottom: 5, letterSpacing: 0.3 },
+  rotulo: { color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 5, letterSpacing: 0.3 },
   entrada: { borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, paddingHorizontal: 11, paddingVertical: 10, color: colors.ink, fontSize: 13, backgroundColor: colors.cream, marginBottom: 11 },
   entradaAlta: { minHeight: 62, textAlignVertical: 'top' },
   rodape: { flexDirection: 'row', alignItems: 'center', gap: 12 },

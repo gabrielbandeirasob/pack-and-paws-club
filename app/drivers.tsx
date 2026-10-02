@@ -341,7 +341,9 @@ const styles = StyleSheet.create({
   closeText: { color: colors.forest700, fontWeight: '800' },
   pressedCard: { opacity: 0.7 },
   roleOff: { color: colors.urgency, fontWeight: '700' },
-  chev: { color: colors.gold, fontWeight: '800', fontSize: 12 },
+  // 🪤 M4 DA AUDITORIA (02/10/2026): o "›" da lista era `colors.gold` sobre o cartão claro (~2,3:1).
+  // Cor de TEXTO vira `forest700`; o gold continua nas bordas/fundos.
+  chev: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
   modalTitle: { fontFamily: 'serif', fontSize: 24, fontWeight: '800', color: colors.forest900, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 14 },
   fieldLabel: { color: colors.muted, fontSize: 11, fontWeight: '800', letterSpacing: 0.4, marginHorizontal: 20, marginBottom: 5 },
   input: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 11, color: colors.ink, fontSize: 15, marginHorizontal: 20 },

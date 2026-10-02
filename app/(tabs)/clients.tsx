@@ -6,7 +6,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 
 import { AddClientReview } from '@/features/clients/AddClientReview';
 import { ClientsList } from '@/features/clients/ClientsList';
-import { clientHasInstructions, dogPhotoKey, duplicateHint as duplicateHintText, findDuplicateClients, planContactAdd, splitContactName, splitDogNames, type ExistingContactClient } from '@/features/clients/clientsService';
+import { clientHasInstructions, clientInsertPayload, dogPhotoKey, duplicateHint as duplicateHintText, findDuplicateClients, planContactAdd, splitContactName, splitDogNames, type ExistingContactClient } from '@/features/clients/clientsService';
 import { createContactsService, type ContactsService } from '@/features/clients/contactsService';
 import { mapContactToClientInput } from '@/features/clients/mapContact';
 import type { ClientWithDogs, NewClientInput, PhoneContactCandidate } from '@/features/clients/types';
@@ -184,9 +184,15 @@ export default function ClientsScreen() {
     let clientId = plan.clientId;
 
     if (plan.mode === 'create') {
+      /**
+       * 🪤 ACHADO DA AUDITORIA (02/10/2026): o insert espalhava `...payload.client` e o contato do
+       * iPhone que TEM anotação trazia `pickup_access_instructions` — coluna que não existe em
+       * `clients` (vive em `client_instructions`). O insert inteiro era recusado e o cliente não salvava.
+       * `clientInsertPayload` monta o insert só com as colunas REAIS da tabela.
+       */
       const { data: inserted, error: clientError } = await supabase
         .from('clients')
-        .insert({ ...payload.client, organization_id: organizationId })
+        .insert(clientInsertPayload(payload.client, organizationId))
         .select('id')
         .single();
       if (clientError && clientError.code !== '23505') throw new Error(clientError.message);
