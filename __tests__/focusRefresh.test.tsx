@@ -57,6 +57,9 @@ function cadeia(resultado: unknown) {
   builder.in = mesma;
   builder.limit = mesma;
   builder.order = mesma;
+  // A agenda filtra por janela de data (vistoria 02/10/2026): o mock espelha a consulta REAL.
+  builder.gte = mesma;
+  builder.lte = mesma;
   builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve(resultado).then(resolve);
   return builder;
 }

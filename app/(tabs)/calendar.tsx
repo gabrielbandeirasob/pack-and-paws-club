@@ -52,15 +52,23 @@ export default function CalendarScreen() {
     const orgId = (memberships as { organization_id: string }[] | null)?.[0]?.organization_id ?? null;
     setOrganizationId(orgId);
     if (!orgId) { setLoading(false); return; }
+    const janelaDe = addDaysISO(selectedDay, -30);
+    const janelaAte = addDaysISO(selectedDay, 180);
     const [reservationResult, recurringResult, exceptionResult, dogResult] = await Promise.all([
       /**
        * CANCELADAS: entram só para o ESPELHO. Dono, 28/09/2026: *"se a gente cancelar pelo app, eu não
        * quero que você apague o evento do calendário — mude a cor para vermelho (tomato)"*. Sem esta
        * lista, a reserva cancelada sumia daqui e o espelho APAGAVA o evento do escritório.
        */
-      supabase.from('reservations').select('id, status, service_type, start_date, end_date, transport_required, goes_to_daycare, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).in('status', ['confirmed', 'cancelled']),
+      /**
+       * 🪤 ACHADO DA VISTORIA (02/10/2026): estas consultas liam TODAS as reservas (confirmadas E
+       * canceladas) e TODAS as exceções, sem janela de data, a cada foco — a tela ia ficando lenta a cada
+       * mês de uso (o índice de data nem era usado). A janela ACOMPANHA o dia escolhido (±30 dias atrás,
+       * +180 à frente), então navegar para frente e para trás continua trazendo o que interessa.
+       */
+      supabase.from('reservations').select('id, status, service_type, start_date, end_date, transport_required, goes_to_daycare, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).in('status', ['confirmed', 'cancelled']).gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
-      supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', orgId),
+      supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', orgId).gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase.from('dogs').select('id, name, client:clients(id, name)').eq('organization_id', orgId).eq('active', true),
     ]);
     const queryError = reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? dogResult.error;

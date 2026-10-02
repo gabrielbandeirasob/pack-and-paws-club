@@ -38,7 +38,8 @@ beforeEach(() => {
   mockFrom.mockImplementation((table: string) => {
     let statuses: string[] = [];
     const chain = {
-      select: () => chain, eq: () => chain, limit: () => chain,
+      // O mock espelha a consulta REAL: a tela filtra por janela de data (vistoria 02/10/2026).
+      select: () => chain, eq: () => chain, limit: () => chain, gte: () => chain, lte: () => chain,
       in: (column: string, values: string[]) => { expect(column).toBe('status'); statuses = values; return chain; },
       update: mockUpdate,
       then: (resolve: (result: unknown) => unknown) => Promise.resolve({ error: null, data:

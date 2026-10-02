@@ -419,11 +419,15 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
         });
       } else {
         const tabela = escolha2.kind === 'recurring' ? 'recurring_schedules' : 'reservations';
-        const { error } = await supabase
+        // 🪤 ACHADO DA VISTORIA (02/10/2026): 0 linha (policy) não é sucesso — o evento ficava ligado na
+        // tela e solto no banco.
+        const { data: ligados, error } = await supabase
           .from(tabela)
           .update({ google_event_id: escolhendo.eventId, source: 'google' })
-          .eq('id', escolha2.id);
+          .eq('id', escolha2.id)
+          .select('id');
         if (error) throw new Error(error.message);
+        if (!ligados || ligados.length === 0) throw new Error('Could not link this event. Ask the manager to check your access.');
       }
       setRevisao((itens) => itens.filter((item) => item.eventId !== escolhendo.eventId));
       setEscolhendo(null);
@@ -489,8 +493,10 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     try {
       const nova: CalendarChoice = { calendarId: candidato.id, summary: candidato.summary };
       if (organizationId) {
-        const { error } = await supabase.from('organizations').update(corpoDaEscolha(nova)).eq('id', organizationId);
+        // Mesma armadilha: a escolha do calendário não pode parecer gravada sem ter gravado.
+        const { data: escolhido, error } = await supabase.from('organizations').update(corpoDaEscolha(nova)).eq('id', organizationId).select('id');
         if (error) throw new Error(error.message);
+        if (!escolhido || escolhido.length === 0) throw new Error('Could not save this calendar. Ask the manager to check your access.');
       }
       setAvisoCalendario(avisoDeTroca(escolha, candidato.id));
       setEscolha(nova);

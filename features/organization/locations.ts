@@ -456,6 +456,12 @@ export async function setDefaultOrganizationLocation(client: SupabaseClient, loc
 
 /** Apaga a sede. As rotas que apontavam para ela ficam com a referência em branco (on delete set null). */
 export async function removeOrganizationLocation(client: SupabaseClient, locationId: string): Promise<void> {
-  const { error } = await client.from('organization_locations').delete().eq('id', locationId);
+  /**
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): DELETE sem conferir linhas — com a policy bloqueando, o
+   * PostgREST responde SUCESSO com 0 linhas e a van/sede saía da lista continuando cadastrada (e as
+   * rotas seguiam apontando para ela).
+   */
+  const { data, error } = await client.from('organization_locations').delete().eq('id', locationId).select('id');
   if (error) throw new Error(error.message);
+  if (!data || data.length === 0) throw new Error('Could not remove this van. Ask the manager to check your access.');
 }

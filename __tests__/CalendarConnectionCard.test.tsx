@@ -78,7 +78,9 @@ jest.mock('@/lib/supabase', () => ({
       chain.eq = () => chain;
       chain.single = async () => ({ data: { id: 'novo-id' }, error: null });
       chain.maybeSingle = async () => ({ data: mockOrganizacao, error: null });
-      chain.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(res);
+      // Escrita com `.select('id')`: o banco devolve a linha atingida — sem isso o card trataria a gravação
+      // como bloqueada (é justamente o que o app passou a conferir, vistoria 02/10/2026).
+      chain.then = (res: (v: unknown) => unknown) => Promise.resolve({ data: [{ id: 'novo-id' }], error: null }).then(res);
       return chain;
     },
   },

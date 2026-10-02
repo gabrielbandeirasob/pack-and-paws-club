@@ -134,25 +134,35 @@ export default function DriversScreen() {
 
     const desativar = async () => {
       setRemoving(true);
-      const { error } = await supabase
+      /**
+       * 🪤 ACHADO DA VISTORIA (02/10/2026): UPDATE sem conferir linhas. Com a policy bloqueando, o
+       * PostgREST responde SUCESSO com 0 linhas — o motorista saía da lista como desativado e continuava
+       * ativo no banco (seguia recebendo rota). `.select('user_id')` + 0 linha = erro na tela.
+       */
+      const { data: desativados, error } = await supabase
         .from('organization_members')
         .update({ status: 'disabled' })
         .eq('organization_id', organizationId)
-        .eq('user_id', editing.user_id);
+        .eq('user_id', editing.user_id)
+        .select('user_id');
       setRemoving(false);
       if (error) { showAlert('Could not disable', error.message); return; }
+      if (!desativados || desativados.length === 0) { showAlert('Could not disable', 'The change did not go through. Ask the manager to check your access.'); return; }
       setEditing(null);
       await load({ silent: true });
     };
 
     const apagarVinculo = async () => {
       setRemoving(true);
-      const { error } = await supabase
+      // Mesma armadilha: 0 linha sem erro = o vínculo continuou vivo.
+      const { data: removidos, error } = await supabase
         .from('organization_members')
         .delete()
         .eq('organization_id', organizationId)
-        .eq('user_id', editing.user_id);
+        .eq('user_id', editing.user_id)
+        .select('user_id');
       if (error) { setRemoving(false); showAlert('Could not remove', error.message); return; }
+      if (!removidos || removidos.length === 0) { setRemoving(false); showAlert('Could not remove', 'Nothing was removed. Ask the manager to check your access.'); return; }
       // Push para na hora (politica device_tokens_manager_delete, migration 022).
       // Se falhar, a remocao vale igual: sem vinculo ele nao recebe mais rota atribuida.
       await supabase.from('device_tokens').delete().eq('user_id', editing.user_id);

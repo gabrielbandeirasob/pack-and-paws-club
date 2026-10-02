@@ -3,7 +3,7 @@ import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { todayLocalISO, weekdayOfISO } from '@/features/calendar/dates';
+import { addDaysISO, todayLocalISO, weekdayOfISO } from '@/features/calendar/dates';
 import {
   buildDay,
   type RecurringExceptionRecord,
@@ -243,14 +243,21 @@ export default function HomeScreen() {
     }
 
     const dia = selectedDay;
+    /**
+     * 🪤 ACHADO DA VISTORIA (02/10/2026): reservas e exceções eram lidas SEM data nem limite — o app
+     * varria o histórico inteiro a cada foco (11 consultas) e ia ficando mais lento a cada mês de uso;
+     * o índice de data existia e não era usado. A janela acompanha o dia escolhido.
+     */
+    const janelaDe = addDaysISO(dia, -30);
+    const janelaAte = addDaysISO(dia, 180);
     const [profileResult, driverResult, memberResult, reservationResult, recurringResult, exceptionResult, routeResult, locationResult, planResult, todoResult, packResult] = await Promise.all([
       supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle(),
       supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).eq('role', 'driver').eq('status', 'active'),
       // Quem pode CAMINHAR com um cão (operação, 26/09): qualquer membro ativo, não só o motorista da rota.
       supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).eq('status', 'active'),
-      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('status', 'confirmed'),
+      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('active', true),
-      supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', organizationId),
+      supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', organizationId).gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase
         .from('routes')
         .select('id, driver_id, status, route_stops(id, sequence, status, window_end, exact_time, updated_at, dog:dogs(name, client:clients(latitude, longitude)))')

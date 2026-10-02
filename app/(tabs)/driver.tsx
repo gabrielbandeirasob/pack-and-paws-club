@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, type AlertButton } from 'react-native';
+import { ActivityIndicator, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type AlertButton } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -89,6 +89,8 @@ export default function DriverTodayScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const [pendingSync, setPendingSync] = useState(0);
+  /** Puxar para atualizar (o indicador do RefreshControl). */
+  const [atualizando, setAtualizando] = useState(false);
   /** As paradas da tela (para nomear o cão na mensagem da fila). */
   const stopsRef = useRef<DriverStop[]>([]);
   // Mantém a ref alinhada com a tela (a fila offline roda fora do render e precisa do nome do cão).
@@ -380,6 +382,28 @@ export default function DriverTodayScreen() {
     setStops(applyPendingEvents(snapshot.stops, events));
     setLoading(false);
   }, [syncOutbox]);
+
+  /**
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): a fila de escritas offline só subia no foco da aba, no tempo real
+   * (que precisa de sinal) ou depois de outra escrita — o motorista com sinal intermitente ficava com os
+   * passos PRESOS no aparelho até sair da tela e voltar. Agora, enquanto houver passo pendente, a tela
+   * tenta sozinha de novo (o `load` é quem sobe a fila).
+   */
+  useEffect(() => {
+    if (pendingSync === 0) return undefined;
+    const timer = setInterval(() => { void load(true); }, 30_000);
+    return () => clearInterval(timer);
+  }, [pendingSync, load]);
+
+  /** Puxar para atualizar: recarrega por baixo e sobe a fila de escritas pendentes. */
+  const puxarParaAtualizar = useCallback(async () => {
+    setAtualizando(true);
+    try {
+      await load(true);
+    } finally {
+      setAtualizando(false);
+    }
+  }, [load]);
 
   useFocusEffect(
     useCallback(() => {
@@ -949,11 +973,18 @@ export default function DriverTodayScreen() {
        * A tab bar do expo-router vive fora desta árvore, então não é empurrada nem quebra.
        */}
       <ScrollView
+        testID="driver-scroll"
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         automaticallyAdjustContentInsets={false}
         contentInsetAdjustmentBehavior="never"
+        /**
+         * 🪤 ACHADO DA VISTORIA (02/10/2026): era o único scroller da tela e não tinha puxar para
+         * atualizar — o motorista parado com sinal de volta não tinha como forçar nada (e `load()` é
+         * quem sobe a fila de escritas offline).
+         */
+        refreshControl={<RefreshControl refreshing={atualizando} onRefresh={() => void puxarParaAtualizar()} tintColor={colors.gold} />}
       >
         <View style={styles.header}>
           <Text style={styles.eyebrow}>PACK & PAWS CLUB · DRIVER</Text>

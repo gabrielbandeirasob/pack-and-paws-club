@@ -12,7 +12,7 @@
  *    continua fora do fluxo e o "Problem" continua pedindo motivo — nada disso mudou).
  */
 import React from 'react';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 const mockEstado: {
   atualizacoes: { tabela: string; payload: Record<string, unknown> }[];
@@ -313,5 +313,26 @@ it('depois do toque a tela NÃO volta para o "carregando"', async () => {
     } finally {
       mockEstado.escritaSemLinha = false;
     }
+  });
+
+  /**
+   * 🪤 VISTORIA (02/10/2026): o motorista perdia o sinal, fazia os registros offline e, com o sinal de
+   * volta, nada subia sozinho — a fila só saía no foco da aba (ou seja: sair da tela e voltar). Agora a
+   * tela tem PUXAR PARA ATUALIZAR, e ele também sobe a fila.
+   */
+  it('puxar para atualizar sobe a fila de escritas offline', async () => {
+    mockEstado.falhaDeRede = true;
+    const tela = await abrirTelaDoMotorista();
+
+    await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+    await waitFor(() => expect(mockEstado.atualizacoes.length).toBeGreaterThan(0));
+
+    // O sinal voltou: o motorista puxa a tela — e a fila sobe SEM sair da aba.
+    mockEstado.falhaDeRede = false;
+    const lista = tela.getByTestId('driver-scroll');
+    expect(lista.props.refreshControl).toBeTruthy();
+    await act(async () => { await lista.props.refreshControl.props.onRefresh(); });
+
+    await waitFor(() => expect(mockEstado.statusDaParada).toBe('arrived'));
   });
 });
