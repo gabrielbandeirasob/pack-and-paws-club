@@ -15,10 +15,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { carregarFimDaRota, carregarParadasDaRota, type FimDaRota, type ParadaDaRota } from '@/features/dispatch/routeStops';
+import { carregarFimDaRota, carregarParadasDaRota, ordenarParaEntrega, type FimDaRota, type ParadaDaRota } from '@/features/dispatch/routeStops';
 import { loadRouteEndLocationForDriver } from '@/features/organization/locations';
 import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
-import { jaFeita, marcosDaParada, proximaPendente, resumoDaEntrega, resumoDaRota } from '@/features/dashboard/stopProgress';
+import { jaFeita, marcosDaParada, proximaEntrega, proximaPendente, resumoDaEntrega, resumoDaRota, situacaoDaEntrega } from '@/features/dashboard/stopProgress';
 import { formatDayLabel } from '@/features/calendar/dates';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
@@ -132,6 +132,12 @@ export default function RouteStopsScreen() {
   const resumo = useMemo(() => resumoDaRota(paradas), [paradas]);
   const entrega = useMemo(() => resumoDaEntrega(paradas), [paradas]);
   const proxima = useMemo(() => proximaPendente(paradas), [paradas]);
+  /**
+   * A TARDE da rota (drop-offs) — cliente, 02/10/2026: *"Onde eu vejo os drop off? Não tá aparecendo. Os
+   * pick up estavam."* Mesmas paradas, na ordem de ENTREGA, com o que já foi entregue.
+   */
+  const paraEntrega = useMemo(() => ordenarParaEntrega(paradas), [paradas]);
+  const proximaDaEntrega = useMemo(() => proximaEntrega(paraEntrega), [paraEntrega]);
   const fechamento = useMemo(
     () => fechamentoDaRota({
       buscaTerminou: buscaTerminou(paradas),
@@ -196,6 +202,40 @@ export default function RouteStopsScreen() {
               </View>
             );
           })}
+
+          {/*
+            * DROP-OFFS — a TARDE da rota (cliente, 02/10/2026: *"onde eu vejo os drop off?"*). Mesmas
+            * paradas, na ordem de ENTREGA, com a SITUAÇÃO da entrega de cada cão (entregue/pendente/
+            * na van). Antes a tela só mostrava a manhã (pick-ups) — era o buraco que ele apontou.
+            */}
+          {!erro && paradas.length > 0 ? (
+            <View style={styles.cartao}>
+              <Text style={styles.cartaoTitulo}>Drop-offs</Text>
+              <Text style={styles.resumo}>{entrega}</Text>
+              <Text style={styles.proxima}>
+                {proximaDaEntrega
+                  ? `Next: ${proximaDaEntrega.dogName} · ${situacaoDaEntrega(proximaDaEntrega)}`
+                  : 'All delivered 🎉'}
+              </Text>
+            </View>
+          ) : null}
+
+          {!erro && paradas.length > 0
+            ? paraEntrega.map((parada) => {
+                const entregue = Boolean(parada.deliveredAt);
+                return (
+                  <View key={`entrega-${parada.id}`} testID={`entrega-${parada.id}`} style={[styles.linha, entregue && styles.linhaFeita]}>
+                    <View style={styles.linhaTopo}>
+                      <Text style={styles.posicao}>{parada.dropoffSequence ?? '–'}</Text>
+                      <Text style={styles.cao}>{parada.clientName} · {parada.dogName}</Text>
+                      <Text style={[styles.selo, entregue && styles.seloFeito]}>{situacaoDaEntrega(parada)}</Text>
+                    </View>
+                    {parada.address ? <Text style={styles.endereco}>{parada.address}</Text> : null}
+                    <Text style={[styles.marcos, entregue && styles.marcosFeito]}>{marcosDaParada(parada)}</Text>
+                  </View>
+                );
+              })
+            : null}
 
           {/* O FIM DA ROTA (pedido do cliente, 02/10/2026). Sem ação: é o destino que faltava na lista. */}
           {fechamento ? (

@@ -77,6 +77,21 @@ export function ordenarParadas(paradas: ParadaDaRota[]): ParadaDaRota[] {
 }
 
 /**
+ * Ordem da ENTREGA (a tarde), a mesma que o motorista passa a ver depois de "Start drop-offs".
+ *
+ * 🪤 CLIENTE (02/10/2026): *"Onde eu vejo os drop off? Não tá aparecendo. Os pick up estavam."* A tela do
+ * gestor (`app/route-stops.tsx`) tinha SÓ a lista de pick-ups. Parada sem `dropoff_sequence` (o gestor
+ * ainda não ordenou a tarde) vai para o fim, na ordem da busca — nunca desaparece da lista.
+ */
+export function ordenarParaEntrega(paradas: ParadaDaRota[]): ParadaDaRota[] {
+  return [...paradas].sort((a, b) => {
+    if (a.dropoffSequence == null) return b.dropoffSequence == null ? a.sequence - b.sequence : 1;
+    if (b.dropoffSequence == null) return -1;
+    return a.dropoffSequence - b.dropoffSequence || a.sequence - b.sequence;
+  });
+}
+
+/**
  * Lê a rota e devolve as paradas já mapeadas e ordenadas.
  * `null` = a rota não existe / não está visível para quem pediu (RLS).
  */

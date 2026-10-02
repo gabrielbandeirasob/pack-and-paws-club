@@ -87,3 +87,23 @@ export function resumoDaEntrega(paradas: Pick<ParadaComMarcos, 'deliveredAt'>[])
 export function proximaPendente<T extends ParadaComMarcos>(paradas: T[]): T | null {
   return paradas.find((parada) => !jaFeita(parada)) ?? null;
 }
+
+/**
+ * SITUAÇÃO DA ENTREGA de uma parada — o que o gestor lê na lista de DROP-OFFS (cliente, 02/10/2026:
+ * *"onde eu vejo os drop off?"*). A busca concluída NÃO é entrega: por isso o rótulo vem do marco
+ * `delivered_at`, não do `status` (que fica `completed` já no pick-up).
+ */
+export function situacaoDaEntrega(
+  parada: Pick<ParadaComMarcos, 'status' | 'deliveredAt' | 'pickedUpAt' | 'completedAt'>,
+): string {
+  if (parada.status === 'skipped') return 'Problem';
+  const entrega = horaCurta(parada.deliveredAt);
+  if (entrega) return `Delivered · ${entrega}`;
+  const naVan = Boolean(parada.pickedUpAt) || Boolean(parada.completedAt) || parada.status === 'picked_up' || parada.status === 'completed';
+  return naVan ? 'In the van' : 'Pending';
+}
+
+/** A próxima ENTREGA pendente (cão já embarcado ou posto direto na tarde) — `null` quando acabou. */
+export function proximaEntrega<T extends ParadaComMarcos>(paradas: T[]): T | null {
+  return paradas.find((parada) => parada.status !== 'skipped' && !parada.deliveredAt) ?? null;
+}

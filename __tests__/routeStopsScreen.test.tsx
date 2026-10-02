@@ -79,18 +79,20 @@ describe('tela Route stops (gestor)', () => {
   it('lista as paradas com situação e a hora de cada marco', async () => {
     const tela = await render(<RouteStopsScreen />);
 
-    await waitFor(() => expect(tela.getByText('Cristina · Lucky')).toBeTruthy());
-    expect(tela.getByText('Andrea · Oreo')).toBeTruthy();
-    expect(tela.getByText('Jez · Winter')).toBeTruthy();
+    // A lista de DROP-OFFS repete os MESMOS cães (cliente, 02/10/2026), então agora há mais de um nó
+    // com o mesmo texto — o que o teste quer provar é que a parada aparece.
+    await waitFor(() => expect(tela.getAllByText('Cristina · Lucky').length).toBeGreaterThan(0));
+    expect(tela.getAllByText('Andrea · Oreo').length).toBeGreaterThan(0);
+    expect(tela.getAllByText('Jez · Winter').length).toBeGreaterThan(0);
     // horas (fuso local do aparelho)
-    expect(tela.getByText('arrived 08:18 · done 08:18 · delivered 14:05')).toBeTruthy();
-    expect(tela.getByText('arrived 08:54 · done 08:55')).toBeTruthy();
+    expect(tela.getAllByText('arrived 08:18 · done 08:18 · delivered 14:05').length).toBeGreaterThan(0);
+    expect(tela.getAllByText('arrived 08:54 · done 08:55').length).toBeGreaterThan(0);
     // pendente cai na previsão
-    expect(tela.getByText('Must arrive by 09:30')).toBeTruthy();
+    expect(tela.getAllByText('Must arrive by 09:30').length).toBeGreaterThan(0);
     // situação e endereço
     expect(tela.getAllByText('Completed')).toHaveLength(2);
-    expect(tela.getByText('Pending')).toBeTruthy();
-    expect(tela.getByText('329 Middlefield Rd, Palo Alto')).toBeTruthy();
+    expect(tela.getAllByText('Pending').length).toBeGreaterThan(0);
+    expect(tela.getAllByText('329 Middlefield Rd, Palo Alto').length).toBeGreaterThan(0);
   });
 
   it('mostra o resumo e qual é a próxima parada', async () => {
@@ -130,7 +132,7 @@ describe('tela Route stops (gestor)', () => {
    */
   it('puxar para atualizar relê a rota (a lista não fica congelada)', async () => {
     const tela = await render(<RouteStopsScreen />);
-    await waitFor(() => expect(tela.getByText(/1 of 3 delivered/)).toBeTruthy());
+    await waitFor(() => expect(tela.getAllByText(/1 of 3 delivered/).length).toBeGreaterThan(0));
     const antes = (supabase.from as jest.Mock).mock.calls.length;
 
     // o motorista entregou mais um cão enquanto o gestor olhava a lista
@@ -145,7 +147,7 @@ describe('tela Route stops (gestor)', () => {
     await act(async () => { await refreshControl.props.onRefresh(); });
 
     expect((supabase.from as jest.Mock).mock.calls.length).toBeGreaterThan(antes);
-    await waitFor(() => expect(tela.getByText(/2 of 3 delivered/)).toBeTruthy());
+    await waitFor(() => expect(tela.getAllByText(/2 of 3 delivered/).length).toBeGreaterThan(0));
   });
 
   /**
@@ -218,7 +220,7 @@ describe('tela Route stops (gestor)', () => {
    */
   it('carrega a rota UMA vez no primeiro foco (montagem + foco não dobram a consulta)', async () => {
     const tela = await render(<RouteStopsScreen />);
-    await waitFor(() => expect(tela.getByText('Cristina · Lucky')).toBeTruthy());
+    await waitFor(() => expect(tela.getAllByText('Cristina · Lucky').length).toBeGreaterThan(0));
 
     const primeiraCarga = (supabase.from as jest.Mock).mock.calls.length;
 
