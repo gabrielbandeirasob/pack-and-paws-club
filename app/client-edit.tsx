@@ -130,8 +130,19 @@ export default function ClientEditScreen() {
     setError(null);
     try {
       const { address_changed: enderecoMudou, ...clientColumns } = clientUpdatePayload(loaded.current, payload.client);
-      const { error: clientError } = await supabase.from('clients').update({ ...clientColumns, active: payload.active }).eq('id', id);
+      /**
+       * 🪤 ACHADO DA VISTORIA (02/10/2026): o UPDATE era enviado sem conferir as linhas atingidas.
+       * Quando o RLS/policy bloqueia, o PostgREST responde SUCESSO com 0 linhas — a tela voltava como se
+       * tivesse salvado e o dado reaparecia igual. Mesmo padrão já usado em `app/drivers.tsx` (o gestor
+       * só pode gravar o que é dele): `.select('id')` e zero linha = falha de verdade.
+       */
+      const { data: salvo, error: clientError } = await supabase
+        .from('clients')
+        .update({ ...clientColumns, active: payload.active })
+        .eq('id', id)
+        .select('id');
       if (clientError) throw new Error(clientError.message);
+      if (!salvo || salvo.length === 0) throw new Error('Could not save this client. Ask the manager to check your access.');
 
       // Endereco mudou => as coordenadas antigas foram DESCARTADAS (regra do clientUpdatePayload).
       // Aqui o pino e refeito pelo servidor (Google Geocoding), em segundo plano: nao segura a
@@ -205,9 +216,15 @@ export default function ClientEditScreen() {
   const arquivarCliente = async () => {
     setDeleting(true);
     setError(null);
-    const { error: archiveError } = await supabase.from('clients').update({ active: false }).eq('id', id);
+    // Mesma armadilha do UPDATE de cima (vistoria 02/10/2026): 0 linhas sem erro = não gravou.
+    const { data: arquivado, error: archiveError } = await supabase
+      .from('clients')
+      .update({ active: false })
+      .eq('id', id)
+      .select('id');
     setDeleting(false);
     if (archiveError) { setError(archiveError.message); return; }
+    if (!arquivado || arquivado.length === 0) { setError('Could not save this client. Ask the manager to check your access.'); return; }
     router.back();
   };
 

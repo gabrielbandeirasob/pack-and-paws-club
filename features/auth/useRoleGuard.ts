@@ -21,7 +21,9 @@ export function rotaDoPapel(role: OrganizationRole): string {
  * quem usa deve mostrar o carregando enquanto
  * for `false`, para nunca pintar a tela errada.
  */
-export function useRoleGuard(esperado: OrganizationRole): { role: OrganizationRole | null; liberado: boolean } {
+export function useRoleGuard(
+  esperado: OrganizationRole,
+): { role: OrganizationRole | null; liberado: boolean; isLoading: boolean } {
   const { role, view, isLoading } = useOrganizationRole();
   const liberado = !isLoading && view === esperado;
 
@@ -30,5 +32,5 @@ export function useRoleGuard(esperado: OrganizationRole): { role: OrganizationRo
     router.replace(rotaDoPapel(view) as never);
   }, [isLoading, view, esperado]);
 
-  return { role, liberado };
+  return { role, liberado, isLoading };
 }

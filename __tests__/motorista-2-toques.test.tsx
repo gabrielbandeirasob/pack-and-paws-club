@@ -131,8 +131,9 @@ jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock'),
 );
 
+let mockPapel: { role: string | null; view: string | null; isLoading: boolean } = { role: 'driver', view: 'driver', isLoading: false };
 jest.mock('@/features/auth/useOrganizationRole', () => ({
-  useOrganizationRole: () => ({ role: 'driver', view: 'driver', isLoading: false }),
+  useOrganizationRole: () => mockPapel,
 }));
 
 jest.mock('expo-router', () => ({
@@ -239,4 +240,24 @@ it('depois do toque a tela NÃO volta para o "carregando"', async () => {
   await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Bob')).toBeTruthy());
   expect(tela.queryByTestId('driver-loading')).toBeNull();
 });
+
+  /**
+   * VISTORIA (02/10/2026) — A RODINHA ETERNA.
+   *
+   * Conta sem vínculo ativo na organização ficava travada na rodinha para sempre: `view` = null faz o
+   * guard não redirecionar nunca e a tela não dizia nada. Agora ela EXPLICA e dá saída.
+   */
+  it('conta sem vínculo: explica e oferece sair, em vez de rodinha eterna', async () => {
+    mockPapel = { role: null, view: null, isLoading: false };
+    try {
+      const Tela = require('../app/(tabs)/driver').default;
+      const tela = await render(<Tela />);
+
+      await waitFor(() => expect(tela.getByText('This account has no daycare')).toBeTruthy());
+      expect(tela.getByLabelText('Sign out')).toBeTruthy();
+      expect(tela.queryByTestId('driver-loading')).toBeNull();
+    } finally {
+      mockPapel = { role: 'driver', view: 'driver', isLoading: false };
+    }
+  });
 });

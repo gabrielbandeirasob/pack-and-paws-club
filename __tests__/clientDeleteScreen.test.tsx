@@ -61,7 +61,8 @@ jest.mock('@/lib/supabase', () => {
       if (b._op !== 'select') mockChamadas.push(`${tabela}.${b._op}`);
       if (tabela === 'clients') {
         if (b._op === 'select') return Promise.resolve({ data: cliente, error: null }).then(resolve);
-        return Promise.resolve({ data: null, error: null }).then(resolve);
+        // O que o UPDATE devolve: 1 linha = gravou; `[]` = a policy bloqueou (0 linhas, SEM erro).
+        return Promise.resolve({ data: mockLinhasSalvas, error: null }).then(resolve);
       }
       if (tabela === 'reservations') return Promise.resolve({ data: null, error: null, count: mockCounts.reservations }).then(resolve);
       if (tabela === 'route_stops') return Promise.resolve({ data: null, error: null, count: mockCounts.routeStops }).then(resolve);
@@ -84,10 +85,14 @@ function capturarAlertas() {
   return { alertas, spy };
 }
 
+/** Linhas que o UPDATE de `clients` devolve. `[]` = a policy bloqueou (0 linhas, mas sem erro). */
+let mockLinhasSalvas: unknown[] = [{ id: 'cliente-1' }];
+
 describe('excluir cliente', () => {
   beforeEach(() => {
     mockChamadas.length = 0;
     mockVoltar.mockClear();
+    mockLinhasSalvas = [{ id: 'cliente-1' }];
     mockCounts.reservations = 7;
     mockCounts.routeStops = 12;
   });
@@ -182,6 +187,27 @@ describe('excluir cliente', () => {
     await waitFor(() => expect(mockChamadas).toContain('clients.update'));
     expect(mockChamadas).not.toContain('clients.delete');
     await waitFor(() => expect(mockVoltar).toHaveBeenCalled());
+    spy.mockRestore();
+  });
+
+  /**
+   * VISTORIA (02/10/2026) — SALVAR QUE NÃO PEGOU TEM DE VIRAR ERRO.
+   *
+   * Mesmo defeito já corrigido no nome do motorista (01/10/2026): quando a policy bloqueia, o PostgREST
+   * responde sucesso com 0 linhas. Aqui a tela voltava como se tivesse salvado e o dado reaparecia igual.
+   * Agora `.select('id')` + 0 linhas = erro na tela, e a tela NÃO sai.
+   */
+  it('UPDATE que não pega linha nenhuma NÃO finge que salvou: mostra erro e não sai da tela', async () => {
+    const { alertas, spy } = capturarAlertas();
+    mockLinhasSalvas = []; // policy bloqueou: 0 linhas, sem erro
+    const tela = await render(<ClientEditScreen />);
+
+    await waitFor(() => expect(tela.getByLabelText('Delete client')).toBeTruthy());
+    fireEvent.press(tela.getByLabelText('Delete client'));
+    alertas[alertas.length - 1].buttons?.find((b) => b.text === 'Keep history (inactive)')?.onPress?.();
+
+    await waitFor(() => expect(tela.getByText(/Could not save this client/)).toBeTruthy());
+    expect(mockVoltar).not.toHaveBeenCalled();
     spy.mockRestore();
   });
 });

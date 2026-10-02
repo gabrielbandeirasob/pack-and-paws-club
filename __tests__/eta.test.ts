@@ -145,3 +145,25 @@ describe('tolerância de atraso (grace period de 3 minutos)', () => {
     expect(nextStopEta([stop({ id: 's1' })], null, as(23, 59))?.lateMinutes).toBe(0);
   });
 });
+
+/**
+ * VISTORIA (02/10/2026) — "~0 min away" era INVENTADO.
+ *
+ * Sem perna de rota gravada e sem posição do motorista, `minutes` caía em 0 e a faixa do topo dizia
+ * "~0 min away" (chegando!) quando o app não tinha base nenhuma. Agora o resultado diz se tem base.
+ */
+describe('ETA sem base não vira zero', () => {
+  it('sem rota otimizada e sem posição: temBase = false (a tela escreve "route not timed yet")', () => {
+    const stops = [stop({ id: 's1', sequence: 1, latitude: 10, longitude: 10 })];
+    const eta = nextStopEta(stops, null);
+    expect(eta?.minutes).toBe(0);
+    expect(eta?.temBase).toBe(false);
+  });
+
+  it('com a posição do motorista: temBase = true', () => {
+    const stops = [stop({ id: 's1', sequence: 1, latitude: 0, longitude: 0.2 })];
+    const eta = nextStopEta(stops, { latitude: 0, longitude: 0 });
+    expect(eta?.temBase).toBe(true);
+    expect(eta?.minutes).toBeGreaterThan(0);
+  });
+});

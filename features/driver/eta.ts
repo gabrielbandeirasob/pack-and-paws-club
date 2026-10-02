@@ -32,6 +32,14 @@ export type EtaResult = {
   dogName: string;
   minutes: number;
   lateMinutes: number; // > 0 when the projected arrival is past the window/deadline
+  /**
+   * O número tem base REAL? (perna da rota gravada pelo Optimize, ou a posição do motorista)
+   *
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): sem perna na rota e sem posição o cálculo caía em `minutes = 0`
+   * e a faixa do topo dizia **"~0 min away"** — contraditório ("chegando" quando o app não sabe). Agora
+   * quem usa pode dizer "route not timed yet" em vez de inventar zero.
+   */
+  temBase: boolean;
 };
 
 const DEFAULT_SPEED_KPH = 25;
@@ -252,10 +260,11 @@ export function nextStopEta(stops: EtaStop[], position: EtaPosition | null, now:
   if (!next) return null;
 
   const daRota = minutosAteParadaPorRota(stops, next.id);
+  const temPosicao = Boolean(position && next.latitude != null && next.longitude != null);
   const minutes = daRota != null
     ? daRota
-    : position && next.latitude != null && next.longitude != null
-      ? minutesBetweenKm(haversineKm(position.latitude, position.longitude, next.latitude, next.longitude), speedKph)
+    : temPosicao
+      ? minutesBetweenKm(haversineKm(position!.latitude, position!.longitude, next.latitude!, next.longitude!), speedKph)
       : 0;
 
   const deadline = hhmmToMinutes(next.exactTime ?? next.windowEnd);
@@ -268,5 +277,6 @@ export function nextStopEta(stops: EtaStop[], position: EtaPosition | null, now:
     dogName: next.dogName,
     minutes: Math.round(minutes),
     lateMinutes,
+    temBase: daRota != null || temPosicao,
   };
 }

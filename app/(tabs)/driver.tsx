@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View, type AlertButton } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { todayLocalISO } from '@/features/calendar/dates';
@@ -280,6 +280,8 @@ export default function DriverTodayScreen() {
     setPendingSync(events.length);
 
     let snapshot = await loadRouteSnapshot();
+    /** A carga caiu por REDE? (se sim, o vazio não pode afirmar que não existe rota) */
+    let semRede = false;
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const { data: routes, error } = await supabase
@@ -339,6 +341,7 @@ export default function DriverTodayScreen() {
         return;
       }
       setOffline(true);
+      semRede = true;
       snapshot = await loadRouteSnapshot();
     }
 
@@ -348,7 +351,11 @@ export default function DriverTodayScreen() {
     if (!snapshot) {
       setStops([]);
       setPublishedAt(null);
-      setOffline(false);
+      // 🪤 ACHADO DA VISTORIA (02/10/2026): aqui era `setOffline(false)` FIXO, e isso apagava o aviso de
+      // offline que o próprio `catch` tinha acabado de ligar. Resultado: o motorista sem sinal via a
+      // tela dizer "No published route today" como se fosse fato — e ia embora achando que o gestor não
+      // publicou. Sem rede e sem cache o app não sabe se existe rota; então mantém o aviso.
+      setOffline(semRede || !synced);
       setLoading(false);
       return;
     }
@@ -851,11 +858,36 @@ export default function DriverTodayScreen() {
   const proximaParada = useMemo(() => nextStopFor(stopsComEta), [stopsComEta]);
 
   // A trava acompanha a visão: o gestor que ligou o interruptor também pode dirigir.
-  const { liberado } = useRoleGuard('driver');
+  const { liberado, role, isLoading: carregandoPapel } = useRoleGuard('driver');
   if (!liberado) {
+    // 🪤 ACHADO DA VISTORIA (02/10/2026): aqui era SÓ a rodinha. Quando a conta não tem vínculo ativo
+    // na organização (foi removida, convite nunca aceito), `view` fica `null` e o guard não redireciona
+    // NUNCA — o motorista ficava olhando uma rodinha girando para sempre, sem texto e sem saída.
+    if (carregandoPapel || role !== null) {
+      return (
+        <SafeAreaView style={styles.screen} edges={['top']}>
+          <ActivityIndicator testID="driver-loading" style={styles.center} color={colors.gold} size="large" />
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={styles.screen} edges={['top']}>
-        <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
+        <ScrollView contentContainerStyle={styles.semVinculo}>
+          <Text style={styles.semVinculoEmoji}>🐾</Text>
+          <Text style={styles.semVinculoTitulo}>This account has no daycare</Text>
+          <Text style={styles.semVinculoTexto}>
+            Your login is not linked to an active daycare. Ask the manager to invite this e-mail again,
+            or sign in with the account you use there.
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Sign out"
+            onPress={() => { void supabase.auth.signOut().then(() => router.replace('/login' as never)); }}
+            style={styles.semVinculoBotao}
+          >
+            <Text style={styles.semVinculoBotaoTexto}>Sign out</Text>
+          </Pressable>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -899,7 +931,7 @@ export default function DriverTodayScreen() {
             <Text style={[styles.etaText, eta.lateMinutes > 0 && styles.etaTextLate]}>
               {eta.lateMinutes > 0
                 ? `⚠️ Running ${eta.lateMinutes} min late for ${eta.clientName} · ${eta.dogName}`
-                : `Next: ${eta.clientName} · ${eta.dogName} — ${eta.minutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${eta.minutes} min away` : 'far from your stops'}${position ? '' : ' (sharing location…)'}`}
+                : `Next: ${eta.clientName} · ${eta.dogName} — ${!eta.temBase ? 'route not timed yet' : eta.minutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${eta.minutes} min away` : 'far from your stops'}${position ? '' : ' (sharing location…)'}`}
             </Text>
           </View>
         ) : null}
@@ -907,8 +939,12 @@ export default function DriverTodayScreen() {
           {loading ? <ActivityIndicator testID="driver-loading" style={styles.center} color={colors.gold} size="large" /> : stops.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyEmoji}>🚚</Text>
-              <Text style={styles.emptyTitle}>No published route today</Text>
-              <Text style={styles.emptyText}>When the manager publishes your route, it will appear here with every stop and instruction.</Text>
+              <Text style={styles.emptyTitle}>{offline ? "Can't reach the office" : 'No published route today'}</Text>
+              <Text style={styles.emptyText}>
+                {offline
+                  ? 'Your route may exist — the app just could not read it. Pull down or wait for the signal to come back; nothing you did here is lost.'
+                  : 'When the manager publishes your route, it will appear here with every stop and instruction.'}
+              </Text>
             </View>
           ) : (
             <>
@@ -994,6 +1030,12 @@ const styles = StyleSheet.create({
   center: { marginTop: 80 },
   empty: { alignItems: 'center', paddingHorizontal: 34, marginTop: 90 },
   emptyEmoji: { fontSize: 44 },
+  semVinculo: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 10 },
+  semVinculoEmoji: { fontSize: 34 },
+  semVinculoTitulo: { fontSize: 18, fontWeight: '700', color: colors.ink, textAlign: 'center' },
+  semVinculoTexto: { fontSize: 14, lineHeight: 20, color: colors.muted, textAlign: 'center' },
+  semVinculoBotao: { marginTop: 6, minHeight: 44, justifyContent: 'center', paddingHorizontal: 22, borderRadius: radii.medium, backgroundColor: colors.forest700 },
+  semVinculoBotaoTexto: { color: colors.cream, fontSize: 15, fontWeight: '700' },
   emptyTitle: { fontFamily: 'serif', fontSize: 20, fontWeight: '800', color: colors.forest900, marginTop: 12 },
   emptyText: { color: colors.muted, textAlign: 'center', fontSize: 13, lineHeight: 20, marginTop: 8 },
   message: { position: 'absolute', left: 18, right: 18, bottom: 24, backgroundColor: colors.urgency, borderRadius: 12, padding: 12 },

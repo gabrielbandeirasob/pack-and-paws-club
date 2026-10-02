@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { todayLocalISO } from '@/features/calendar/dates';
+import { dayPrefix } from '@/features/dashboard/dayNavigation';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { landingRouteForRole } from '@/features/navigation/roleTabs';
 import { packProgress, performanceSummary, progressRows, type PackRoute } from '@/features/dashboard/packProgress';
@@ -143,10 +144,13 @@ export default function DayProgressScreen() {
         <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={12}>
           <Text style={styles.voltar}>‹ Back</Text>
         </Pressable>
-        <Text style={styles.titulo}>Today&apos;s progress</Text>
+        {/* 🪤 ACHADO DA VISTORIA (02/10/2026): estava escrito "Today" FIXO. O gestor arrastava a Home
+            para amanhã, tocava em "Tomorrow's progress" e a tela abria com os dados certos dizendo
+            "Today's progress" / "Nothing scheduled for today". Agora o título segue o dia escolhido. */}
+        <Text style={styles.titulo}>{dayPrefix(dia)}&apos;s progress</Text>
         <Text style={styles.resumo}>
           {resumo.total === 0
-            ? 'Nothing scheduled for today'
+            ? `Nothing scheduled for ${dayPrefix(dia).toLowerCase()}`
             : `${resumo.done} of ${resumo.total} dogs done · ${resumo.left} left`}
         </Text>
       </View>
@@ -161,7 +165,7 @@ export default function DayProgressScreen() {
           <Text style={styles.erro}>{erro}</Text>
         ) : linhas.length === 0 ? (
           <Text style={styles.vazioTexto}>
-            No routes for today yet. Assign the dogs in Dispatch and publish the route.
+            {`No routes for ${dayPrefix(dia).toLowerCase()} yet. Assign the dogs in Dispatch and publish the route.`}
           </Text>
         ) : (
           linhas.map((linha, indice) => (

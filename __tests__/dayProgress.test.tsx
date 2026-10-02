@@ -1,6 +1,9 @@
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
 
+/** O dia que a Home manda em `?day=` — mutável: um teste prova que o título SEGUE esse dia. */
+let mockDia = '2026-09-26';
+
 /**
  * Tela "Today's progress" — pedido do cliente (22/09/2026): ver nas duas rotas quais
  * cães já foram pegos/concluídos no dia, com a hora da marcação.
@@ -8,7 +11,7 @@ import { render, waitFor } from '@testing-library/react-native';
 jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: () => undefined, push: () => undefined, back: () => undefined }),
   // A tela lê o dia de `?day=` (navegação por dia, 27/09/2026); sem parâmetro ela cai em hoje.
-  useLocalSearchParams: () => ({ day: '2026-09-26' }),
+  useLocalSearchParams: () => ({ day: mockDia }),
   useFocusEffect: (callback: () => void | (() => void)) => {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     (require('react') as typeof React).useEffect(() => {
@@ -24,11 +27,8 @@ jest.mock('@/features/auth/useOrganizationRole', () => ({
 
 const ORG = 'c0af17d6-7b2a-49f2-b78e-3263ca346c33';
 
-jest.mock('@/lib/supabase', () => {
-  const resultados: Record<string, unknown> = {
-    'organization_members|organization_id': [{ organization_id: ORG }],
-    'organization_members|profiles': [{ user_id: 'd1', profiles: { full_name: 'Rafael' } }],
-    'routes|route_stops': [
+/** Rotas do dia que o banco devolve — mutável: o teste do dia vazio zera isto. */
+let mockRotasDoDia: unknown[] = [
       {
         id: 'r1',
         driver_id: 'd1',
@@ -43,14 +43,28 @@ jest.mock('@/lib/supabase', () => {
           { id: 's3', sequence: 3, status: 'pending', updated_at: '2026-09-25T16:06:00.000Z', status_updated_at: null, window_end: null, exact_time: '14:50', dog: { name: 'Mel' } },
         ],
       },
-    ],
+];
+
+jest.mock('@/lib/supabase', () => {
+  const resultados: Record<string, unknown> = {
+    'organization_members|organization_id': [{ organization_id: ORG }],
+    'organization_members|profiles': [{ user_id: 'd1', profiles: { full_name: 'Rafael' } }],
+    'routes|route_stops': () => mockRotasDoDia,
   };
   return {
     supabase: {
       auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
       from: (tabela: string) => {
         let colunas = '';
-        const escolher = () => (colunas.includes('organization_id') ? resultados['organization_members|organization_id'] : colunas.includes('profiles') ? resultados['organization_members|profiles'] : resultados['routes|route_stops']);
+        const escolher = () => {
+          const valor = colunas.includes('organization_id')
+            ? resultados['organization_members|organization_id']
+            : colunas.includes('profiles')
+              ? resultados['organization_members|profiles']
+              : resultados['routes|route_stops'];
+          // função = lê ao vivo (o teste do dia vazio troca a lista por [])
+          return typeof valor === 'function' ? (valor as () => unknown)() : valor;
+        };
         const chain: Record<string, unknown> = {};
         chain.select = (c: string) => {
           colunas = c;
@@ -68,6 +82,9 @@ jest.mock('@/lib/supabase', () => {
 
 describe("Today's progress", () => {
   it('lista as duas rotas com estado e hora de cada cão', async () => {
+    // O título segue o dia de `?day=` (vistoria 02/10/2026): relógio no MESMO dia para dizer "Today's".
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 8, 26, 12, 0));
     const Tela = require('../app/day-progress').default;
     const tela = await render(<Tela />);
 
@@ -127,6 +144,47 @@ describe("Today's progress", () => {
 
       await waitFor(() => expect(tela.getByText('1 of 3 done · last update 14:20')).toBeTruthy());
     } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  /**
+   * VISTORIA (02/10/2026) — "Today's progress" estava ESCRITO FIXO.
+   *
+   * O gestor arrastava a Home para amanhã, tocava em "Tomorrow's progress" e a tela abria com os dados
+   * do dia certo dizendo "Today's progress" / "Nothing scheduled for today". Agora o título e o vazio
+   * seguem o dia escolhido.
+   */
+  it('o TÍTULO segue o dia escolhido (amanhã não se chama hoje)', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 8, 26, 12, 0));
+    mockDia = '2026-09-27'; // amanhã em relação ao relógio
+    try {
+      const Tela = require('../app/day-progress').default;
+      const tela = await render(<Tela />);
+
+      await waitFor(() => expect(tela.getByText("Tomorrow's progress")).toBeTruthy());
+      expect(tela.queryByText("Today's progress")).toBeNull();
+    } finally {
+      mockDia = '2026-09-26';
+      jest.useRealTimers();
+    }
+  });
+
+  it('DIA VAZIO fala do dia escolhido, não de "today"', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(2026, 8, 26, 12, 0));
+    const rotasOriginais = mockRotasDoDia;
+    mockDia = '2026-09-27';
+    mockRotasDoDia = [];
+    try {
+      const Tela = require('../app/day-progress').default;
+      const tela = await render(<Tela />);
+
+      await waitFor(() => expect(tela.getByText('Nothing scheduled for tomorrow')).toBeTruthy());
+    } finally {
+      mockRotasDoDia = rotasOriginais;
+      mockDia = '2026-09-26';
       jest.useRealTimers();
     }
   });

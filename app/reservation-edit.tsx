@@ -63,8 +63,18 @@ export default function ReservationEditScreen() {
     setError(null);
     try {
       const payload = reservationUpdatePayload(values);
-      const { error: updateError } = await supabase.from('reservations').update(payload).eq('id', id);
+      /**
+       * 🪤 ACHADO DA VISTORIA (02/10/2026): UPDATE sem conferir linhas atingidas. Bloqueio de policy
+       * devolve sucesso com 0 linhas e a tela saía como se tivesse salvo. `.select('id')` + zero linha
+       * = avisa na tela em vez de mentir.
+       */
+      const { data: salvo, error: updateError } = await supabase
+        .from('reservations')
+        .update(payload)
+        .eq('id', id)
+        .select('id');
       if (updateError) throw new Error(updateError.message);
+      if (!salvo || salvo.length === 0) throw new Error('Could not save the reservation. Ask the manager to check your access.');
       router.back();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not save the reservation.');

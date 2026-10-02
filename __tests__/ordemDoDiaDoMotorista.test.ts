@@ -56,7 +56,8 @@ it('lista vazia não tem próxima parada', () => {
 });
 
 it('ETA conserva a estrutura e acompanha a mudança da busca para a entrega', () => {
-  expect(nextStopEta(paradas, null)).toEqual({ stopId: 'Lucki', clientName: 'Ana', dogName: 'Lucki', minutes: 0, lateMinutes: 0 });
+  // `temBase: false` = sem posição e sem perna de rota o app não tem base para estimar (vistoria 02/10/2026).
+  expect(nextStopEta(paradas, null)).toEqual({ stopId: 'Lucki', clientName: 'Ana', dogName: 'Lucki', minutes: 0, lateMinutes: 0, temBase: false });
   expect(nextStopEta(paradas.map((s, i) => ({ ...s, status: i === 2 ? 'pending' : s.status })), null)?.stopId).toBe('Luna');
 });
 
