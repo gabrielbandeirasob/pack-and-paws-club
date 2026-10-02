@@ -8,6 +8,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+import { LOCATION_COLUMNS, locationsFromRows, type OrganizationLocation } from '@/features/organization/locations';
+
 export type ParadaDaRota = {
   id: string;
   sequence: number;
@@ -93,4 +95,37 @@ export async function carregarParadasDaRota(
   if (!data) return null;
   const linhas = ((data as { route_stops?: ParadaDaLinha[] | null }).route_stops ?? []) as ParadaDaLinha[];
   return ordenarParadas(linhas.map(mapearParada));
+}
+
+/** As duas sedes que fecham o dia: onde a BUSCA termina (o yard) e onde o dia acaba (a van). */
+export type FimDaRota = { start: OrganizationLocation | null; end: OrganizationLocation | null };
+
+/**
+ * Carrega o FIM da rota para a lista do gestor — pedido do CLIENTE (02/10/2026): *"as rota de pick up não
+ * tão acabando no yard"*. Best-effort de propósito: qualquer falha devolve os dois nulos e a lista fica
+ * como era (sem o cartão do fim) — acompanhar as paradas não pode depender disto.
+ */
+export async function carregarFimDaRota(client: SupabaseClient, routeId: string): Promise<FimDaRota> {
+  const vazio: FimDaRota = { start: null, end: null };
+  try {
+    const { data, error } = await client
+      .from('routes')
+      .select('start_location_id, end_location_id')
+      .eq('id', routeId)
+      .maybeSingle();
+    if (error || !data) return vazio;
+    const rota = data as { start_location_id?: string | null; end_location_id?: string | null };
+    const ids = [rota.start_location_id, rota.end_location_id].filter((id): id is string => Boolean(id));
+    const { data: locais } = await client
+      .from('organization_locations')
+      .select(LOCATION_COLUMNS)
+      .in('id', ids.length > 0 ? ids : ['']);
+    const porId = new Map(locationsFromRows(locais).map((local) => [local.id, local]));
+    return {
+      start: rota.start_location_id ? porId.get(rota.start_location_id) ?? null : null,
+      end: rota.end_location_id ? porId.get(rota.end_location_id) ?? null : null,
+    };
+  } catch {
+    return vazio;
+  }
 }

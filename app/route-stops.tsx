@@ -14,7 +14,8 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, T
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 
-import { carregarParadasDaRota, type ParadaDaRota } from '@/features/dispatch/routeStops';
+import { carregarFimDaRota, carregarParadasDaRota, type FimDaRota, type ParadaDaRota } from '@/features/dispatch/routeStops';
+import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
 import { jaFeita, marcosDaParada, proximaPendente, resumoDaEntrega, resumoDaRota } from '@/features/dashboard/stopProgress';
 import { formatDayLabel } from '@/features/calendar/dates';
 import { colors, radii } from '@/features/theme/tokens';
@@ -41,6 +42,8 @@ export default function RouteStopsScreen() {
   const [erro, setErro] = useState<string | null>(null);
 
   const [atualizando, setAtualizando] = useState(false);
+  /** As sedes que fecham o dia (yard no fim da busca, van no fim das entregas) — cliente, 02/10/2026. */
+  const [fimDaRota, setFimDaRota] = useState<FimDaRota>({ start: null, end: null });
 
   /**
    * `silencioso` = recarregar sem trocar a tela pela rodinha (a lista fica na frente e o dado se
@@ -56,6 +59,8 @@ export default function RouteStopsScreen() {
     setErro(null);
     try {
       const lista = await carregarParadasDaRota(supabase, routeId);
+      // O FIM da rota (yard/van): pedido do cliente, 02/10/2026 — o gestor vê onde o dia fecha.
+      setFimDaRota(await carregarFimDaRota(supabase, routeId));
       if (lista === null) {
         setErro('This route is not available on this account.');
         setParadas([]);
@@ -94,6 +99,15 @@ export default function RouteStopsScreen() {
   const resumo = useMemo(() => resumoDaRota(paradas), [paradas]);
   const entrega = useMemo(() => resumoDaEntrega(paradas), [paradas]);
   const proxima = useMemo(() => proximaPendente(paradas), [paradas]);
+  const fechamento = useMemo(
+    () => fechamentoDaRota({
+      buscaTerminou: buscaTerminou(paradas),
+      entregaTerminou: entregaTerminou(paradas),
+      yard: fimDaRota.end,
+      van: fimDaRota.start,
+    }),
+    [paradas, fimDaRota],
+  );
 
   return (
     <SafeAreaView style={styles.tela} edges={['top']}>
@@ -149,6 +163,16 @@ export default function RouteStopsScreen() {
               </View>
             );
           })}
+
+          {/* O FIM DA ROTA (pedido do cliente, 02/10/2026). Sem ação: é o destino que faltava na lista. */}
+          {fechamento ? (
+            <View style={styles.fechamento} testID="route-closing">
+              <Text style={styles.fechamentoTag}>{fechamento.kind === 'yard' ? 'YARD' : 'VAN'}</Text>
+              <Text style={styles.fechamentoTitulo}>{fechamento.title}</Text>
+              <Text style={styles.fechamentoSub}>{fechamento.subtitle}</Text>
+              {fechamento.address ? <Text style={styles.fechamentoEndereco}>{fechamento.address}</Text> : null}
+            </View>
+          ) : null}
         </ScrollView>
       )}
     </SafeAreaView>
@@ -180,4 +204,17 @@ const styles = StyleSheet.create({
   endereco: { color: colors.muted, fontSize: 12, marginTop: 4, marginLeft: 24 },
   marcos: { color: colors.forest900, fontSize: 12, fontWeight: '700', marginTop: 4, marginLeft: 24 },
   marcosFeito: { color: colors.muted, fontWeight: '600' },
+  fechamento: {
+    marginTop: 14,
+    padding: 14,
+    borderRadius: radii.medium,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.paper,
+    gap: 2,
+  },
+  fechamentoTag: { fontSize: 12, fontWeight: '800', letterSpacing: 1, color: colors.muted },
+  fechamentoTitulo: { fontSize: 16, fontWeight: '800', color: colors.ink },
+  fechamentoSub: { fontSize: 12, color: colors.muted, lineHeight: 16 },
+  fechamentoEndereco: { fontSize: 13, color: colors.forest700, marginTop: 2 },
 });

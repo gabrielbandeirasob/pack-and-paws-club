@@ -33,19 +33,27 @@ const paradas = [
 ];
 
 let mockErro: string | null = null;
-let mockRota: unknown = { id: 'rota-1', route_stops: paradas };
+let mockRota: Record<string, unknown> | null = { id: 'rota-1', route_stops: paradas };
+/** As sedes que fecham o dia (van/yard) — a tela lê por id (cliente, 02/10/2026). */
+let mockLocais: unknown[] = [];
 
+/** Cadeia do PostgREST falsa por TABELA (a tela faz 3 consultas: rota, sedes e nada mais). */
 jest.mock('@/lib/supabase', () => ({
   supabase: {
-    from: jest.fn(() => ({
-      select: jest.fn(() => ({
-        eq: jest.fn(() => ({
-          maybeSingle: jest.fn(async () => (
-            mockErro ? { data: null, error: { message: mockErro } } : { data: mockRota, error: null }
-          )),
-        })),
-      })),
-    })),
+    from: jest.fn((tabela: string) => {
+      const b: Record<string, unknown> = {};
+      const mesmo = () => b;
+      // `jest.fn` para os testes conseguirem espiar as consultas (o teste acima faz isso).
+      for (const metodo of ['select', 'eq', 'in', 'limit', 'order']) b[metodo] = jest.fn(mesmo);
+      const resposta = () => {
+        if (mockErro) return { data: null, error: { message: mockErro } };
+        return { data: tabela === 'routes' ? mockRota : tabela === 'organization_locations' ? mockLocais : null, error: null };
+      };
+      b.maybeSingle = jest.fn(async () => resposta());
+      b.single = jest.fn(async () => resposta());
+      b.then = (res: (v: unknown) => unknown) => Promise.resolve(resposta()).then(res);
+      return b;
+    }),
   },
 }));
 
@@ -61,6 +69,7 @@ jest.mock('expo-router', () => ({
 
 beforeEach(() => {
   mockErro = null;
+  mockLocais = [];
   mockRota = { id: 'rota-1', route_stops: paradas };
   mockVoltar.mockClear();
   (supabase.from as jest.Mock).mockClear();
@@ -137,5 +146,38 @@ describe('tela Route stops (gestor)', () => {
 
     expect((supabase.from as jest.Mock).mock.calls.length).toBeGreaterThan(antes);
     await waitFor(() => expect(tela.getByText(/2 of 3 delivered/)).toBeTruthy());
+  });
+
+  /**
+   * PEDIDO DO CLIENTE (02/10/2026, print encaminhado pelo dono): *"as rota de pick up não tão acabando no
+   * yard. E as de drop off não tão acabando no local da van."* — a lista do gestor também mostra onde o
+   * dia fecha: no yard depois da busca e na van no fim do dia.
+   */
+  it('mostra onde o dia FECHA (yard depois da busca, van no fim do dia)', async () => {
+    mockRota = {
+      id: 'rota-1',
+      start_location_id: 'van-1',
+      end_location_id: 'yard-1',
+      route_stops: paradas.map((parada) => ({ ...parada, status: 'picked_up', delivered_at: null })),
+    };
+    mockLocais = [
+      { id: 'van-1', name: 'Van 1', kind: 'van', address_line_1: '3111 La Selva', city: 'San Mateo', latitude: 37.5427429, longitude: -122.2849121, radius_meters: 300, is_default: true },
+      { id: 'yard-1', name: 'Yard', kind: 'yard', address_line_1: '1089 Memorex Drive', city: 'Santa Clara', latitude: 37.362643, longitude: -121.9527423, radius_meters: 300, is_default: false },
+    ];
+
+    const Tela = require('../app/route-stops').default;
+    const tela = await render(<Tela />);
+
+    // Busca terminada (todos embarcados) e nenhuma entrega ainda: o dia vai para o YARD.
+    await waitFor(() => expect(tela.getByText('Back to the yard')).toBeTruthy());
+    expect(tela.getByText('1089 Memorex Drive · Santa Clara')).toBeTruthy();
+
+    // Entregou tudo: fecha voltando para a VAN.
+    mockRota = { ...mockRota, route_stops: paradas.map((parada) => ({ ...parada, status: 'completed', delivered_at: emLocal(15, 0) })) };
+    const atualizada = tela.getByTestId('route-stops-lista');
+    await act(async () => { await atualizada.props.refreshControl.props.onRefresh(); });
+
+    await waitFor(() => expect(tela.getByText('Back to the van')).toBeTruthy());
+    mockRota = { id: 'rota-1', route_stops: paradas };
   });
 });
