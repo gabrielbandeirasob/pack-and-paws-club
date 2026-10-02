@@ -76,8 +76,24 @@ export function supabaseImportPorts(
    */
   const autoria = opcoes.criadoPor ? { created_by: opcoes.criadoPor } : {};
 
+  /**
+   * 🪤 ACHADO DA VISTORIA (02/10/2026) — a marca da pausa que ESTA importação criou.
+   *
+   * É o `reason` fixado no insert de `gravarPausas`. A limpeza usa o MESMO texto para apagar só as
+   * pausas do Google: as que o gestor marcou no app têm outro `reason` ('Skipped on this date' — a
+   * tela `app/(tabs)/calendar.tsx`), então sobrevivem à rodada.
+   */
+  const PAUSA_DO_GOOGLE = 'Pausa marcada no Google Calendar';
+
   const gravarPausas = async (scheduleId: string, skipDates: string[]): Promise<void> => {
-    await client.from('recurring_exceptions').delete().eq('recurring_schedule_id', scheduleId).eq('action', 'skip');
+    /**
+     * 🪤 ACHADO DA VISTORIA (02/10/2026): o `delete` antigo varria TODA `action = 'skip'` da série
+     * (`eq('action', 'skip')`) e levava junto as pausas criadas NO APP — que não existem no Google.
+     * Resultado: o gestor pausava um dia no app e a importação apagava a pausa na rodada seguinte
+     * (as "férias" do cão sumiam). O certo é apagar só as pausas que VIERAM do Google, identificadas
+     * pela marca acima; as do app ficam.
+     */
+    await client.from('recurring_exceptions').delete().eq('recurring_schedule_id', scheduleId).eq('reason', PAUSA_DO_GOOGLE);
     if (skipDates.length === 0) return;
     const { error } = await client.from('recurring_exceptions').insert(
       skipDates.map((dia) => ({
@@ -87,7 +103,7 @@ export function supabaseImportPorts(
         action: 'skip',
         start_date: dia,
         end_date: dia,
-        reason: 'Pausa marcada no Google Calendar',
+        reason: PAUSA_DO_GOOGLE,
       })),
     );
     if (error) throw new Error(error.message);
@@ -206,9 +222,15 @@ export function supabaseImportPorts(
           service_type: parsed.serviceType,
           start_date: parsed.startDate,
           end_date: parsed.endDate,
-          transport_required: parsed.transportRequired ?? true,
-          goes_to_daycare: parsed.goesToDaycare ?? true,
           status: 'confirmed',
+          /**
+           * 🪤 ACHADO DA VISTORIA (02/10/2026): NÃO regrave `transport_required` nem `goes_to_daycare`
+           * numa reserva que JÁ existe. Os dois são DECISÃO DO GESTOR no app — "precisa de transporte"
+           * (o cão entra na van?) e "vai pro daycare" (conta no Total Pack?) — e eram recarimbados com
+           * o valor do evento do Google a cada Sync, apagando o que ele tinha ajustado (o cão voltava
+           * pra van / saía do pack sozinho). A importação só marca os dois quando a reserva NASCE
+           * (`createBooking`); aqui manda o que o evento de fato governa: serviço, datas e status.
+           */
           // O vínculo do evento é único: a linha do SEGUNDO cão de um evento de dois cães atualiza sem
           // mexer nele (senão bate no índice único e a rodada inteira registra falha).
           ...(semVinculo ? {} : { google_event_id: eventId }),
