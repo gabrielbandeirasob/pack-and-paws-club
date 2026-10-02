@@ -97,6 +97,8 @@ export default function DispatchScreen() {
    * yard"*). A rota nasce com esse ponto como FIM, para o dia fechar onde os cães ficam.
    */
   const yardId = useRef<string | null>(null);
+  /** Coordenadas do yard: onde a BUSCA termina e de onde a ENTREGA começa (cliente, 02/10/2026). */
+  const yardCoords = useRef<{ latitude: number; longitude: number } | null>(null);
   /**
    * VANS DA ORGANIZAÇÃO + a van ESCOLHIDA por motorista (pergunta do dono, 01/10/2026: *"vamos supor que
    * tenhas várias vans, o erro não vai se repetir?"*). A escolha vale para a rota que já existe (update
@@ -195,12 +197,15 @@ export default function DispatchScreen() {
     try {
       const carregadas = await loadOrganizationLocations(supabase, orgId);
       sedePadraoId.current = vanLocationForRoute(carregadas, null)?.id ?? null;
-      yardId.current = yardDaOrganizacao(carregadas)?.id ?? null;
+      const yard = yardDaOrganizacao(carregadas);
+      yardId.current = yard?.id ?? null;
+      yardCoords.current = yard ? { latitude: yard.latitude, longitude: yard.longitude } : null;
       setVans(carregadas.map((local) => ({ id: local.id, name: local.name, isDefault: local.isDefault })));
     } catch {
       // Best-effort: sem a lista o cartão fica como era (sem o seletor) — não derruba o dia por isso.
       sedePadraoId.current = null;
       yardId.current = null;
+      yardCoords.current = null;
     }
   }, []);
 
@@ -1047,9 +1052,15 @@ export default function DispatchScreen() {
       return;
     }
     // As janelas existentes são de busca; a entrega usa a mesma matriz, sem janelas da manhã.
+    /**
+     * A ENTREGA sai de onde o MOTORISTA está quando começa a entregar — pedido do CLIENTE (02/10/2026):
+     * *"Posição do driver inicia rota dos drop offs"*. Na prática ele vem do YARD (é onde os cães passam
+     * o dia), então a primeira perna conta daí; sem yard cadastrado, cai na base (a van), como era.
+     */
+    const origemDaEntrega = yardCoords.current;
     const entrega = optimizeRoute(ordemDaEntrega(sorted).map((stop) => ({
       ...stop, windowStart: null, windowEnd: null, exactTime: null,
-    })), { travel: traffic.travel, serviceMinutes: GRACE_MINUTES });
+    })), { travel: traffic.travel, serviceMinutes: GRACE_MINUTES }, origemDaEntrega);
     if (!entrega.feasible) {
       showAlert('Cannot optimize this route', entrega.reason ?? 'The schedule is infeasible.'); return;
     }
@@ -1074,8 +1085,10 @@ export default function DispatchScreen() {
     const pendentes = new Set(remaining.map((stop) => stop.dogId));
     const opcoesDaConta = { travel: traffic.travel, serviceMinutes: GRACE_MINUTES };
     const comparar = (rotulo: string, idsAntes: string[], idsDepois: string[]) => {
-      const antes = minutosDaOrdem(paradasOtimizadas, idsAntes.filter((id) => pendentes.has(id)), opcoesDaConta);
-      const depois = minutosDaOrdem(paradasOtimizadas, idsDepois.filter((id) => pendentes.has(id)), opcoesDaConta);
+      // A sequência da ENTREGA conta a partir do yard (a mesma origem do `optimizeRoute` da entrega).
+      const origem = rotulo === 'Drop-off' ? yardCoords.current : null;
+      const antes = minutosDaOrdem(paradasOtimizadas, idsAntes.filter((id) => pendentes.has(id)), opcoesDaConta, origem);
+      const depois = minutosDaOrdem(paradasOtimizadas, idsDepois.filter((id) => pendentes.has(id)), opcoesDaConta, origem);
       if (antes == null || depois == null) return null;
       const ganho = Math.round(antes) - Math.round(depois);
       const diferenca = ganho > 0 ? `-${ganho} min` : ganho < 0 ? `+${-ganho} min` : 'no change';

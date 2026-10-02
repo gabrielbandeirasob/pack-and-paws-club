@@ -35,6 +35,13 @@ export type OptimizeOptions = {
   serviceMinutes?: number; // default service time per stop (default 8)
   homeLatitude?: number | null; // driver origin; travel to the first stop counts from here
   homeLongitude?: number | null;
+  /**
+   * DE ONDE A ENTREGA COMEÇA — pedido do CLIENTE (02/10/2026): *"Posição do driver inicia rota dos drop
+   * offs"*. Na prática ele começa a entregar vindo do YARD (é onde os cães passam o dia), então a
+   * primeira perna da entrega conta daqui; sem esta origem, ela conta da base (a van), que estava errada.
+   */
+  dropoffLatitude?: number | null;
+  dropoffLongitude?: number | null;
   /** Tempos reais (Google, via servidor). Ausente/incompleto = estimativa por linha reta. */
   travel?: TravelTimes | null;
 };
@@ -74,12 +81,21 @@ function travelMinutesBetween(a: OptimizeStop, b: OptimizeStop, options: Optimiz
   return (km / (options.speedKph ?? DEFAULT_SPEED_KPH)) * 60;
 }
 
-function travelMinutesFromHome(stop: OptimizeStop, options: OptimizeOptions): number {
-  const real = options.travel?.homeTo(stop.dogId);
-  if (typeof real === 'number' && Number.isFinite(real)) return real;
+/** A origem de uma sequência: a base (van) ou, na ENTREGA, de onde o motorista está saindo (o yard). */
+type Origem = { latitude: number | null | undefined; longitude: number | null | undefined };
+
+function travelMinutesFromHome(stop: OptimizeStop, options: OptimizeOptions, origem?: Origem | null): number {
+  const temOrigemPropria = Boolean(origem && origem.latitude != null && origem.longitude != null);
+  // A matriz real tem UMA base (a van): só vale quando a origem pedida é a própria base.
+  if (!temOrigemPropria) {
+    const real = options.travel?.homeTo(stop.dogId);
+    if (typeof real === 'number' && Number.isFinite(real)) return real;
+  }
   if (stop.latitude == null || stop.longitude == null) return 0;
-  if (options.homeLatitude == null || options.homeLongitude == null) return 0;
-  const km = haversineKm(options.homeLatitude, options.homeLongitude, stop.latitude, stop.longitude);
+  const lat = temOrigemPropria ? origem!.latitude! : options.homeLatitude;
+  const lon = temOrigemPropria ? origem!.longitude! : options.homeLongitude;
+  if (lat == null || lon == null) return 0;
+  const km = haversineKm(lat, lon, stop.latitude, stop.longitude);
   return (km / (options.speedKph ?? DEFAULT_SPEED_KPH)) * 60;
 }
 
@@ -97,6 +113,8 @@ export function minutosDaOrdem(
   stops: OptimizeStop[],
   ordemDeIds: string[],
   options: OptimizeOptions = {},
+  /** De onde esta sequência SAI (na entrega: de onde o motorista está — o yard). */
+  origem?: Origem | null,
 ): number | null {
   const porId = new Map(stops.map((stop) => [stop.dogId, stop]));
   const ids = ordemDeIds.filter((id) => porId.has(id));
@@ -108,12 +126,15 @@ export function minutosDaOrdem(
     const anterior = i === 0 ? null : (porId.get(ids[i - 1]) as OptimizeStop);
     if (parada.latitude == null || parada.longitude == null) {
       // Sem coordenada a estimativa de linha reta não existe; só a matriz real cobre essa perna.
-      const real = anterior ? options.travel?.between(anterior.dogId, parada.dogId) : options.travel?.homeTo(parada.dogId);
+      const temOrigemPropria = Boolean(origem && origem.latitude != null && origem.longitude != null);
+      const real = anterior
+        ? options.travel?.between(anterior.dogId, parada.dogId)
+        : (temOrigemPropria ? null : options.travel?.homeTo(parada.dogId));
       if (typeof real !== 'number' || !Number.isFinite(real)) return null;
       total += real + serviceOf(parada, options);
       continue;
     }
-    total += (anterior ? travelMinutesBetween(anterior, parada, options) : travelMinutesFromHome(parada, options))
+    total += (anterior ? travelMinutesBetween(anterior, parada, options) : travelMinutesFromHome(parada, options, origem))
       + serviceOf(parada, options);
   }
   return total;
@@ -135,7 +156,12 @@ function windowStartOf(stop: OptimizeStop): number | null {
   return hhmmToMinutes(stop.windowStart);
 }
 
-export function optimizeRoute(stops: OptimizeStop[], options: OptimizeOptions = {}): OptimizeResult {
+export function optimizeRoute(
+  stops: OptimizeStop[],
+  options: OptimizeOptions = {},
+  /** Na ENTREGA o cliente pediu que a rota comece da POSIÇÃO do motorista (na prática, o yard). */
+  origem?: Origem | null,
+): OptimizeResult {
   const missing = stops.filter((stop) => stop.latitude == null || stop.longitude == null).map((stop) => stop.dogName);
   if (missing.length > 0) {
     return {
@@ -171,7 +197,7 @@ export function optimizeRoute(stops: OptimizeStop[], options: OptimizeOptions = 
     for (let index = 0; index < pending.length; index += 1) {
       const candidate = pending[index];
       if (!candidates.includes(candidate)) continue;
-      const travel = previous ? travelMinutesBetween(previous, candidate, options) : travelMinutesFromHome(candidate, options);
+      const travel = previous ? travelMinutesBetween(previous, candidate, options) : travelMinutesFromHome(candidate, options, origem);
       const rawArrival = now + travel;
       const windowStart = windowStartOf(candidate);
       const deadline = deadlineOf(candidate);

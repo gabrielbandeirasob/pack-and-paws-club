@@ -61,3 +61,32 @@ describe('minutosDaOrdem', () => {
     expect(minutosDaOrdem(LINHA, ['nao-existe'], {})).toBeNull();
   });
 });
+
+/**
+ * DE ONDE A ENTREGA COMEÇA — pedido do CLIENTE (02/10/2026): *"Posição do driver inicia rota dos drop
+ * offs"*. A primeira perna da sequência de ENTREGA tem de contar de onde o motorista está (na prática o
+ * YARD), não da base (a van) — antes o número saía da van e a primeira entrega parecia mais perto/longe
+ * do que é.
+ */
+describe('a ENTREGA começa na posição do motorista (o yard)', () => {
+  const yard = { latitude: 37.36, longitude: -121.95 }; // Santa Clara
+  const van = { latitude: 37.54, longitude: -122.28 }; // San Mateo (longe do yard)
+  const ordem = ['perto do yard', 'longe do yard'];
+  const stops = [
+    { dogId: 'perto do yard', clientName: 'A', dogName: 'A', latitude: 37.37, longitude: -121.96, windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' as const },
+    { dogId: 'longe do yard', clientName: 'B', dogName: 'B', latitude: 37.50, longitude: -122.20, windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' as const },
+  ];
+  const opcoes = { homeLatitude: van.latitude, homeLongitude: van.longitude, serviceMinutes: 0 };
+
+  it('partindo do yard o total é MENOR do que partindo da van (a 1ª perna é curta)', () => {
+    const daVan = minutosDaOrdem(stops, ordem, opcoes);
+    const doYard = minutosDaOrdem(stops, ordem, opcoes, yard);
+    expect(doYard).not.toBeNull();
+    expect(daVan).not.toBeNull();
+    expect(doYard as number).toBeLessThan(daVan as number);
+  });
+
+  it('sem origem informada, a conta segue partindo da base (nada muda para quem não usa yard)', () => {
+    expect(minutosDaOrdem(stops, ordem, opcoes)).toBe(minutosDaOrdem(stops, ordem, opcoes, null));
+  });
+});
