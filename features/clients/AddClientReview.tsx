@@ -34,13 +34,21 @@ type Props = {
 };
 
 export function AddClientReview({ initial, existingClient = null, initialDogNames = '', duplicateHint = null, onSave, onCancel }: Props) {
-  const [dogNames, setDogNames] = useState(initialDogNames);
+  /*
+   * UM CAMPO POR CÃO (reclamação do cliente, 01/10/2026: *"na hora de adicionar o cliente não consegue
+   * adicionar mais de um cachorro, e não tem um botão para adicionar cachorro"*). Antes era UM campo de
+   * texto e a única pista de que dava para dois cães era uma frase miúda embaixo ("separe com vírgula") —
+   * quem não lesse a frase cadastrava um cão só. Agora há um campo por cão e um botão "+ Add another dog";
+   * a vírgula continua valendo dentro de um campo, então quem já digitava assim não perde nada.
+   */
+  const [camposDeCao, setCamposDeCao] = useState<string[]>(() => [initialDogNames]);
   const [dogPhotos, setDogPhotos] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const addressLine = [initial.address_line_1, initial.city].filter(Boolean).join(' · ');
-  const nomes = splitDogNames(dogNames);
+  // A lista de nomes sai dos campos: `splitDogNames` ainda separa por vírgula/ponto-e-vírgula e tira repetidos.
+  const nomes = splitDogNames(camposDeCao.join(','));
 
   const escolherFoto = (nome: string, atual: string | null) => {
     const escolher = async (choice: DogPhotoChoice) => {
@@ -107,18 +115,46 @@ export function AddClientReview({ initial, existingClient = null, initialDogName
               <Text style={styles.duplicateText}>{duplicateHint}</Text>
             </View>
           ) : null}
-          <Text style={styles.label}>Dog name</Text>
-          <TextInput
-            accessibilityLabel="Dog name"
-            autoCapitalize="words"
-            returnKeyType="done"
-            value={dogNames}
-            onChangeText={setDogNames}
-            style={styles.input}
-            placeholder="e.g. Bob"
-          />
+          {camposDeCao.map((valor, indice) => (
+            <View key={`cao-${indice}`}>
+              <Text style={styles.label}>{indice === 0 ? 'Dog name' : `Dog name ${indice + 1}`}</Text>
+              <View style={styles.dogNameRow}>
+                <TextInput
+                  accessibilityLabel={indice === 0 ? 'Dog name' : `Dog name ${indice + 1}`}
+                  autoCapitalize="words"
+                  returnKeyType="done"
+                  value={valor}
+                  onChangeText={(texto) =>
+                    setCamposDeCao((atual) => atual.map((item, i) => (i === indice ? texto : item)))
+                  }
+                  style={[styles.input, styles.dogNameInput]}
+                  placeholder={indice === 0 ? 'e.g. Bob' : 'e.g. Kona'}
+                />
+                {camposDeCao.length > 1 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove dog ${indice + 1}`}
+                    onPress={() => setCamposDeCao((atual) => atual.filter((_, i) => i !== indice))}
+                    hitSlop={8}
+                    style={styles.dogRemove}
+                  >
+                    <Text style={styles.dogRemoveText}>Remove</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+          ))}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="+ Add another dog"
+            onPress={() => setCamposDeCao((atual) => [...atual, ''])}
+            style={({ pressed }) => [styles.addDog, pressed && styles.pressed]}
+          >
+            <Text style={styles.addDogText}>+ Add another dog</Text>
+          </Pressable>
           <Text style={styles.hint}>
-            Optional — you can add the dog later in the client card. Two dogs now? Separate the names with a comma — e.g. Mowgli, Kona.
+            One field per dog — tap “+ Add another dog” for the next one (typing two names with a comma in
+            the same field still works). Optional: you can also add dogs later in the client card.
           </Text>
           {nomes.length > 0 ? (
             <View style={styles.photos}>
@@ -202,6 +238,13 @@ const styles = StyleSheet.create({
   label: { color: colors.ink, fontWeight: '800', fontSize: 12, marginTop: 18, marginBottom: 7 },
   input: { backgroundColor: '#F4F2EA', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, color: colors.ink, fontSize: 15 },
   hint: { color: colors.muted, fontSize: 12, marginTop: 7, lineHeight: 17 },
+  // Um campo por cão (reclamação do cliente, 01/10/2026): campo + botão de remover na MESMA linha.
+  dogNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dogNameInput: { flex: 1 },
+  dogRemove: { paddingHorizontal: 4, paddingVertical: 8 },
+  dogRemoveText: { color: colors.urgency, fontWeight: '800', fontSize: 12 },
+  addDog: { borderWidth: 1, borderColor: colors.gold, backgroundColor: colors.cream, borderRadius: 12, paddingVertical: 11, alignItems: 'center', marginTop: 10 },
+  addDogText: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
   photos: { marginTop: 4 },
   dogRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#F4F2EA', borderRadius: 12, borderWidth: 1, borderColor: colors.line, padding: 10, marginTop: 9 },
   dogPhoto: { width: 58, height: 58, borderRadius: 12, backgroundColor: colors.sage },

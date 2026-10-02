@@ -104,6 +104,78 @@ describe('AddClientReview', () => {
 });
 
 /**
+ * MAIS DE UM CÃO NO CADASTRO POR CONTATO (reclamação do cliente, 01/10/2026: *"na hora de adicionar o
+ * cliente não consegue adicionar mais de um cachorro, e não tem um botão para adicionar cachorro"*).
+ *
+ * Antes havia UM campo de texto e a única pista de dois cães era uma frase miúda embaixo ("separe com
+ * vírgula"): quem não lesse ficava com um cão só. Agora é um campo por cão, com o botão explícito.
+ */
+describe('mais de um cachorro ao adicionar o cliente', () => {
+  it('tem o botão de adicionar cachorro e um campo por cão', async () => {
+    const screen = await render(<AddClientReview initial={input} onSave={jest.fn()} onCancel={jest.fn()} />);
+    expect(screen.getByRole('button', { name: '+ Add another dog' })).toBeTruthy();
+    expect(screen.getByLabelText('Dog name')).toBeTruthy();
+    // Só um cão: não há o que remover.
+    expect(screen.queryByLabelText('Remove dog 1')).toBeNull();
+  });
+
+  it('o botão abre o segundo campo, e os dois cães vão no cadastro', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<AddClientReview initial={input} onSave={onSave} onCancel={jest.fn()} />);
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Mowgli');
+    await fireEvent.press(screen.getByRole('button', { name: '+ Add another dog' }));
+
+    expect(screen.getByLabelText('Dog name 2')).toBeTruthy();
+    await fireEvent.changeText(screen.getByLabelText('Dog name 2'), 'Kona');
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Add as client' }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ dogs: ['Mowgli', 'Kona'] }));
+  });
+
+  it('a foto acompanha cada campo (o segundo cão não herda a foto do primeiro)', async () => {
+    const alertas = capturarAlertas();
+    picker.requestMediaLibraryPermissionsAsync.mockResolvedValue({ granted: true });
+    picker.launchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///var/mobile/kona.jpg' }] });
+
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<AddClientReview initial={input} onSave={onSave} onCancel={jest.fn()} />);
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Mowgli');
+    await fireEvent.press(screen.getByRole('button', { name: '+ Add another dog' }));
+    await fireEvent.changeText(screen.getByLabelText('Dog name 2'), 'Kona');
+
+    await fireEvent.press(screen.getByLabelText('Add photo for Kona'));
+    alertas[0].buttons?.find((b) => b.text === 'Choose from library')?.onPress?.();
+    await screen.findByLabelText('Photo of Kona');
+    expect(screen.getByLabelText('Add photo for Mowgli')).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Add as client' }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ dogs: ['Mowgli', 'Kona'], dogPhotos: { kona: 'file:///var/mobile/kona.jpg' } }),
+    );
+  });
+
+  it('remover o campo tira o cão do cadastro', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<AddClientReview initial={input} onSave={onSave} onCancel={jest.fn()} />);
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Mowgli');
+    await fireEvent.press(screen.getByRole('button', { name: '+ Add another dog' }));
+    await fireEvent.changeText(screen.getByLabelText('Dog name 2'), 'Kona');
+    await fireEvent.press(screen.getByLabelText('Remove dog 2'));
+
+    expect(screen.queryByLabelText('Dog name 2')).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Add as client' }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ dogs: ['Mowgli'] }));
+  });
+
+  it('a vírgula dentro de um campo continua valendo (quem já digitava assim não perde nada)', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<AddClientReview initial={input} onSave={onSave} onCancel={jest.fn()} />);
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Mowgli, Kona');
+    await fireEvent.press(screen.getByRole('button', { name: 'Add as client' }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ dogs: ['Mowgli', 'Kona'] }));
+  });
+});
+/**
  * FOTO DO CAO no "Add from Contacts" (23/09/2026).
  *
  * Aqui o cao ainda NAO existe no banco quando o gestor escolhe a foto: o nome e digitado num
