@@ -1,5 +1,6 @@
 import { proximaParadaDoDia } from '@/features/driver/dayOrder';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { DriverAction, DriverStop } from '@/features/driver/DriverRouteView';
 import { ETA_MAXIMO_PLAUSIVEL_MIN } from '@/features/driver/eta';
@@ -101,6 +102,8 @@ type Props = {
 };
 
 export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyOwner }: Props) {
+  /** Foto do cão ampliada (pedido do dono, 02/10/2026): toque na miniatura abre em tela cheia. */
+  const [fotoAberta, setFotoAberta] = useState(false);
   // Sem parada pendente: o painel continua no topo (o motorista não procura botão que não existe mais),
   // mas sem nenhuma ação — nada de oferecer passo para uma rota que acabou.
   if (!stop) {
@@ -138,14 +141,30 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
   return (
     <View style={styles.card}>
       <Text style={styles.eyebrow}>NEXT STOP</Text>
-      <Text style={styles.title}>{stop.clientName} · {stop.dogName}</Text>
-      {endereco ? <Text style={styles.address}>{endereco}</Text> : null}
-      {minutos != null ? (
-        <Text style={[styles.eta, atraso > 0 && styles.etaLate]}>
-          {minutos <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${minutos} min away` : 'far from your stops'}
-          {atraso > 0 ? ` · ${atraso} min late` : ''}
-        </Text>
-      ) : null}
+      <View style={styles.dogRow}>
+        {/* FOTO DO CÃO (pedido do dono, 02/10/2026): é o que confirma o cão certo na porta. Toca nela
+            para ver grande — na rua, com sol, o polegar decide. Sem foto no cadastro, nada aparece. */}
+        {stop.dogPhotoUrl ? (
+          <Pressable
+            onPress={() => setFotoAberta(true)}
+            accessibilityRole="button"
+            accessibilityLabel={`Photo of ${stop.dogName} — tap to see it bigger`}
+            hitSlop={8}
+          >
+            <Image source={{ uri: stop.dogPhotoUrl }} style={styles.dogPhoto} accessibilityLabel={`Photo of ${stop.dogName}`} />
+          </Pressable>
+        ) : null}
+        <View style={styles.dogTextBox}>
+          <Text style={styles.title}>{stop.clientName} · {stop.dogName}</Text>
+          {endereco ? <Text style={styles.address}>{endereco}</Text> : null}
+          {minutos != null ? (
+            <Text style={[styles.eta, atraso > 0 && styles.etaLate]}>
+              {minutos <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${minutos} min away` : 'far from your stops'}
+              {atraso > 0 ? ` · ${atraso} min late` : ''}
+            </Text>
+          ) : null}
+        </View>
+      </View>
       <View style={styles.actions}>
         {/* 1) NAVEGAR — reusa o handler de navegação da lista (abre o mapa escolhido pelo motorista). */}
         <Pressable
@@ -195,6 +214,22 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
           </Pressable>
         ) : null}
       </View>
+      {/* FOTO AMPLIADA (pedido do dono, 02/10/2026): fundo escuro, cão inteiro no centro e o nome
+          embaixo — é o que o motorista confere na porta. Tocar em qualquer lugar fecha. */}
+      {stop.dogPhotoUrl ? (
+        <Modal visible={fotoAberta} transparent animationType="fade" onRequestClose={() => setFotoAberta(false)}>
+          <Pressable
+            style={styles.photoBackdrop}
+            onPress={() => setFotoAberta(false)}
+            accessibilityRole="button"
+            accessibilityLabel={`Bigger photo of ${stop.dogName} — tap to close`}
+          >
+            <Image source={{ uri: stop.dogPhotoUrl }} style={styles.photoFull} resizeMode="contain" />
+            <Text style={styles.photoCaption}>{stop.dogName} · {stop.clientName}</Text>
+            <Text style={styles.photoHint}>Tap anywhere to close</Text>
+          </Pressable>
+        </Modal>
+      ) : null}
       {onNotifyOwner && aviso.hint ? <Text style={styles.notifyHint}>{aviso.hint}</Text> : null}
     </View>
   );
@@ -206,6 +241,16 @@ const styles = StyleSheet.create({
   /** Rota terminada: mesmo formato, sem o destaque dourado (não há nada a fazer aqui). */
   cardDone: { borderWidth: 1, borderColor: colors.line },
   eyebrow: { color: colors.forest700, fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
+  /** Linha do cão: miniatura tocável à esquerda; nome, endereço e ETA à direita. */
+  dogRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 4 },
+  /** Miniatura da foto: 64 pt (acima dos 44 pt de alvo de toque), cantos 12 e borda fina. */
+  dogPhoto: { width: 64, height: 64, borderRadius: 12, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.sage },
+  dogTextBox: { flex: 1 },
+  /** Foto ampliada: fundo escuro (tela na rua, com sol) e o cão inteiro no centro. */
+  photoBackdrop: { flex: 1, backgroundColor: 'rgba(12,20,14,0.94)', alignItems: 'center', justifyContent: 'center', padding: 18 },
+  photoFull: { width: '100%', height: '72%' },
+  photoCaption: { color: 'white', fontFamily: 'serif', fontSize: 20, fontWeight: '800', marginTop: 14 },
+  photoHint: { color: 'rgba(255,255,255,0.72)', fontSize: 13, marginTop: 6 },
   title: { color: colors.forest900, fontFamily: 'serif', fontSize: 19, fontWeight: '800', marginTop: 4 },
   body: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 5 },
   address: { color: colors.ink, fontSize: 13, marginTop: 5 },
