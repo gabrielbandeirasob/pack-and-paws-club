@@ -7,7 +7,7 @@ import type { LocalReservation } from '@/features/integrations/google/calendarSy
 import type { BookingForImport, DogForImport } from '@/features/integrations/google/importPlan';
 import { esquecerSincronizacao, lerUltimaSincronizacao, marcarSincronizacao } from '@/features/integrations/google/lastSyncStore';
 
-import { enviarCredencialAoServidor, revogarCredencialDoServidor } from '@/features/integrations/google/serverCredential';
+import { enviarCredencialAoServidor, revogarCredencialDoServidor, servidorTemCredencial } from '@/features/integrations/google/serverCredential';
 
 jest.mock('@/features/integrations/google/useCalendarConnection');
 jest.mock('@/features/integrations/google/sync', () => ({
@@ -145,6 +145,11 @@ describe('CalendarConnectionCard', () => {
     runCalendarImport.mockResolvedValue({ created: 0, updated: 0, cancelled: 0, review: [], failures: [] });
     listCalendars.mockResolvedValue(contaCalendarios);
     getCalendarLabels.mockResolvedValue([]);
+    // `mockClear` NÃO desfaz `mockResolvedValue`: sem voltar ao padrão aqui, um teste que força a
+    // credencial a falhar contaminaria os seguintes (a conferência pós-Connect usa os dois).
+    (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(true);
+    (servidorTemCredencial as jest.Mock).mockResolvedValue(true);
+    (revogarCredencialDoServidor as jest.Mock).mockResolvedValue(true);
   });
 
   it('explica que o Google nao esta no build, em vez de mostrar botao que nao funciona', async () => {
@@ -171,6 +176,52 @@ describe('CalendarConnectionCard', () => {
 
     await fireEvent.press(screen.getByTestId('google-calendar-connect'));
     await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
+  });
+
+  /* -------- conferência da credencial no servidor (auditoria de integrações, 02/10/2026) --------
+   *
+   * Antes: o Connect chamava `enviarCredencialAoServidor` e IGNORAVA o resultado — o cartão dizia
+   * "Connected" com a importação automática desligada (o servidor sem a credencial). Agora o envio é
+   * conferido com uma leitura de volta (`servidorTemCredencial`).
+   */
+  it('Connect confere no servidor: credencial que NÃO chegou avisa na tela', async () => {
+    (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(false);
+    const ctx = conexao('disconnected');
+    useCalendarConnection.mockReturnValue(ctx);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-connect'));
+
+    await waitFor(() => expect(screen.getByTestId('google-calendar-aviso-servidor')).toBeTruthy());
+    expect(screen.getByTestId('google-calendar-aviso-servidor')).toHaveTextContent(/did not receive the Google credential/);
+    // A conta segue conectada no aparelho: o espelho do primeiro plano continua funcionando.
+    await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
+  });
+
+  it('Connect: envio com "ok" mas leitura de volta NEGATIVA também avisa (não confia só no ok)', async () => {
+    (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(true);
+    (servidorTemCredencial as jest.Mock).mockResolvedValue(false);
+    const ctx = conexao('disconnected');
+    useCalendarConnection.mockReturnValue(ctx);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-connect'));
+
+    await waitFor(() => expect(servidorTemCredencial).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('google-calendar-aviso-servidor')).toBeTruthy());
+  });
+
+  it('Connect com credencial CONFIRMADA no servidor não mostra aviso', async () => {
+    (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(true);
+    (servidorTemCredencial as jest.Mock).mockResolvedValue(true);
+    const ctx = conexao('disconnected');
+    useCalendarConnection.mockReturnValue(ctx);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-connect'));
+
+    await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('google-calendar-aviso-servidor')).toBeNull();
   });
 
   /* ---------------- sincronização automática (áudio do dono, 27/09/2026) ---------------- */

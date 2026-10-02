@@ -19,7 +19,7 @@ import type { TravelTimes } from '@/features/dispatch/travelMatrix';
 import { showAlert } from '@/features/ui/alert';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
-import { loadOrganizationLocations, vanDaRota, vanLocationForRoute, yardDaOrganizacao } from '@/features/organization/locations';
+import { loadOrganizationLocations, origemDaEntregaDaRota, vanDaRota, vanLocationForRoute, yardDaOrganizacao } from '@/features/organization/locations';
 import { sugerirRotas, type BlocoSugerido, type SugestaoDeRotas } from '@/features/dispatch/routeSuggestion';
 
 type DriverRow = { user_id: string; role: 'manager' | 'driver'; profiles: { full_name: string | null } | null };
@@ -196,11 +196,28 @@ export default function DispatchScreen() {
   const carregarVans = useCallback(async (orgId: string) => {
     try {
       const carregadas = await loadOrganizationLocations(supabase, orgId);
+      /**
+       * A VAN do dia (sede padrão) NUNCA pode ser o yard: `vanLocationForRoute` já filtra o yard (ele
+       * não é van). O dono relatou (02/10/2026) que o yard aparecia "na lista de vans" — se ele fosse
+       * marcado como padrão por engano, o dia começaria (e o clock in travaria) no yard.
+       */
       sedePadraoId.current = vanLocationForRoute(carregadas, null)?.id ?? null;
       const yard = yardDaOrganizacao(carregadas);
       yardId.current = yard?.id ?? null;
-      yardCoords.current = yard ? { latitude: yard.latitude, longitude: yard.longitude } : null;
-      setVans(carregadas.map((local) => ({ id: local.id, name: local.name, isDefault: local.isDefault })));
+      // A 1ª perna da ENTREGA parte do YARD (dono, 02/10/2026). Sem yard, null — nunca a van.
+      yardCoords.current = origemDaEntregaDaRota(yard);
+      /**
+       * O cartão do motorista recebe TODAS as sedes COM o `kind`, para separar "van (onde o dia começa)"
+       * de "yard (onde o pick-up termina)" — o dono via "van 1, van 2, yard" e perguntava "não é uma van
+       * o yard" (02/10/2026). O endereço entra junto: "ele tem que ter o endereço que vai finalizar".
+       */
+      setVans(carregadas.map((local) => ({
+        id: local.id,
+        name: local.name,
+        isDefault: local.isDefault,
+        kind: local.kind,
+        address: [local.addressLine1, local.city].filter((parte) => (parte ?? '').length > 0).join(' · ') || null,
+      })));
     } catch {
       // Best-effort: sem a lista o cartão fica como era (sem o seletor) — não derruba o dia por isso.
       sedePadraoId.current = null;
@@ -527,11 +544,15 @@ export default function DispatchScreen() {
    *  3. com DUAS ou mais e nenhuma escolha, NENHUMA (`undefined`): a rota fica sem van de propósito para
    *     o app resolver pela MAIS PRÓXIMA das paradas. É isso que impede a repetição do defeito de
    *     01/10/2026, quando toda rota nascia apontando para a van padrão (que era um cadastro de teste).
+   *
+   * ⚠️ "UMA van" conta só VANS de verdade: o YARD não é van (dono, 02/10/2026). Sem isso, uma organização
+   * com uma van e um yard cairia no caso 3 e a rota nasceria sem van, apesar de só existir uma escolha.
    */
+  const totalDeVans = useMemo(() => vans.filter((van) => van.kind !== 'yard').length, [vans]);
   const vanParaRota = useCallback(
     (driverId: string) =>
-      vanPorMotorista.current.get(driverId) ?? (vans.length <= 1 ? sedePadraoId.current : null) ?? undefined,
-    [vans.length],
+      vanPorMotorista.current.get(driverId) ?? (totalDeVans <= 1 ? sedePadraoId.current : null) ?? undefined,
+    [totalDeVans],
   );
 
   /**
@@ -1086,9 +1107,12 @@ export default function DispatchScreen() {
     }
     // As janelas existentes são de busca; a entrega usa a mesma matriz, sem janelas da manhã.
     /**
-     * A ENTREGA sai de onde o MOTORISTA está quando começa a entregar — pedido do CLIENTE (02/10/2026):
-     * *"Posição do driver inicia rota dos drop offs"*. Na prática ele vem do YARD (é onde os cães passam
-     * o dia), então a primeira perna conta daí; sem yard cadastrado, cai na base (a van), como era.
+     * A ENTREGA parte do YARD — pedido do CLIENTE (02/10/2026): *"Posição do driver inicia rota dos drop
+     * offs"*; na prática o motorista sai do yard (é onde os cães passam o dia). O dono reforçou no áudio:
+     * *"ele otimiza a rota pra onde tá a van (...) o bagulho do yard tem que ser diferente"*. A origem
+     * vem de `origemDaEntregaDaRota` (o yard, e SÓ o yard): a VAN nunca entra aqui — ela inicia os
+     * pick-ups e finaliza o dia. Sem yard cadastrado isto é `null` e a 1ª perna não entra na conta; o app
+     * não "cai na van" por engano.
      */
     const origemDaEntrega = yardCoords.current;
     /**

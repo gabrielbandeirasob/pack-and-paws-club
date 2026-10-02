@@ -13,6 +13,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { isNetworkError } from '@/features/driver/offlineStore';
+import { carregarFilaDoUsuario, pendingWritesKey } from '@/features/driver/pendingWritesScope';
 
 export type PendingShift = {
   kind: 'shift';
@@ -33,7 +34,38 @@ export type PendingEtaNotice = {
 
 export type PendingWrite = PendingShift | PendingEtaNotice;
 
-const KEY = 'pnp:driver:pending-writes';
+/**
+ * ESCOPO ATUAL DA FILA = usuário logado.
+ *
+ * 🪤 ACHADO DA VISTORIA (02/10/2026): a fila usava UMA chave GLOBAL e SEM DONO. Como o dono alterna
+ * entre a conta de MOTORISTA e a de ADMINISTRADOR no mesmo aparelho, a jornada aberta de um usuário era
+ * lida/subida pela conta seguinte — recusada pela RLS e DESCARTADA em silêncio, ou gravada com o
+ * `driver_id` errado. A jornada "sumia" (relato do dono, 02/10/2026).
+ *
+ * Agora a chave é POR USUÁRIO (`pendingWritesScope.ts`) e a fila antiga sem dono é ADOTADA uma vez por
+ * quem abrir primeiro (migração de leitura: nada se perde). Sem usuário (bootstrap/web) cai na chave
+ * legada — nada muda para quem chama sem sessão.
+ */
+let escopoDaFila: string | null = null;
+
+/** Define de QUEM é a fila daqui pra frente (a tela chama quando a sessão é conhecida). */
+export function definirEscopoDaFila(userId: string | null | undefined): void {
+  const id = (userId ?? '').trim();
+  escopoDaFila = id.length > 0 ? id : null;
+}
+
+function chaveDaFila(): string {
+  return pendingWritesKey(escopoDaFila);
+}
+
+/**
+ * Abre a fila DO USUÁRIO: define o escopo e migra (uma vez) a fila antiga sem dono; devolve a fila
+ * dele. É o que a tela chama logo depois de resolver a sessão, ANTES de ler/gravar qualquer coisa.
+ */
+export async function abrirFilaDoUsuario(userId: string): Promise<PendingWrite[]> {
+  definirEscopoDaFila(userId);
+  return carregarFilaDoUsuario(userId);
+}
 
 function chave(entry: PendingWrite): string {
   if (entry.kind === 'shift') return 'shift';
@@ -123,7 +155,7 @@ export async function flushPendingWrites(
 
 export async function loadPendingWrites(): Promise<PendingWrite[]> {
   try {
-    const raw = await AsyncStorage.getItem(KEY);
+    const raw = await AsyncStorage.getItem(chaveDaFila());
     if (!raw) return [];
     const parsed = JSON.parse(raw) as PendingWrite[];
     if (!Array.isArray(parsed)) return [];
@@ -135,8 +167,55 @@ export async function loadPendingWrites(): Promise<PendingWrite[]> {
 
 export async function savePendingWrites(queue: PendingWrite[]): Promise<void> {
   try {
-    await AsyncStorage.setItem(KEY, JSON.stringify(queue));
+    await AsyncStorage.setItem(chaveDaFila(), JSON.stringify(queue));
   } catch {
     // melhor esforço: sem storage não há fila
   }
+}
+
+/** Identidade estável de um registro (assunto + instante em que ENTROU na fila). */
+export function chaveDoPendente(entry: PendingWrite): string {
+  return `${chave(entry)}@${entry.queuedAt}`;
+}
+
+/**
+ * SERIALIZADOR DO CICLO LER-MUDAR-GRAVAR.
+ *
+ * 🪤 ACHADO (02/10/2026): `loadPendingWrites()` → mudar → `savePendingWrites()` corria em DOIS
+ * caminhos ao mesmo tempo (a subida da fila e o enfileiramento do `act`/clock in). Intercalados, o
+ * `savePendingWrites(remaining)` da subida GRAVAVA POR CIMA do registro recém-enfileirado — o
+ * motorista via "salvo no aparelho" e o passo sumia. Este é o único ponto de escrita: cada mudança
+ * entra na VEZ da anterior (fila de promessas do módulo), então nunca há dois ciclos intercalados.
+ *
+ * `mudanca` recebe a fila MAIS NOVA (lida dentro da vez) e devolve a fila nova; o retorno é a fila
+ * já gravada. Uma falha REJEITA o retorno de quem chamou, mas NÃO trava a vez dos próximos
+ * (`vezDaFila = proxima.catch(...)`).
+ */
+let vezDaFila: Promise<unknown> = Promise.resolve();
+
+export function mudarFila(
+  mudanca: (fila: PendingWrite[]) => PendingWrite[] | Promise<PendingWrite[]>,
+): Promise<PendingWrite[]> {
+  const proxima = vezDaFila.then(async () => {
+    const fila = await loadPendingWrites();
+    const nova = await mudanca(fila);
+    await savePendingWrites(nova);
+    return nova;
+  });
+  vezDaFila = proxima.catch(() => undefined);
+  return proxima;
+}
+
+/**
+ * Só para a subida da fila: da fila VIVA tira os registros do RETRATO que realmente saíram (subiram
+ * ou foram recusados de vez), casando chave + `queuedAt`. Qualquer registro enfileirado DURANTE o
+ * envio permanece — nada de gravar "remaining" por cima da fila viva.
+ */
+export function semPendentesSaidos(
+  atual: PendingWrite[],
+  retrato: PendingWrite[],
+  remaining: PendingWrite[],
+): PendingWrite[] {
+  const saidos = new Set(retrato.slice(0, retrato.length - remaining.length).map(chaveDoPendente));
+  return atual.filter((entrada) => !saidos.has(chaveDoPendente(entrada)));
 }

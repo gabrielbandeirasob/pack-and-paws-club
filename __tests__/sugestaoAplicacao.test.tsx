@@ -212,6 +212,25 @@ it('com UMA van, a rota que nasce grava essa van', async () => {
   expect(criada.payload.start_location_id).toBe('van');
 });
 
+/**
+ * O YARD NÃO É VAN (dono, 02/10/2026: *"tá mostrando van 1, van 2, yard (...) não é uma van o yard"*).
+ *
+ * Mesmo que o gestor marque o YARD como sede PADRÃO por engano, ele não vira a van da rota: a rota que
+ * nasce aponta para a VAN. E como o yard não conta como van, o caso "uma van só" (rota nasce com a van
+ * explícita) continua valendo numa organização que tem uma van E um yard.
+ */
+it('com UMA van + um YARD a rota nasce com a VAN (o yard não é van, nem sendo o padrão)', async () => {
+  mockLocations = [
+    { id: 'yard', name: 'Yard', kind: 'yard', is_default: true, latitude: 37.36, longitude: -121.95 },
+    { id: 'van', name: 'Van 1', kind: 'van', is_default: false, latitude: 37.39, longitude: -122.14 },
+  ];
+  const screen = await open();
+  await fireEvent.press(screen.getByLabelText('Apply suggestion'));
+  await waitFor(() => expect(screen.queryByText('Suggested routes')).toBeNull());
+  const criada = mockWrites.find(w => w.table === 'routes' && ['insert', 'upsert'].includes(w.operation));
+  expect(criada.payload.start_location_id).toBe('van');
+});
+
 it('com DUAS vans e nenhuma escolha, a rota nasce SEM van (o app decide pela mais próxima)', async () => {
   mockLocations = [
     { id: 'sf', name: 'Van teste', kind: 'van', is_default: true, latitude: 37.7793, longitude: -122.4192 },

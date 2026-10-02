@@ -29,6 +29,48 @@ export type DogPhotoChoice = 'camera' | 'library';
 /** Marcador da URL publica de um objeto dentro do bucket. */
 const PUBLIC_MARKER = `/object/public/${DOG_PHOTO_BUCKET}/`;
 
+/** Largura (pt) da miniatura servida pela transformacao de imagem do Storage. */
+export const THUMB_WIDTH = 256;
+
+/** Marcador da URL de objeto publico (serve para separar a base do caminho na transformacao). */
+const STORAGE_PUBLIC = '/storage/v1/object/public/';
+
+/** Marcador da URL de MINIATURA (transformacao de imagem) do mesmo objeto. */
+const RENDER_MARKER = `/render/image/public/${DOG_PHOTO_BUCKET}/`;
+
+/**
+ * MINIATURA da foto do cao (auditoria de desempenho, 02/10/2026).
+ *
+ * MEDICAO (02/10/2026, bucket `dog-photos`, HTTP HEAD): as fotos originais tem 1320x1320 e pesam de
+ * 30 KB a 207 KB (Tiger 207,2 KB / Soko 133 KB / Mocha 32,2 KB). Na tela a foto aparece em 64 pt
+ * (painel NEXT STOP e lista do motorista) e 30 pt (chip da lista de clientes) — ou seja, o aparelho
+ * baixava a foto de IMPRESSAO para desenhar um selo. O Storage deste projeto TEM transformacao de
+ * imagem no endpoint `render/image` (confirmado: responde 200 e entrega a imagem em 256x256), entao a
+ * miniatura passa a vir pronta do servidor: ~11,7 KB no pior caso medido no lugar de ~207 KB
+ * (~18x menos bytes e ~18x menos tempo de download na rua).
+ *
+ * `width` E `height` com `resize=cover` (nao so `width`) porque o alvo e quadrado: medido no mesmo dia,
+ * `?width=256` sozinho devolvia 256x1320 (encolhia so a largura); com os dois lados o arquivo sai
+ * 256x256 e cai de ~31 KB para ~11,7 KB.
+ *
+ * Puro e tolerante — nunca inventa caminho nem quebra o que ja funcionava:
+ *  - `null`/vazio -> `null` (os chamadores ja tratam "sem foto");
+ *  - URL que NAO e do Storage publico (arquivo local `file://`, `content:`, `data:`, endereco de fora)
+ *    volta INTACTA: o app continua mostrando a foto que ja mostrava;
+ *  - URL que ja e uma miniatura (`/render/image/...`) tambem volta intacta — a funcao e idempotente.
+ */
+export function dogPhotoThumbnailUrl(publicUrl: string | null | undefined, largura: number = THUMB_WIDTH): string | null {
+  const url = (publicUrl ?? '').trim();
+  if (!url) return null;
+  const at = url.indexOf(STORAGE_PUBLIC);
+  if (at === -1) return url; // transformacao, arquivo local ou URL de fora: deixa como esta
+  const base = url.slice(0, at);
+  const caminho = url.slice(at + STORAGE_PUBLIC.length).split('?')[0];
+  if (!caminho) return url;
+  const lado = Math.max(1, Math.round(largura));
+  return `${base}/storage/v1/render/image/public/${caminho}?width=${lado}&height=${lado}&resize=cover&quality=80`;
+}
+
 /** Foto quadrada e leve: é miniatura de lista, nao é impressao. */
 const PHOTO_OPTIONS: ImagePicker.ImagePickerOptions = {
   mediaTypes: ['images'],
@@ -48,13 +90,22 @@ export function dogPhotoPublicUrl(client: SupabaseClient, path: string): string 
   return client.storage.from(DOG_PHOTO_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
-/** Caminho do arquivo a partir da URL publica guardada no banco (null = nao é do bucket). */
+/**
+ * Caminho do arquivo a partir da URL publica guardada no banco (null = nao e do bucket).
+ *
+ * Aceita AS DUAS formas publicas do MESMO objeto: a URL do arquivo (`/object/public/...`) e a URL da
+ * miniatura (`/render/image/public/...`, ver dogPhotoThumbnailUrl). Assim uma miniatura que passe por
+ * engano tambem volta ao caminho — apagar o arquivo antigo continua funcionando.
+ */
 export function dogPhotoStoragePath(publicUrl: string | null | undefined): string | null {
   const url = (publicUrl ?? '').trim();
-  const at = url.indexOf(PUBLIC_MARKER);
-  if (at === -1) return null;
-  const path = url.slice(at + PUBLIC_MARKER.length).split('?')[0].trim();
-  return path.length > 0 ? path : null;
+  for (const marcador of [PUBLIC_MARKER, RENDER_MARKER]) {
+    const at = url.indexOf(marcador);
+    if (at === -1) continue;
+    const path = url.slice(at + marcador.length).split('?')[0].trim();
+    return path.length > 0 ? path : null;
+  }
+  return null;
 }
 
 /** Foto escolhida no aparelho e ainda NAO enviada (file://, content://, ph://, data:). */

@@ -6,22 +6,24 @@
  *
  * AJUSTE DA OPERAÇÃO (áudios de 25/09/2026): o texto deixou de dizer "about N minutes" e passou a
  * mostrar uma FAIXA de ~30 minutos — "você põe tipo 5 minutos antes de estar na casa do cliente e
- * 25 depois do horário, pra caso a gente tenha algum atraso". Os textos são os que o cliente mandou
- * por escrito (e é a forma exata que ele espera receber no tutor):
+ * 25 depois do horário, pra caso a gente tenha algum atraso".
  *
- *   pick-up : "Good morning, {CLIENTE}! This is {MOTORISTA} from Pack & Paws Club. I'll be there
- *              between {H1} and {H2} AM to pick up {CAO}. Looking forward to another great day
- *              with them! 🐶🐾"
- *   drop-off: "Good afternoon, {CLIENTE}! This is {MOTORISTA} from Pack & Paws Club 😊 I'll be
- *              dropping off {CAO} between {H1} and {H2} PM. They had a great day with us! 🐶🐾"
+ * MODELO EXATO DO DONO (02/10/2026) — é a forma que o tutor recebe, copiada palavra por palavra
+ * (a saudação numa linha, o resto na linha de baixo; a janela com "–"):
+ *
+ *   pick-up : "Good morning, {CLIENTE}! This is {MOTORISTA} from Pack & Paws Club." + <nova linha> +
+ *              "I'll be there between {H1} –{H2} AM to pick up {CAO}. Looking forward to another"
+ *              " great day with them! 🐶🐾"
+ *   drop-off: "Good afternoon, {CLIENTE}! This is {MOTORISTA} from Pack & Paws Club 😊" + <nova linha> +
+ *              "I'll be dropping off {CAO} between {H1} –{H2} PM. They had a great day with us! 🐶🐾"
  *
  * Regras que os testes travam:
  *  - NADA sai sozinho: o app monta o texto e abre o SMS do APARELHO do motorista, que aperta
  *    enviar. Sem custo, sem registro de operadora (10DLC/A2P) e mais pessoal.
- *  - A janela é [previsão − 5 min, previsão + 25 min], em HORÁRIO DE RELÓGIO ("2:05 and 2:35 PM").
+ *  - A janela é [previsão − 5 min, previsão + 25 min], em HORÁRIO DE RELÓGIO ("2:05 –2:35 PM").
  *    O ETA continua arredondado de 5 em 5: prometer minuto exato queima o motorista na porta.
  *  - O SUFIXO AM/PM sai do lado DOMINANTE da janela (o lado com mais minutos). Janela que cruza o
- *    meio-dia ou a madrugada ganha os dois sufixos ("11:55 AM and 12:25 PM") — nunca "AM/AM".
+ *    meio-dia ou a madrugada ganha os dois sufixos ("11:55 AM –12:25 PM") — nunca "AM/AM".
  *  - DROP-OFF nunca anuncia antes das 14:00 ("nunca antes de 2 nos drop-offs"): se o cálculo cair
  *    antes das 2 da tarde, a faixa começa às 14:00.
  *  - Parada atrasada mantém a frase do atraso ("I'm running about 10 minutes late.") E a faixa.
@@ -42,7 +44,7 @@ export const AVISO_ANTES_MIN = 5;
 export const AVISO_DEPOIS_MIN = 25;
 /** Piso do drop-off: 14:00. A janela de entrega nunca é anunciada antes das duas da tarde. */
 export const DROPOFF_INICIO_MIN = 14 * 60;
-/** Menor faixa aceitável depois da trava das 14:00 (senão sobraria "2:00 and 2:00 PM"). */
+/** Menor faixa aceitável depois da trava das 14:00 (senão sobraria "2:00 –2:00 PM"). */
 const JANELA_MINIMA_MIN = 5;
 
 /** Fase da parada pelo status: já embarcado → entrega; o resto → busca. */
@@ -111,7 +113,7 @@ export type AvisoWindow = { inicioMin: number; fimMin: number };
  * A faixa de ~30 min: 5 antes e 25 depois da previsão.
  *
  * No drop-off a faixa nunca começa antes das 14:00 — se o cálculo cair antes, ela começa às 2 da
- * tarde (e termina pelo menos 5 min depois, para não anunciar "2:00 and 2:00 PM").
+ * tarde (e termina pelo menos 5 min depois, para não anunciar "2:00 –2:00 PM").
  */
 export function avisoWindow(input: { now: Date; minutes: number; phase: EtaPhase }): AvisoWindow {
   const previsao = minutosDoDia(input.now) + roundToFive(input.minutes);
@@ -136,16 +138,16 @@ export function dominantSuffix(window: AvisoWindow): 'AM' | 'PM' {
 }
 
 /**
- * Rótulo da faixa como o cliente escreveu: "2:05 and 2:35 PM".
- * Quando a janela cruza o meio-dia/meia-noite cada ponta leva o seu sufixo ("11:55 AM and 12:25 PM").
+ * Rótulo da faixa como o dono escreveu (02/10/2026): "2:05 –2:35 PM" (espaço, travessão, sem espaço).
+ * Quando a janela cruza o meio-dia/meia-noite cada ponta leva o seu sufixo ("11:55 AM –12:25 PM").
  */
 export function windowLabel(window: AvisoWindow): string {
   const inicio = horaRelogio(window.inicioMin);
   const fim = horaRelogio(window.fimMin);
   const sufixoInicio = sufixoDe(window.inicioMin);
   const sufixoFim = sufixoDe(window.fimMin);
-  if (sufixoInicio === sufixoFim) return `${inicio} and ${fim} ${sufixoFim}`;
-  return `${inicio} ${sufixoInicio} and ${fim} ${sufixoFim}`;
+  if (sufixoInicio === sufixoFim) return `${inicio} –${fim} ${sufixoFim}`;
+  return `${inicio} ${sufixoInicio} –${fim} ${sufixoFim}`;
 }
 
 /** Saudação pela hora da janela: de manhã "Good morning", da tarde em diante "Good afternoon". */
@@ -199,12 +201,14 @@ export function etaMessageText({
     ? `This is ${motorista} from Pack & Paws Club`
     : 'This is your driver from Pack & Paws Club';
   const abertura = `${saudacao}${nome.length > 0 ? `, ${nome}` : ''}!`;
-  const atraso = lateMinutes > 0 ? ` I'm running ${aboutMinutes(lateMinutes)} late.` : '';
+  // A 1ª linha é EXATAMENTE a do dono (saudação + assinatura); o atraso, quando existe, abre a 2ª
+  // linha. Sem atraso o `atraso` é vazio e a 2ª linha sai literal ao modelo.
+  const atraso = lateMinutes > 0 ? `I'm running ${aboutMinutes(lateMinutes)} late. ` : '';
 
   if (phase === 'pickup') {
-    return `${abertura} ${assinatura}.${atraso} I'll be there between ${horario} to pick up ${cao}. Looking forward to another great day with them! 🐶🐾`;
+    return `${abertura} ${assinatura}.\n${atraso}I'll be there between ${horario} to pick up ${cao}. Looking forward to another great day with them! 🐶🐾`;
   }
-  return `${abertura} ${assinatura} 😊${atraso} I'll be dropping off ${cao} between ${horario}. They had a great day with us! 🐶🐾`;
+  return `${abertura} ${assinatura} 😊\n${atraso}I'll be dropping off ${cao} between ${horario}. They had a great day with us! 🐶🐾`;
 }
 
 export type NotifyState = {

@@ -237,7 +237,8 @@ export default function VanLocationsScreen() {
               <View key={local.id} style={styles.card} testID={`sede-${local.id}`}>
                 <View style={styles.cardTopo}>
                   <Text style={styles.nome}>{local.name}</Text>
-                  {local.isDefault ? <Text style={styles.seloPadrao}>DEFAULT</Text> : null}
+                  {/* "DEFAULT" é conceito de VAN (onde o dia começa) — num yard ele confundiria. */}
+                  {local.isDefault && local.kind !== 'yard' ? <Text style={styles.seloPadrao}>DEFAULT</Text> : null}
                 </View>
                 <Text style={styles.tipo}>{KIND_LABEL[local.kind]} · {kindHint(local.kind)}</Text>
                 <Text style={styles.endereco}>
@@ -255,7 +256,7 @@ export default function VanLocationsScreen() {
                   >
                     <Text style={styles.acaoTexto}>Edit</Text>
                   </Pressable>
-                  {!local.isDefault ? (
+                  {!local.isDefault && local.kind !== 'yard' ? (
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel={`Make ${local.name} the default van`}

@@ -1,4 +1,5 @@
 import { proximaParadaDoDia } from '@/features/driver/dayOrder';
+import { dogPhotoThumbnailUrl } from '@/features/dogs/dogPhoto';
 import { useState } from 'react';
 import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -117,6 +118,12 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
   }
 
   const endereco = [stop.address, stop.city].filter(Boolean).join(' · ');
+  /**
+   * MINIATURA (auditoria de desempenho, 02/10/2026): a foto aparece em 64 pt, mas o bucket servia a
+   * imagem ORIGINAL (1320x1320, ate ~207 KB). Aqui a source passa pela transformacao do Storage e cai
+   * para ~12 KB. A foto GRANDE do modal continua na URL original (e ali que "ver maior" tem sentido).
+   */
+  const miniatura = dogPhotoThumbnailUrl(stop.dogPhotoUrl);
   const atraso = stop.lateMinutes ?? 0;
   const minutos = stop.etaMinutes;
   /*
@@ -144,14 +151,14 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
       <View style={styles.dogRow}>
         {/* FOTO DO CÃO (pedido do dono, 02/10/2026): é o que confirma o cão certo na porta. Toca nela
             para ver grande — na rua, com sol, o polegar decide. Sem foto no cadastro, nada aparece. */}
-        {stop.dogPhotoUrl ? (
+        {miniatura ? (
           <Pressable
             onPress={() => setFotoAberta(true)}
             accessibilityRole="button"
             accessibilityLabel={`Photo of ${stop.dogName} — tap to see it bigger`}
             hitSlop={8}
           >
-            <Image source={{ uri: stop.dogPhotoUrl }} style={styles.dogPhoto} accessibilityLabel={`Photo of ${stop.dogName}`} />
+            <Image source={{ uri: miniatura }} style={styles.dogPhoto} accessibilityLabel={`Photo of ${stop.dogName}`} />
           </Pressable>
         ) : null}
         <View style={styles.dogTextBox}>
@@ -224,7 +231,7 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
             accessibilityRole="button"
             accessibilityLabel={`Bigger photo of ${stop.dogName} — tap to close`}
           >
-            <Image source={{ uri: stop.dogPhotoUrl }} style={styles.photoFull} resizeMode="contain" />
+            <Image testID="next-stop-photo-full" source={{ uri: stop.dogPhotoUrl }} style={styles.photoFull} resizeMode="contain" />
             <Text style={styles.photoCaption}>{stop.dogName} · {stop.clientName}</Text>
             <Text style={styles.photoHint}>Tap anywhere to close</Text>
           </Pressable>

@@ -12,10 +12,11 @@ import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/f
 
 import { NextStopCard, nextActionForStatus, nextStopFor } from '@/features/driver/NextStopCard';
 import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
-import { savePendingWrites, enqueuePending, flushPendingWrites, loadPendingWrites, RefusedWriteError, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
+import { mudarFila, chaveDoPendente, enqueuePending, flushPendingWrites, semPendentesSaidos, RefusedWriteError, abrirFilaDoUsuario, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
 import { planClockOut } from '@/features/driver/clockOutPlan';
-import { resolveDriverOrganizationId } from '@/features/driver/driverOrganization';
+import { pickDriverDisplayName, resolveDriverOrganizationId } from '@/features/driver/driverOrganization';
 import { ShiftCard } from '@/features/driver/ShiftCard';
+import { usePendingSyncRetry } from '@/features/driver/usePendingSyncRetry';
 import { shiftErrorMessage, shiftState, type ManualShift } from '@/features/driver/shift';
 import {
   createClosedShift,
@@ -32,9 +33,11 @@ import {
   isNetworkError,
   loadOutbox,
   loadRouteSnapshot,
+  mudarOutbox,
   passosDoEvento,
-  saveOutbox,
+  semRegistrosSaidos,
   saveRouteSnapshot,
+  abrirOutboxDoUsuario,
   type DriverEventStatus,
 } from '@/features/driver/offlineStore';
 import { colors, radii } from '@/features/theme/tokens';
@@ -160,6 +163,14 @@ export default function DriverTodayScreen() {
   const locationHandle = useRef<LocationHandle | null>(null);
   const realtimeRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): `load()` era chamado por QUATRO gatilhos ao mesmo tempo (foco
+   * da aba, intervalo de 30 s, tempo real com debounce e puxar-para-atualizar) SEM guarda de execução
+   * em curso. Cada carga dispara ≥6 requisições + o RPC de limpeza; duas intercaladas também trocavam
+   * estado fora de ordem. Esta ref guarda a carga em andamento: a segunda chamada ESPERA a primeira
+   * (mesma promessa) em vez de disparar outra tempestade.
+   */
+  const cargaEmAndamento = useRef<Promise<void> | null>(null);
+  /**
    * Organização/motorista/rota em ref: a fila local (jornada/aviso) precisa deles no momento do
    * envio, sem recriar o syncOutbox a cada mudança de estado.
    */
@@ -174,24 +185,47 @@ export default function DriverTodayScreen() {
   }, [organizationId, driverId, routeId]);
 
   /**
-   * Nome do motorista para assinar o aviso ao tutor. Best-effort, uma vez só: os metadados da conta
-   * (o convite já grava `full_name`) e, se faltar, o perfil. Sem nome a mensagem continua correta
-   * ("This is your driver from Pack & Paws Club") — nada aqui pode travar o motorista.
+   * Nome do motorista para assinar o aviso ao tutor. Best-effort, uma vez só.
+   *
+   * 🪤 DEFEITO DO DONO (áudio, 02/10/2026): a mensagem saía assinada com o nome ANTIGO ("Rafael"/"JP
+   * Bueno") MESMO depois de o motorista trocar o nome no app. A causa era a ORDEM: os metadados da
+   * conta (`user_metadata.full_name`, gravados no convite e nunca atualizados pelo app) vinham PRIMEIRO
+   * e `return` cedo; o `profiles.full_name` — a fonte que a tela Profile edita — só era lido quando os
+   * metadados faltavam. Agora é o contrário: perfil do usuário logado PRIMEIRO, o vínculo ativo da
+   * organização como alternativa e os metadados por ÚLTIMO (`pickDriverDisplayName`). Sem nome nenhum a
+   * mensagem degrada para "This is your driver from Pack & Paws Club" — melhor do que repetir um nome
+   * errado para o tutor. Nada aqui pode travar o motorista.
    */
   useEffect(() => {
     let ativo = true;
     void (async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        const dosMetadados = typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name.trim() : '';
-        if (dosMetadados) {
-          if (ativo) setDriverName(dosMetadados);
-          return;
+        const uid = user?.id;
+        if (!uid) return;
+        // 1) Fonte canônica: o perfil do MOTORISTA LOGADO (é o que a tela Profile deixa ele editar).
+        const { data: perfil } = await supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle();
+        const doPerfil = (perfil as { full_name?: unknown } | null)?.full_name;
+        // 2) Alternativa: o perfil do vínculo ATIVO do auth.uid() (mesma pessoa, outro caminho de leitura).
+        let doVinculo: unknown = null;
+        if (typeof doPerfil !== 'string' || doPerfil.trim().length === 0) {
+          const { data: vinculo } = await supabase
+            .from('organization_members')
+            .select('profile:profiles(full_name)')
+            .eq('user_id', uid)
+            .eq('status', 'active')
+            .limit(1)
+            .maybeSingle();
+          doVinculo = (vinculo as { profile?: { full_name?: unknown } | null } | null)?.profile?.full_name ?? null;
         }
-        if (!user?.id) return;
-        const { data } = await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle();
-        const nome = (data as { full_name?: unknown } | null)?.full_name;
-        if (ativo && typeof nome === 'string' && nome.trim().length > 0) setDriverName(nome.trim());
+        // 3) Último recurso: os metadados da conta (nome do convite — NÃO pode vencer o perfil atual).
+        const dosMetadados = typeof user?.user_metadata?.full_name === 'string' ? user.user_metadata.full_name : null;
+        const nome = pickDriverDisplayName(
+          typeof doPerfil === 'string' ? doPerfil : null,
+          typeof doVinculo === 'string' ? doVinculo : null,
+          dosMetadados,
+        );
+        if (ativo) setDriverName(nome);
       } catch {
         // Sem o nome, a mensagem sai igual: o motorista não pode ficar sem avisar o tutor por isso.
       }
@@ -202,7 +236,8 @@ export default function DriverTodayScreen() {
   const syncOutbox = useCallback(async (): Promise<boolean> => {
     // Escritas da jornada/aviso que ficaram na fila local (sem sinal) sobem antes do resto: são
     // registros do dia de trabalho e não podem ficar esquecidos no aparelho.
-    const filaLocal = await loadPendingWrites();
+    // Retrato da fila local (leitura serializada) — a trava NÃO fica presa durante a rede.
+    const filaLocal = await mudarFila((fila) => fila);
     if (filaLocal.length > 0) {
       const alvo = envioRef.current;
       const resultado = await flushPendingWrites(filaLocal, async (entrada) => {
@@ -235,8 +270,11 @@ export default function DriverTodayScreen() {
         // 🪤 em `flushPendingWrites` (a vistoria de 02/10/2026 achou a fila sendo apagada em silêncio).
         if (aberta.mode === 'already-open') throw new RefusedWriteError('driver_shifts_uma_aberta');
       });
-      await savePendingWrites(resultado.remaining);
-      setPendingWrites(resultado.remaining);
+      // Remove da fila VIVA só o que realmente saiu (subiu ou foi recusado), casando chave +
+      // `queuedAt` do retrato. O que foi enfileirado DURANTE o envio fica — nada de gravar
+      // "remaining" por cima da fila viva (era o defeito que sumia com o passo recém-salvo).
+      const filaAtual = await mudarFila((fila) => semPendentesSaidos(fila, filaLocal, resultado.remaining));
+      setPendingWrites(filaAtual);
       /**
        * 🪤 ACHADO DA VISTORIA (02/10/2026): o `dropped` era IGNORADO — o registro sumia da fila sem
        * nenhuma mensagem. Agora o motorista é avisado de que o escritório recusou aquele registro.
@@ -248,7 +286,8 @@ export default function DriverTodayScreen() {
       }
     }
 
-    const events = await loadOutbox();
+    // Retrato do outbox (leitura serializada): a trava NÃO fica presa durante a rede.
+    const events = await mudarOutbox((fila) => fila);
     if (events.length === 0) {
       setPendingSync(0);
       return true;
@@ -294,12 +333,15 @@ export default function DriverTodayScreen() {
       }
       if (parouPorRede) break;
     }
-    await saveOutbox(remaining);
-    setPendingSync(remaining.length);
+    // Remove do outbox VIVO só os passos que realmente saíram (subiram ou foram recusados),
+    // casando parada + `createdAt` do retrato. O passo enfileirado DURANTE o envio fica — era o
+    // `saveOutbox(remaining)` gravando por cima que APAGAVA o toque recém-enfileirado.
+    const outboxAtual = await mudarOutbox((fila) => semRegistrosSaidos(fila, events, remaining));
+    setPendingSync(outboxAtual.length);
     if (recusados.length > 0) {
       setMessage(`Could not save ${recusados.join(', ')} — the office did not accept ${recusados.length === 1 ? 'this step' : 'these steps'}, so ${recusados.length === 1 ? 'it was' : 'they were'} removed from the queue. Tell the office.`);
     }
-    return remaining.length === 0;
+    return outboxAtual.length === 0;
   }, []);
 
   /**
@@ -312,24 +354,32 @@ export default function DriverTodayScreen() {
    * jornada e fila) com o spinner por cima, e ainda levava uma segunda recarga do evento de tempo real
    * da própria escrita. Silencioso mantém a lista na tela e reconcilia por baixo.
    */
-  const load = useCallback(async (silencioso = false) => {
+  const load = useCallback(async (silencioso = false): Promise<void> => {
+    if (cargaEmAndamento.current) return cargaEmAndamento.current;
+    const execucao = (async () => {
+    try {
     if (!silencioso) {
       setLoading(true);
       setMessage(null);
     }
-    const events = await loadOutbox();
-    setPendingSync(events.length);
-
-    let snapshot = await loadRouteSnapshot();
-    /** A carga caiu por REDE? (se sim, o vazio não pode afirmar que não existe rota) */
-    let semRede = false;
+    /**
+     * 🪤 ACHADO DA VISTORIA (02/10/2026): IDENTIDADE ANTES DAS FILAS. As filas locais (jornada e
+     * passos da rota) são POR USUÁRIO (`scopedStorage.ts`): ler/subir a fila de OUTRA conta é o que
+     * fazia a jornada "sumir" ao alternar motorista ↔ administrador no mesmo aparelho. A sessão é
+     * resolvida AQUI — a MESMA chamada `getUser()` que a carga já fazia (uma requisição, não duas) — e
+     * o escopo + a migração da fila antiga sem dono acontecem ANTES de qualquer leitura.
+     */
+    let usuarioId: string | null = null;
+    /** Identidade da CARGA (para a subida da fila usar a MESMA conta que a dona da fila). */
+    let orgDaCarga: string | null = null;
+    let rotaDaCarga: string | null = null;
     try {
       const { data: { user }, error: authError } = await supabase.auth.getUser();
       /*
-       * 🪤 ACHADO DA VISTORIA (02/10/2026): erro/sessão ausente NÃO era conferido — a consulta seguia
-       * com `driver_id = ''`, voltava vazia e a tela afirmava "No published route today". O motorista
-       * concluía que não tinha rota quando o problema era o login. Falha de REDE continua caindo no
-       * caminho de "offline"; aqui só a sessão inválida tem tratamento próprio.
+       * Erro/sessão ausente NÃO era conferido — a consulta seguia com `driver_id = ''`, voltava vazia e
+       * a tela afirmava "No published route today". O motorista concluía que não tinha rota quando o
+       * problema era o login. Falha de REDE continua caindo no caminho de "offline"; aqui só a sessão
+       * inválida tem tratamento próprio.
        */
       if (authError || !user) {
         const falha = authError?.message ?? 'Session expired.';
@@ -340,17 +390,38 @@ export default function DriverTodayScreen() {
         }
         throw new Error(falha);
       }
+      usuarioId = user.id;
       setSessaoExpirada(false);
+      // Escopo das filas locais + migração de leitura do que ficou sem dono (uma vez por usuário).
+      await abrirFilaDoUsuario(usuarioId);
+      await abrirOutboxDoUsuario(usuarioId);
+    } catch (reason) {
+      if (!isNetworkError(reason)) {
+        setMessage(reason instanceof Error ? reason.message : 'Unable to load your route.');
+        setLoading(false);
+        return;
+      }
+      // Sem rede: segue com o que está no aparelho (a fila pode ainda não ter sido escopada).
+      setOffline(true);
+    }
+
+    const events = await loadOutbox();
+    setPendingSync(events.length);
+
+    let snapshot = await loadRouteSnapshot();
+    /** A carga caiu por REDE? (se sim, o vazio não pode afirmar que não existe rota) */
+    let semRede = false;
+    try {
       const { data: routes, error } = await supabase
         .from('routes')
         .select('id, organization_id, lock_version, published_at, start_location_id, end_location_id, route_stops(id, sequence, dropoff_sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, delivered_at, travel_seconds, dropoff_travel_seconds, status_updated_at, eta_notice_at, eta_notice_kind, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
-        .eq('driver_id', user?.id ?? '')
+        .eq('driver_id', usuarioId ?? '')
         .eq('route_date', todayLocalISO())
         .eq('status', 'published')
         .order('published_at', { ascending: false })
         .limit(1);
       if (error) throw error;
-      setDriverId(user?.id ?? null);
+      setDriverId(usuarioId);
       const route = (routes as unknown as RouteResult[] | null)?.[0];
       /*
        * 🪤 ACHADO DA VISTORIA (02/10/2026): a organização só existia DENTRO do `if (route)`. Num dia
@@ -359,8 +430,10 @@ export default function DriverTodayScreen() {
        * não tinha como ser registrado. A organização é propriedade do VÍNCULO (`organization_members`
        * com status `active`), não da rota: resolve-se pelo vínculo e vale com ou sem rota publicada.
        */
-      const orgDoVinculo = route?.organization_id ?? (await resolveDriverOrganizationId(supabase, user.id));
+      const orgDoVinculo = route?.organization_id ?? (await resolveDriverOrganizationId(supabase, usuarioId));
       if (route) {
+        orgDaCarga = route.organization_id;
+        rotaDaCarga = route.id;
         const mapped = ((route.route_stops ?? []) as StopRow[]).map(rowToStop);
         snapshot = { savedAt: new Date().toISOString(), publishedAt: route.published_at, stops: mapped };
         await saveRouteSnapshot(snapshot);
@@ -394,6 +467,8 @@ export default function DriverTodayScreen() {
       } else {
         // Route finished/not published: drop the cached copy (sensitive instructions must not linger).
         await clearRouteSnapshot();
+        orgDaCarga = orgDoVinculo;
+        rotaDaCarga = null;
         setRouteId(null);
         setRouteVersion(null);
         // A organização do VÍNCULO (não da rota): o clock in manual funciona mesmo sem rota publicada.
@@ -405,14 +480,14 @@ export default function DriverTodayScreen() {
       void supabase.rpc('cleanup_driver_locations');
 
       // Jornada: registros manuais de hoje + o que está na fila local (sem sinal).
-      if (user?.id) {
+      if (usuarioId) {
         try {
-          setShifts(await loadDriverShifts(supabase, { driverId: user.id, dayStart: startOfToday(), dayEnd: startOfTomorrow() }));
+          setShifts(await loadDriverShifts(supabase, { driverId: usuarioId, dayStart: startOfToday(), dayEnd: startOfTomorrow() }));
         } catch {
           // Sem jornada carregada a tela ainda mostra a dedução dos eventos da rota.
         }
       }
-      setPendingWrites(await loadPendingWrites());
+      setPendingWrites(await mudarFila((fila) => fila));
     } catch (reason) {
       if (!isNetworkError(reason)) {
         setMessage(reason instanceof Error ? reason.message : 'Unable to load your route.');
@@ -423,6 +498,14 @@ export default function DriverTodayScreen() {
       semRede = true;
       snapshot = await loadRouteSnapshot();
     }
+
+    /**
+     * A SUBIDA da fila usa a MESMA identidade da dona da fila (escopo por usuário). Sem isto, o
+     * `envioRef` — que é atualizado por effect, DEPOIS do render — ainda teria a conta ANTERIOR no
+     * instante do `syncOutbox`, e a jornada do motorista subiria atribuída a quem estava logado antes
+     * (o teste da troca de conta pegou exatamente isso: fila certa, `driver_id` errado).
+     */
+    if (usuarioId) envioRef.current = { organizationId: orgDaCarga, driverId: usuarioId, routeId: rotaDaCarga };
 
     const synced = await syncOutbox();
     if (!synced) setOffline(true);
@@ -447,19 +530,30 @@ export default function DriverTodayScreen() {
      */
     setStops(applyPendingEvents(snapshot.stops, await loadOutbox()));
     setLoading(false);
+    } finally {
+      // Libera a guarda SEMPRE (inclusive nas saídas antecipadas) para a próxima carga rodar.
+      cargaEmAndamento.current = null;
+    }
+    })();
+    cargaEmAndamento.current = execucao;
+    return execucao;
   }, [syncOutbox]);
 
   /**
    * 🪤 ACHADO DA VISTORIA (02/10/2026): a fila de escritas offline só subia no foco da aba, no tempo real
    * (que precisa de sinal) ou depois de outra escrita — o motorista com sinal intermitente ficava com os
-   * passos PRESOS no aparelho até sair da tela e voltar. Agora, enquanto houver passo pendente, a tela
-   * tenta sozinha de novo (o `load` é quem sobe a fila).
+   * passos PRESOS no aparelho até sair da tela e voltar.
+   *
+   * CUSTO MEDIDO E ECONOMIZADO (auditoria de desempenho, 02/10/2026): o timer era de 30 s rodando
+   * também com o app em SEGUNDO PLANO — num dia de ~8 h com o celular no bolso eram ~960 requisições
+   * (cada uma refaz rota, van, jornada e fila) sem motivo. Agora a retomada só acontece com pendência
+   * REAL e app ABERTO, e ao voltar ao foco tenta na hora (`usePendingSyncRetry`).
    */
-  useEffect(() => {
-    if (pendingSync === 0) return undefined;
-    const timer = setInterval(() => { void load(true); }, 30_000);
-    return () => clearInterval(timer);
-  }, [pendingSync, load]);
+  const retomarFilaPendente = useCallback(() => {
+    void load(true);
+  }, [load]);
+
+  usePendingSyncRetry(pendingSync, retomarFilaPendente);
 
   /** Puxar para atualizar: recarrega por baixo e sobe a fila de escritas pendentes. */
   const puxarParaAtualizar = useCallback(async () => {
@@ -591,20 +685,18 @@ export default function DriverTodayScreen() {
           .select('id');
         if (error) throw new Error(`The office did not accept this delivery (${error.message}). Check your signal and try again.`);
         if (!entregue || entregue.length === 0) throw new Error('The office did not accept this delivery. Check your signal and try again.');
-        const events = (await loadOutbox()).filter((event) => event.stopId !== stopId);
-        await saveOutbox(events);
+        const events = await mudarOutbox((fila) => fila.filter((event) => event.stopId !== stopId));
         setPendingSync(events.length);
         if (events.length === 0) setOffline(false);
         void load(true);
       } catch (reason) {
         if (isNetworkError(reason)) {
-          const events = enqueueEvent(await loadOutbox(), {
+          const events = await mudarOutbox((fila) => enqueueEvent(fila, {
             stopId,
             status: 'completed',
             deliveredAt: entregueEm,
             createdAt: entregueEm,
-          });
-          await saveOutbox(events);
+          }));
           setPendingSync(events.length);
           setOffline(true);
           setMessage('You are offline. This change is saved on your device and will sync automatically.');
@@ -688,8 +780,7 @@ export default function DriverTodayScreen() {
 
     try {
       await gravarPasso();
-      const events = (await loadOutbox()).filter((event) => event.stopId !== stopId);
-      await saveOutbox(events);
+      const events = await mudarOutbox((fila) => fila.filter((event) => event.stopId !== stopId));
       setPendingSync(events.length);
       if (events.length === 0) setOffline(false);
       void load(true);
@@ -698,15 +789,14 @@ export default function DriverTodayScreen() {
       // Qualquer outra falha devolve o cartão ao estado do BANCO e mostra o motivo na tela: nada de
       // marcar na tela um passo que o banco não recebeu.
       if (isNetworkError(reason)) {
-        const events = enqueueEvent(await loadOutbox(), {
+        const events = await mudarOutbox((fila) => enqueueEvent(fila, {
           stopId,
           status,
           // Sem sinal, a fila guarda TODOS os passos da ação (o "Next" tem dois) para o replay
           // gravar cada um — o servidor carimba `picked_up_at` e `completed_at` ao voltar o sinal.
           steps: passos,
           createdAt: new Date().toISOString(),
-        });
-        await saveOutbox(events);
+        }));
         setPendingSync(events.length);
         setOffline(true);
         setMessage('You are offline. This change is saved on your device and will sync automatically.');
@@ -786,9 +876,9 @@ export default function DriverTodayScreen() {
   };
 
   const guardarNaFila = async (entrada: PendingWrite) => {
-    const fila = enqueuePending(pendingWrites, entrada);
+    // Serializado: enfileirar nunca corre por cima de uma subida da fila em andamento.
+    const fila = await mudarFila((atual) => enqueuePending(atual, entrada));
     setPendingWrites(fila);
-    await savePendingWrites(fila);
     return fila;
   };
 
@@ -900,8 +990,7 @@ export default function DriverTodayScreen() {
     });
     // O plano pode ter mexido na fila (fechou a jornada que só existia no aparelho): persiste já.
     if (plano.queue !== pendingWrites) {
-      setPendingWrites(plano.queue);
-      await savePendingWrites(plano.queue);
+      setPendingWrites(await mudarFila(() => plano.queue));
     }
     // A jornada abriu sem sinal e NUNCA chegou ao banco: o fechamento fica no aparelho, na MESMA
     // entrada da fila (entrada + saída numa linha só) — nada de criar uma jornada nova e órfã.
@@ -947,7 +1036,7 @@ export default function DriverTodayScreen() {
 
   /**
    * Texto do aviso: FAIXA de ~30 min (5 antes / 25 depois) montada com a hora do TOQUE.
-   * O `now` entra explícito porque a faixa é horário de relógio ("2:05 and 2:35 PM").
+   * O `now` entra explícito porque a faixa é horário de relógio ("2:05 –2:35 PM").
    */
   const avisoDe = (stop: DriverStop) =>
     etaMessageText({
@@ -1001,10 +1090,14 @@ export default function DriverTodayScreen() {
   };
 
   /**
-   * Paradas com o ETA de cada uma (o botão de avisar mostra "~12 min" e fica âmbar se atrasar).
-   * O número segue a ROTA quando o gestor otimizou com tráfego (`travel_seconds` na ordem da busca,
-   * `dropoff_travel_seconds` na ordem da entrega) e cai na linha reta da posição quando não há trilha —
-   * era o único cálculo até 01/10/2026 e é exatamente o que o cliente reclamou.
+   * Paradas com o ETA de cada uma (o botão de avisar mostra "~12 min" e fica âmbar se atrasar), e é
+   * ESTE número que o aviso ao tutor usa (`avisoDe` lê `stop.etaMinutes`) — tela e mensagem, um número só.
+   *
+   * O cálculo é SEMPRE o acumulado por `minutosAteParada`: as pernas gravadas pelo Optimize
+   * (`travel_seconds` na ordem da busca, `dropoff_travel_seconds` na entrega) quando existem e, quando
+   * não existem, a linha reta perna a perna (da posição atual na 1ª parada da fase e da parada anterior
+   * nas demais). Antes, sem as pernas, cada parada era medida da POSIÇÃO ATUAL isolada e a 3ª podia
+   * aparecer antes da 2ª (defeito relatado pelo dono em 02/10/2026: 8:06 / 8:10 / 8:04).
    */
   const stopsComEta = useMemo(
     () =>

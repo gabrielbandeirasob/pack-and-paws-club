@@ -83,8 +83,23 @@ export type DispatchRoute = {
   startLocationId?: string | null;
   stops: DispatchRouteStop[];
 };
-/** Van da organização, na versão que o cartão do motorista precisa (pergunta do dono, 01/10/2026). */
-export type DispatchVan = { id: string; name: string; isDefault: boolean };
+/**
+ * Sede da organização, na versão que o cartão do motorista precisa (pergunta do dono, 01/10/2026).
+ *
+ * O `kind` existe por causa do relato do dono (02/10/2026, transcrição: *"tá mostrando van 1, van 2,
+ * yard, tipo assim, o que é que tem o yard? não é uma van o yard, ele tem que ter o endereço que ele vai
+ * finalizar"*). O YARD **não é van**: ele é o ponto onde a BUSCA termina (e a entrega começa), então o
+ * cartão o mostra numa linha PRÓPRIA com o endereço — nunca como opção de van. Sem `kind` (chamadas
+ * antigas / organizações que nunca usaram yard), a sede vale como van: comportamento idêntico ao de antes.
+ */
+export type DispatchVan = {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  kind?: 'van' | 'yard' | 'other';
+  /** Endereço numa linha (rua · cidade), quando houver — o dono quer VER onde o dia finaliza. */
+  address?: string | null;
+};
 
 type ConstraintKind = 'none' | 'window' | 'exact';
 
@@ -124,8 +139,9 @@ type Props = {
   onApplySuggestion?: (blocos: BlocoSugerido[]) => Promise<void>;
   /**
    * VAN POR MOTORISTA (pergunta do dono, 01/10/2026: *"vamos supor que tenhas várias vans, o erro não
-   * vai se repetir?"*). Com UMA van cadastrada nada aparece (zero ruído); com DUAS ou mais o cartão
-   * mostra a van de cada rota e o gestor escolhe num toque. Sem `onChooseVan` o controle não existe.
+   * vai se repetir?"*). As VANS escolhíveis são o que aparece aqui: o cartão mostra a van de cada rota e
+   * o gestor escolhe num toque. O YARD não entra como opção (não é van) — ele ganha uma LINHA PRÓPRIA,
+   * informativa, com o endereço (dono, 02/10/2026). Sem `onChooseVan` o controle não existe.
    */
   vans?: DispatchVan[];
   onChooseVan?: (driverId: string, locationId: string) => Promise<void>;
@@ -667,6 +683,13 @@ const CartaoMotorista = memo(function CartaoMotorista({
    * escolha nenhuma o app decide sozinho pela van mais próxima das paradas — o cartão diz isso em letras.
    */
   const vanAtiva = route?.startLocationId ?? vanDoMotorista?.(driver.id) ?? null;
+  /**
+   * VAN ≠ YARD (dono, 02/10/2026). Só as VANS são escolhíveis — "onde o dia começa". O YARD ("onde a
+   * busca termina") sai da lista de escolha e vira uma linha informativa com o endereço, logo abaixo.
+   * Sem `kind`, a sede conta como van: organizações que nunca usaram yard ficam idênticas ao de antes.
+   */
+  const vansIniciais = (vans ?? []).filter((van) => van.kind !== 'yard');
+  const yards = (vans ?? []).filter((van) => van.kind === 'yard');
   const escolherVan = async (locationId: string) => {
     if (!onChooseVan || salvandoVan || vanAtiva === locationId) return;
     setSalvandoVan(true);
@@ -725,11 +748,11 @@ const CartaoMotorista = memo(function CartaoMotorista({
             ) : null}
           </View>
         </View>
-        {vans && vans.length > 1 && onChooseVan ? (
+        {vansIniciais.length > 1 && onChooseVan ? (
           <View style={styles.vanLinha} testID={`driver-van-${driver.id}`}>
-            <Text style={styles.vanRotulo}>Van</Text>
+            <Text style={styles.vanRotulo}>Van · where the day starts</Text>
             <View style={styles.vanChips}>
-              {vans.map((van) => {
+              {vansIniciais.map((van) => {
                 const ativa = vanAtiva === van.id;
                 return (
                   <Pressable
@@ -750,6 +773,27 @@ const CartaoMotorista = memo(function CartaoMotorista({
               })}
             </View>
             {!vanAtiva ? <Text style={styles.vanAuto}>auto · nearest</Text> : null}
+          </View>
+        ) : null}
+        {/* O YARD NÃO é van escolhível (dono, 02/10/2026: "não é uma van o yard, ele tem que ter o
+            endereço que ele vai finalizar"). Ele aparece aqui como o ponto onde a BUSCA termina — a
+            origem da 1ª perna da entrega — com o endereço, e sem toque nenhum. */}
+        {yards.length > 0 && onChooseVan ? (
+          <View style={styles.vanLinha} testID={`driver-yard-${driver.id}`}>
+            <Text style={styles.vanRotulo}>Yard · where the pick-up ends</Text>
+            <View style={styles.vanChips}>
+              {yards.map((yard) => (
+                <View
+                  key={yard.id}
+                  style={styles.yardChip}
+                  accessibilityLabel={`Yard ${yard.name}${yard.address ? ` at ${yard.address}` : ''} — where the pick-up ends`}
+                >
+                  <Text numberOfLines={1} style={styles.yardChipTexto}>
+                    {yard.name}{yard.address ? ` — ${yard.address}` : ''}
+                  </Text>
+                </View>
+              ))}
+            </View>
           </View>
         ) : null}
         {route && onOpenStopList ? (
@@ -813,7 +857,9 @@ const CartaoMotorista = memo(function CartaoMotorista({
               {stop.status === 'pending' && isPastDeadline(stop.windowEnd, stop.exactTime) ? <Badge text="Late" color={colors.urgency} /> : null}
               {stop.priority === 'priority' ? <Badge text="⚡ High" color={colors.urgency} /> : null}
               {stop.windowStart && stop.windowEnd ? <Badge text={`⏰ ${stop.windowStart}–${stop.windowEnd}`} color={colors.forest500} /> : null}
-              {stop.exactTime ? <Badge text={`@ ${stop.exactTime}`} color={colors.gold} /> : null}
+              {/* M4 da auditoria (02/10/2026): a hora exata era `colors.gold` como TEXTO do badge
+                  (~2,27:1 sobre o papel) — vira `forest700`; o gold segue no fundo translúcido. */}
+              {stop.exactTime ? <Badge text={`@ ${stop.exactTime}`} color={colors.forest700} /> : null}
             </View>
             <StopProofChips pickupPath={stop.pickupProofPath} dropoffPath={stop.dropoffProofPath} />
           </View>
@@ -859,7 +905,7 @@ function TimeTargetButton({ label, accessibilityLabel, value, active, onPress, h
 
 const styles = StyleSheet.create({
   pinRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 4 },
-  pinLabel: { width: 50, fontSize: 11, color: colors.ink },
+  pinLabel: { width: 50, fontSize: 12, color: colors.ink },
   pinChip: { paddingHorizontal: 6, paddingVertical: 7 },
   pinInput: { width: 30, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, color: colors.ink, padding: 3 },
   screen: { flex: 1, backgroundColor: colors.forest700 },
@@ -868,7 +914,8 @@ const styles = StyleSheet.create({
   eyebrow: { color: colors.gold, fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
   dateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
   title: { color: 'white', fontFamily: 'serif', fontSize: 24, fontWeight: '800', textTransform: 'capitalize' },
-  arrow: { width: 42, height: 38, alignItems: 'center', justifyContent: 'center' },
+  // M5 da auditoria (02/10/2026): os setas de dia tinham 42×38 pt — abaixo do mínimo de 44 pt.
+  arrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   arrowText: { color: colors.gold, fontSize: 30, fontWeight: '700', lineHeight: 32 },
   summary: { color: '#D7E1D4', fontSize: 12, marginTop: 2 },
   content: { padding: 14, paddingBottom: 30 },
@@ -879,7 +926,7 @@ const styles = StyleSheet.create({
   avatar: { width: 36, height: 36, borderRadius: 11, backgroundColor: colors.forest700, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: 'white', fontWeight: '900' },
   driverName: { fontWeight: '900', color: colors.ink },
-  muted: { color: colors.muted, fontSize: 11 },
+  muted: { color: colors.muted, fontSize: 12 },
   lateText: { color: colors.urgency, fontWeight: '800' },
   /**
    * BOTOES DE ACAO DA ROTA — altura minima de 44 pt (medido em 29/09/2026: estavam com 32 px, abaixo
@@ -903,7 +950,7 @@ const styles = StyleSheet.create({
   optimizeText: { color: 'white', fontWeight: '900', fontSize: 12 },
   stop: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 11, borderBottomWidth: 1, borderBottomColor: '#F0F1ED' },
   position: { width: 24, height: 24, borderRadius: 8, backgroundColor: '#EDF3EB', alignItems: 'center', justifyContent: 'center' },
-  positionText: { color: colors.forest700, fontSize: 11, fontWeight: '900' },
+  positionText: { color: colors.forest700, fontSize: 12, fontWeight: '900' },
   stopMain: { flex: 1 },
   stopName: { color: colors.ink, fontWeight: '800', fontSize: 14 },
   badgeRow: { flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' },
@@ -930,24 +977,33 @@ const styles = StyleSheet.create({
   sugestaoLista: { maxHeight: 400, flexShrink: 1 },
   sugestaoParticipantes: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
   /** Rota em rascunho: uma linha fina, âmbar, dizendo que o motorista ainda não vê (não é erro). */
-  draftBadge: { alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: colors.gold, backgroundColor: colors.cream, color: colors.forest700, fontSize: 11, fontWeight: '800', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden' },
-  sugestaoErro: { color: colors.urgency, fontSize: 11.5, fontWeight: '700', marginBottom: 8 },
+  draftBadge: { alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: colors.gold, backgroundColor: colors.cream, color: colors.forest700, fontSize: 12, fontWeight: '800', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden' },
+  sugestaoErro: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginBottom: 8 },
   // VAN POR MOTORISTA (dono, 01/10/2026): uma linha fina, discreta — só aparece com 2+ vans cadastradas.
-  vanLinha: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8 },
+  // Em BLOCO (rótulo em cima, chips/valores embaixo) porque o rótulo agora diz o PAPEL da sede:
+  // "van = onde o dia começa", "yard = onde o pick-up termina" (dono, 02/10/2026).
+  vanLinha: { marginTop: 8 },
   vanRotulo: { color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
-  vanChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, flexShrink: 1 },
-  vanChip: { borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: 'white' },
+  vanChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6, flexShrink: 1 },
+  vanChip: { borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, minHeight: 44, justifyContent: 'center', backgroundColor: 'white' },
   vanChipAtiva: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
-  vanChipTexto: { color: colors.forest700, fontSize: 11, fontWeight: '800' },
+  vanChipTexto: { color: colors.forest700, fontSize: 12, fontWeight: '800' },
   vanChipTextoAtivo: { color: 'white' },
-  vanAuto: { color: colors.muted, fontSize: 10.5, fontStyle: 'italic' },
-  // Atalho para a lista de paradas com hora (o dono procurou aqui, 01/10/2026).
-  stopListLink: { alignSelf: 'flex-start', marginTop: 8, paddingVertical: 10 },
-  stopListText: { color: colors.forest700, fontSize: 11.5, fontWeight: '800', textDecorationLine: 'underline' },
+  vanAuto: { color: colors.muted, fontSize: 12, fontStyle: 'italic' },
+  /**
+   * O YARD NÃO é van escolhível (dono, 02/10/2026: *"não é uma van o yard, ele tem que ter o endereço
+   * que ele vai finalizar"*). Ele fica numa linha própria, SEM toque, com o endereço — é o ponto onde a
+   * busca termina (e a entrega começa), não uma opção. Alvo de 44 pt por consistência com os chips.
+   */
+  yardChip: { alignSelf: 'flex-start', maxWidth: '100%', borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, minHeight: 44, justifyContent: 'center', backgroundColor: '#F4F1E7' },
+  yardChipTexto: { color: colors.forest700, fontSize: 12, fontWeight: '800' },
+  // Atalho para a lista de paradas com hora (o dono procurou aqui, 01/10/2026). Alvo de 44 pt.
+  stopListLink: { alignSelf: 'flex-start', marginTop: 8, paddingVertical: 10, minHeight: 44, justifyContent: 'center' },
+  stopListText: { color: colors.forest700, fontSize: 12, fontWeight: '800', textDecorationLine: 'underline' },
   sugestaoBloco: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 11, marginBottom: 9, backgroundColor: '#FAFBF7' },
   sugestaoMotorista: { color: colors.ink, fontWeight: '800', fontSize: 13, marginBottom: 4 },
   sugestaoCao: { color: colors.muted, fontSize: 12, lineHeight: 17 },
-  sugestaoAviso: { color: colors.forest900, backgroundColor: colors.sage, borderRadius: 10, padding: 9, fontSize: 11.5, marginBottom: 10 },
+  sugestaoAviso: { color: colors.forest900, backgroundColor: colors.sage, borderRadius: 10, padding: 9, fontSize: 12, marginBottom: 10 },
   // M5 da auditoria (02/10/2026): o chip de cão não listado tinha ~31 pt de alvo; sobe para 44 pt.
   chip: { backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 7, borderWidth: 1, borderColor: colors.line, minHeight: 44, justifyContent: 'center' },
   chipText: { color: colors.ink, fontWeight: '800', fontSize: 13 },
@@ -961,8 +1017,8 @@ const styles = StyleSheet.create({
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   sheetTitle: { fontFamily: 'serif', fontSize: 19, fontWeight: '800', color: colors.forest900, flex: 1 },
   sheetClose: { color: colors.muted, fontSize: 17, fontWeight: '800', paddingHorizontal: 6 },
-  fieldLabel: { color: colors.ink, fontWeight: '800', fontSize: 11, marginTop: 12, marginBottom: 6 },
-  fieldHint: { color: colors.muted, fontSize: 11, marginBottom: 6 },
+  fieldLabel: { color: colors.ink, fontWeight: '800', fontSize: 12, marginTop: 12, marginBottom: 6 },
+  fieldHint: { color: colors.muted, fontSize: 12, marginBottom: 6 },
   /**
    * Aviso da casa: "Same house: Ollie goes to the same driver." Fundo suave (sage) para o gestor ver
    * ANTES de salvar que dois cães se movem juntos — pedido do dono, 29/09/2026.
@@ -974,7 +1030,8 @@ const styles = StyleSheet.create({
   driverOptionText: { color: colors.ink, fontWeight: '800', fontSize: 13 },
   driverOptionTextActive: { color: 'white' },
   segmented: { flexDirection: 'row', backgroundColor: '#EDE9DC', borderRadius: 12, padding: 4, gap: 0 },
-  segment: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 9 },
+  // M5 da auditoria (02/10/2026): segmento (Any time/window/exact) tinha ~31 pt; sobe para 44 pt.
+  segment: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 8, minHeight: 44, borderRadius: 9 },
   segmentActive: { backgroundColor: colors.forest700 },
   segmentText: { color: colors.muted, fontWeight: '800', fontSize: 12 },
   segmentTextActive: { color: 'white' },
@@ -988,8 +1045,9 @@ const styles = StyleSheet.create({
   error: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginTop: 10 },
   saveButton: { backgroundColor: colors.gold, borderRadius: 14, padding: 14, alignItems: 'center', marginTop: 16 },
   saveText: { color: colors.forest900, fontWeight: '900', fontSize: 15 },
-  removeButton: { alignItems: 'center', padding: 8, marginTop: 4 },
+  // M5 da auditoria (02/10/2026): "Remove from route"/"Cancel" tinham ~32 pt; sobem para 44 pt.
+  removeButton: { alignItems: 'center', justifyContent: 'center', padding: 8, minHeight: 44, marginTop: 4 },
   removeText: { color: colors.urgency, fontWeight: '800', fontSize: 13 },
-  sheetCancel: { alignItems: 'center', padding: 8, marginTop: 2 },
+  sheetCancel: { alignItems: 'center', justifyContent: 'center', padding: 8, minHeight: 44, marginTop: 2 },
   sheetCancelText: { color: colors.muted, fontWeight: '800' },
 });

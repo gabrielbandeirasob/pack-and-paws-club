@@ -100,24 +100,39 @@ export function locationsFromRows(rows: unknown): OrganizationLocation[] {
 }
 
 /**
+ * Só as VANS de verdade da organização — o YARD **nunca** entra (dono, 02/10/2026: *"não é uma van o
+ * yard"*). Van é o VEÍCULO (onde o motorista dá o clock in e onde a rota dele COMEÇA); o yard é um
+ * LUGAR com endereço fixo (onde o pick-up TERMINA). A separação é por `kind` — **não pelo nome** — que
+ * é o que impede uma sede chamada "Yard" de ser tratada como van só por causa do rótulo.
+ */
+export function vansDaOrganizacao(locations: OrganizationLocation[]): OrganizationLocation[] {
+  return (locations ?? []).filter((local) => local.kind !== 'yard');
+}
+
+/**
  * Qual sede vale para uma rota.
  *
  * Precedência: a sede ESCOLHIDA na rota → a sede PADRÃO da organização → a única sede cadastrada.
  * Com DUAS ou mais sedes e nenhuma marcada como padrão, devolve null de propósito: travar o clock
  * in na van errada seria pior do que não travar (o gestor marca a padrão em um toque).
+ *
+ * O **YARD nunca é a van da rota** (dono, 02/10/2026): ele é filtrado antes de tudo, então uma rota que
+ * APONTA para um yard (dado antigo, de antes de o seletor parar de oferecê-lo) cai na van padrão — o
+ * yard não é onde o dia começa, é onde a busca termina.
  */
 export function vanLocationForRoute(
   locations: OrganizationLocation[],
   startLocationId?: string | null,
 ): OrganizationLocation | null {
-  if (!locations || locations.length === 0) return null;
+  const vans = vansDaOrganizacao(locations);
+  if (vans.length === 0) return null;
   if (startLocationId) {
-    const daRota = locations.find((item) => item.id === startLocationId);
+    const daRota = vans.find((item) => item.id === startLocationId);
     if (daRota) return daRota;
   }
-  const padrao = locations.find((item) => item.isDefault);
+  const padrao = vans.find((item) => item.isDefault);
   if (padrao) return padrao;
-  return locations.length === 1 ? locations[0] : null;
+  return vans.length === 1 ? vans[0] : null;
 }
 
 /**
@@ -157,24 +172,27 @@ export function vanMaisProxima(
  * Precedência: van ESCOLHIDA na rota → (com DUAS ou mais vans) a mais PRÓXIMA das paradas → a PADRÃO →
  * a única cadastrada. Com uma van só o resultado é o mesmo de `vanLocationForRoute`: nada muda para
  * quem tem uma van; com várias, a rota para de cair sempre na padrão.
+ *
+ * Só VANS entram na conta: o YARD é filtrado (não é van — é o lugar onde a busca termina).
  */
 export function vanDaRota(
   locations: OrganizationLocation[],
   startLocationId?: string | null,
   paradas: Array<{ latitude?: number | null; longitude?: number | null }> = [],
 ): OrganizationLocation | null {
-  if (!locations || locations.length === 0) return null;
+  const vans = vansDaOrganizacao(locations);
+  if (vans.length === 0) return null;
   if (startLocationId) {
-    const daRota = locations.find((item) => item.id === startLocationId);
+    const daRota = vans.find((item) => item.id === startLocationId);
     if (daRota) return daRota;
   }
-  if (locations.length > 1) {
-    const mais = vanMaisProxima(locations, paradas);
+  if (vans.length > 1) {
+    const mais = vanMaisProxima(vans, paradas);
     if (mais) return mais;
   }
-  const padrao = locations.find((item) => item.isDefault);
+  const padrao = vans.find((item) => item.isDefault);
   if (padrao) return padrao;
-  return locations.length === 1 ? locations[0] : null;
+  return vans.length === 1 ? vans[0] : null;
 }
 
 export type ClockInGateKind = 'no-location' | 'no-position' | 'inside' | 'outside';
@@ -414,6 +432,23 @@ export function yardDaOrganizacao(locations: OrganizationLocation[]): Organizati
   const yards = locations.filter((local) => local.kind === 'yard');
   if (yards.length === 0) return null;
   return yards.find((local) => local.isDefault) ?? [...yards].sort((a, b) => a.name.localeCompare(b.name))[0];
+}
+
+/**
+ * DE ONDE A ENTREGA PARTE no planejamento (cliente, 02/10/2026: *"Posição do driver inicia rota dos drop
+ * offs"*; dono no áudio: *"ele otimiza a rota pra onde tá a van (...) o bagulho do yard tem que ser
+ * diferente"*).
+ *
+ * Na prática o motorista começa a entregar vindo do **YARD** (é onde os cães passam o dia), então esta é
+ * a origem da 1ª perna da ENTREGA. A **VAN nunca é origem da entrega**: ela é onde o dia COMEÇA (a
+ * partida dos pick-ups) e onde ele FECHA (ver `fechamentoDaRota`). Devolve `null` quando a sede recebida
+ * não é um yard — e aí o app NÃO inventa origem (a 1ª perna não entra na conta), em vez de cair na van.
+ */
+export function origemDaEntregaDaRota(
+  yard: OrganizationLocation | null | undefined,
+): { latitude: number; longitude: number } | null {
+  if (!yard || yard.kind !== 'yard') return null;
+  return { latitude: yard.latitude, longitude: yard.longitude };
 }
 
 /**

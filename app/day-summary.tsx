@@ -194,7 +194,8 @@ const styles = StyleSheet.create({
   quadroDestaque: { backgroundColor: colors.gold, borderColor: colors.gold },
   quadroValor: { color: colors.forest700, fontFamily: 'serif', fontWeight: '800', fontSize: 22 },
   quadroValorDestaque: { color: colors.forest900 },
-  quadroRotulo: { color: colors.muted, fontSize: 11 },
+  // M5 da auditoria (02/10/2026): legenda do quadro com pelo menos 12 pt.
+  quadroRotulo: { color: colors.muted, fontSize: 12 },
   quadroRotuloDestaque: { color: colors.forest900, fontWeight: '700' },
   quadroLegenda: { color: colors.forest900, fontSize: 12, lineHeight: 15, opacity: 0.75, marginTop: 2 },
   rotulo: { color: colors.muted, fontSize: 12, fontWeight: '700', marginTop: 8, letterSpacing: 0.3 },
@@ -203,7 +204,7 @@ const styles = StyleSheet.create({
   linhaPack: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 5, borderBottomWidth: 1, borderBottomColor: colors.line },
   cao: { color: colors.ink, fontWeight: '700', fontSize: 13.5 },
   foraDoPack: { color: colors.muted, textDecorationLine: 'line-through' },
-  packInfo: { color: colors.muted, fontSize: 11 },
+  packInfo: { color: colors.muted, fontSize: 12 },
   linhaTodo: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4 },
   marca: { color: colors.success, fontWeight: '900', fontSize: 13 },
   textoTodo: { color: colors.ink, fontSize: 13, flex: 1 },

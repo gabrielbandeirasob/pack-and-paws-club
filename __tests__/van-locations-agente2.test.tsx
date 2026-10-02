@@ -119,6 +119,30 @@ describe('tela do gestor: Van & yard', () => {
     expect(tela.getByText(/Where the clock in opens and where the run ends/)).toBeTruthy();
   });
 
+  /**
+   * O YARD NÃO SE CONFUNDE COM VAN (dono, 02/10/2026: *"eu posso literalmente pegar uma van e botar ela
+   * como... botar o nome dela de yard"*). A tela separa pelo TIPO (o `kind`), não pelo nome: um yard
+   * mostra o papel dele ("Where the pick up run ends") — e o endereço é EDITÁVEL (o dono vai mudar de
+   * quintal em 6 meses). É a "lista de vans" que o dono citou no áudio.
+   */
+  it('o YARD aparece com o PAPEL dele (não como van) e com Edit — o endereço é editável', async () => {
+    mockEstado.sedes = [
+      { id: 'yard-1', name: 'Yard', kind: 'yard', address_line_1: '1089 Memorex Drive', city: 'Santa Clara', latitude: 37.362643, longitude: -122.9527423, radius_meters: 300, is_default: false },
+    ];
+    const Tela = require('../app/van-locations').default;
+    const tela = await render(<Tela />);
+
+    await waitFor(() => expect(tela.getByText('Yard')).toBeTruthy());
+    // O rótulo do TIPO diz o que ele é — "Yard" no nome não faz dele uma van.
+    expect(tela.getByText(/Yard · Where the pick up run ends/)).toBeTruthy();
+    expect(tela.getByText(/1089 Memorex Drive, Santa Clara/)).toBeTruthy();
+    // Editável: o gestor muda o endereço do quintal sem mexer em código.
+    expect(tela.getByLabelText('Edit Yard')).toBeTruthy();
+    // Nem "DEFAULT" nem "Make default": isso é conceito de VAN (onde o dia começa), não de yard.
+    expect(tela.queryByText('DEFAULT')).toBeNull();
+    expect(tela.queryByLabelText('Make Yard the default van')).toBeNull();
+  });
+
   it('sem sede cadastrada, promete o comportamento de hoje para o gestor', async () => {
     const Tela = require('../app/van-locations').default;
     const tela = await render(<Tela />);

@@ -134,7 +134,11 @@ describe('DriverRouteView', () => {
       { ...stops[0], dogPhotoUrl: 'https://bhuexxjcrjdhkmsvagdw.supabase.co/storage/v1/object/public/dog-photos/org-1/dog-1/bob.jpg' },
     ];
     const comImagem = await render(<DriverRouteView stops={comFoto} onAction={jest.fn()} />);
-    expect(comImagem.getByLabelText('Photo of Bob')).toBeTruthy();
+    const foto = comImagem.getByLabelText('Photo of Bob');
+    expect(foto).toBeTruthy();
+    // A miniatura da LISTA (46 pt) vem da transformação do Storage, não da foto original
+    // (auditoria de desempenho, 02/10/2026).
+    expect(foto.props.source.uri).toContain('/storage/v1/render/image/public/');
 
     const semImagem = await render(<DriverRouteView stops={[stops[1]]} onAction={jest.fn()} />);
     expect(semImagem.queryByLabelText('Photo of Luna')).toBeNull();

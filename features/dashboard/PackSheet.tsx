@@ -121,7 +121,8 @@ const styles = StyleSheet.create({
   quem: { flex: 1, paddingRight: 10 },
   cao: { fontWeight: '800', color: colors.ink, fontSize: 15 },
   textoFraco: { color: colors.muted, textDecorationLine: 'line-through' },
-  tutor: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  // M5 da auditoria (02/10/2026): tutor e legenda do "fora" com pelo menos 12 pt.
+  tutor: { color: colors.muted, fontSize: 12, marginTop: 2 },
   x: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: '#E8BFBF', backgroundColor: '#FBEDED', alignItems: 'center', justifyContent: 'center' },
   xVoltar: { borderColor: colors.line, backgroundColor: colors.sage },
   xTexto: { color: colors.urgency, fontWeight: '900', fontSize: 15 },
@@ -129,11 +130,12 @@ const styles = StyleSheet.create({
   pilha: { marginTop: 11 },
   rotuloCaminhante: { color: colors.muted, fontSize: 12, marginBottom: 6 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
-  chip: { borderWidth: 1, borderColor: colors.line, borderRadius: 20, paddingHorizontal: 11, paddingVertical: 7, backgroundColor: colors.paper },
+  // M5 da auditoria (02/10/2026): chip do caminhante era ~29 pt de alvo; sobe para 44 pt.
+  chip: { borderWidth: 1, borderColor: colors.line, borderRadius: 20, paddingHorizontal: 11, paddingVertical: 7, minHeight: 44, justifyContent: 'center', backgroundColor: colors.paper },
   chipOn: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
-  chipTexto: { color: colors.ink, fontSize: 11, fontWeight: '700' },
+  chipTexto: { color: colors.ink, fontSize: 12, fontWeight: '700' },
   chipTextoOn: { color: 'white' },
-  foraTexto: { color: colors.muted, fontSize: 11, marginTop: 8 },
+  foraTexto: { color: colors.muted, fontSize: 12, marginTop: 8 },
   fechar: { marginTop: 6, backgroundColor: colors.forest700, borderRadius: radii.medium, paddingVertical: 14, alignItems: 'center' },
   fecharTexto: { color: 'white', fontWeight: '800', fontSize: 14 },
 });

@@ -144,6 +144,13 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
   const [revisao, setRevisao] = useState<ImportReviewItem[]>([]);
   const [escolhendo, setEscolhendo] = useState<ImportReviewItem | null>(null);
   const [caoEscolhido, setCaoEscolhido] = useState<DogRef | null>(null);
+  /**
+   * AVISO DA CREDENCIAL NO SERVIDOR (auditoria de integrações, 02/10/2026): o botão dizia "Connected"
+   * mesmo quando o envio da credencial ao servidor falhava em silêncio — a importação automática (com o
+   * app fechado) ficava desligada e o gestor não tinha como saber. Este estado guarda a frase do aviso
+   * quando a conferência pós-Connect mostra que a credencial NÃO chegou.
+   */
+  const [avisoServidor, setAvisoServidor] = useState<string | null>(null);
 
   // Calendário: escolha da ORGANIZAÇÃO (o escritório inteiro usa o mesmo) + a lista da conta.
   const [escolha, setEscolha] = useState<CalendarChoice>(() => escolhaDaOrganizacao(null));
@@ -462,12 +469,24 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
   const conectar = useCallback(async () => {
     setOcupado('conectando');
     setErro(null);
+    setAvisoServidor(null);
     const resultado = await connect();
     setOcupado(null);
     if (resultado === 'connected') {
       // A credencial passa a existir no SERVIDOR (cifrada lá) para a importação rodar de tempo em
       // tempo com o app fechado — pedido do dono, 27/09/2026.
-      await enviarCredencialAoServidor(escolha.calendarId);
+      //
+      // CONFERÊNCIA (auditoria de integrações, 02/10/2026): enviar não basta — o cartão podia dizer
+      // "Connected" com a importação automática DESLIGADA porque o envio falhava em silêncio (função
+      // fora do ar, sem sessão, conta sem refresh token). Aqui o envio é CONFERIDO: manda e depois
+      // PERGUNTA ao servidor se ele tem a credencial. Só os dois positivos contam como "chegou".
+      const enviado = await enviarCredencialAoServidor(escolha.calendarId);
+      const confirmado = enviado && (await servidorTemCredencial()) === true;
+      if (!confirmado) {
+        setAvisoServidor(
+          'Connected on this device, but the server did not receive the Google credential — automatic import (with the app closed) stays OFF until it does. Check your connection and tap Disconnect, then connect again.',
+        );
+      }
       void sincronizar();
     } else if (resultado === 'error') {
       setErro('Could not connect to Google. Try again.');
@@ -501,6 +520,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     setUltimoEnvio(null);
     setRevisao([]);
     setErro(null);
+    setAvisoServidor(null);
     setErroCalendarios(null);
     setCalendarios([]);
     setEtiquetas([]);
@@ -804,6 +824,14 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
         </Text>
       ) : null}
 
+      {/* A credencial não chegou ao servidor (conferência pós-Connect): aviso próprio, separado do
+          erro, porque a conta ESTÁ conectada no aparelho — o que falta é a importação automática. */}
+      {avisoServidor ? (
+        <Text style={styles.avisoServidor} testID="google-calendar-aviso-servidor">
+          {avisoServidor}
+        </Text>
+      ) : null}
+
       <Modal visible={seletorAberto} transparent animationType="slide" onRequestClose={() => setSeletorAberto(false)}>
         <View style={styles.fundo}>
           <View style={styles.folha}>
@@ -945,6 +973,8 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.5 },
   result: { color: colors.success, fontSize: 12, marginTop: 10 },
   error: { color: colors.urgency, fontSize: 12, marginTop: 10 },
+  /** Aviso da credencial não entregue ao servidor (conta conectada no aparelho, robô desligado). */
+  avisoServidor: { color: colors.urgency, fontSize: 12, marginTop: 10 },
   revisao: { borderTopColor: colors.line, borderTopWidth: 1, marginTop: 12, paddingTop: 10 },
   revisaoTitulo: { color: colors.ink, fontSize: 13, fontWeight: '800' },
   revisaoDica: { color: colors.muted, fontSize: 11, marginTop: 2 },

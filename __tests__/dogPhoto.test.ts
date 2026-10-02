@@ -22,12 +22,14 @@ jest.mock('expo-image-picker', () => ({
 
 import {
   DOG_PHOTO_BUCKET,
+  THUMB_WIDTH,
   createDogsWithPhotos,
   deleteDogPhoto,
   dogPhotoError,
   dogPhotoPath,
   dogPhotoPublicUrl,
   dogPhotoStoragePath,
+  dogPhotoThumbnailUrl,
   dogPhotoValueAfterUpload,
   isLocalPhoto,
   isStoredPhoto,
@@ -104,6 +106,42 @@ describe('foto nova (aparelho) x foto guardada (bucket)', () => {
     expect(dogPhotoValueAfterUpload('file:///local.jpg', `${ORG}/${DOG}/novo.jpg`)).toBe(`${ORG}/${DOG}/novo.jpg`);
     expect(dogPhotoValueAfterUpload(URL_PUBLICA, null)).toBe(URL_PUBLICA);
     expect(dogPhotoValueAfterUpload(null, null)).toBeNull();
+  });
+});
+
+describe('miniatura da foto (auditoria de desempenho, 02/10/2026)', () => {
+  it('troca a URL do objeto pela URL de transformacao (~256 px, quadrada)', () => {
+    const mini = dogPhotoThumbnailUrl(URL_PUBLICA);
+    expect(mini).toBe(
+      `https://bhuexxjcrjdhkmsvagdw.supabase.co/storage/v1/render/image/public/${DOG_PHOTO_BUCKET}/${ORG}/${DOG}/2026-09-23T10-00-00-000Z.jpg?width=${THUMB_WIDTH}&height=${THUMB_WIDTH}&resize=cover&quality=80`,
+    );
+  });
+
+  it('a miniatura NAO e a foto original, mas o mesmo objeto do bucket', () => {
+    const mini = dogPhotoThumbnailUrl(URL_PUBLICA) as string;
+    // Passa pelo endpoint de transformacao (é o que a medicao mostrou devolver 256x256 em vez de 1320x1320)...
+    expect(mini).toContain('/storage/v1/render/image/public/');
+    expect(mini).not.toContain('/storage/v1/object/public/');
+    // ...e aponta para o MESMO caminho (apagar o arquivo antigo continua valendo).
+    expect(dogPhotoStoragePath(mini)).toBe(`${ORG}/${DOG}/2026-09-23T10-00-00-000Z.jpg`);
+  });
+
+  it('respeita uma largura pedida (ex.: salvar bytes num chip de 30 pt)', () => {
+    expect(dogPhotoThumbnailUrl(URL_PUBLICA, 128)).toContain('width=128&height=128');
+  });
+
+  it('nunca quebra o que ja funcionava: local, de fora, ja-miniatura e vazio', () => {
+    // Foto ainda no aparelho: volta intacta (o upload ainda nao aconteceu).
+    expect(dogPhotoThumbnailUrl('file:///var/mobile/foto.jpg')).toBe('file:///var/mobile/foto.jpg');
+    // Endereco que nao e do Storage: nao inventa caminho.
+    expect(dogPhotoThumbnailUrl('https://exemplo.com/foto.jpg')).toBe('https://exemplo.com/foto.jpg');
+    // Idempotente: uma URL que ja e miniatura nao vira miniatura de miniatura.
+    const mini = dogPhotoThumbnailUrl(URL_PUBLICA) as string;
+    expect(dogPhotoThumbnailUrl(mini)).toBe(mini);
+    // Sem foto: null (os chamadores tratam).
+    expect(dogPhotoThumbnailUrl(null)).toBeNull();
+    expect(dogPhotoThumbnailUrl('')).toBeNull();
+    expect(dogPhotoThumbnailUrl(undefined)).toBeNull();
   });
 });
 

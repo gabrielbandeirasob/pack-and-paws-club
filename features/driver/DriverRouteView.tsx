@@ -1,6 +1,7 @@
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ordenarParadasDoDia } from '@/features/driver/dayOrder';
+import { dogPhotoThumbnailUrl } from '@/features/dogs/dogPhoto';
 import type { FechamentoDaRota } from '@/features/driver/routeClosing';
 import { notifyButtonState } from '@/features/driver/etaMessage';
 import { ETA_MAXIMO_PLAUSIVEL_MIN } from '@/features/driver/eta';
@@ -184,7 +185,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing }: Pro
                   ela o motorista só tem o nome. */}
               {stop.dogPhotoUrl ? (
                 <Image
-                  source={{ uri: stop.dogPhotoUrl }}
+                  source={{ uri: dogPhotoThumbnailUrl(stop.dogPhotoUrl) ?? stop.dogPhotoUrl }}
                   style={styles.dogPhoto}
                   accessibilityLabel={`Photo of ${stop.dogName}`}
                 />

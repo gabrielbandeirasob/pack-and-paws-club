@@ -208,4 +208,25 @@ describe('tela Route stops (gestor)', () => {
     expect(tela.getByText('1089 Memorex Drive · Santa Clara')).toBeTruthy();
     mockRota = { id: 'rota-1', route_stops: paradas };
   });
+
+  /**
+   * 🪤 VISTORIA (02/10/2026) — CARGA DUPLA NO PRIMEIRO FOCO.
+   *
+   * No primeiro foco o efeito de MONTAGEM (`useEffect`) e o de FOCO (`useFocusEffect`) disparam quase
+   * juntos: as duas corridas liam a rota ao mesmo tempo (consulta dobrada, lentidão percebida). Com a
+   * guarda de execução em curso, o primeiro foco custa UMA carga — igual a um "puxar para atualizar".
+   */
+  it('carrega a rota UMA vez no primeiro foco (montagem + foco não dobram a consulta)', async () => {
+    const tela = await render(<RouteStopsScreen />);
+    await waitFor(() => expect(tela.getByText('Cristina · Lucky')).toBeTruthy());
+
+    const primeiraCarga = (supabase.from as jest.Mock).mock.calls.length;
+
+    // Puxar para atualizar é, por definição, UMA carga. O primeiro foco tem de custar o mesmo:
+    // se dobrava, `primeiraCarga` já valeria duas cargas e este `toBe` abaixo falharia.
+    const lista = tela.getByTestId('route-stops-lista');
+    await act(async () => { await lista.props.refreshControl.props.onRefresh(); });
+
+    expect((supabase.from as jest.Mock).mock.calls.length).toBe(primeiraCarga * 2);
+  });
 });

@@ -108,6 +108,58 @@ CASOS = [
         testes=['__tests__/fuzz-operacao.test.ts'],
         porque='irmãos da mesma casa caem em vans diferentes',
     ),
+    # ----------------------------------------------------------------------------------------------
+    # Lote de 02/10/2026 (2ª frente): mutações sobre recorrência/fuso, fila offline, contadores do
+    # dia e importação do Google — cada uma tem de ser PEGA pelos testes NOVOS que cobrem o módulo.
+    # ----------------------------------------------------------------------------------------------
+    dict(
+        nome='recorrencia-ignora-transport-on',
+        arquivo='features/calendar/dayMath.ts',
+        de="    if (exception.action === 'transport_on') transport = true;",
+        para="    if (exception.action === 'transport_on') transport = transport;",
+        testes=['__tests__/dayMath.test.ts', '__tests__/fuso-recorrencia-propriedade.test.ts'],
+        porque='a exceção transport_on deixa de ligar o transporte: a van não busca o cão naquele dia',
+    ),
+    dict(
+        nome='serie-passado-do-fim-nao-para',
+        arquivo='features/calendar/dayMath.ts',
+        de="    if (schedule.endDate && isoDate > schedule.endDate) continue;\n    if (!schedule.weekdays.includes(weekday)) continue;",
+        para="    if (false) continue;\n    if (!schedule.weekdays.includes(weekday)) continue;",
+        testes=['__tests__/fuso-recorrencia-propriedade.test.ts'],
+        porque='série com endDate continua aparecendo depois de terminar (agenda eterna)',
+    ),
+    dict(
+        nome='fila-offline-descarta-por-qualquer-erro',
+        arquivo='features/driver/pendingWrites.ts',
+        de='      if (isDefinitiveWriteRefusal(reason)) {',
+        para='      if (true) {',
+        testes=['__tests__/pendingWrites.test.ts', '__tests__/fila-offline-propriedade.test.ts'],
+        porque='qualquer erro (inclusive organização indisponível) apaga o registro da fila em silêncio',
+    ),
+    dict(
+        nome='contagem-do-dia-conta-sem-dedupe',
+        arquivo='features/dashboard/dayService.ts',
+        de="  const caes = dogsOfDaySummary(dia);\n  return {\n    daycare: caes.filter((cao) => cao.serviceType === 'daycare').length,\n    boarding: caes.filter((cao) => cao.serviceType === 'boarding').length,\n  };",
+        para="  return {\n    daycare: dia.daycare.filter((item) => !item.paused).length,\n    boarding: dia.boarding.filter((item) => !item.paused).length,\n  };",
+        testes=['__tests__/dia-operacao-agente2.test.ts', '__tests__/contadores-do-dia-propriedade.test.ts'],
+        porque='a contagem volta a não deduplicar: cão em boarding E daycare conta duas vezes',
+    ),
+    dict(
+        nome='importacao-fim-invertido',
+        arquivo='features/integrations/google/importPlan.ts',
+        de="  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(endDate)) return startDate;\n  return endDate < startDate ? startDate : endDate;",
+        para="  return endDate;",
+        testes=['__tests__/importacao-fim-hora-independente.test.ts', '__tests__/importacao-google-propriedade.test.ts'],
+        porque='volta o defeito de produção: end_date antes do start_date derruba o insert inteiro no banco',
+    ),
+    dict(
+        nome='importacao-dois-caes-vira-um',
+        arquivo='features/integrations/google/importPlan.ts',
+        de='  return nomes.map((dogName) => ({',
+        para='  return nomes.slice(0, 1).map((dogName) => ({',
+        testes=['__tests__/importacao-dois-caes-agente2.test.ts', '__tests__/importacao-google-propriedade.test.ts'],
+        porque='evento com DOIS cães cria reserva só para o primeiro (o outro cão perde o dia)',
+    ),
 ]
 
 

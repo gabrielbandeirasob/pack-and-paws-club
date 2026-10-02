@@ -14,6 +14,7 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import { NextStopCard, nextActionForStatus } from '@/features/driver/NextStopCard';
 import type { DriverStop } from '@/features/driver/DriverRouteView';
+import { dogPhotoThumbnailUrl } from '@/features/dogs/dogPhoto';
 
 const FOTO = 'https://exemplo.supabase.co/storage/v1/object/public/dog-photos/org/bob.jpg';
 
@@ -50,9 +51,22 @@ describe('NEXT STOP — foto do cão', () => {
 
     const miniatura = tela.getByLabelText('Photo of Bob');
     expect(miniatura).toBeTruthy();
-    expect(miniatura.props.source).toEqual({ uri: FOTO });
+    // A MINIATURA do painel (64 pt) vem da transformação do Storage — NÃO é a foto original de
+    // ~207 KB (auditoria de desempenho, 02/10/2026). O painel baixa ~12 KB no lugar da imagem cheia.
+    expect(miniatura.props.source).toEqual({ uri: dogPhotoThumbnailUrl(FOTO) });
+    expect(miniatura.props.source.uri).toContain('/storage/v1/render/image/public/');
     // A miniatura é o botão: o rótulo diz que dá para ver maior.
     expect(tela.getByLabelText('Photo of Bob — tap to see it bigger')).toBeTruthy();
+  });
+
+  it('a foto GRANDE do modal continua na URL original (é onde "ver maior" faz sentido)', async () => {
+    const tela = await painel(parada({ dogPhotoUrl: FOTO }));
+
+    fireEvent.press(tela.getByLabelText('Photo of Bob — tap to see it bigger'));
+    await waitFor(() => expect(tela.getByLabelText('Bigger photo of Bob — tap to close')).toBeTruthy());
+
+    const grande = tela.getByTestId('next-stop-photo-full');
+    expect(grande.props.source).toEqual({ uri: FOTO });
   });
 
   it('tocar na miniatura abre a foto GRANDE com o nome do cão', async () => {

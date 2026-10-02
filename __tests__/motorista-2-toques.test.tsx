@@ -34,6 +34,8 @@ const mockEstado: {
   semParadas: boolean;
   /** `getUser` devolve SESSÃO AUSENTE (vistoria 02/10/2026 — não pode virar "No published route"). */
   semSessao: boolean;
+  /** Quantas vezes a ROTA foi consultada — prova a guarda de `load()` em execução em curso. */
+  consultasRota: number;
 } = {
   atualizacoes: [],
   rpcs: [],
@@ -46,6 +48,7 @@ const mockEstado: {
   endLocationId: null,
   semParadas: false,
   semSessao: false,
+  consultasRota: 0,
 };
 
 /** Rota publicada de hoje com UMA parada pendente (o caminho curto: chegou → pegou+concluiu). */
@@ -159,7 +162,10 @@ jest.mock('@/lib/supabase', () => {
       auth: { getUser: async () => (mockEstado.semSessao
         ? { data: { user: null } }
         : { data: { user: { id: 'driver-1' } } }) },
-      from: (tabela: string) => cadeia(tabela),
+      from: (tabela: string) => {
+        if (tabela === 'routes') mockEstado.consultasRota += 1;
+        return cadeia(tabela);
+      },
       rpc: async (nome: string, params: Record<string, unknown>) => {
         mockEstado.rpcs.push({ nome, params });
         return { data: null, error: null };
@@ -219,6 +225,7 @@ beforeEach(async () => {
   mockEstado.escritaSemLinha = false;
   mockEstado.semParadas = false;
   mockEstado.semSessao = false;
+  mockEstado.consultasRota = 0;
 });
 
 describe('2 toques: I arrived e Next', () => {
@@ -453,6 +460,29 @@ it('depois do toque a tela NÃO volta para o "carregando"', async () => {
 
     await waitFor(() => expect(tela.getByText('Session expired')).toBeTruthy());
     expect(tela.queryByText('No published route today')).toBeNull();
+  });
+
+  /**
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): `load()` era disparado por QUATRO gatilhos ao mesmo tempo
+   * (foco da aba, intervalo de 30 s, tempo real com debounce e puxar-para-atualizar) SEM guarda de
+   * execução em curso. Cada carga dispara ≥6 requisições + o RPC de limpeza — era uma tempestade.
+   * Agora, duas cargas simultâneas viram UMA: a segunda espera a primeira.
+   */
+  it('dois load() simultâneos consultam o Supabase UMA vez (guarda de carga em curso)', async () => {
+    const tela = await abrirTelaDoMotorista();
+
+    // Zera a contagem DEPOIS da carga inicial (o alvo é só o par simultâneo).
+    mockEstado.consultasRota = 0;
+    const rolagem = tela.getByTestId('driver-scroll');
+    const onRefresh = rolagem.props.refreshControl.props.onRefresh;
+
+    await act(async () => {
+      // Dois "puxar para atualizar" no mesmo tique: sem a guarda, sairiam DUAS consultas à rota.
+      await Promise.all([onRefresh(), onRefresh()]);
+    });
+
+    await waitFor(() => expect(mockEstado.consultasRota).toBeGreaterThanOrEqual(1));
+    expect(mockEstado.consultasRota).toBe(1);
   });
 
   /**

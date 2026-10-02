@@ -12,6 +12,7 @@ import {
   vanDaRota,
   vanLocationForRoute,
   vanMaisProxima,
+  vansDaOrganizacao,
   type OrganizationLocation,
 } from '@/features/organization/locations';
 
@@ -74,5 +75,30 @@ describe('vanDaRota', () => {
 
   it('van apagada (id que não existe mais) cai na regra normal', () => {
     expect(vanDaRota([sf, sm], 'apagada', [paradaPaloAlto])?.id).toBe('sm');
+  });
+});
+
+/**
+ * O YARD NÃO É VAN (dono, 02/10/2026: *"não é uma van o yard, ele tem que ter o endereço que ele vai
+ * finalizar"*). Van é o VEÍCULO — o clock in e o começo da rota; o yard é o LUGAR onde o pick-up termina.
+ * A separação é pelo `kind` (não pelo nome), então nem uma sede CHAMADA "Yard" nem uma que seja a PADRÃO
+ * viram a van que trava o clock in.
+ */
+describe('o yard nunca é a van', () => {
+  const yard = van({ id: 'yard', name: 'Yard', kind: 'yard', latitude: 37.36, longitude: -121.95 });
+
+  it('vansDaOrganizacao exclui o yard e mantém só as vans', () => {
+    expect(vansDaOrganizacao([sf, sm, yard]).map((local) => local.id)).toEqual(['sf', 'sm']);
+    expect(vansDaOrganizacao([yard])).toEqual([]);
+  });
+
+  it('rota APONTANDO para o yard (dado antigo) cai na van — o clock in não trava no quintal', () => {
+    expect(vanDaRota([sf, yard], 'yard', [paradaPaloAlto])?.id).toBe('sf');
+    expect(vanLocationForRoute([sf, yard], 'yard')?.id).toBe('sf');
+  });
+
+  it('mesmo o yard sendo a sede PADRÃO, a van da rota é a van', () => {
+    expect(vanLocationForRoute([{ ...yard, isDefault: true }, sm], null)?.id).toBe('sm');
+    expect(vanDaRota([{ ...yard, isDefault: true }, sm], null, [])?.id).toBe('sm');
   });
 });

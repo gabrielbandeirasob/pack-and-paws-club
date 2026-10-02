@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Linking, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radii } from '@/features/theme/tokens';
@@ -24,9 +24,14 @@ export function ClientsList({ clients, loading, onAddClient, onOpenClient, refre
    * o cadastro foi perdido. Ativos vem primeiro de qualquer forma.
    */
   const [showInactive, setShowInactive] = useState(true);
-  const inativos = inactiveCount(clients);
-  const ordenados = sortClientsForList(clients, { showInactive });
-  const visible = filterClients(ordenados, query);
+  /**
+   * MEMOIZAÇÃO (achado da vistoria, 02/10/2026): filtrar e ordenar a lista a CADA render deixava a
+   * busca lenta com muitas famílias — cada toque no campo de busca (e cada re-render do pai) refazia
+   * a ordenação do array inteiro. Agora só refaz quando o dado de entrada muda.
+   */
+  const inativos = useMemo(() => inactiveCount(clients), [clients]);
+  const ordenados = useMemo(() => sortClientsForList(clients, { showInactive }), [clients, showInactive]);
+  const visible = useMemo(() => filterClients(ordenados, query), [ordenados, query]);
   const filtroEscondeTudo = visible.length === 0 && inativos > 0 && !showInactive && query.trim().length === 0;
   /** O cartão de um cliente (o mesmo de antes, agora reaproveitado pela lista virtualizada). */
   const cartaoDoCliente = (client: ClientWithDogs) => {
@@ -149,7 +154,8 @@ export function ClientsList({ clients, loading, onAddClient, onOpenClient, refre
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.forest700 },
   header: { backgroundColor: colors.forest700, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 34, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
-  eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
+  // M5 da auditoria (02/10/2026): legendas do gestor com pelo menos 12 pt.
+  eyebrow: { color: colors.gold, fontSize: 12, fontWeight: '900', letterSpacing: 1.3 },
   title: { color: 'white', fontFamily: 'serif', fontSize: 30, fontWeight: '800', marginTop: 6 },
   subtitle: { color: '#D7E1D4', fontSize: 13, marginTop: 6 },
   body: { flex: 1, marginTop: -16, backgroundColor: colors.cream },
@@ -173,14 +179,15 @@ const styles = StyleSheet.create({
    * 2,27:1 no papel, abaixo do mínimo de 4,5:1. Passa a `forest700`; o gold fica só como fundo/borda.
    */
   editHint: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
-  inactiveChip: { color: colors.muted, fontWeight: '900', fontSize: 10, letterSpacing: 0.8, backgroundColor: colors.sage, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, overflow: 'hidden' },
+  inactiveChip: { color: colors.muted, fontWeight: '900', fontSize: 12, letterSpacing: 0.8, backgroundColor: colors.sage, borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3, overflow: 'hidden' },
   clientName: { fontFamily: 'serif', fontSize: 17, fontWeight: '800', color: colors.forest900 },
   muted: { color: colors.muted, fontSize: 12, marginTop: 3 },
   dogRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   quickRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
-  quickButton: { flex: 1, backgroundColor: colors.sage, borderRadius: 11, paddingVertical: 12, alignItems: 'center' },
+  // M5 da auditoria (02/10/2026): "Call"/"Text" e o chip de inativos tinham ~29-40 pt; sobem a 44 pt.
+  quickButton: { flex: 1, backgroundColor: colors.sage, borderRadius: 11, paddingVertical: 12, minHeight: 44, justifyContent: 'center', alignItems: 'center' },
   quickText: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
-  filterChip: { alignSelf: 'flex-start', backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 7, marginTop: 10 },
+  filterChip: { alignSelf: 'flex-start', backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 11, paddingVertical: 7, minHeight: 44, justifyContent: 'center', marginTop: 10 },
   filterChipText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
   dogChip: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 4 },
   dogChipPhoto: { width: 30, height: 30, borderRadius: 8, backgroundColor: colors.cream },

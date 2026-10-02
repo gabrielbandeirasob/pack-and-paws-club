@@ -125,22 +125,24 @@ export function DayPlanCard({ walkLocation, photoIdea, busy = false, saved = nul
 const styles = StyleSheet.create({
   cartao: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.large, padding: 16, marginHorizontal: 18, marginTop: 12 },
   titulo: { fontFamily: 'serif', fontWeight: '800', fontSize: 16, color: colors.ink },
-  sub: { color: colors.muted, fontSize: 11.5, marginTop: 3, marginBottom: 10 },
+  // M5 da auditoria (02/10/2026): legendas do gestor com pelo menos 12 pt.
+  sub: { color: colors.muted, fontSize: 12, marginTop: 3, marginBottom: 10 },
   rotulo: { color: colors.muted, fontSize: 12, fontWeight: '700', marginBottom: 5, letterSpacing: 0.3 },
   entrada: { borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, paddingHorizontal: 11, paddingVertical: 10, color: colors.ink, fontSize: 13, backgroundColor: colors.cream, marginBottom: 11 },
   entradaAlta: { minHeight: 62, textAlignVertical: 'top' },
   rodape: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  salvar: { backgroundColor: colors.forest700, borderRadius: radii.small, paddingHorizontal: 20, paddingVertical: 11 },
+  // M5 da auditoria (02/10/2026): "Save" tinha ~38 pt de alvo; sobe para 44 pt.
+  salvar: { backgroundColor: colors.forest700, borderRadius: radii.small, paddingHorizontal: 20, paddingVertical: 11, minHeight: 44, justifyContent: 'center' },
   salvarOff: { opacity: 0.45 },
   salvarTexto: { color: 'white', fontWeight: '800', fontSize: 13 },
-  ok: { color: colors.success, fontSize: 11.5, fontWeight: '700' },
+  ok: { color: colors.success, fontSize: 12, fontWeight: '700' },
   /** Distribuição do pack (leitura): uma linha por pessoa, discreta, sem virar um bloco pesado. */
   separador: { height: 1, backgroundColor: colors.line, marginTop: 16, marginBottom: 12 },
   distTitulo: { fontFamily: 'serif', fontWeight: '800', fontSize: 14, color: colors.ink },
-  distSub: { color: colors.muted, fontSize: 11, marginTop: 2, marginBottom: 8 },
+  distSub: { color: colors.muted, fontSize: 12, marginTop: 2, marginBottom: 8 },
   distVazio: { color: colors.muted, fontSize: 12 },
   distLinha: { flexDirection: 'row', alignItems: 'baseline', gap: 8, paddingVertical: 3 },
   distNome: { color: colors.forest700, fontWeight: '800', fontSize: 12.5, minWidth: 88 },
   distCaes: { color: colors.ink, fontSize: 12.5, flex: 1 },
-  distDica: { color: colors.muted, fontSize: 10.5, marginTop: 6 },
+  distDica: { color: colors.muted, fontSize: 12, marginTop: 6 },
 });

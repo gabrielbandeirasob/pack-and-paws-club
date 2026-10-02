@@ -66,7 +66,7 @@ describe('(a) faixa da busca — 5 min antes, 25 min depois', () => {
     expect(faixa.inicioMin).toBe(9 * 60); // 08:55 + 10 (arredondado) − 5 = 09:00
     expect(faixa.fimMin).toBe(9 * 60 + 30); // + 25 = 09:30
     expect(faixa.fimMin - faixa.inicioMin).toBe(AVISO_ANTES_MIN + AVISO_DEPOIS_MIN);
-    expect(windowLabel(faixa)).toBe('9:00 and 9:30 AM');
+    expect(windowLabel(faixa)).toBe('9:00 –9:30 AM');
   });
 
   it('a saudação da manhã é "Good morning" e o texto é o do cliente, palavra por palavra', () => {
@@ -80,7 +80,7 @@ describe('(a) faixa da busca — 5 min antes, 25 min depois', () => {
     });
 
     expect(texto).toBe(
-      `Good morning, ${CLIENTE}! This is ${MOTORISTA} from Pack & Paws Club. I'll be there between 9:00 and 9:30 AM to pick up ${CAO}. Looking forward to another great day with them! 🐶🐾`,
+      `Good morning, ${CLIENTE}! This is ${MOTORISTA} from Pack & Paws Club.\nI'll be there between 9:00 –9:30 AM to pick up ${CAO}. Looking forward to another great day with them! 🐶🐾`,
     );
   });
 });
@@ -91,7 +91,7 @@ describe('(b) faixa da entrega — "Good afternoon" e nunca antes das 14:00', ()
 
     expect(faixa.inicioMin).toBe(DROPOFF_INICIO_MIN); // 14:00, não 13:35
     expect(faixa.fimMin).toBe(14 * 60 + 5); // a previsão (13:40) + 25 = 14:05
-    expect(windowLabel(faixa)).toBe('2:00 and 2:05 PM');
+    expect(windowLabel(faixa)).toBe('2:00 –2:05 PM');
   });
 
   it('de manhã a faixa também é empurrada para as 14:00 (nunca 9:xx numa entrega)', () => {
@@ -112,7 +112,7 @@ describe('(b) faixa da entrega — "Good afternoon" e nunca antes das 14:00', ()
     });
 
     expect(texto).toBe(
-      `Good afternoon, ${CLIENTE}! This is ${MOTORISTA} from Pack & Paws Club 😊 I'll be dropping off ${CAO} between 2:05 and 2:35 PM. They had a great day with us! 🐶🐾`,
+      `Good afternoon, ${CLIENTE}! This is ${MOTORISTA} from Pack & Paws Club 😊\nI'll be dropping off ${CAO} between 2:05 –2:35 PM. They had a great day with us! 🐶🐾`,
     );
   });
 
@@ -127,7 +127,7 @@ describe('(b) faixa da entrega — "Good afternoon" e nunca antes das 14:00', ()
     });
 
     expect(texto).toBe(
-      `Good afternoon, ${CLIENTE}! This is ${MOTORISTA} from Pack & Paws Club 😊 I'll be dropping off ${CAO} between 2:00 and 2:05 PM. They had a great day with us! 🐶🐾`,
+      `Good afternoon, ${CLIENTE}! This is ${MOTORISTA} from Pack & Paws Club 😊\nI'll be dropping off ${CAO} between 2:00 –2:05 PM. They had a great day with us! 🐶🐾`,
     );
   });
 });
@@ -143,7 +143,7 @@ describe('troca de AM/PM na janela (não pode virar AM/AM)', () => {
       now: new Date(2026, 8, 25, 11, 50, 0),
     });
 
-    expect(texto).toContain('between 11:55 AM and 12:25 PM');
+    expect(texto).toContain('between 11:55 AM –12:25 PM');
     expect(texto.startsWith('Good afternoon, Maria!')).toBe(true);
     // O lado dominante é a tarde (26 dos 31 minutos da faixa), então nada de "AM" no fim.
     expect(texto).not.toContain('11:55 and 12:25 AM');
@@ -184,9 +184,9 @@ describe('(d) parada atrasada: diz que está atrasada E mostra a faixa', () => {
     const texto = etaMessageText({ clientName: CLIENTE, driverName: MOTORISTA, dogName: CAO, phase: 'pickup', minutes: 12, lateMinutes: 10, now: REF_BUSCA });
 
     expect(texto).toMatch(/running about 10 minutes late/);
-    expect(texto).toContain('between 9:00 and 9:30 AM');
+    expect(texto).toContain('between 9:00 –9:30 AM');
     expect(texto).toBe(
-      `Good morning, ${CLIENTE}! This is ${MOTORISTA} from Pack & Paws Club. I'm running about 10 minutes late. I'll be there between 9:00 and 9:30 AM to pick up ${CAO}. Looking forward to another great day with them! 🐶🐾`,
+      `Good morning, ${CLIENTE}! This is ${MOTORISTA} from Pack & Paws Club.\nI'm running about 10 minutes late. I'll be there between 9:00 –9:30 AM to pick up ${CAO}. Looking forward to another great day with them! 🐶🐾`,
     );
   });
 
@@ -194,7 +194,7 @@ describe('(d) parada atrasada: diz que está atrasada E mostra a faixa', () => {
     const texto = etaMessageText({ clientName: CLIENTE, driverName: MOTORISTA, dogName: CAO, phase: 'dropoff', minutes: 5, lateMinutes: 15, now: REF_ENTREGA });
 
     expect(texto).toMatch(/running about 15 minutes late/);
-    expect(texto).toContain('between 2:00 and 2:05 PM');
+    expect(texto).toContain('between 2:00 –2:05 PM');
   });
 });
 

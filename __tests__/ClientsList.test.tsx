@@ -2,6 +2,20 @@ import { fireEvent, render } from '@testing-library/react-native';
 import { ClientsList } from '@/features/clients/ClientsList';
 import type { ClientWithDogs } from '@/features/clients/types';
 
+/**
+ * Espiões do serviço de clientes: provam que a ordenação/filtro são MEMOIZADOS (não refeitos a cada
+ * render). O comportamento visível continua o mesmo — os testes abaixo usam a implementação real.
+ */
+jest.mock('@/features/clients/clientsService', () => {
+  const real = jest.requireActual('@/features/clients/clientsService');
+  return {
+    ...real,
+    inactiveCount: jest.fn(real.inactiveCount),
+    sortClientsForList: jest.fn(real.sortClientsForList),
+    filterClients: jest.fn(real.filterClients),
+  };
+});
+
 const clients: ClientWithDogs[] = [
   {
     id: '1',
@@ -85,5 +99,30 @@ describe('ClientsList', () => {
     // O primeiro entra (a janela inicial do FlatList) e o último NÃO é montado.
     expect(screen.getByLabelText('Edit Cliente 0')).toBeTruthy();
     expect(screen.queryByLabelText('Edit Cliente 199')).toBeNull();
+  });
+
+  /**
+   * 🪤 VISTORIA (02/10/2026) — FILTRO/ORDENAÇÃO SEM MEMO.
+   *
+   * Ordenar e filtrar a lista a CADA render deixava a busca lenta com muitas famílias. Agora são
+   * `useMemo`: um re-render do pai (mesmas props) NÃO reordena nem refiltra.
+   */
+  it('não reordena nem refiltra quando o pai renderiza de novo com as mesmas props (memo)', async () => {
+    const { filterClients, sortClientsForList } = jest.requireMock('@/features/clients/clientsService') as {
+      filterClients: jest.Mock;
+      sortClientsForList: jest.Mock;
+    };
+    const onAdd = jest.fn();
+    const onOpen = jest.fn();
+
+    const screen = await render(<ClientsList clients={clients} loading={false} onAddClient={onAdd} onOpenClient={onOpen} />);
+    const ordenacoes = sortClientsForList.mock.calls.length;
+    const filtragens = filterClients.mock.calls.length;
+    expect(ordenacoes).toBeGreaterThan(0);
+
+    // Mesmas props: o componente roda de novo, mas o memo segura ordenação e filtro.
+    await screen.rerender(<ClientsList clients={clients} loading={false} onAddClient={onAdd} onOpenClient={onOpen} />);
+    expect(sortClientsForList.mock.calls.length).toBe(ordenacoes);
+    expect(filterClients.mock.calls.length).toBe(filtragens);
   });
 });

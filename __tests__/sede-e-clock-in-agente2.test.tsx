@@ -138,9 +138,21 @@ describe('(d) SEM localização o app não trava — só avisa que não deu para
 
 describe('qual sede vale para a rota', () => {
   const yard: OrganizationLocation = { ...VAN, id: 'v2', name: 'Yard', kind: 'yard', isDefault: false };
+  const van2: OrganizationLocation = { ...VAN, id: 'v3', name: 'Van 2', kind: 'van', isDefault: false };
 
-  it('a sede escolhida NA ROTA ganha da padrão', () => {
-    expect(vanLocationForRoute([VAN, yard], 'v2')?.id).toBe('v2');
+  it('a VAN escolhida NA ROTA ganha da padrão', () => {
+    expect(vanLocationForRoute([VAN, van2], 'v3')?.id).toBe('v3');
+  });
+
+  /**
+   * O YARD NÃO É VAN (dono, 02/10/2026: *"tá mostrando van 1, van 2, yard (...) não é uma van o yard,
+   * ele tem que ter o endereço que ele vai finalizar"*). Van é o VEÍCULO — o ponto do clock in e onde a
+   * rota começa; o yard é o LUGAR onde o pick-up termina. Uma rota ANTIGA apontando para o yard (de
+   * quando o seletor ainda o oferecia) cai na van padrão — o clock in não trava no quintal.
+   */
+  it('o yard nunca é a sede da rota: rota apontando para o yard cai na van padrão', () => {
+    expect(vanLocationForRoute([VAN, yard], 'v2')?.id).toBe('v1');
+    expect(vanLocationForRoute([yard, VAN], 'v2')?.id).toBe('v1');
   });
 
   it('sem escolha na rota, vale a padrão', () => {
@@ -151,8 +163,12 @@ describe('qual sede vale para a rota', () => {
     expect(vanLocationForRoute([{ ...VAN, isDefault: false }], null)?.id).toBe('v1');
   });
 
-  it('duas sedes e nenhuma padrão = sem alvo (melhor não travar do que travar na van errada)', () => {
-    expect(vanLocationForRoute([{ ...VAN, isDefault: false }, { ...yard, isDefault: false }], null)).toBeNull();
+  it('duas VANS e nenhuma padrão = sem alvo (melhor não travar do que travar na van errada)', () => {
+    expect(vanLocationForRoute([{ ...VAN, isDefault: false }, { ...van2, isDefault: false }], null)).toBeNull();
+  });
+
+  it('uma VAN + um yard, nenhuma padrão: a única VAN vale (o yard não cria ambiguidade)', () => {
+    expect(vanLocationForRoute([{ ...VAN, isDefault: false }, { ...yard, isDefault: false }], null)?.id).toBe('v1');
   });
 
   it('rota apontando para uma sede inexistente cai na padrão', () => {
@@ -371,6 +387,41 @@ describe('serviço das sedes', () => {
     const alvo = await loadVanLocationForDriver(require('@/lib/supabase').supabase, { organizationId: 'org-1' });
     expect(alvo?.id).toBe('v1');
     expect(alvo?.radiusMeters).toBe(300);
+  });
+
+  /**
+   * O ENDEREÇO DO YARD É EDITÁVEL E NÃO FIXO NO CÓDIGO (dono, 02/10/2026: *"daqui seis meses ele aluga um
+   * quintal em outro local (...) por isso que eu queria que fosse um local onde você pudesse EDITAR o
+   * endereço"*).
+   *
+   * Editar = UPDATE da MESMA linha (`saveOrganizationLocation` com `id`), nunca um cadastro novo. Como
+   * `routes.end_location_id` aponta para o ID do yard, o endereço novo vale para as rotas NOVAS sem
+   * mexer nas antigas: o ID não muda e nada é recriado.
+   */
+  it('editar o YARD é UPDATE na mesma linha (o id não muda — as rotas antigas seguem apontando para ele)', async () => {
+    const { supabase } = require('@/lib/supabase');
+    await saveOrganizationLocation(supabase, {
+      organizationId: 'org-1',
+      id: 'yard-1',
+      name: 'Yard',
+      kind: 'yard',
+      addressLine1: '500 Quintal Novo',
+      city: 'Santa Clara',
+      latitude: 37.35,
+      longitude: -121.96,
+      radiusMeters: 300,
+      isDefault: false,
+    });
+
+    expect(mockEstado.insercoes).toHaveLength(0);
+    expect(mockEstado.atualizacoes).toHaveLength(1);
+    expect(mockEstado.atualizacoes[0].tabela).toBe('organization_locations');
+    expect(mockEstado.atualizacoes[0].payload).toMatchObject({
+      kind: 'yard',
+      address_line_1: '500 Quintal Novo',
+      latitude: 37.35,
+      longitude: -121.96,
+    });
   });
 });
 

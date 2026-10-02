@@ -9,7 +9,7 @@
  * Recebe o `route` por parâmetro (a Home já tem o id na mão) e, opcionalmente, o `driver` e o `day`
  * para o cabeçalho — sem isso, nada de consulta extra só para escrever o título.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
@@ -67,6 +67,14 @@ export default function RouteStopsScreen() {
   const [fimDaRota, setFimDaRota] = useState<FimDaRota>({ start: null, end: null });
 
   /**
+   * GUARDA DE CONCORRÊNCIA (achado da vistoria, 02/10/2026): no primeiro foco o efeito de montagem
+   * e o `useFocusEffect` disparam quase juntos. Sem esta trava, as duas corridas liam a rota ao
+   * mesmo tempo — consulta dobrada e a lentidão percebida pelo gestor. Agora é UMA carga por foco:
+   * enquanto há uma em curso, a seguinte é ignorada (a que completa reescreve o estado).
+   */
+  const emCurso = useRef(false);
+
+  /**
    * `silencioso` = recarregar sem trocar a tela pela rodinha (a lista fica na frente e o dado se
    * reconcilia por baixo). Usado ao voltar o foco e ao puxar para atualizar.
    */
@@ -76,6 +84,8 @@ export default function RouteStopsScreen() {
       setCarregando(false);
       return;
     }
+    if (emCurso.current) return;
+    emCurso.current = true;
     if (!silencioso) setCarregando(true);
     setErro(null);
     try {
@@ -92,6 +102,7 @@ export default function RouteStopsScreen() {
     } catch (causa) {
       setErro(causa instanceof Error ? causa.message : 'Could not load the route.');
     } finally {
+      emCurso.current = false;
       if (!silencioso) setCarregando(false);
     }
   }, [routeId]);

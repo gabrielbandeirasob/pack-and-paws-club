@@ -53,26 +53,26 @@ describe('arredondamento do ETA', () => {
 });
 
 describe('texto da mensagem (faixa de ~30 min)', () => {
-  it('busca: "I\'ll be there between 9:00 and 9:30 AM to pick up"', () => {
+  it('busca: "I\'ll be there between 9:00 –9:30 AM to pick up"', () => {
     expect(
       etaMessageText({ clientName: 'Maria', driverName: 'Alex', dogName: 'Thor', phase: 'pickup', minutes: 12, now: REF_BUSCA }),
     ).toBe(
-      "Good morning, Maria! This is Alex from Pack & Paws Club. I'll be there between 9:00 and 9:30 AM to pick up Thor. Looking forward to another great day with them! 🐶🐾",
+      "Good morning, Maria! This is Alex from Pack & Paws Club.\nI'll be there between 9:00 –9:30 AM to pick up Thor. Looking forward to another great day with them! 🐶🐾",
     );
   });
 
-  it('entrega: "I\'ll be dropping off ... between 2:05 and 2:35 PM"', () => {
+  it('entrega: "I\'ll be dropping off ... between 2:05 –2:35 PM"', () => {
     expect(
       etaMessageText({ clientName: 'Maria', driverName: 'Alex', dogName: 'Thor', phase: 'dropoff', minutes: 15, now: REF_ENTREGA }),
     ).toBe(
-      "Good afternoon, Maria! This is Alex from Pack & Paws Club 😊 I'll be dropping off Thor between 2:05 and 2:35 PM. They had a great day with us! 🐶🐾",
+      "Good afternoon, Maria! This is Alex from Pack & Paws Club 😊\nI'll be dropping off Thor between 2:05 –2:35 PM. They had a great day with us! 🐶🐾",
     );
   });
 
   it('atraso: a frase do atraso continua E a faixa vai junto', () => {
     const atrasado = etaMessageText({ clientName: 'Maria', driverName: 'Alex', dogName: 'Thor', phase: 'pickup', minutes: 12, lateMinutes: 10, now: REF_BUSCA });
     expect(atrasado).toContain("I'm running about 10 minutes late.");
-    expect(atrasado).toContain('between 9:00 and 9:30 AM');
+    expect(atrasado).toContain('between 9:00 –9:30 AM');
   });
 
   it('cliente sem nome ou cão sem nome não gera frase quebrada', () => {
