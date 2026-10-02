@@ -13,6 +13,8 @@ import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/f
 import { NextStopCard, nextActionForStatus, nextStopFor } from '@/features/driver/NextStopCard';
 import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
 import { mudarFila, chaveDoPendente, enqueuePending, flushPendingWrites, semPendentesSaidos, RefusedWriteError, abrirFilaDoUsuario, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
+import { carregarFase, gravarFase } from '@/features/driver/dayPhaseStore';
+import { ordenarPelaFase, type DayPhase } from '@/features/driver/dayPhase';
 import { planClockOut } from '@/features/driver/clockOutPlan';
 import { pickDriverDisplayName, resolveDriverOrganizationId } from '@/features/driver/driverOrganization';
 import { ShiftCard } from '@/features/driver/ShiftCard';
@@ -110,6 +112,12 @@ export default function DriverTodayScreen() {
   const [routeId, setRouteId] = useState<string | null>(null);
   const [routeVersion, setRouteVersion] = useState<number | null>(null);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
+  /**
+   * A PERNA do dia (pick-up × drop-off) — cliente, 02/10/2026: *"tem que ter uma mudança clara de
+   * rota... ele não tem que fazer essa mudança automática"*. Fica gravada no aparelho por rota (e por
+   * usuário, a mesma regra de dono das filas) e só o MOTORISTA vira — com um botão (decisão do dono).
+   */
+  const [fase, setFase] = useState<DayPhase>('pickup');
   const [position, setPosition] = useState<LocationUpdate | null>(null);
   /**
    * Preenchido quando a trava da van RECUSOU o clock in por distância: é o que faz o cartão oferecer
@@ -160,6 +168,20 @@ export default function DriverTodayScreen() {
   const [driverId, setDriverId] = useState<string | null>(null);
   /** Nome do motorista que assina o aviso ao tutor ("This is {MOTORISTA} from Pack & Paws Club"). */
   const [driverName, setDriverName] = useState<string | null>(null);
+  /**
+   * A FASE gravada volta quando a rota do dia aparece (rota nova = dia novo = começa buscando).
+   * Por rota E por usuário: trocar de conta no mesmo aparelho não herda a perna do outro.
+   */
+  useEffect(() => {
+    if (!routeId || !driverId) return;
+    let vivo = true;
+    void carregarFase(routeId, driverId).then((f) => {
+      if (vivo) setFase(f);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [routeId, driverId]);
   const locationHandle = useRef<LocationHandle | null>(null);
   const realtimeRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
@@ -1114,7 +1136,10 @@ export default function DriverTodayScreen() {
    * vem da MESMA lista já enriquecida com ETA (stopsComEta), e a ação sai do mesmo mapa de status que os
    * botões da lista usam (features/driver/NextStopCard) — o painel só chama o `act` que já existe.
    */
-  const proximaParada = useMemo(() => nextStopFor(stopsComEta), [stopsComEta]);
+  /** A lista na ORDEM DA PERNA (busca × entrega): é a que o motorista vê e a que alimenta o cartão
+   *  "próxima parada" — sem isto o cartão de cima discordaria da lista depois da virada. */
+  const stopsDaFase = useMemo(() => ordenarPelaFase(stopsComEta, fase), [stopsComEta, fase]);
+  const proximaParada = useMemo(() => nextStopFor(stopsDaFase), [stopsDaFase]);
 
   /**
    * ONDE A ROTA FECHA (pedido do cliente, 02/10/2026): depois da última BUSCA o dia vai para o YARD;
@@ -1278,7 +1303,19 @@ export default function DriverTodayScreen() {
                       onNotifyOwner={avisarTutor}
                     />
                   </View>
-                  <DriverRouteView stops={stopsComEta} onAction={act} onNotifyOwner={avisarTutor} closing={fechamento} />
+                  <DriverRouteView
+                    stops={stopsDaFase}
+                    onAction={act}
+                    onNotifyOwner={avisarTutor}
+                    closing={fechamento}
+                    fase={fase}
+                    onStartDropoffs={() => {
+                      // Vira a perna e GRAVA no aparelho: o dia não volta a "busca" sozinho.
+                      if (!routeId) return;
+                      setFase('dropoff');
+                      void gravarFase(routeId, driverId, 'dropoff');
+                    }}
+                  />
                 </>
               )}
             </>

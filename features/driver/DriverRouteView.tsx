@@ -7,6 +7,7 @@ import { notifyButtonState } from '@/features/driver/etaMessage';
 import { ETA_MAXIMO_PLAUSIVEL_MIN } from '@/features/driver/eta';
 import { clockText } from '@/features/driver/shift';
 import { marcosDaParada } from '@/features/dashboard/stopProgress';
+import { ordenarPelaFase, paradaDaFaseConcluida, paradaEntregavel, podeIniciarDropoff, type DayPhase } from '@/features/driver/dayPhase';
 import { agruparEmTarefas, posicoesDasParadas } from '@/features/driver/tasks';
 import { RouteMap } from '@/features/maps/RouteMap';
 import { colors, radii } from '@/features/theme/tokens';
@@ -95,6 +96,14 @@ type Props = {
    * a busca termina (vai para o yard) e quando a entrega termina (volta para a van).
    */
   closing?: FechamentoDaRota | null;
+  /**
+   * A PERNA do dia (pick-up × drop-off). A virada é um ATO DO MOTORISTA, não automática — decisão do
+   * dono (02/10/2026), depois do áudio do cliente: *"tem que ter uma mudança clara de rota... ele não
+   * tem que fazer essa mudança automática"*. Ausente = `pickup` (o dia começa buscando).
+   */
+  fase?: DayPhase;
+  /** Vira o dia para a perna de ENTREGA. Sem ele, o botão "Start drop-offs" não aparece. */
+  onStartDropoffs?: () => void;
 };
 
 function addressLine(stop: DriverStop): string | null {
@@ -102,9 +111,15 @@ function addressLine(stop: DriverStop): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-export function DriverRouteView({ stops, onAction, onNotifyOwner, closing }: Props) {
+export function DriverRouteView({ stops, onAction, onNotifyOwner, closing, fase: faseProp, onStartDropoffs }: Props) {
+  const fase: DayPhase = faseProp ?? 'pickup';
   const fire = (stop: DriverStop, action: DriverAction) => onAction(stop.id, action);
-  const ordered = ordenarParadasDoDia(stops);
+  /**
+   * A ORDEM segue a PERNA declarada (`fase`), não o estado das paradas. Antes esta linha usava
+   * `ordenarParadasDoDia()`, que TROCAVA a ordem sozinho quando a última busca terminava — era
+   * exatamente a "mudança automática" que o cliente recusou no áudio de 02/10/2026.
+   */
+  const ordered = ordenarPelaFase(stops, fase);
   /**
    * TAREFAS do dia: paradas do MESMO cliente viram UMA parada com N cães (migration 029) — o motorista
    * para uma vez e resolve cão por cão, cada um com seu status e seu comprovante (decisão do dono).
@@ -130,6 +145,17 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing }: Pro
      * do mapa (features/maps/RouteMap.tsx) continua igual.
      */
     <View style={styles.list}>
+      {/*
+        * FASE DO DIA (cliente, 02/10/2026): a perna atual fica EXPLÍCITA no topo — o motorista sabe se
+        * está buscando ou entregando, e a virada é um ato dele (botão abaixo), não automática.
+        */}
+      <View style={styles.closing} testID="day-phase">
+        <Text style={styles.closingTag}>{fase === 'pickup' ? 'PICK-UPS' : 'DROP-OFFS'}</Text>
+        <Text style={styles.closingTitle}>{fase === 'pickup' ? 'Picking up the dogs' : 'Delivering the dogs'}</Text>
+        {fase === 'dropoff' ? (
+          <Text style={styles.closingSub}>The pick-up run is over — everything here is a delivery.</Text>
+        ) : null}
+      </View>
       {tarefas.length > 0 ? (
         <RouteMap
           stops={tarefas.map((tarefa, index) => {
@@ -149,7 +175,12 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing }: Pro
         />
       ) : null}
       {naOrdemDasParadas.map((stop, index) => {
-        const done = stop.status === 'completed' || stop.status === 'skipped';
+        /*
+         * `done` agora depende da PERNA (cliente, 02/10/2026): na busca, conclui no pick-up; na
+         * ENTREGA, só `delivered_at` fecha. Antes a lista de drop-off aparecia "toda feita" porque o
+         * pick-up já deixa a parada `completed`.
+         */
+        const done = paradaDaFaseConcluida(stop, fase);
         /*
          * ENTREGA (conferência do dono, 01/10/2026): `done` marca a BUSCA concluída (é o que pinta o
          * cartão), mas a parada só sai da fila quando a entrega é confirmada — `deliveredAt` — ou
@@ -157,7 +188,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing }: Pro
          * pick-up e o motorista ficava sem mandar o aviso da ENTREGA (defeito relatado).
          */
         const finalizada = stop.status === 'skipped' || Boolean(stop.deliveredAt);
-        const paraEntregar = !finalizada && (stop.status === 'picked_up' || stop.status === 'completed');
+        const paraEntregar = paradaEntregavel(stop, fase);
         const address = addressLine(stop);
         const posicao = posicoes.get(stop.id);
         // Cabeçalho da PARADA: só quando ela tem mais de um cão (mesmo cliente, mesmo endereço).
@@ -244,12 +275,12 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing }: Pro
                 * O 2º toque grava pegou + concluiu juntos (ação 'finish') — os 3 registros de
                 * auditoria continuam existindo, só o trabalho do motorista que encurtou.
                 */}
-              {!done && stop.status === 'pending' ? (
+              {!done && fase === 'pickup' && stop.status === 'pending' ? (
                 <Pressable accessibilityRole="button" accessibilityLabel={`Mark arrived ${stop.id}`} onPress={() => fire(stop, 'arrived')} style={[styles.action, styles.actionGold]}>
                   <Text style={styles.actionGoldText}>I arrived</Text>
                 </Pressable>
               ) : null}
-              {!done && (stop.status === 'arrived' || stop.status === 'picked_up') ? (
+              {!done && fase === 'pickup' && (stop.status === 'arrived' || stop.status === 'picked_up') ? (
                 <>
                   <Pressable accessibilityRole="button" accessibilityLabel={`Next ${stop.dogName}`} onPress={() => fire(stop, 'finish')} style={[styles.action, styles.actionGold]}>
                     <Text style={styles.actionGoldText}>Next</Text>
@@ -288,6 +319,24 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing }: Pro
           </View>
         );
       })}
+
+      {/*
+        * VIRADA DE FASE — decisão do dono (02/10/2026): *"deve ser um botão do motorista"*. Só aparece
+        * quando a BUSCA acabou e ainda há ENTREGA: nada muda sozinho.
+        */}
+      {fase === 'pickup' && onStartDropoffs && podeIniciarDropoff(stops) ? (
+        <View style={styles.actions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Start drop-offs"
+            onPress={onStartDropoffs}
+            style={[styles.action, styles.actionGold]}
+            testID="start-dropoffs"
+          >
+            <Text style={styles.actionGoldText}>Start drop-offs</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {/*
         * O FIM DA ROTA (pedido do cliente, 02/10/2026). Sem ação para tocar: é o destino que faltava —
