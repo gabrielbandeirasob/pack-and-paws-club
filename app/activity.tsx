@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
   title: { color: 'white', fontFamily: 'serif', fontSize: 28, fontWeight: '800', marginTop: 6 },
   subtitle: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 6 },
   tabs: { flexDirection: 'row', gap: 8, marginBottom: 14 },
-  tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 12, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line },
+  tab: { flex: 1, minHeight: 44, justifyContent: 'center', paddingVertical: 10, alignItems: 'center', borderRadius: 12, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line },
   tabAtiva: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
   tabTexto: { color: colors.ink, fontWeight: '800', fontSize: 12 },
   tabTextoAtivo: { color: 'white' },

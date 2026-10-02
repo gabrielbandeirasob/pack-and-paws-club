@@ -80,6 +80,7 @@ export default function DaySummaryScreen() {
 
   const linhas = packRows(dogs, entries);
   const numeros = dayIndicatorsFrom({
+    // A MESMA conta da Home (vistoria 02/10/2026): o cão em boarding e daycare no mesmo dia conta uma vez.
     daycareCount: dogs.filter((cao) => cao.serviceType === 'daycare').length,
     boardingCount: dogs.filter((cao) => cao.serviceType === 'boarding').length,
     dogs,
@@ -195,7 +196,7 @@ const styles = StyleSheet.create({
   quadroValorDestaque: { color: colors.forest900 },
   quadroRotulo: { color: colors.muted, fontSize: 11 },
   quadroRotuloDestaque: { color: colors.forest900, fontWeight: '700' },
-  quadroLegenda: { color: colors.forest900, fontSize: 9, opacity: 0.75, marginTop: 2 },
+  quadroLegenda: { color: colors.forest900, fontSize: 12, lineHeight: 15, opacity: 0.75, marginTop: 2 },
   rotulo: { color: colors.muted, fontSize: 10.5, fontWeight: '700', marginTop: 8, letterSpacing: 0.3 },
   valor: { color: colors.ink, fontSize: 14, marginTop: 2 },
   vazio: { color: colors.muted, fontSize: 12 },

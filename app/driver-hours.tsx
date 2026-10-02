@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
   subtitle: { color: '#D7E1D4', fontSize: 12, marginTop: 6, lineHeight: 17 },
   body: { flex: 1, backgroundColor: colors.cream },
   toggle: { flexDirection: 'row', gap: 8, padding: 16, paddingBottom: 4 },
-  toggleOption: { flex: 1, borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingVertical: 10, alignItems: 'center', backgroundColor: colors.paper },
+  toggleOption: { flex: 1, minHeight: 44, justifyContent: 'center', borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingVertical: 10, alignItems: 'center', backgroundColor: colors.paper },
   toggleAtivo: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
   toggleText: { color: colors.forest700, fontWeight: '800', fontSize: 13 },
   toggleTextoAtivo: { color: 'white' },

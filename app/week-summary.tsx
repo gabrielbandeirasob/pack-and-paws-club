@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
   titulo: { fontFamily: 'serif', fontWeight: '800', fontSize: 24, color: colors.ink, marginHorizontal: 18, marginTop: 12 },
   sub: { color: colors.muted, fontSize: 12.5, marginHorizontal: 18, marginTop: 4 },
   semanaLinha: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 18, marginTop: 16 },
-  seta: { width: 38, height: 38, borderRadius: 19, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.paper },
+  seta: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.paper },
   setaTexto: { color: colors.forest700, fontSize: 20, fontWeight: '800', lineHeight: 22 },
   semanaCentro: { flex: 1, alignItems: 'center' },
   semanaRotulo: { fontFamily: 'serif', fontWeight: '800', fontSize: 15, color: colors.ink },

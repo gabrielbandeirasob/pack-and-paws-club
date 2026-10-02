@@ -162,8 +162,8 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHi
 const styles = StyleSheet.create({
   card: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.medium, padding: 14, marginBottom: 12 },
   topo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
-  pendente: { color: colors.muted, fontSize: 11, fontWeight: '800' },
+  eyebrow: { color: colors.gold, fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
+  pendente: { color: colors.muted, fontSize: 12, fontWeight: '800' },
   titulo: { color: colors.forest900, fontFamily: 'serif', fontSize: 17, fontWeight: '800', marginTop: 5 },
   dica: { color: colors.muted, fontSize: 12, marginTop: 4, lineHeight: 17 },
   /** Onde o clock in abre (só existe quando a organização cadastrou a sede/van). */

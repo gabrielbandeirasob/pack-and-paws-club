@@ -148,7 +148,7 @@ const styles = StyleSheet.create({
   titulo: { fontFamily: 'serif', fontWeight: '800', fontSize: 16, color: colors.ink },
   selo: { backgroundColor: '#FBEAE6', borderRadius: 20, paddingHorizontal: 9, paddingVertical: 5 },
   seloOk: { backgroundColor: '#E3F1DF' },
-  seloTexto: { color: colors.urgency, fontSize: 10, fontWeight: '800' },
+  seloTexto: { color: colors.urgency, fontSize: 12, fontWeight: '800' },
   seloTextoOk: { color: '#2E6334' },
   vazio: { color: colors.muted, fontSize: 12, marginBottom: 6 },
   linha: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 5 },

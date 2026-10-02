@@ -153,8 +153,8 @@ const styles = StyleSheet.create({
 
   /** Campo de nome: compacto, uma linha (input + botão), dentro do próprio cartão do perfil. */
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 14 },
-  nameInput: { flex: 1, backgroundColor: colors.cream, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, paddingHorizontal: 12, paddingVertical: 9, color: colors.ink, fontSize: 14 },
-  saveName: { backgroundColor: colors.gold, borderRadius: radii.small, paddingHorizontal: 14, paddingVertical: 10 },
+  nameInput: { flex: 1, minHeight: 44, backgroundColor: colors.cream, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, paddingHorizontal: 12, paddingVertical: 9, color: colors.ink, fontSize: 14 },
+  saveName: { minHeight: 44, justifyContent: 'center', backgroundColor: colors.gold, borderRadius: radii.small, paddingHorizontal: 14, paddingVertical: 10 },
   saveNameText: { color: colors.forest900, fontWeight: '900', fontSize: 13 },
   nameMessage: { color: colors.muted, fontSize: 12, marginTop: 8, fontWeight: '700' },
   pressed: { opacity: 0.7 },

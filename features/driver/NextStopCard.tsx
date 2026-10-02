@@ -164,7 +164,7 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.paper, borderRadius: radii.large, borderWidth: 2, borderColor: colors.gold, padding: 15, marginBottom: 12 },
   /** Rota terminada: mesmo formato, sem o destaque dourado (não há nada a fazer aqui). */
   cardDone: { borderWidth: 1, borderColor: colors.line },
-  eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
+  eyebrow: { color: colors.gold, fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
   title: { color: colors.forest900, fontFamily: 'serif', fontSize: 19, fontWeight: '800', marginTop: 4 },
   body: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 5 },
   address: { color: colors.ink, fontSize: 13, marginTop: 5 },

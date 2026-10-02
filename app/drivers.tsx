@@ -315,7 +315,7 @@ const styles = StyleSheet.create({
   backButton: { minHeight: 44, minWidth: 44, justifyContent: 'center', paddingVertical: 4, paddingRight: 6 },
   backText: { color: colors.gold, fontSize: 32, fontWeight: '700', lineHeight: 34 },
   title: { color: 'white', fontFamily: 'serif', fontSize: 24, fontWeight: '800', flex: 1 },
-  plusButton: { backgroundColor: colors.gold, width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  plusButton: { backgroundColor: colors.gold, width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   plusText: { color: colors.forest900, fontSize: 20, fontWeight: '900', lineHeight: 22 },
   center: { marginTop: 70 },
   empty: { color: colors.muted, textAlign: 'center', marginTop: 40, paddingHorizontal: 30 },

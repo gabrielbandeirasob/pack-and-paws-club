@@ -412,7 +412,7 @@ const styles = StyleSheet.create({
   statValueDestaque:{color:colors.forest900,fontFamily:'serif',fontWeight:'800',fontSize:23},
   statLabelDestaque:{color:colors.forest900,fontSize:11,fontWeight:'700'},
   /** Legenda do indicador (ex.: o que o "Total Pack" conta). */
-  statHint:{color:colors.forest900,fontSize:9,opacity:.75,marginTop:2},
+  statHint:{color:colors.forest900,fontSize:12,lineHeight:15,opacity:.75,marginTop:2},
   /** Faturamento: campo digitável dentro do quadrado. */
   statReceita:{backgroundColor:colors.paper},
   moeda:{color:colors.forest700,fontFamily:'serif',fontWeight:'800',fontSize:13,marginBottom:2},

@@ -122,7 +122,7 @@ const styles = StyleSheet.create({
   cao: { fontWeight: '800', color: colors.ink, fontSize: 15 },
   textoFraco: { color: colors.muted, textDecorationLine: 'line-through' },
   tutor: { color: colors.muted, fontSize: 11, marginTop: 2 },
-  x: { width: 34, height: 34, borderRadius: 17, borderWidth: 1, borderColor: '#E8BFBF', backgroundColor: '#FBEDED', alignItems: 'center', justifyContent: 'center' },
+  x: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: '#E8BFBF', backgroundColor: '#FBEDED', alignItems: 'center', justifyContent: 'center' },
   xVoltar: { borderColor: colors.line, backgroundColor: colors.sage },
   xTexto: { color: colors.urgency, fontWeight: '900', fontSize: 15 },
   xTextoVoltar: { color: colors.forest700 },
