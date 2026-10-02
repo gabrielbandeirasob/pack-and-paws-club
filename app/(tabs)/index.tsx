@@ -14,7 +14,9 @@ import { ManagerDashboard, type DashboardMember, type DashboardRoute } from '@/f
 import { packProgress, totalPack as contarPack, type PackRoute } from '@/features/dashboard/packProgress';
 import { dayIndicatorsFrom, nextTodoPosition, packRows, pendingTodos, type DailyTodo, type DayDog, type PackEntry } from '@/features/dashboard/dayOperation';
 import { addTodo,
+  AVISO_DIA_ALTERADO,
   dogsOfDaySummary,
+  ehErroDiaDesatualizado,
   loadDayPlan,
   loadPackEntries,
   loadTodos,
@@ -289,10 +291,12 @@ export default function HomeScreen() {
         // pendentes para o "X of Y dogs done" e o progresso mentia (auditoria 02/10/2026).
         .in('status', ['draft', 'published']),
       supabase.from('driver_locations').select('driver_id, latitude, longitude, updated_at').eq('organization_id', organizationId),
-      // Plano do dia, to-do list e pack do dia (migração 035) — sempre do dia escolhido.
-      supabase.from('daily_plans').select('revenue_cents, walk_location, photo_idea').eq('organization_id', organizationId).eq('day', dia).maybeSingle(),
+      // Plano do dia, to-do list e pack do dia (migração 035) — sempre do dia escolhido. O plano e o
+      // pack trazem `lock_version` (migração 202610020050): a versão VOLTA nas gravações para o banco
+      // recusar quem salvou em cima de um dia que outro aparelho já mudou ('stale_day').
+      supabase.from('daily_plans').select('revenue_cents, walk_location, photo_idea, lock_version').eq('organization_id', organizationId).eq('day', dia).maybeSingle(),
       supabase.from('daily_todos').select('id, text, done, position').eq('organization_id', organizationId).eq('day', dia).order('position', { ascending: true }),
-      supabase.from('pack_entries').select('dog_id, in_pack, walker_id').eq('organization_id', organizationId).eq('day', dia),
+      supabase.from('pack_entries').select('dog_id, in_pack, walker_id, lock_version').eq('organization_id', organizationId).eq('day', dia),
     ]);
 
     const firstError =
@@ -358,11 +362,13 @@ export default function HomeScreen() {
       .sort((a, b) => a.name.localeCompare(b.name));
     setMembers(membros);
 
-    const planoLinha = planResult.data as { revenue_cents: number | null; walk_location: string | null; photo_idea: string | null } | null;
+    const planoLinha = planResult.data as { revenue_cents: number | null; walk_location: string | null; photo_idea: string | null; lock_version: number | null } | null;
     setPlan({
       revenueCents: planoLinha?.revenue_cents ?? null,
       walkLocation: planoLinha?.walk_location ?? null,
       photoIdea: planoLinha?.photo_idea ?? null,
+      // Versão lida do banco: as gravações do plano devolvem ela como `lock_version_base`.
+      lockVersion: planoLinha?.lock_version ?? 0,
     });
 
     const listaTodos = ((todoResult.data as DailyTodo[] | null) ?? []);
@@ -371,10 +377,12 @@ export default function HomeScreen() {
     if (dia === hojeISO) registrarTodosPendentes(dia, pendingTodos(listaTodos));
 
     setPackEntries(
-      ((packResult.data as { dog_id: string; in_pack: boolean; walker_id: string | null }[] | null) ?? []).map((linha) => ({
+      ((packResult.data as { dog_id: string; in_pack: boolean; walker_id: string | null; lock_version: number | null }[] | null) ?? []).map((linha) => ({
         dogId: linha.dog_id,
         inPack: linha.in_pack,
         walkerId: linha.walker_id,
+        // Versão lida de CADA cão: a gravação do pack devolve ela como `lock_version_base`.
+        lockVersion: linha.lock_version ?? undefined,
       })),
     );
 
@@ -418,12 +426,19 @@ export default function HomeScreen() {
     revenueCents: plan.revenueCents,
   });
 
-  /** Toda escrita do dia volta pelo banco: se falhar, a tela se recarrega em vez de mentir. */
+  /**
+   * Toda escrita do dia volta pelo banco: se falhar, a tela se recarrega em vez de mentir.
+   *
+   * TRAVA DE VERSÃO (migração 202610020050): se o banco recusar por `stale_day` (outro aparelho já
+   * gravou neste dia), além de recarregar, AVISA em português — nada de perder o que o gestor digitou
+   * em silêncio.
+   */
   const comTratamento = useCallback(
     async (acao: () => Promise<void>) => {
       try {
         await acao();
-      } catch {
+      } catch (erro) {
+        if (ehErroDiaDesatualizado(erro)) showAlert('Este dia mudou', AVISO_DIA_ALTERADO);
         // Recarga de recuperação: por baixo, para não apagar a tela por causa de uma escrita que falhou.
         void load({ silencioso: true });
       }
@@ -435,14 +450,16 @@ export default function HomeScreen() {
   const alternarPack = useCallback(
     async (dogId: string, inPack: boolean) => {
       if (!organizationId) return;
-      const anterior = packEntries;
+      // Versão lida para ESTE cão: volta como `lock_version_base` (migração 202610020050). Sem linha
+      // ainda no banco não há versão e o insert é de sempre.
+      const versaoLida = packEntries.find((item) => item.dogId === dogId)?.lockVersion;
       setPackEntries((atual) => [
         ...atual.filter((item) => item.dogId !== dogId),
         { dogId, inPack, walkerId: atual.find((item) => item.dogId === dogId)?.walkerId ?? null },
       ]);
       setPackBusy(true);
       await comTratamento(async () => {
-        await setPackFlag(supabase, { organizationId, day: selectedDay, dogId, inPack });
+        await setPackFlag(supabase, { organizationId, day: selectedDay, dogId, inPack, lockVersion: versaoLida });
       });
       setPackBusy(false);
     },
@@ -453,17 +470,18 @@ export default function HomeScreen() {
   const escolherCaminhante = useCallback(
     async (dogId: string, walkerId: string | null) => {
       if (!organizationId) return;
+      const versaoLida = packEntries.find((item) => item.dogId === dogId)?.lockVersion;
       setPackEntries((atual) => [
         ...atual.filter((item) => item.dogId !== dogId),
         { dogId, inPack: atual.find((item) => item.dogId === dogId)?.inPack ?? true, walkerId },
       ]);
       setPackBusy(true);
       await comTratamento(async () => {
-        await setPackWalker(supabase, { organizationId, day: selectedDay, dogId, walkerId });
+        await setPackWalker(supabase, { organizationId, day: selectedDay, dogId, walkerId, lockVersion: versaoLida });
       });
       setPackBusy(false);
     },
-    [comTratamento, selectedDay, organizationId],
+    [comTratamento, selectedDay, organizationId, packEntries, load],
   );
 
   const salvarFaturamento = useCallback(
@@ -471,10 +489,10 @@ export default function HomeScreen() {
       if (!organizationId) return;
       setPlan((atual) => ({ ...atual, revenueCents: cents }));
       await comTratamento(async () => {
-        await saveDayPlan(supabase, { organizationId, day: selectedDay, revenueCents: cents });
+        await saveDayPlan(supabase, { organizationId, day: selectedDay, revenueCents: cents, lockVersion: plan.lockVersion });
       });
     },
-    [comTratamento, selectedDay, organizationId],
+    [comTratamento, selectedDay, organizationId, plan.lockVersion],
   );
 
   const salvouAviso = useCallback(() => {
@@ -545,11 +563,15 @@ export default function HomeScreen() {
        * 🪤 ACHADO DA AUDITORIA (02/10/2026): o `comTratamento` engolia o erro da escrita e a tela
        * avisava "Saved" mesmo quando o banco recusou (policy bloqueando = PostgREST devolve sucesso
        * com 0 linhas). Agora só avisa "Saved" quando GRAVOU; se falhar, diz o motivo e recarrega.
+       *
+       * TRAVA DE VERSÃO (202610020050): se o banco recusou por `stale_day` (outro aparelho já gravou
+       * neste dia), o aviso é o de português e a tela recarrega — o gestor vê o que mudou e salva de novo.
        */
       try {
-        await saveDayPlan(supabase, { organizationId, day: selectedDay, walkLocation: values.walkLocation, photoIdea: values.photoIdea });
+        await saveDayPlan(supabase, { organizationId, day: selectedDay, walkLocation: values.walkLocation, photoIdea: values.photoIdea, lockVersion: plan.lockVersion });
       } catch (erro) {
-        showAlert('Could not save the day plan', erro instanceof Error ? erro.message : 'The plan was not saved. Try again.');
+        if (ehErroDiaDesatualizado(erro)) showAlert('Este dia mudou', AVISO_DIA_ALTERADO);
+        else showAlert('Could not save the day plan', erro instanceof Error ? erro.message : 'The plan was not saved. Try again.');
         void load({ silencioso: true });
         setPlanBusy(false);
         return;
@@ -558,7 +580,7 @@ export default function HomeScreen() {
       setPlanBusy(false);
       salvouAviso();
     },
-    [load, selectedDay, organizationId, salvouAviso],
+    [load, selectedDay, organizationId, salvouAviso, plan.lockVersion],
   );
 
   useFocusEffect(

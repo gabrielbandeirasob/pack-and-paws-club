@@ -38,6 +38,12 @@ export type PackEntry = {
   inPack: boolean;
   /** Membro da organização que CAMINHA com o cão (pode ser diferente de quem pega na rota). */
   walkerId: string | null;
+  /**
+   * Versão da linha LIDA do banco (`lock_version`, migração 202610020050). Vai de volta como
+   * `lock_version_base` na gravação; se outro aparelho mexeu no dia antes, o banco recusa. Ausente
+   * quando a linha não trouxe versão (ou quando o cão ainda não tem linha em `pack_entries`).
+   */
+  lockVersion?: number;
 };
 
 export type DayIndicators = {

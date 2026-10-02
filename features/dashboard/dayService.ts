@@ -16,45 +16,77 @@ import {
 } from '@/features/calendar/dayMath';
 import { dogsOfDay, limparTexto, TODO_TEXTO_MAX, type DailyTodo, type DayDog, type PackEntry } from './dayOperation';
 
+/**
+ * TRAVA DO DIA DA OPERAÇÃO (migração 202610020050) — o app do gestor fala a MESMA língua do banco.
+ *
+ * O banco conta `lock_version` sozinho (`daily_plans` e `pack_entries`) e recusa gravação feita em
+ * cima de versão velha (gatilho `dia_sem_sobrescrita`, `hint = 'stale_day'`). O app:
+ *  - LÊ `lock_version` ao abrir a tela (`DayPlan.lockVersion`, `PackEntry.lockVersion`);
+ *  - manda `lock_version_base` = a versão lida na gravação (só quando a conhece — build antiga que
+ *    não manda continua funcionando: o gatilho ignora `null`);
+ *  - reconhece a recusa (`ehErroDiaDesatualizado`) para a tela avisar em português e recarregar.
+ */
+
 export type DayPlan = {
   revenueCents: number | null;
   walkLocation: string | null;
   photoIdea: string | null;
+  /** Versão do dia LIDA do banco (`lock_version`); 0 = ainda não há linha do plano para esse dia. */
+  lockVersion: number;
 };
 
-export const PLANO_VAZIO: DayPlan = { revenueCents: null, walkLocation: null, photoIdea: null };
+export const PLANO_VAZIO: DayPlan = { revenueCents: null, walkLocation: null, photoIdea: null, lockVersion: 0 };
+
+/** Trecho da MENSAGEM do gatilho do banco que marca a recusa por versão velha (`stale_day`). */
+export const TRECHO_DIA_ALTERADO = 'Another device changed this day';
+
+/** Aviso em português que a tela mostra quando o banco recusa a gravação por versão velha. */
+export const AVISO_DIA_ALTERADO =
+  'Outro aparelho alterou este dia enquanto você editava. Atualizei a tela — confira e salve de novo.';
+
+/** O erro é a recusa `stale_day` do gatilho `dia_sem_sobrescrita`? (a tela troca o aviso e recarrega) */
+export function ehErroDiaDesatualizado(erro: unknown): boolean {
+  return erro instanceof Error && erro.message.includes(TRECHO_DIA_ALTERADO);
+}
 
 /* ------------------------------- fechamento do dia ------------------------------- */
 
 export async function loadDayPlan(client: SupabaseClient, organizationId: string, day: string): Promise<DayPlan> {
   const { data, error } = await client
     .from('daily_plans')
-    .select('revenue_cents, walk_location, photo_idea')
+    .select('revenue_cents, walk_location, photo_idea, lock_version')
     .eq('organization_id', organizationId)
     .eq('day', day)
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!data) return PLANO_VAZIO;
-  const linha = data as { revenue_cents: number | null; walk_location: string | null; photo_idea: string | null };
+  const linha = data as { revenue_cents: number | null; walk_location: string | null; photo_idea: string | null; lock_version: number | null };
   return {
     revenueCents: linha.revenue_cents ?? null,
     walkLocation: linha.walk_location ?? null,
     photoIdea: linha.photo_idea ?? null,
+    lockVersion: linha.lock_version ?? 0,
   };
 }
 
 /**
  * Grava o que o gestor digitou. `undefined` = não mexe no campo (é assim que salvar só o faturamento
  * não apaga o local da caminhada); `null` = limpa.
+ *
+ * `lockVersion` = a versão que a tela LEU (`DayPlan.lockVersion`); vai como `lock_version_base` e o
+ * banco recusa se outro aparelho já gravou. Sem `lockVersion` (build antiga) a gravação é a de sempre.
  */
 export async function saveDayPlan(
   client: SupabaseClient,
-  params: { organizationId: string; day: string; revenueCents?: number | null; walkLocation?: string | null; photoIdea?: string | null },
+  params: { organizationId: string; day: string; revenueCents?: number | null; walkLocation?: string | null; photoIdea?: string | null; lockVersion?: number },
 ): Promise<void> {
   const corpo: Record<string, unknown> = { organization_id: params.organizationId, day: params.day };
   if (params.revenueCents !== undefined) corpo.revenue_cents = params.revenueCents;
   if (params.walkLocation !== undefined) corpo.walk_location = limparTexto(params.walkLocation);
   if (params.photoIdea !== undefined) corpo.photo_idea = limparTexto(params.photoIdea);
+  // `lock_version_base` = a versão que a tela leu. Só entra quando o app conhece a versão; sem ela
+  // (build 107 antiga) o gatilho do banco não confere nada, então continua funcionando como antes.
+  if (params.lockVersion !== undefined) corpo.lock_version_base = params.lockVersion;
   /**
    * 🪤 ACHADO DA VISTORIA (02/10/2026): o upsert do dia não conferia linhas. A tela mostra "Saved" e,
    * quando a policy bloqueia, o PostgREST devolve SUCESSO com 0 linhas — o valor nunca foi gravado.
@@ -122,20 +154,22 @@ export async function removeTodo(client: SupabaseClient, id: string): Promise<vo
 export async function loadPackEntries(client: SupabaseClient, organizationId: string, day: string): Promise<PackEntry[]> {
   const { data, error } = await client
     .from('pack_entries')
-    .select('dog_id, in_pack, walker_id')
+    .select('dog_id, in_pack, walker_id, lock_version')
     .eq('organization_id', organizationId)
     .eq('day', day);
   if (error) throw new Error(error.message);
-  return ((data as { dog_id: string; in_pack: boolean; walker_id: string | null }[] | null) ?? []).map((linha) => ({
+  return ((data as { dog_id: string; in_pack: boolean; walker_id: string | null; lock_version: number | null }[] | null) ?? []).map((linha) => ({
     dogId: linha.dog_id,
     inPack: linha.in_pack,
     walkerId: linha.walker_id,
+    // Versão lida: vai de volta como `lock_version_base` na gravação (migração 202610020050).
+    lockVersion: linha.lock_version ?? undefined,
   }));
 }
 
 async function gravarPack(
   client: SupabaseClient,
-  params: { organizationId: string; day: string; dogId: string; inPack?: boolean; walkerId?: string | null },
+  params: { organizationId: string; day: string; dogId: string; inPack?: boolean; walkerId?: string | null; lockVersion?: number },
 ): Promise<void> {
   const corpo: Record<string, unknown> = {
     organization_id: params.organizationId,
@@ -146,6 +180,8 @@ async function gravarPack(
     // devolve o cão ao pack.
     ...(params.inPack === undefined ? {} : { in_pack: params.inPack }),
     ...(params.walkerId === undefined ? {} : { walker_id: params.walkerId }),
+    // Versão que a tela leu. Só entra quando o app a conhece; sem ela (build antiga) nada muda.
+    ...(params.lockVersion === undefined ? {} : { lock_version_base: params.lockVersion }),
   };
   /**
    * 🪤 ACHADO DA VISTORIA (02/10/2026): o upsert do pack ("carga") não conferia linhas. O X de tirar o
@@ -160,7 +196,7 @@ async function gravarPack(
 /** X do pack: false tira o cão da caminhada do dia; true devolve. */
 export async function setPackFlag(
   client: SupabaseClient,
-  params: { organizationId: string; day: string; dogId: string; inPack: boolean },
+  params: { organizationId: string; day: string; dogId: string; inPack: boolean; lockVersion?: number },
 ): Promise<void> {
   await gravarPack(client, params);
 }
@@ -168,7 +204,7 @@ export async function setPackFlag(
 /** Quem caminha com o cão naquele dia (membro da organização; `null` limpa). */
 export async function setPackWalker(
   client: SupabaseClient,
-  params: { organizationId: string; day: string; dogId: string; walkerId: string | null },
+  params: { organizationId: string; day: string; dogId: string; walkerId: string | null; lockVersion?: number },
 ): Promise<void> {
   await gravarPack(client, params);
 }
