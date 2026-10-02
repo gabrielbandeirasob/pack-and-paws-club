@@ -102,7 +102,12 @@ const ctx = (await sql(`
       join organization_members d on d.user_id = r.driver_id and d.organization_id = r.organization_id
            and d.status = 'active' and d.role in ('driver', 'manager')
      where r.organization_id = (select id from alvo) and r.status = 'published'
-     order by r.route_date
+     -- 🪤 AUDITORIA DE DADOS (02/10/2026): este fixture pegava a rota mais antiga e podia cair num
+     -- motorista que TAMBÉM é GESTOR (na E2E Test Org o Alex é manager e dirige) — aí os casos
+     -- "motorista NÃO pode cadastrar cliente / ver token alheio" acusavam falha de RLS que não existe
+     -- (provado no banco: 42501 new row violates row-level security policy for table clients).
+     -- Agora prefere um motorista de papel ESTRITO, caindo para gestor-motorista só se não houver.
+     order by (d.role = 'driver') desc, r.route_date
      limit 1
   )
   select (select id from alvo) as org,
