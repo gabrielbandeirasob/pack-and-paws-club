@@ -89,6 +89,10 @@ export default function DriverTodayScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
   const [pendingSync, setPendingSync] = useState(0);
+  /** As paradas da tela (para nomear o cão na mensagem da fila). */
+  const stopsRef = useRef<DriverStop[]>([]);
+  // Mantém a ref alinhada com a tela (a fila offline roda fora do render e precisa do nome do cão).
+  useEffect(() => { stopsRef.current = stops; }, [stops]);
   const [routeId, setRouteId] = useState<string | null>(null);
   const [routeVersion, setRouteVersion] = useState<number | null>(null);
   const [organizationId, setOrganizationId] = useState<string | null>(null);
@@ -226,6 +230,8 @@ export default function DriverTodayScreen() {
       return true;
     }
     const remaining: typeof events = [];
+    /** Passos que o SERVIDOR recusou (nome do cão + passo) — vão para a tela, não para o lixo. */
+    const recusados: string[] = [];
     for (let indice = 0; indice < events.length; indice += 1) {
       const event = events[indice];
       /*
@@ -242,22 +248,33 @@ export default function DriverTodayScreen() {
         // na mesma escrita, com o carimbo do servidor).
         const atualizacao: Record<string, unknown> = { status: passo };
         if (event.deliveredAt && indicePasso === passosDoDia.length - 1) atualizacao.delivered_at = event.deliveredAt;
-        const { error } = await supabase
+        const { data: gravado, error } = await supabase
           .from('route_stops')
           .update(atualizacao)
-          .eq('id', event.stopId);
-        if (error) {
-          if (isNetworkError(error.message)) {
+          .eq('id', event.stopId)
+          .select('id');
+        // 🪤 ACHADO DA VISTORIA (02/10/2026): o evento recusado pelo SERVIDOR era DESCARTADO em silêncio
+        // (saía da fila e nenhuma mensagem aparecia) — o motorista achava que tinha registrado e o
+        // escritório nunca recebia. Agora ele é nomeado na tela.
+        const recusado = Boolean(error) ? !isNetworkError(error!.message) : (!gravado || gravado.length === 0);
+        if (error || !gravado || gravado.length === 0) {
+          if (error && isNetworkError(error.message)) {
             remaining.push(event, ...events.slice(indice + 1));
             parouPorRede = true;
+          } else if (recusado) {
+            const parada = stopsRef.current.find((item) => item.id === event.stopId);
+            recusados.push(parada ? `${parada.dogName} · ${passo}` : passo);
           }
-          break; // erro do servidor: descarta o evento (mesmo comportamento de antes)
+          break;
         }
       }
       if (parouPorRede) break;
     }
     await saveOutbox(remaining);
     setPendingSync(remaining.length);
+    if (recusados.length > 0) {
+      setMessage(`Could not save ${recusados.join(', ')} — the office did not accept ${recusados.length === 1 ? 'this step' : 'these steps'}, so ${recusados.length === 1 ? 'it was' : 'they were'} removed from the queue. Tell the office.`);
+    }
     return remaining.length === 0;
   }, []);
 
@@ -453,8 +470,15 @@ export default function DriverTodayScreen() {
       const anterior = stops.find((stop) => stop.id === stopId)?.deliveredAt ?? null;
       setStops((current) => current.map((stop) => (stop.id === stopId ? { ...stop, deliveredAt: entregueEm } : stop)));
       try {
-        const { error } = await supabase.from('route_stops').update({ delivered_at: entregueEm }).eq('id', stopId);
-        if (error) throw new Error(error.message);
+        // 🪤 ACHADO DA VISTORIA (02/10/2026): escrita sem conferir linhas. Se a policy/parada recusa, o
+        // PostgREST responde SUCESSO com 0 linhas — o cartão ficava "entregue" sem o banco ter gravado.
+        const { data: entregue, error } = await supabase
+          .from('route_stops')
+          .update({ delivered_at: entregueEm })
+          .eq('id', stopId)
+          .select('id');
+        if (error) throw new Error(`The office did not accept this delivery (${error.message}). Check your signal and try again.`);
+        if (!entregue || entregue.length === 0) throw new Error('The office did not accept this delivery. Check your signal and try again.');
         const events = (await loadOutbox()).filter((event) => event.stopId !== stopId);
         await saveOutbox(events);
         setPendingSync(events.length);
@@ -535,8 +559,14 @@ export default function DriverTodayScreen() {
         const atualizacao: Record<string, unknown> = { status: passo };
         // O motivo do problema entra na MESMA escrita: o push do gestor (trigger 033) sai com ele.
         if (notaDoProblema) atualizacao.proof_note = notaDoProblema;
-        const { error } = await supabase.from('route_stops').update(atualizacao).eq('id', stopId);
-        if (error) throw new Error(error.message);
+        // Mesma armadilha da entrega: 0 linhas sem erro = passo "gravado" que o banco não recebeu.
+        const { data: gravado, error } = await supabase
+          .from('route_stops')
+          .update(atualizacao)
+          .eq('id', stopId)
+          .select('id');
+        if (error) throw new Error(`The office did not accept this step (${error.message}). Check your signal and try again.`);
+        if (!gravado || gravado.length === 0) throw new Error('The office did not accept this step. Check your signal and try again.');
       }
     };
 

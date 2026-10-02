@@ -21,7 +21,18 @@ const mockEstado: {
   statusDaParada: 'pending' | 'arrived' | 'picked_up' | 'completed' | 'skipped';
   /** Sem sinal: todo `update` responde erro de rede. */
   falhaDeRede: boolean;
-} = { atualizacoes: [], rpcs: [], statusDaParada: 'pending', falhaDeRede: false };
+  /** O servidor RECUSOU a escrita (RLS, parada fora da rota) — erro que não é de rede. */
+  recusaDoServidor: string | null;
+  /** `true` = o `update` responde SUCESSO com ZERO linha (policy bloqueou). */
+  escritaSemLinha: boolean;
+} = {
+  atualizacoes: [],
+  rpcs: [],
+  statusDaParada: 'pending',
+  falhaDeRede: false,
+  recusaDoServidor: null,
+  escritaSemLinha: false,
+};
 
 /** Rota publicada de hoje com UMA parada pendente (o caminho curto: chegou → pegou+concluiu). */
 const mockRota = () => ({
@@ -98,11 +109,21 @@ jest.mock('@/lib/supabase', () => {
         if (mockEstado.falhaDeRede) {
           return Promise.resolve({ data: null, error: { message: 'Network request failed' } }).then(res);
         }
+        // O servidor RECUSOU (RLS/parada fora da rota): erro que não é de rede.
+        if (mockEstado.recusaDoServidor) {
+          return Promise.resolve({ data: null, error: { message: mockEstado.recusaDoServidor } }).then(res);
+        }
+        // UPDATE que não pega linha nenhuma (policy bloqueou): SUCESSO com zero linha.
+        if (mockEstado.escritaSemLinha) {
+          return Promise.resolve({ data: [], error: null }).then(res);
+        }
         // O servidor aceitou: o "banco" falso passa a devolver o status novo na releitura.
         if (tabela === 'route_stops' && typeof payloadDoUpdate.status === 'string') {
           mockEstado.statusDaParada = payloadDoUpdate.status as typeof mockEstado.statusDaParada;
         }
-        return Promise.resolve({ data: null, error: null }).then(res);
+        // Escrita com `.select('id')`: o PostgREST devolve a linha atingida (é o que faz o app
+        // perceber um UPDATE que não pegou linha nenhuma).
+        return Promise.resolve({ data: [{ id: 's1' }], error: null }).then(res);
       }
       return Promise.resolve({ data: dados(tabela), error: null }).then(res);
     };
@@ -258,6 +279,39 @@ it('depois do toque a tela NÃO volta para o "carregando"', async () => {
       expect(tela.queryByTestId('driver-loading')).toBeNull();
     } finally {
       mockPapel = { role: 'driver', view: 'driver', isLoading: false };
+    }
+  });
+
+  /**
+   * VISTORIA (02/10/2026) — PASSO QUE O BANCO NÃO RECEBEU NÃO PODE PARECER GRAVADO.
+   *
+   * O UPDATE dos passos não conferia linhas: com a policy bloqueando, o PostgREST responde sucesso com
+   * ZERO linha e o cartão avançava como se tivesse registrado. Agora a tela não marca e explica.
+   */
+  it('servidor recusa o passo: a tela NÃO marca e diz o motivo', async () => {
+    mockEstado.recusaDoServidor = 'new row violates row-level security policy';
+    try {
+      const tela = await abrirTelaDoMotorista();
+      await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+
+      await waitFor(() => expect(tela.getByText(/did not accept this step/)).toBeTruthy());
+      // A parada segue pendente: nada de marcar no aparelho o que o banco não recebeu.
+      expect(mockEstado.statusDaParada).toBe('pending');
+    } finally {
+      mockEstado.recusaDoServidor = null;
+    }
+  });
+
+  it('UPDATE que não pega linha (0 linha, sem erro): também não marca na tela', async () => {
+    mockEstado.escritaSemLinha = true;
+    try {
+      const tela = await abrirTelaDoMotorista();
+      await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+
+      await waitFor(() => expect(tela.getByText(/did not accept this step/)).toBeTruthy());
+      expect(mockEstado.statusDaParada).toBe('pending');
+    } finally {
+      mockEstado.escritaSemLinha = false;
     }
   });
 });
