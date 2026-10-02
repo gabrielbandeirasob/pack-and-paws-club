@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { todayLocalISO } from '@/features/calendar/dates';
 import { DriverRouteView, type DriverAction, type DriverStop } from '@/features/driver/DriverRouteView';
 import { resolveDriverOptimizationOrigin } from '@/features/driver/driverRouteLocation';
-import { clockInGate, distanceText, estaNaVan, loadRouteEndLocationForDriver, loadVanLocationForDriver, motivoDoClockIn, travaDoClockIn, type OrganizationLocation } from '@/features/organization/locations';
+import { clockInGate, distanceText, estaNaVan, loadOrganizationLocations, loadRouteEndLocationForDriver, loadVanLocationForDriver, motivoDoClockIn, travaDoClockIn, vanLocationForRoute, type OrganizationLocation } from '@/features/organization/locations';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutosAteParada, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
 import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/features/driver/etaMessage';
 
@@ -151,6 +151,13 @@ export default function DriverTodayScreen() {
   const [vanLocation, setVanLocation] = useState<OrganizationLocation | null>(null);
   /** Onde a rota FECHA (o yard) — pedido do cliente, 02/10/2026. */
   const [yardLocation, setYardLocation] = useState<OrganizationLocation | null>(null);
+  /**
+   * A VAN em que o DIA TERMINA (o fim do drop-off). Resolvida de forma DETERMINÍSTICA — escolha do
+   * gestor na rota (`end_location_id`) ou a van PADRÃO — e não pelo "chute" da van mais próxima das
+   * paradas. Cliente, 02/10/2026: *"o drop off não está terminando no lugar da van"* (a org tem DUAS
+   * vans com o mesmo endereço e coordenadas diferentes, então o chute apontava para a van errada).
+   */
+  const [vanDeFechamento, setVanDeFechamento] = useState<OrganizationLocation | null>(null);
   /** Chegada à van observada (a jornada deduzida passa a começar aqui, e não no primeiro cão). */
   const [vanArrivalAt, setVanArrivalAt] = useState<string | null>(null);
   const vanArrivalRef = useRef<string | null>(null);
@@ -473,6 +480,10 @@ export default function DriverTodayScreen() {
             paradas: paradasDaLinha(route.route_stops),
           }),
         );
+        // O FIM do dia aponta para a VAN: escolha do gestor na rota (`end_location_id`) ou a van
+        // PADRÃO da organização — nunca o chute da mais próxima (cliente, 02/10/2026).
+        const locaisDaOrg = await loadOrganizationLocations(supabase, route.organization_id);
+        setVanDeFechamento(vanLocationForRoute(locaisDaOrg, route.end_location_id ?? null));
         /**
          * ONDE A ROTA FECHA (pedido do cliente, 02/10/2026 — *"as rota de pick up não tão acabando no
          * yard"*): a sede que a ROTA aponta como fim (`end_location_id`) e, sem ela, o yard cadastrado
@@ -497,6 +508,7 @@ export default function DriverTodayScreen() {
         setOrganizationId(orgDoVinculo);
         setVanLocation(null);
         setYardLocation(null);
+        setVanDeFechamento(null);
       }
       // Retention: prune stale positions opportunistically.
       void supabase.rpc('cleanup_driver_locations');
@@ -1151,10 +1163,34 @@ export default function DriverTodayScreen() {
       buscaTerminou: buscaTerminou(stops),
       entregaTerminou: entregaTerminou(stops),
       yard: yardLocation,
-      van: vanLocation,
+      van: vanDeFechamento ?? vanLocation,
     }),
-    [stops, yardLocation, vanLocation],
+    [stops, yardLocation, vanLocation, vanDeFechamento],
   );
+
+  /**
+   * NAVEGAR até o fechamento (yard/van) — cliente, 02/10/2026: *"apenas informa que termina no yard,
+   * mas na realidade não mudou nada"*. Usa o MESMO caminho da navegação das paradas: app preferido
+   * quando já escolhido; senão, a folha de escolha.
+   */
+  const navegarParaFechamento = useCallback(async () => {
+    if (!fechamento) return;
+    const target: NavTarget = {
+      address: fechamento.address,
+      latitude: fechamento.latitude,
+      longitude: fechamento.longitude,
+    };
+    try {
+      const preferred = await loadPreferredNavApp();
+      if (preferred) {
+        await Linking.openURL(navigationUrlFor(preferred, target));
+        return;
+      }
+    } catch {
+      // sem app preferido/erro ao abrir → cai na folha de escolha
+    }
+    setNavTarget({ stopId: 'closing', target });
+  }, [fechamento]);
 
   // A trava acompanha a visão: o gestor que ligou o interruptor também pode dirigir.
   const { liberado, role, isLoading: carregandoPapel } = useRoleGuard('driver');
@@ -1308,6 +1344,7 @@ export default function DriverTodayScreen() {
                     onAction={act}
                     onNotifyOwner={avisarTutor}
                     closing={fechamento}
+                    onNavigateClosing={() => void navegarParaFechamento()}
                     fase={fase}
                     onStartDropoffs={() => {
                       // Vira a perna e GRAVA no aparelho: o dia não volta a "busca" sozinho.

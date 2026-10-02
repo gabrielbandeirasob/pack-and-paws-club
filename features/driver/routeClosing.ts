@@ -22,6 +22,13 @@ export type FechamentoDaRota = {
   /** Uma linha que diz POR QUE ele está indo (o que acontece lá). */
   subtitle: string;
   address: string | null;
+  /**
+   * COORDENADAS do destino — para o motorista NAVEGAR até ele (cliente, 02/10/2026: *"o aplicativo
+   * apenas informa que termina no yard, mas na realidade não mudou nada"*). Sem coordenadas, o cartão
+   * continua informativo (nunca inventa destino).
+   */
+  latitude: number | null;
+  longitude: number | null;
 };
 
 /** Ainda tem cão para buscar? (pending = não cheguei, arrived = cheguei e não peguei) */
@@ -58,6 +65,8 @@ export function fechamentoDaRota(params: {
       title: destino.kind === 'yard' ? 'Back to the yard' : 'Back to the van',
       subtitle: 'All dogs delivered — the day ends here.',
       address: enderecoDaLoja(destino),
+      latitude: destino.latitude,
+      longitude: destino.longitude,
     };
   }
 
@@ -73,5 +82,7 @@ export function fechamentoDaRota(params: {
       ? 'All dogs on board — drop them at the yard.'
       : 'All dogs on board — the pick-up run ends here.',
     address: enderecoDaLoja(destino),
+    latitude: destino.latitude,
+    longitude: destino.longitude,
   };
 }

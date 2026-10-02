@@ -42,13 +42,15 @@ describe('fechamentoDaRota', () => {
     expect(fechamentoDaRota({ buscaTerminou: false, entregaTerminou: false, yard, van })).toBeNull();
   });
 
-  it('busca terminada: o dia vai para o YARD, com o endereço', () => {
+  it('busca terminada: o dia vai para o YARD, com o endereço E as coordenadas (para navegar)', () => {
     const fim = fechamentoDaRota({ buscaTerminou: true, entregaTerminou: false, yard, van });
     expect(fim).toEqual({
       kind: 'yard',
       title: 'Back to the yard',
       subtitle: 'All dogs on board — drop them at the yard.',
       address: '1089 Memorex Drive · Santa Clara',
+      latitude: 37.362643,
+      longitude: -122.9527423,
     });
   });
 
@@ -65,6 +67,8 @@ describe('fechamentoDaRota', () => {
       title: 'Back to the van',
       subtitle: 'All dogs delivered — the day ends here.',
       address: '3111 La Selva · San Mateo',
+      latitude: 37.5427669,
+      longitude: -122.2849451,
     });
   });
 

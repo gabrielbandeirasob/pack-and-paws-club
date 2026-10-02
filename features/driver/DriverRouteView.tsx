@@ -97,6 +97,11 @@ type Props = {
    */
   closing?: FechamentoDaRota | null;
   /**
+   * LEVA o motorista até o fechamento (yard/van) — cliente, 02/10/2026: *"o aplicativo apenas informa
+   * que termina no yard, mas na realidade não mudou nada"*. Sem ele, o cartão continua só informativo.
+   */
+  onNavigateClosing?: () => void;
+  /**
    * A PERNA do dia (pick-up × drop-off). A virada é um ATO DO MOTORISTA, não automática — decisão do
    * dono (02/10/2026), depois do áudio do cliente: *"tem que ter uma mudança clara de rota... ele não
    * tem que fazer essa mudança automática"*. Ausente = `pickup` (o dia começa buscando).
@@ -111,7 +116,7 @@ function addressLine(stop: DriverStop): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-export function DriverRouteView({ stops, onAction, onNotifyOwner, closing, fase: faseProp, onStartDropoffs }: Props) {
+export function DriverRouteView({ stops, onAction, onNotifyOwner, closing, onNavigateClosing, fase: faseProp, onStartDropoffs }: Props) {
   const fase: DayPhase = faseProp ?? 'pickup';
   const fire = (stop: DriverStop, action: DriverAction) => onAction(stop.id, action);
   /**
@@ -348,6 +353,20 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing, fase:
           <Text style={styles.closingTitle}>{closing.title}</Text>
           <Text style={styles.closingSub}>{closing.subtitle}</Text>
           {closing.address ? <Text style={styles.closingAddress}>{closing.address}</Text> : null}
+          {/* NAVEGAR até o fechamento (cliente, 02/10/2026): antes o cartão SÓ informava. */}
+          {onNavigateClosing && (closing.latitude != null || closing.longitude != null || closing.address) ? (
+            <View style={styles.actions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Navigate to the ${closing.kind === 'yard' ? 'yard' : 'van'}`}
+                onPress={onNavigateClosing}
+                style={[styles.action, styles.actionDark]}
+                testID="navigate-closing"
+              >
+                <Text style={styles.actionDarkText}>Navigate</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       ) : null}
     </View>
