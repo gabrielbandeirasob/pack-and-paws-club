@@ -83,7 +83,7 @@ export function NewReservationForm({ dogs, onSave, onCancel }: Props) {
             <Pressable accessibilityRole="button" accessibilityLabel="Daycare" onPress={() => setServiceType('daycare')} style={[styles.segment, serviceType === 'daycare' && styles.segmentActive]}>
               <Text style={[styles.segmentText, serviceType === 'daycare' && styles.segmentTextActive]}>Daycare</Text>
             </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Boarding" onPress={() => setServiceType('boarding')} style={[styles.segment, serviceType === 'boarding' && styles.segmentActive]}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Boarding" onPress={() => { setServiceType('boarding'); setRepeatWeekly(false); setWeekdays([]); }} style={[styles.segment, serviceType === 'boarding' && styles.segmentActive]}>
               <Text style={[styles.segmentText, serviceType === 'boarding' && styles.segmentTextActive]}>Boarding</Text>
             </Pressable>
           </View>

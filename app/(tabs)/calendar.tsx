@@ -197,7 +197,14 @@ export default function CalendarScreen() {
 
   const saveReservation = async (payload: NewReservationPayload) => {
     if (!organizationId) throw new Error('Organization not found.');
-    if (payload.weekdays) {
+    /**
+     * 🪤 ACHADO DA REVISÃO (02/10/2026): a decisão era só `if (payload.weekdays)`. O formulário só
+     * mostra "Repeat weekly" no daycare, mas o estado não era limpo ao trocar para Boarding: quem
+     * ligasse a repetição e depois trocasse para Boarding criava uma SÉRIE SEMANAL de daycare no
+     * lugar da reserva de hospedagem — a reserva sumia em silêncio. Agora o serviço manda: repetição
+     * só vale para daycare (o dia de hospedagem é contínuo, não semanal).
+     */
+    if (payload.serviceType === 'daycare' && payload.weekdays) {
       const { error: scheduleError } = await supabase.from('recurring_schedules').insert({
         organization_id: organizationId,
         dog_id: payload.dogId,

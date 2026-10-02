@@ -65,6 +65,29 @@ describe('NewReservationForm', () => {
     expect(payload).toMatchObject({ dogId: 'dog-luna', serviceType: 'boarding', startDate: firstOfMonth, endDate: lastOfMonth });
   });
 
+  it('trocar para Boarding depois de ligar "Repeat weekly" NÃO manda dias da semana', async () => {
+    /**
+     * 🪤 ACHADO DA REVISÃO (02/10/2026): o formulário só MOSTRA "Repeat weekly" no daycare, mas o
+     * estado não era limpo ao trocar para Boarding — e a Agenda decidia criar SÉRIE SEMANAL pela
+     * presença de `weekdays`. Quem ligasse a repetição e trocasse para Boarding salvava uma série de
+     * daycare no lugar da hospedagem: a reserva sumia em silêncio (a lista de semanais ganhava um
+     * cão que nunca ia ao daycare naquele dia, e a hospedagem não existia).
+     */
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<NewReservationForm dogs={dogs} onSave={onSave} onCancel={jest.fn()} />);
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Repeat weekly' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Boarding' }));
+    await pickDog(screen, 'John · Luna');
+    await pickDate(screen, 'Start date', firstOfMonth);
+    await pickDate(screen, 'End date', lastOfMonth);
+    await fireEvent.press(screen.getByRole('button', { name: 'Save reservation' }));
+
+    const payload = onSave.mock.calls[0][0] as NewReservationPayload;
+    expect(payload.serviceType).toBe('boarding');
+    expect(payload.weekdays).toBeUndefined();
+  });
+
   it('rejects an end date before the start date', async () => {
     const onSave = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<NewReservationForm dogs={dogs} onSave={onSave} onCancel={jest.fn()} />);
