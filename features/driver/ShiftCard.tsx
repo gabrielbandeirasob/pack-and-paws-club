@@ -6,7 +6,7 @@
  * rota. Os botões existem para a exceção (esqueceu, imprevisto) e por isso pedem MOTIVO.
  */
 import { useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { durationText, shiftLabel, type ShiftState } from '@/features/driver/shift';
 import { colors, radii } from '@/features/theme/tokens';
@@ -101,8 +101,26 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHi
         </Pressable>
       ) : null}
 
+      {/*
+        * O TECLADO NÃO PODE COBRIR O CAMPO (reclamação do dono, 01/10/2026: *"quando vai colocar clock in
+        * manual o teclado ocupa a tela e não consigo [ver] o que estou digitando"*). A folha abre colada no
+        * rodapé e o Modal não encolhe sozinho quando o teclado sobe: sem o KeyboardAvoidingView, o campo do
+        * motivo ficava exatamente embaixo do teclado. Agora a folha sobe com o teclado e, se o conteúdo não
+        * couber (tela pequena / fonte grande do sistema), ela rola.
+        */}
       <Modal visible={pedindo !== null} transparent animationType="slide" onRequestClose={() => setPedindo(null)}>
-        <View style={styles.fundo}>
+        <KeyboardAvoidingView
+          testID="manual-clock-avoiding"
+          style={styles.fundo}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <ScrollView
+            testID="manual-clock-rolagem"
+            style={styles.rolagem}
+            contentContainerStyle={styles.rolagemConteudo}
+            keyboardShouldPersistTaps="handled"
+            bounces={false}
+          >
           <View style={styles.folha}>
             <Text style={styles.folhaTitulo}>
               {pedindo === 'out' ? 'Clock out manually' : pedindo === 'in-fora' ? 'Clock in outside the van' : 'Clock in manually'}
@@ -134,7 +152,8 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHi
               <Text style={styles.cancelarTexto}>Cancel</Text>
             </Pressable>
           </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -158,6 +177,9 @@ const styles = StyleSheet.create({
   botaoTextoPrincipal: { color: 'white' },
   erro: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginTop: 9, lineHeight: 17 },
   fundo: { flex: 1, backgroundColor: 'rgba(23,43,29,0.45)', justifyContent: 'flex-end' },
+  /** A folha rola quando o teclado sobe (tela pequena / fonte grande): o campo nunca fica escondido. */
+  rolagem: { flexGrow: 0 },
+  rolagemConteudo: { flexGrow: 1, justifyContent: 'flex-end' },
   folha: { backgroundColor: colors.paper, borderTopLeftRadius: radii.hero, borderTopRightRadius: radii.hero, padding: 20, paddingBottom: 30 },
   folhaTitulo: { fontSize: 18, fontWeight: '800', color: colors.ink },
   folhaSub: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 6 },

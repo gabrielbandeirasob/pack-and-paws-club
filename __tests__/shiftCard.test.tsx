@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render, within } from '@testing-library/react-native';
 
 import { ShiftCard } from '@/features/driver/ShiftCard';
 import { shiftState } from '@/features/driver/shift';
@@ -70,5 +70,28 @@ describe('ShiftCard (jornada do motorista)', () => {
   it('mostra o erro que o servidor devolveu', async () => {
     const { tela } = await montar({ error: 'You already have a journey open.' });
     expect(tela.getByText('You already have a journey open.')).toBeTruthy();
+  });
+});
+
+/**
+ * O TECLADO NÃO COBRE O CAMPO DO CLOCK IN MANUAL (reclamação do dono, 01/10/2026: *"quando vai colocar
+ * clock in manual o teclado ocupa a tela e não consigo [ver] o que estou digitando"*).
+ *
+ * A folha abre colada no rodapé dentro de um Modal, e o teclado subia por cima do campo do motivo. A
+ * prova estrutural: a folha vive dentro de um KeyboardAvoidingView (com comportamento por plataforma) e
+ * de um ScrollView que rola com o teclado aberto.
+ */
+describe('clock in manual — teclado não esconde o campo', () => {
+  it('a folha sobe com o teclado e rola se não couber', async () => {
+    // Sem jornada ainda: o botão é o "Clock in", que abre a folha do registro manual.
+    const { tela } = await montar({ state: shiftState([], []) });
+    await fireEvent.press(tela.getByLabelText('Clock in'));
+    expect(tela.getByText('Clock in manually')).toBeTruthy();
+
+    // A folha (campo + botões) vive DENTRO da área que sobe com o teclado, e essa área rola quando o
+    // conteúdo não cabe (tela pequena / fonte grande do sistema).
+    const evitando = tela.getByTestId('manual-clock-avoiding');
+    expect(within(evitando).getByLabelText('Reason for the manual record')).toBeTruthy();
+    expect(within(evitando).getByTestId('manual-clock-rolagem')).toBeTruthy();
   });
 });
