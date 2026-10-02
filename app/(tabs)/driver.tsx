@@ -419,9 +419,18 @@ export default function DriverTodayScreen() {
       const handle = await startLocationSharing((update) => {
         if (cancelled) return;
         setPosition(update);
-        void supabase.auth.getUser().then(({ data: { user } }) => {
-          if (!user) return;
-          void supabase.from('driver_locations').upsert(
+        /**
+         * 🪤 ACHADO DA VISTORIA (02/10/2026): esta escrita era "fire and forget" — nenhum erro era lido.
+         * A policy de `driver_locations` só aceita posição de rota `published`: quando o gestor fechava a
+         * rota (✓ Done), a van PARAVA de andar no mapa do escritório e ninguém era avisado (o cartão
+         * seguia mostrando a última posição, que o frescor depois esconde).
+         *
+         * Agora o erro é lido: se o escritório parou de aceitar a posição, o app para de compartilhar e
+         * DIZ isso ao motorista (em vez de continuar gravando para o vazio).
+         */
+        void supabase.auth.getUser().then(async ({ data: { user } }) => {
+          if (!user || cancelled) return;
+          const { error } = await supabase.from('driver_locations').upsert(
             {
               route_id: routeId,
               organization_id: organizationId,
@@ -433,6 +442,12 @@ export default function DriverTodayScreen() {
             },
             { onConflict: 'route_id' },
           );
+          if (!error || cancelled) return;
+          if (isNetworkError(error.message)) return; // sem sinal: a próxima atualização tenta de novo
+          locationHandle.current?.stop();
+          locationHandle.current = null;
+          setPosition(null);
+          setMessage('The office is no longer following your position (the route was closed on their side).');
         });
       });
       if (cancelled) {
@@ -1043,7 +1058,7 @@ const styles = StyleSheet.create({
   /** flexGrow: 1 deixa o conteúdo curto (loading / rota vazia) preencher a tela com o fundo creme. */
   scrollContent: { flexGrow: 1 },
   header: { backgroundColor: colors.forest700, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 24, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
-  eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
+  eyebrow: { color: colors.gold, fontSize: 12, fontWeight: '900', letterSpacing: 1.3 },
   title: { color: 'white', fontFamily: 'serif', fontSize: 28, fontWeight: '800', marginTop: 6 },
   date: { color: '#D7E1D4', fontSize: 12, marginTop: 4 },
   offlineBanner: { backgroundColor: '#FBF0D9', borderBottomWidth: 1, borderBottomColor: '#EADFB8', paddingHorizontal: 16, paddingVertical: 8 },

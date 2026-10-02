@@ -1,13 +1,18 @@
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { act, render, waitFor } from '@testing-library/react-native';
 
 /**
  * Cobre o caminho do GERENTE na tela inicial: nome no cumprimento, contagem do dia
  * (daycare/boarding) e a lista de rotas — o pedaco que estava sem teste (31% de cobertura).
  */
+/** O callback do `useFocusEffect`: chamar isto = voltar para a aba da Home. */
+let mockFoco: (() => void | (() => void)) | null = null;
+
 jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: () => undefined, push: () => undefined }),
   useFocusEffect: (callback: () => void | (() => void)) => {
+    // Guarda o callback: o teste simula "saiu da aba e voltou" chamando `mockFoco()`.
+    mockFoco = callback;
     // eslint-disable-next-line react-hooks/rules-of-hooks
     (require('react') as typeof React).useEffect(() => {
       const cleanup = callback();
@@ -105,5 +110,36 @@ describe('tela inicial do gerente', () => {
     (globalThis as any).__rows = { ...(globalThis as any).__rows, organization_members: [] };
     const screen = await render(<HomeScreen />);
     await waitFor(() => expect(screen.getByText('Your account is not linked to an organization yet.')).toBeTruthy());
+  });
+
+  /**
+   * 🪤 VISTORIA (02/10/2026): a Home dispara 11 consultas a cada volta na aba e trocava a TELA INTEIRA
+   * por uma rodinha (`setLoading(true)`). O gestor ia no Dispatch, voltava, e a Home "piscava" toda.
+   * Aqui se prova: a segunda carga (volta na aba) acontece POR BAIXO, sem a rodinha de tela cheia.
+   */
+  it('voltar para a aba NÃO troca a tela pela rodinha (a carga é por baixo)', async () => {
+    (globalThis as any).__rows = {
+      profiles: [{ full_name: 'Gabriel' }],
+      organization_members: [{ organization_id: 'org-1', user_id: 'u-1', profiles: { full_name: 'Rafael' } }],
+      reservations: [],
+      routes: [],
+      recurring_schedules: [],
+      recurring_exceptions: [],
+      organization_locations: [],
+      day_plans: [],
+      day_todos: [],
+      pack_entries: [],
+    };
+    const tela = await render(<HomeScreen />);
+
+    // Primeira carga: a rodinha sai quando os dados chegam.
+    await waitFor(() => expect(tela.queryByTestId('home-loading')).toBeNull());
+    expect(mockFoco).toBeTruthy();
+
+    // O gestor foi no Dispatch e voltou: o foco recarrega as 11 consultas POR BAIXO.
+    await act(async () => { mockFoco?.(); });
+
+    expect(tela.queryByTestId('home-loading')).toBeNull();
+    await waitFor(() => expect(tela.getByText(/Gabriel/)).toBeTruthy());
   });
 });

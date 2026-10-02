@@ -10,9 +10,9 @@
  * para o cabeçalho — sem isso, nada de consulta extra só para escrever o título.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { carregarParadasDaRota, type ParadaDaRota } from '@/features/dispatch/routeStops';
 import { jaFeita, marcosDaParada, proximaPendente, resumoDaEntrega, resumoDaRota } from '@/features/dashboard/stopProgress';
@@ -40,13 +40,19 @@ export default function RouteStopsScreen() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
 
-  const carregar = useCallback(async () => {
+  const [atualizando, setAtualizando] = useState(false);
+
+  /**
+   * `silencioso` = recarregar sem trocar a tela pela rodinha (a lista fica na frente e o dado se
+   * reconcilia por baixo). Usado ao voltar o foco e ao puxar para atualizar.
+   */
+  const carregar = useCallback(async (silencioso = false) => {
     if (!routeId) {
       setErro('Route not found.');
       setCarregando(false);
       return;
     }
-    setCarregando(true);
+    if (!silencioso) setCarregando(true);
     setErro(null);
     try {
       const lista = await carregarParadasDaRota(supabase, routeId);
@@ -59,12 +65,30 @@ export default function RouteStopsScreen() {
     } catch (causa) {
       setErro(causa instanceof Error ? causa.message : 'Could not load the route.');
     } finally {
-      setCarregando(false);
+      if (!silencioso) setCarregando(false);
     }
   }, [routeId]);
 
   useEffect(() => {
     void carregar();
+  }, [carregar]);
+
+  /**
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): a lista era carregada UMA única vez (por `routeId`), sem foco,
+   * sem puxar-para-atualizar e sem tempo real. O gestor abria para ver "quem já foi e a que hora" e o
+   * número NÃO mudava mais enquanto o motorista trabalhava — só saía da tela e voltava.
+   */
+  useFocusEffect(useCallback(() => {
+    void carregar(true);
+  }, [carregar]));
+
+  const puxarParaAtualizar = useCallback(async () => {
+    setAtualizando(true);
+    try {
+      await carregar(true);
+    } finally {
+      setAtualizando(false);
+    }
   }, [carregar]);
 
   const resumo = useMemo(() => resumoDaRota(paradas), [paradas]);
@@ -88,7 +112,11 @@ export default function RouteStopsScreen() {
       {carregando ? (
         <ActivityIndicator style={styles.rodinha} color={colors.gold} size="large" />
       ) : (
-        <ScrollView contentContainerStyle={styles.conteudo}>
+        <ScrollView
+          testID="route-stops-lista"
+          contentContainerStyle={styles.conteudo}
+          refreshControl={<RefreshControl refreshing={atualizando} onRefresh={() => void puxarParaAtualizar()} tintColor={colors.gold} />}
+        >
           {erro ? <Text style={styles.erro}>{erro}</Text> : null}
 
           {!erro && paradas.length === 0 ? (

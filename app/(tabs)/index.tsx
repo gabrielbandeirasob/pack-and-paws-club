@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,8 +13,7 @@ import {
 import { ManagerDashboard, type DashboardMember, type DashboardRoute } from '@/features/dashboard/ManagerDashboard';
 import { packProgress, totalPack as contarPack, type PackRoute } from '@/features/dashboard/packProgress';
 import { dayIndicatorsFrom, nextTodoPosition, packRows, pendingTodos, type DailyTodo, type DayDog, type PackEntry } from '@/features/dashboard/dayOperation';
-import {
-  addTodo,
+import { addTodo,
   dogsOfDaySummary,
   loadDayPlan,
   loadPackEntries,
@@ -27,6 +26,7 @@ import {
   setTodoDone,
   updateTodoText,
   type DayPlan,
+  contagemDoDia,
 } from '@/features/dashboard/dayService';
 import { registrarTodosPendentes } from '@/features/dashboard/dayTodosStore';
 import {
@@ -168,6 +168,8 @@ export default function HomeScreen() {
     if (landingRoute) router.replace(landingRoute as never);
   }, [landingRoute, router]);
   const [managerName, setManagerName] = useState('');
+  /** A primeira carga já aconteceu? (a partir dela as voltas na aba recarregam por baixo) */
+  const jaCarregouRef = useRef(false);
   const [counts, setCounts] = useState({ daycare: 0, boarding: 0 });
   const [routes, setRoutes] = useState<DashboardRoute[]>([]);
   const [totalPack, setTotalPack] = useState(0);
@@ -209,7 +211,16 @@ export default function HomeScreen() {
 
   const irParaHoje = useCallback(() => setSelectedDay(todayLocalISO()), []);
 
-  const load = useCallback(async () => {
+  /**
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): a Home dispara 11 consultas a CADA volta na aba e trocava a
+   * tela por uma rodinha de tela cheia (`setLoading(true)`) — o gestor ia no Dispatch, voltava, e a Home
+   * "piscava" inteira. O Dispatch já tinha sido corrigido por isso; a Home não.
+   *
+   * `silencioso` = recarregar por baixo, sem trocar a tela: usa-se nas voltas seguintes (a primeira
+   * carga, com a tela ainda vazia, mantém a rodinha).
+   */
+  const load = useCallback(async (opcoes?: { silencioso?: boolean }) => {
+    if (!opcoes?.silencioso) setLoading(true);
     setError(null);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -299,7 +310,9 @@ export default function HomeScreen() {
       endDate: row.end_date,
     }));
     const day = buildDay(dia, reservations, recurring, exceptions);
-    setCounts({ daycare: day.daycare.length, boarding: day.boarding.length });
+    // Conta única (vistoria 02/10/2026): o cão que está em boarding E daycare conta UMA vez, como boarding
+    // — é o mesmo número que o "Day summary" mostra.
+    setCounts(contagemDoDia(day));
 
     // Cães do dia: os indicadores e o pack saem da MESMA conta do calendário (`buildDay`).
     setDayDogs(dogsOfDaySummary(day));
@@ -347,6 +360,7 @@ export default function HomeScreen() {
     }));
     setTotalPack(contarPack(packRoutes));
     setProgress(packProgress(packRoutes));
+    jaCarregouRef.current = true;
     setLoading(false);
   }, [hojeISO, selectedDay]);
 
@@ -367,7 +381,8 @@ export default function HomeScreen() {
       try {
         await acao();
       } catch {
-        void load();
+        // Recarga de recuperação: por baixo, para não apagar a tela por causa de uma escrita que falhou.
+        void load({ silencioso: true });
       }
     },
     [load],
@@ -495,7 +510,7 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      void load();
+      void load({ silencioso: jaCarregouRef.current });
     }, [load]),
   );
 
@@ -525,7 +540,7 @@ export default function HomeScreen() {
     <>
       {loading ? (
         <SafeAreaView style={styles.screen} edges={['top']}>
-          <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
+          <ActivityIndicator testID="home-loading" style={styles.center} color={colors.gold} size="large" />
         </SafeAreaView>
       ) : error ? (
         <SafeAreaView style={styles.screen} edges={['top']}>

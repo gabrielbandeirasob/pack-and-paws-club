@@ -1,4 +1,5 @@
-import { render, waitFor } from '@testing-library/react-native';
+import { act, render, waitFor } from '@testing-library/react-native';
+import { RefreshControl } from 'react-native';
 
 import RouteStopsScreen from '@/app/route-stops';
 import { supabase } from '@/lib/supabase';
@@ -52,6 +53,10 @@ const mockVoltar = jest.fn();
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ route: 'rota-1', driver: 'Rafael', day: '2026-10-01' }),
   useRouter: () => ({ back: mockVoltar, push: jest.fn() }),
+  // A tela recarrega ao voltar o foco (vistoria 02/10/2026): aqui o efeito roda como um useEffect.
+  useFocusEffect: (callback: () => void | (() => void)) => {
+    (require('react') as typeof import('react')).useEffect(callback, []);
+  },
 }));
 
 beforeEach(() => {
@@ -107,5 +112,30 @@ describe('tela Route stops (gestor)', () => {
     mockErro = 'permission denied for table routes';
     const tela = await render(<RouteStopsScreen />);
     await waitFor(() => expect(tela.getByText('permission denied for table routes')).toBeTruthy());
+  });
+
+  /**
+   * 🪤 VISTORIA (02/10/2026): a lista era carregada UMA vez por `routeId` — sem foco, sem puxar para
+   * atualizar e sem tempo real. O gestor abria para ver "quem já foi e a que hora" e o número não mudava
+   * mais enquanto o motorista trabalhava. Aqui se prova que puxar a lista RELÊ a rota de verdade.
+   */
+  it('puxar para atualizar relê a rota (a lista não fica congelada)', async () => {
+    const tela = await render(<RouteStopsScreen />);
+    await waitFor(() => expect(tela.getByText(/1 of 3 delivered/)).toBeTruthy());
+    const antes = (supabase.from as jest.Mock).mock.calls.length;
+
+    // o motorista entregou mais um cão enquanto o gestor olhava a lista
+    mockRota = { id: 'rota-1', route_stops: paradas.map((parada, indice) => (indice === 1 ? { ...parada, delivered_at: emLocal(15, 0) } : parada)) };
+
+    // Puxar para atualizar: a lista tem de ter o RefreshControl e ele relê a rota.
+    const lista = tela.getByTestId('route-stops-lista');
+    const refreshControl = lista.props.refreshControl;
+    expect(refreshControl).toBeTruthy();
+    expect(typeof refreshControl.props.onRefresh).toBe('function');
+    expect(refreshControl.type).toBe(RefreshControl);
+    await act(async () => { await refreshControl.props.onRefresh(); });
+
+    expect((supabase.from as jest.Mock).mock.calls.length).toBeGreaterThan(antes);
+    await waitFor(() => expect(tela.getByText(/2 of 3 delivered/)).toBeTruthy());
   });
 });

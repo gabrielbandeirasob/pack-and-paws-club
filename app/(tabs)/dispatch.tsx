@@ -464,9 +464,16 @@ export default function DispatchScreen() {
     async (routeId: string) => {
       const versao = versaoDe(routeId);
       if (versao === null) return;
-      await supabase.from('routes').update({ lock_version: versao + 1 }).eq('id', routeId).eq('lock_version', versao);
+      // 0 linha = a versão já andou (outro aparelho mexeu): avisa em vez de seguir calado.
+      const { data } = await supabase
+        .from('routes')
+        .update({ lock_version: versao + 1 })
+        .eq('id', routeId)
+        .eq('lock_version', versao)
+        .select('id');
+      if ((data ?? []).length === 0) avisarRotaMudou();
     },
-    [versaoDe],
+    [versaoDe, avisarRotaMudou],
   );
 
   /** Troca o status da rota com trava de versao: 0 linhas = outro aparelho mudou antes. */
@@ -554,14 +561,31 @@ export default function DispatchScreen() {
       vanPorMotorista.current.set(driverId, locationId);
       const rota = routesRef.current.find((item) => item.driverId === driverId);
       if (!rota) return;
-      const { error } = await supabase.from('routes').update({ start_location_id: locationId }).eq('id', rota.routeId);
+      /**
+       * 🪤 ACHADO DA VISTORIA (02/10/2026): aqui a van era gravada SEM trava de versão e sem conferir
+       * linhas. Com dois gestores na mesma rota, o segundo sobrescrevia a van do primeiro em silêncio
+       * (e, se a rota tivesse saído do ar, o app ainda dizia que trocou). Agora usa a mesma trava do
+       * `trocarStatus`: `.eq('lock_version', versao)` + `.select('id')`; 0 linha = outro aparelho mexeu.
+       */
+      const versao = versaoDe(rota.routeId);
+      const atualizacao: Record<string, unknown> = { start_location_id: locationId, lock_version: (versao ?? 1) + 1 };
+      let consulta = supabase.from('routes').update(atualizacao).eq('id', rota.routeId);
+      if (versao !== null) consulta = consulta.eq('lock_version', versao);
+      const { data, error } = await consulta.select('id');
       if (error) {
+        vanPorMotorista.current.delete(driverId);
         showAlert('Could not change the van', error.message);
+        return;
+      }
+      if (versao !== null && (data ?? []).length === 0) {
+        vanPorMotorista.current.delete(driverId);
+        showAlert('Could not change the van', routeErrorMessage('stale_route'));
+        await carregarRotas();
         return;
       }
       await carregarRotas();
     },
-    [carregarRotas],
+    [carregarRotas, versaoDe],
   );
 
   /**
@@ -775,16 +799,25 @@ export default function DispatchScreen() {
     const parada = routesRef.current.find((rota) => rota.routeId === routeId)?.stops.find((stop) => stop.dogId === dogId);
     if (parada && parada.windowStart === constraint.windowStart && parada.windowEnd === constraint.windowEnd
       && parada.exactTime === constraint.exactTime && parada.priority === constraint.priority) return;
-    const { error } = await supabase.from('route_stops').update({
+    /**
+     * 🪤 ACHADO DA VISTORIA (02/10/2026): a janela era gravada sem conferir linhas. Se a parada tivesse
+     * sido removida por outro aparelho, o UPDATE pegava 0 linha, o app ainda marcava a rota como alterada
+     * e recarregava — a janela não salvou e ninguém era avisado.
+     */
+    const { data, error } = await supabase.from('route_stops').update({
       window_start: constraint.windowStart,
       window_end: constraint.windowEnd,
       exact_time: constraint.exactTime,
       priority: constraint.priority,
-    }).eq('route_id', routeId).eq('dog_id', dogId);
+    }).eq('route_id', routeId).eq('dog_id', dogId).select('id');
     falhaDeEscrita(error);
+    if ((data ?? []).length === 0) {
+      await carregarRotas();
+      throw new Error(`Could not save the time for ${nomeDoCao(dogId)} — the stop may have been removed on another device. Reload and try again.`);
+    }
     await marcarRotaAlterada(routeId);
     await carregarRotas();
-  }, [falhaDeEscrita, marcarRotaAlterada, carregarRotas]);
+  }, [falhaDeEscrita, marcarRotaAlterada, carregarRotas, nomeDoCao]);
 
   const savePins = useCallback(async (routeId: string, dogId: string, travas: Travas) => {
     await fila.aguardar(routeId);
@@ -929,8 +962,27 @@ export default function DispatchScreen() {
       const atual = porCao.get(item.dogId) ?? { travel_seconds: null, dropoff_travel_seconds: null };
       porCao.set(item.dogId, { ...atual, dropoff_travel_seconds: item.segundos });
     }
+    /**
+     * 🪤 ACHADO DA VISTORIA (02/10/2026): estas escritas (o TEMPO de cada perna, que é o que faz o ETA do
+     * motorista seguir a ROTA) não conferiam linha e falhavam em silêncio — era impossível saber por que o
+     * ETA não mudava depois do Optimize. Segue sendo best-effort (a ORDEM já está aplicada), mas o gestor
+     * passa a ser avisado do que faltou.
+     */
+    const semTempo: string[] = [];
     for (const [dogId, pernas] of porCao) {
-      await supabase.from('route_stops').update(pernas).eq('route_id', routeId).eq('dog_id', dogId);
+      const { data, error } = await supabase
+        .from('route_stops')
+        .update(pernas)
+        .eq('route_id', routeId)
+        .eq('dog_id', dogId)
+        .select('id');
+      if (error || (data ?? []).length === 0) semTempo.push(dogId);
+    }
+    if (semTempo.length > 0) {
+      showAlert(
+        'Order applied — times not saved',
+        `The new order is saved, but ${semTempo.length} stop(s) kept the old estimate, so the driver's ETA will still use the old (straight line) number there. Check your signal and run Optimize again.`,
+      );
     }
   }, []);
 

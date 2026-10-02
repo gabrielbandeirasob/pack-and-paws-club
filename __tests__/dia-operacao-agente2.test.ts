@@ -22,6 +22,7 @@ import {
   type DayDog,
   type PackEntry,
 } from '../features/dashboard/dayOperation';
+import { contagemDoDia, dogsOfDaySummary } from '../features/dashboard/dayService';
 
 const THOR: DayDog = { dogId: 'thor', dogName: 'Thor', clientName: 'Ana', serviceType: 'daycare' };
 const NINA: DayDog = { dogId: 'nina', dogName: 'Nina', clientName: 'Juliana', serviceType: 'daycare' };
@@ -120,4 +121,23 @@ describe('texto guardado', () => {
     expect(limparTexto('   ')).toBeNull();
     expect(limparTexto('x'.repeat(600), 200)?.length).toBe(200);
   });
+});
+
+/**
+ * 🪤 VISTORIA (02/10/2026) — DOIS NÚMEROS PARA A MESMA COISA.
+ *
+ * A Home contava `day.daycare.length` (sem deduplicar) e o "Day summary" contava da lista deduplicada:
+ * um cão que está em boarding E daycare no mesmo dia aparecia como 1 daycare a mais na Home.
+ * Agora as duas telas leem `contagemDoDia` — o cão conta UMA vez, como boarding.
+ */
+it('contagemDoDia não duplica o cão que está em boarding e daycare no mesmo dia', () => {
+  const cao = { kind: 'daycare' as const, dog: { id: 'd1', dogName: 'Lucky', clientName: 'Ana' }, reservationId: 'r1', recurringScheduleId: null, dogId: 'd1', dogName: 'Lucky', clientName: 'Ana', transportRequired: true, goesToDaycare: true };
+  const dia = {
+    daycare: [cao],
+    boarding: [{ ...cao, kind: 'boarding' as const, reservationId: 'r2' }],
+  };
+
+  expect(contagemDoDia(dia)).toEqual({ daycare: 0, boarding: 1 });
+  // e a lista que as telas mostram tem UM cão só (nada de contar duas vezes)
+  expect(dogsOfDaySummary(dia)).toHaveLength(1);
 });

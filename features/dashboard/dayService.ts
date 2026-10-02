@@ -55,8 +55,14 @@ export async function saveDayPlan(
   if (params.revenueCents !== undefined) corpo.revenue_cents = params.revenueCents;
   if (params.walkLocation !== undefined) corpo.walk_location = limparTexto(params.walkLocation);
   if (params.photoIdea !== undefined) corpo.photo_idea = limparTexto(params.photoIdea);
-  const { error } = await client.from('daily_plans').upsert(corpo, { onConflict: 'organization_id,day' });
+  /**
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): o upsert do dia não conferia linhas. A tela mostra "Saved" e,
+   * quando a policy bloqueia, o PostgREST devolve SUCESSO com 0 linhas — o valor nunca foi gravado.
+   * `.select('id')` + 0 linha = erro (o chamador já mostra o aviso).
+   */
+  const { data: salvo, error } = await client.from('daily_plans').upsert(corpo, { onConflict: 'organization_id,day' }).select('id');
   if (error) throw new Error(error.message);
+  if (!salvo || salvo.length === 0) throw new Error('Could not save the day plan. Ask the manager to check your access.');
 }
 
 /* ---------------------------------- to-do list ---------------------------------- */
@@ -88,20 +94,27 @@ export async function addTodo(
 }
 
 export async function setTodoDone(client: SupabaseClient, id: string, done: boolean): Promise<void> {
-  const { error } = await client.from('daily_todos').update({ done }).eq('id', id);
+  // 🪤 ACHADO DA VISTORIA (02/10/2026): UPDATE sem conferir linhas — 0 linha é policy bloqueando, não
+  // sucesso. A caixinha aparecia marcada no aparelho com o banco intacto. `.select('id')` + 0 linha = erro.
+  const { data: salvo, error } = await client.from('daily_todos').update({ done }).eq('id', id).select('id');
   if (error) throw new Error(error.message);
+  if (!salvo || salvo.length === 0) throw new Error('Could not save this to-do. Ask the manager to check your access.');
 }
 
 export async function updateTodoText(client: SupabaseClient, id: string, text: string): Promise<void> {
   const texto = limparTexto(text, TODO_TEXTO_MAX);
   if (!texto) throw new Error('empty todo');
-  const { error } = await client.from('daily_todos').update({ text: texto }).eq('id', id);
+  // 🪤 ACHADO DA VISTORIA (02/10/2026): mesma armadilha — 0 linha (policy) não é sucesso.
+  const { data: salvo, error } = await client.from('daily_todos').update({ text: texto }).eq('id', id).select('id');
   if (error) throw new Error(error.message);
+  if (!salvo || salvo.length === 0) throw new Error('Could not save this to-do. Ask the manager to check your access.');
 }
 
 export async function removeTodo(client: SupabaseClient, id: string): Promise<void> {
-  const { error } = await client.from('daily_todos').delete().eq('id', id);
+  // 🪤 ACHADO DA VISTORIA (02/10/2026): DELETE sem conferir linhas — 0 linha (policy) não pode parecer apagado.
+  const { data: removido, error } = await client.from('daily_todos').delete().eq('id', id).select('id');
   if (error) throw new Error(error.message);
+  if (!removido || removido.length === 0) throw new Error('Could not delete this to-do. Ask the manager to check your access.');
 }
 
 /* -------------------------------------- pack -------------------------------------- */
@@ -134,8 +147,14 @@ async function gravarPack(
     ...(params.inPack === undefined ? {} : { in_pack: params.inPack }),
     ...(params.walkerId === undefined ? {} : { walker_id: params.walkerId }),
   };
-  const { error } = await client.from('pack_entries').upsert(corpo, { onConflict: 'organization_id,day,dog_id' });
+  /**
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): o upsert do pack ("carga") não conferia linhas. O X de tirar o
+   * cão da caminhada e a escolha de quem caminha apareciam aplicados mesmo com a policy bloqueando
+   * (SUCESSO com 0 linhas). `.select('id')` + 0 linha = erro, e o chamador avisa.
+   */
+  const { data: salvo, error } = await client.from('pack_entries').upsert(corpo, { onConflict: 'organization_id,day,dog_id' }).select('id');
   if (error) throw new Error(error.message);
+  if (!salvo || salvo.length === 0) throw new Error('Could not save the pack. Ask the manager to check your access.');
 }
 
 /** X do pack: false tira o cão da caminhada do dia; true devolve. */
@@ -298,4 +317,20 @@ export function dogsOfDaySummary(dia: DaySummary): DayDog[] {
   const daycare = dia.daycare.filter((item) => !item.paused).map((item) => paraCao(item, 'daycare'));
   const boarding = dia.boarding.filter((item) => !item.paused).map((item) => paraCao(item, 'boarding'));
   return dogsOfDay(daycare, boarding);
+}
+
+/**
+ * A CONTAGEM do dia — uma fonte só para a Home e para o "Day summary".
+ *
+ * 🪤 ACHADO DA VISTORIA (02/10/2026): a Home contava `day.daycare.length` / `day.boarding.length` (SEM
+ * deduplicar) enquanto o Day summary contava da lista já deduplicada (`dogsOfDay`, que deixa o cão que
+ * está em boarding E daycare no mesmo dia apenas como boarding). Com um cão nos dois serviços, o gestor
+ * via "1 Daycare" na Home e "0 Daycare" no Day summary — dois números para a mesma coisa.
+ */
+export function contagemDoDia(dia: DaySummary): { daycare: number; boarding: number } {
+  const caes = dogsOfDaySummary(dia);
+  return {
+    daycare: caes.filter((cao) => cao.serviceType === 'daycare').length,
+    boarding: caes.filter((cao) => cao.serviceType === 'boarding').length,
+  };
 }
