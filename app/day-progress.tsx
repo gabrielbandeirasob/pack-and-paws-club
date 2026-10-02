@@ -256,5 +256,5 @@ const styles = StyleSheet.create({
   textoAndamento: { color: '#A8791B' },
   textoProblema: { color: colors.urgency },
   textoPendente: { color: colors.muted },
-  hora: { color: colors.muted, fontSize: 11.5, marginTop: 1 },
+  hora: { color: colors.muted, fontSize: 12, marginTop: 1 },
 });

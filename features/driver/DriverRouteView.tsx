@@ -255,9 +255,21 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing }: Pro
                 * ver em qual entrega o dia está (pedido do dono, 01/10/2026).
                 */}
               {paraEntregar ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={`Delivered ${stop.dogName}`} onPress={() => fire(stop, 'deliver')} style={[styles.action, styles.actionDelivered]}>
-                  <Text style={styles.actionDeliveredText}>Delivered</Text>
-                </Pressable>
+                <>
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Delivered ${stop.dogName}`} onPress={() => fire(stop, 'deliver')} style={[styles.action, styles.actionDelivered]}>
+                    <Text style={styles.actionDeliveredText}>Delivered</Text>
+                  </Pressable>
+                  {/*
+                    * ENTREGA SEM SUCESSO (beco sem saída, vistoria 02/10/2026): o bloco de "Problem"
+                    * acima só existia na CHEGADA (`arrived`). Depois do 2º toque a parada fica
+                    * `completed` SEM entrega e o motorista só tinha "Delivered" — se o tutor não
+                    * estivesse em casa o dia nunca fechava. Agora a entrega tem as DUAS saídas,
+                    * exatamente como a busca.
+                    */}
+                  <Pressable accessibilityRole="button" accessibilityLabel={`Problem ${stop.id}`} onPress={() => fire(stop, 'problem')} style={[styles.action, styles.actionProblem]}>
+                    <Text style={styles.actionProblemText}>Problem</Text>
+                  </Pressable>
+                </>
               ) : null}
             </View>
           </Pressable>
@@ -291,7 +303,7 @@ function StatusBadge({ status, entregue }: { status: DriverStop['status']; entre
     pending: 'Pending', arrived: 'Arrived', picked_up: 'Dog picked up', completed: 'Completed', skipped: 'Problem',
   };
   const colorsByStatus: Record<DriverStop['status'], string> = {
-    pending: '#8A6D1F', arrived: colors.forest700, picked_up: '#4E8D5C', completed: '#4E8D5C', skipped: colors.muted,
+    pending: '#8A6D1F', arrived: colors.forest700, picked_up: colors.success, completed: colors.success, skipped: colors.muted,
   };
   const emTransito = !entregue && (status === 'picked_up' || status === 'completed');
   const rotulo = entregue && status !== 'skipped' ? 'Delivered' : emTransito ? 'In the van' : labels[status];
@@ -346,7 +358,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.paper,
     gap: 2,
   },
-  closingTag: { fontSize: 11, fontWeight: '800', letterSpacing: 1, color: colors.muted },
+  closingTag: { fontSize: 12, fontWeight: '800', letterSpacing: 1, color: colors.muted },
   closingTitle: { fontSize: 16, fontWeight: '800', color: colors.ink },
   closingSub: { fontSize: 12, color: colors.muted, lineHeight: 16 },
   closingAddress: { fontSize: 13, color: colors.forest700, marginTop: 2 },

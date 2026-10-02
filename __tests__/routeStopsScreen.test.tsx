@@ -44,7 +44,7 @@ jest.mock('@/lib/supabase', () => ({
       const b: Record<string, unknown> = {};
       const mesmo = () => b;
       // `jest.fn` para os testes conseguirem espiar as consultas (o teste acima faz isso).
-      for (const metodo of ['select', 'eq', 'in', 'limit', 'order']) b[metodo] = jest.fn(mesmo);
+      for (const metodo of ['select', 'eq', 'in', 'gte', 'lte', 'limit', 'order']) b[metodo] = jest.fn(mesmo);
       const resposta = () => {
         if (mockErro) return { data: null, error: { message: mockErro } };
         return { data: tabela === 'routes' ? mockRota : tabela === 'organization_locations' ? mockLocais : null, error: null };
@@ -178,6 +178,34 @@ describe('tela Route stops (gestor)', () => {
     await act(async () => { await atualizada.props.refreshControl.props.onRefresh(); });
 
     await waitFor(() => expect(tela.getByText('Back to the van')).toBeTruthy());
+    mockRota = { id: 'rota-1', route_stops: paradas };
+  });
+
+  /**
+   * 🪤 VISTORIA (02/10/2026) — AS DUAS TELAS DISCORDAVAM SOBRE ONDE O DIA FECHA.
+   *
+   * Quando a rota não aponta `end_location_id` (caso comum), o motorista via "Back to the yard" (o
+   * helper dele cai no yard da organização), mas o GESTOR não via cartão nenhum — a lista dele só
+   * lia `end_location_id`. Agora, sem fim na rota, o gestor cai no MESMO yard.
+   */
+  it('sem end_location_id na rota, o gestor também vê o YARD (mesmo destino do motorista)', async () => {
+    mockRota = {
+      id: 'rota-1',
+      organization_id: 'org-1',
+      start_location_id: 'van-1',
+      end_location_id: null,
+      route_stops: paradas.map((parada) => ({ ...parada, status: 'picked_up', delivered_at: null })),
+    };
+    mockLocais = [
+      { id: 'van-1', name: 'Van 1', kind: 'van', address_line_1: '3111 La Selva', city: 'San Mateo', latitude: 37.5427429, longitude: -122.2849121, radius_meters: 300, is_default: true },
+      { id: 'yard-1', name: 'Yard', kind: 'yard', address_line_1: '1089 Memorex Drive', city: 'Santa Clara', latitude: 37.362643, longitude: -121.9527423, radius_meters: 300, is_default: false },
+    ];
+
+    const Tela = require('../app/route-stops').default;
+    const tela = await render(<Tela />);
+
+    await waitFor(() => expect(tela.getByText('Back to the yard')).toBeTruthy());
+    expect(tela.getByText('1089 Memorex Drive · Santa Clara')).toBeTruthy();
     mockRota = { id: 'rota-1', route_stops: paradas };
   });
 });

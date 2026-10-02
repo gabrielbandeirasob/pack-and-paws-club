@@ -30,6 +30,10 @@ const mockEstado: {
   /** Sedes que a ROTA aponta (o fim = o yard, pedido do cliente 02/10/2026). */
   startLocationId: string | null;
   endLocationId: string | null;
+  /** Rota PUBLICADA sem nenhuma parada (vistoria 02/10/2026 — não pode virar "No published route"). */
+  semParadas: boolean;
+  /** `getUser` devolve SESSÃO AUSENTE (vistoria 02/10/2026 — não pode virar "No published route"). */
+  semSessao: boolean;
 } = {
   atualizacoes: [],
   rpcs: [],
@@ -40,6 +44,8 @@ const mockEstado: {
   deliveredAtDaParada: null,
   startLocationId: null,
   endLocationId: null,
+  semParadas: false,
+  semSessao: false,
 };
 
 /** Rota publicada de hoje com UMA parada pendente (o caminho curto: chegou → pegou+concluiu). */
@@ -54,7 +60,7 @@ const mockRota = () => ({
   start_location_id: mockEstado.startLocationId,
   end_location_id: mockEstado.endLocationId,
   organization: { proof_pickup_required: false, proof_dropoff_required: false },
-  route_stops: [
+  route_stops: mockEstado.semParadas ? [] : [
     {
       id: 's1',
       sequence: 1,
@@ -150,7 +156,9 @@ jest.mock('@/lib/supabase', () => {
   };
   return {
     supabase: {
-      auth: { getUser: async () => ({ data: { user: { id: 'driver-1' } } }) },
+      auth: { getUser: async () => (mockEstado.semSessao
+        ? { data: { user: null } }
+        : { data: { user: { id: 'driver-1' } } }) },
       from: (tabela: string) => cadeia(tabela),
       rpc: async (nome: string, params: Record<string, unknown>) => {
         mockEstado.rpcs.push({ nome, params });
@@ -207,6 +215,10 @@ beforeEach(async () => {
   mockEstado.rpcs.length = 0;
   mockEstado.statusDaParada = 'pending';
   mockEstado.falhaDeRede = false;
+  mockEstado.recusaDoServidor = null;
+  mockEstado.escritaSemLinha = false;
+  mockEstado.semParadas = false;
+  mockEstado.semSessao = false;
 });
 
 describe('2 toques: I arrived e Next', () => {
@@ -242,6 +254,26 @@ describe('2 toques: I arrived e Next', () => {
       // Chegou → pegou → concluiu: os três sobem quando o sinal voltar.
       expect(passosDoEvento(fila[0])).toEqual(['arrived', 'picked_up', 'completed']);
     });
+  });
+
+  it('flush SEM REDE não apaga a fila: o passo continua no aparelho (mutação pegou isto)', async () => {
+    mockEstado.falhaDeRede = true;
+    const tela = await abrirTelaDoMotorista();
+    await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+    await waitFor(async () => expect((await loadOutbox()).length).toBeGreaterThan(0));
+    const antes = (await loadOutbox()).length;
+
+    // O motorista puxa a tela para atualizar AINDA sem rede: a subida da fila falha por REDE.
+    const rolagem = tela.getByTestId('driver-scroll');
+    await act(async () => {
+      await rolagem.props.refreshControl.props.onRefresh();
+    });
+
+    // 🪤 O QUE NÃO PODE ACONTECER (auditoria 02/10/2026): a tentativa que falha por rede levar a fila
+    // junto — o motorista perderia os passos achando que subiram. A fila fica INTEIRA.
+    const depois = await loadOutbox();
+    expect(depois.length).toBe(antes);
+    mockEstado.falhaDeRede = false;
   });
 
   it('depois do 2º toque o dia continua: o painel passa a oferecer a ENTREGA', async () => {
@@ -393,5 +425,55 @@ it('depois do toque a tela NÃO volta para o "carregando"', async () => {
       mockEstado.startLocationId = null;
       mockEstado.endLocationId = null;
     }
+  });
+
+  /**
+   * 🪤 VISTORIA (02/10/2026): rota PUBLICADA sem paradas caía no estado vazio com o texto "No
+   * published route today" — um dia vazio real ficava indistinguível de não ter rota (o motorista
+   * achava que o gestor não tinha publicado).
+   */
+  it('rota PUBLICADA sem paradas diz que não há paradas hoje (não "No published route today")', async () => {
+    mockEstado.semParadas = true;
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+
+    await waitFor(() => expect(tela.getByText('Route published — no stops today')).toBeTruthy());
+    expect(tela.queryByText('No published route today')).toBeNull();
+  });
+
+  /**
+   * 🪤 VISTORIA (02/10/2026): sessão ausente/expirada fazia a consulta rodar com `driver_id = ''`,
+   * voltar vazia e a tela AFIRMAR "No published route today" — o motorista ia embora achando que o
+   * gestor não publicou, quando o problema era o login.
+   */
+  it('sessão sem usuário NÃO vira "No published route today" (diz que a sessão expirou)', async () => {
+    mockEstado.semSessao = true;
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+
+    await waitFor(() => expect(tela.getByText('Session expired')).toBeTruthy());
+    expect(tela.queryByText('No published route today')).toBeNull();
+  });
+
+  /**
+   * 🪤 VISTORIA (02/10/2026): `events` era lido ANTES do `syncOutbox`. O evento que o servidor RECUSOU
+   * saía da fila e o aviso "…removed from the queue" aparecia — mas o `applyPendingEvents` seguinte
+   * usava a lista ANTIGA e PINTAVA o passo na tela. O motorista lia "não foi aceito" e via a parada
+   * concluída ao mesmo tempo. A fila passou a ser relida DEPOIS do sync.
+   */
+  it('passo recusado pelo servidor não volta a pintar a tela no MESMO carregamento', async () => {
+    mockEstado.recusaDoServidor = 'new row violates row-level security policy';
+    const { enqueueEvent, saveOutbox } = require('@/features/driver/offlineStore') as typeof import('@/features/driver/offlineStore');
+    // Um passo ficou na fila de um período OFFLINE anterior; agora o app abre COM sinal.
+    await saveOutbox(enqueueEvent([], { stopId: 's1', status: 'completed', createdAt: new Date().toISOString() }));
+
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+
+    // O aviso de recusa aparece (o evento foi removido da fila pelo sync)...
+    await waitFor(() => expect(tela.getByText(/did not accept this step/)).toBeTruthy());
+    // ...e a parada NÃO foi pintada como concluída no mesmo carregamento.
+    expect(tela.getByLabelText('Next stop: I arrived for Bob')).toBeTruthy();
+    expect(tela.queryByLabelText('Next stop: Delivered for Bob')).toBeNull();
   });
 });

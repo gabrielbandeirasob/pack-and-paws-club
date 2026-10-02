@@ -12,7 +12,9 @@ import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/f
 
 import { NextStopCard, nextActionForStatus, nextStopFor } from '@/features/driver/NextStopCard';
 import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
-import { savePendingWrites, enqueuePending, flushPendingWrites, loadPendingWrites, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
+import { savePendingWrites, enqueuePending, flushPendingWrites, loadPendingWrites, RefusedWriteError, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
+import { planClockOut } from '@/features/driver/clockOutPlan';
+import { resolveDriverOrganizationId } from '@/features/driver/driverOrganization';
 import { ShiftCard } from '@/features/driver/ShiftCard';
 import { shiftErrorMessage, shiftState, type ManualShift } from '@/features/driver/shift';
 import {
@@ -89,6 +91,12 @@ export default function DriverTodayScreen() {
   const [publishedAt, setPublishedAt] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
+  /**
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): `getUser` sem erro devolvia sessão ausente, a consulta rodava
+   * com `driver_id = ''`, voltava vazia e a tela DIZIA "No published route today". Não é dia vazio —
+   * é login perdido. Estado próprio para a tela não mentir ao motorista.
+   */
+  const [sessaoExpirada, setSessaoExpirada] = useState(false);
   const [pendingSync, setPendingSync] = useState(0);
   /** Puxar para atualizar (o indicador do RefreshControl). */
   const [atualizando, setAtualizando] = useState(false);
@@ -222,11 +230,22 @@ export default function DriverTodayScreen() {
           reason: entrada.startReason,
           startedAt: entrada.startedAt,
         });
-        // Já existe jornada aberta no servidor = o registro da fila é o mesmo: nada a fazer.
-        if (aberta.mode === 'already-open') throw new Error('driver_shifts_uma_aberta');
+        // Já existe jornada aberta no servidor = o registro da fila é o mesmo: nada a fazer. É uma
+        // RECUSA DEFINITIVA (repetir nunca muda) — só por isso a entrada pode sair da fila; ver o
+        // 🪤 em `flushPendingWrites` (a vistoria de 02/10/2026 achou a fila sendo apagada em silêncio).
+        if (aberta.mode === 'already-open') throw new RefusedWriteError('driver_shifts_uma_aberta');
       });
       await savePendingWrites(resultado.remaining);
       setPendingWrites(resultado.remaining);
+      /**
+       * 🪤 ACHADO DA VISTORIA (02/10/2026): o `dropped` era IGNORADO — o registro sumia da fila sem
+       * nenhuma mensagem. Agora o motorista é avisado de que o escritório recusou aquele registro.
+       */
+      if (resultado.dropped > 0) {
+        setMessage(
+          `Could not save ${resultado.dropped === 1 ? 'a journey record' : `${resultado.dropped} journey records`} — the office did not accept ${resultado.dropped === 1 ? 'this one' : 'these'} (it may already be open there), so ${resultado.dropped === 1 ? 'it was' : 'they were'} removed from the queue. Tell the office.`,
+        );
+      }
     }
 
     const events = await loadOutbox();
@@ -305,7 +324,23 @@ export default function DriverTodayScreen() {
     /** A carga caiu por REDE? (se sim, o vazio não pode afirmar que não existe rota) */
     let semRede = false;
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      /*
+       * 🪤 ACHADO DA VISTORIA (02/10/2026): erro/sessão ausente NÃO era conferido — a consulta seguia
+       * com `driver_id = ''`, voltava vazia e a tela afirmava "No published route today". O motorista
+       * concluía que não tinha rota quando o problema era o login. Falha de REDE continua caindo no
+       * caminho de "offline"; aqui só a sessão inválida tem tratamento próprio.
+       */
+      if (authError || !user) {
+        const falha = authError?.message ?? 'Session expired.';
+        if (!isNetworkError(falha)) {
+          setSessaoExpirada(true);
+          setLoading(false);
+          return;
+        }
+        throw new Error(falha);
+      }
+      setSessaoExpirada(false);
       const { data: routes, error } = await supabase
         .from('routes')
         .select('id, organization_id, lock_version, published_at, start_location_id, end_location_id, route_stops(id, sequence, dropoff_sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, delivered_at, travel_seconds, dropoff_travel_seconds, status_updated_at, eta_notice_at, eta_notice_kind, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
@@ -317,6 +352,14 @@ export default function DriverTodayScreen() {
       if (error) throw error;
       setDriverId(user?.id ?? null);
       const route = (routes as unknown as RouteResult[] | null)?.[0];
+      /*
+       * 🪤 ACHADO DA VISTORIA (02/10/2026): a organização só existia DENTRO do `if (route)`. Num dia
+       * SEM rota publicada ela ficava nula e o clock in manual ("esqueci de bater o ponto") era
+       * impossível — o app respondia "Organization not found for this account." e o dia de trabalho
+       * não tinha como ser registrado. A organização é propriedade do VÍNCULO (`organization_members`
+       * com status `active`), não da rota: resolve-se pelo vínculo e vale com ou sem rota publicada.
+       */
+      const orgDoVinculo = route?.organization_id ?? (await resolveDriverOrganizationId(supabase, user.id));
       if (route) {
         const mapped = ((route.route_stops ?? []) as StopRow[]).map(rowToStop);
         snapshot = { savedAt: new Date().toISOString(), publishedAt: route.published_at, stops: mapped };
@@ -353,7 +396,8 @@ export default function DriverTodayScreen() {
         await clearRouteSnapshot();
         setRouteId(null);
         setRouteVersion(null);
-        setOrganizationId(null);
+        // A organização do VÍNCULO (não da rota): o clock in manual funciona mesmo sem rota publicada.
+        setOrganizationId(orgDoVinculo);
         setVanLocation(null);
         setYardLocation(null);
       }
@@ -395,7 +439,13 @@ export default function DriverTodayScreen() {
       return;
     }
     setPublishedAt(snapshot.publishedAt);
-    setStops(applyPendingEvents(snapshot.stops, events));
+    /*
+     * 🪤 ACHADO DA VISTORIA (02/10/2026): `events` era lido ANTES do `syncOutbox`. Quando o servidor
+     * RECUSAVA um passo, o sync o removia da fila e avisava "…removed from the queue" — mas a tela
+     * usava a lista ANTIGA (com o evento recusado) e APLICAVA o passo no cartão. O motorista lia "não
+     * foi aceito" e, ao mesmo tempo, via a parada concluída. A fila é relida DEPOIS do sync.
+     */
+    setStops(applyPendingEvents(snapshot.stops, await loadOutbox()));
     setLoading(false);
   }, [syncOutbox]);
 
@@ -435,7 +485,14 @@ export default function DriverTodayScreen() {
       // Silencioso: é a escrita do próprio motorista chegando de volta pelo banco (não pode piscar).
       realtimeRefresh.current = setTimeout(() => void load(true), 800);
     };
-    channel = channel.on('postgres_changes', { event: '*', schema: 'public', table: 'routes' }, scheduleReload);
+    /*
+     * 🪤 ACHADO DA VISTORIA (02/10/2026): o canal de `routes` era assinado SEM filtro — qualquer
+     * mudança em QUALQUER rota de QUALQUER motorista/dia agendava um reload de 800 ms nesta tela.
+     * Com RLS o evento pode não chegar; onde chega é recarga desnecessária (bateria/dados). Aqui o
+     * canal é filtrado pela organização do motorista.
+     */
+    const filtroDaOrg = organizationId ? { filter: `organization_id=eq.${organizationId}` } : {};
+    channel = channel.on('postgres_changes', { event: '*', schema: 'public', table: 'routes', ...filtroDaOrg }, scheduleReload);
     if (routeId) {
       channel = channel.on('postgres_changes', { event: '*', schema: 'public', table: 'route_stops', filter: `route_id=eq.${routeId}` }, scheduleReload);
     }
@@ -444,7 +501,7 @@ export default function DriverTodayScreen() {
       if (realtimeRefresh.current) clearTimeout(realtimeRefresh.current);
       void supabase.removeChannel(channel);
     };
-  }, [routeId, load]);
+  }, [routeId, organizationId, load]);
 
   // Location sharing only while a published route is active.
   useEffect(() => {
@@ -822,26 +879,50 @@ export default function DriverTodayScreen() {
    * Clock out. Três casos: fecha a jornada manual aberta; fecha uma jornada que estava só na fila
    * local; ou fecha (à mão) a jornada que vinha sendo deduzida dos eventos da rota — o intervalo
    * gravado vai da primeira chegada até agora, e o resumo do gestor não conta duas vezes.
+   *
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): o clock out só enxergava as jornadas do BANCO. A jornada
+   * aberta SEM SINAL mora na fila local (`pendingWrites`) e era invisível aqui: o motorista dava
+   * clock out, nascia uma SEGUNDA jornada fechada, e a entrada da fila — quando o sinal voltava —
+   * subia como jornada ABERTA e ficava órfã para sempre (o dia nunca fechava no relatório de horas).
+   * O `planClockOut` decide qual jornada fechar, olhando banco E fila.
    */
   const clockOut = async (motivo: string) => {
     setShiftBusy(true);
     setShiftError(null);
     const agora = new Date().toISOString();
-    const aberta = shifts.find((registro) => registro.endedAt === null) ?? null;
-    const inicio = aberta?.startedAt ?? journey.startedAt ?? agora;
-    const motivoEntrada = aberta?.startReason ?? 'Journey closed manually';
+    const plano = planClockOut({
+      shifts,
+      queue: pendingWrites,
+      journeyStartedAt: journey.startedAt,
+      now: agora,
+      endReason: motivo,
+      routeId,
+    });
+    // O plano pode ter mexido na fila (fechou a jornada que só existia no aparelho): persiste já.
+    if (plano.queue !== pendingWrites) {
+      setPendingWrites(plano.queue);
+      await savePendingWrites(plano.queue);
+    }
+    // A jornada abriu sem sinal e NUNCA chegou ao banco: o fechamento fica no aparelho, na MESMA
+    // entrada da fila (entrada + saída numa linha só) — nada de criar uma jornada nova e órfã.
+    if (plano.fechaNaFila) {
+      setMessage('Journey closed.');
+      void syncOutbox();
+      setShiftBusy(false);
+      return;
+    }
     try {
       if (!organizationId || !driverId) throw new Error('Organization not found for this account.');
-      if (aberta) {
-        await endManualShift(supabase, { shiftId: aberta.id, reason: motivo, endedAt: agora });
+      if (plano.abertaNoBanco) {
+        await endManualShift(supabase, { shiftId: plano.abertaNoBanco.id, reason: motivo, endedAt: agora });
       } else {
         await createClosedShift(supabase, {
           organizationId,
           driverId,
           routeId,
-          startedAt: inicio,
+          startedAt: plano.startedAt,
           endedAt: agora,
-          startReason: motivoEntrada,
+          startReason: plano.startReason,
           endReason: motivo,
         });
       }
@@ -850,7 +931,7 @@ export default function DriverTodayScreen() {
     } catch (causa) {
       if (isNetworkError(causa)) {
         // Uma linha só com entrada e saída: nada de meio registro no aparelho.
-        await guardarNaFila({ kind: 'shift', startedAt: inicio, endedAt: agora, startReason: motivoEntrada, endReason: motivo, routeId, queuedAt: agora });
+        await guardarNaFila({ kind: 'shift', startedAt: plano.startedAt, endedAt: agora, startReason: plano.startReason, endReason: motivo, routeId, queuedAt: agora });
         setMessage('No connection: the journey is saved on your phone and will sync automatically.');
       } else {
         setShiftError(shiftErrorMessage(causa));
@@ -1043,46 +1124,70 @@ export default function DriverTodayScreen() {
           </View>
         ) : null}
         <View style={styles.body}>
-          {loading ? <ActivityIndicator testID="driver-loading" style={styles.center} color={colors.gold} size="large" /> : stops.length === 0 ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyEmoji}>🚚</Text>
-              <Text style={styles.emptyTitle}>{offline ? "Can't reach the office" : 'No published route today'}</Text>
-              <Text style={styles.emptyText}>
-                {offline
-                  ? 'Your route may exist — the app just could not read it. Pull down or wait for the signal to come back; nothing you did here is lost.'
-                  : 'When the manager publishes your route, it will appear here with every stop and instruction.'}
-              </Text>
-            </View>
-          ) : (
+          {loading ? <ActivityIndicator testID="driver-loading" style={styles.center} color={colors.gold} size="large" /> : (
             <>
-              {/* Jornada do dia (deduzida da rota; manual só na exceção) */}
-              <View style={styles.jornada}>
-                <ShiftCard
-                  state={journey}
-                  pendingCount={pendingWrites.length}
-                  busy={shiftBusy}
-                  error={shiftError}
-                  gateHint={gateHint}
-                  foraDaVan={foraDaVan}
-                  onClockIn={(motivo) => void clockIn(motivo)}
-                  onClockInAnyway={(motivo) => void clockIn(motivo, true)}
-                  onClockOut={(motivo) => void clockOut(motivo)}
-                />
-              </View>
-              {/* NEXT STOP: a próxima parada e as ações primárias (navegar / cheguei / próximo passo),
-                  sempre no mesmo lugar — logo abaixo do otimizador e ACIMA da lista de paradas.
-                  Nenhuma lógica de gravação nova: os callbacks chamam o `act` que já existe. */}
-              <View style={styles.nextStop}>
-                <NextStopCard
-                  stop={proximaParada}
-                  nextAction={proximaParada ? nextActionForStatus(proximaParada.status, proximaParada.deliveredAt) : null}
-                  onNavigate={(stop) => void act(stop.id, 'navigate')}
-                  onAction={(stopId, action) => void act(stopId, action)}
-                  // O aviso ao tutor também no cartão grande (o dono procurou aqui, 01/10/2026).
-                  onNotifyOwner={avisarTutor}
-                />
-              </View>
-              <DriverRouteView stops={stopsComEta} onAction={act} onNotifyOwner={avisarTutor} closing={fechamento} />
+              {/*
+               * A JORNADA (clock in/out) fica ANTES do vazio: num dia SEM rota publicada o motorista
+               * que chega na van ainda precisa bater o ponto (vistoria, 02/10/2026 — o cartão só
+               * aparecia junto da lista de paradas, então um dia sem rota não tinha clock in nenhum).
+               * Sem rota o cartão só aparece quando a organização do VÍNCULO é conhecida — sem org
+               * não há onde gravar a jornada.
+               */}
+              {stops.length > 0 || organizationId ? (
+                <View style={styles.jornada}>
+                  <ShiftCard
+                    state={journey}
+                    pendingCount={pendingWrites.length}
+                    busy={shiftBusy}
+                    error={shiftError}
+                    gateHint={gateHint}
+                    foraDaVan={foraDaVan}
+                    onClockIn={(motivo) => void clockIn(motivo)}
+                    onClockInAnyway={(motivo) => void clockIn(motivo, true)}
+                    onClockOut={(motivo) => void clockOut(motivo)}
+                  />
+                </View>
+              ) : null}
+              {stops.length === 0 ? (
+                /*
+                 * O VAZIO tem TRÊS motivos diferentes e não pode dizer a mesma frase para todos
+                 * (vistoria, 02/10/2026): (1) sessão perdida — antes virava "No published route today";
+                 * (2) sem rede — o app não sabe se existe rota; (3) rota PUBLICADA sem paradas — antes se
+                 * confundia com "não publicaram" (o motorista achava que o gestor não tinha publicado).
+                 */
+                <View style={styles.empty}>
+                  <Text style={styles.emptyEmoji}>🚚</Text>
+                  <Text style={styles.emptyTitle}>
+                    {sessaoExpirada ? 'Session expired' : offline ? "Can't reach the office" : routeId ? 'Route published — no stops today' : 'No published route today'}
+                  </Text>
+                  <Text style={styles.emptyText}>
+                    {sessaoExpirada
+                      ? 'Sign in again to see your route — your login was lost, this is not an empty day.'
+                      : offline
+                        ? 'Your route may exist — the app just could not read it. Pull down or wait for the signal to come back; nothing you did here is lost.'
+                        : routeId
+                          ? 'The office published your route but it has no stops on it — nothing to do today.'
+                          : 'When the manager publishes your route, it will appear here with every stop and instruction.'}
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  {/* NEXT STOP: a próxima parada e as ações primárias (navegar / cheguei / próximo passo),
+                      sempre no mesmo lugar — logo abaixo do otimizador e ACIMA da lista de paradas.
+                      Nenhuma lógica de gravação nova: os callbacks chamam o `act` que já existe. */}
+                  <View style={styles.nextStop}>
+                    <NextStopCard
+                      stop={proximaParada}
+                      nextAction={proximaParada ? nextActionForStatus(proximaParada.status, proximaParada.deliveredAt) : null}
+                      onNavigate={(stop) => void act(stop.id, 'navigate')}
+                      onAction={(stopId, action) => void act(stopId, action)}
+                      // O aviso ao tutor também no cartão grande (o dono procurou aqui, 01/10/2026).
+                      onNotifyOwner={avisarTutor}
+                    />
+                  </View>
+                  <DriverRouteView stops={stopsComEta} onAction={act} onNotifyOwner={avisarTutor} closing={fechamento} />
+                </>
+              )}
             </>
           )}
         </View>

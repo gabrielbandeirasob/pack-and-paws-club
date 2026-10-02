@@ -42,11 +42,33 @@ export function nextActionForStatus(status: DriverStop['status'], deliveredAt?: 
   return null;
 }
 
+/**
+ * AS SAÍDAS do dia para uma parada, na ordem. Na BUSCA é uma saída por toque. Na ENTREGA
+ * (`deliver`) são DUAS: confirmar (Delivered) OU reportar problema — o tutor não estava em casa.
+ *
+ * 🪤 ACHADO DA VISTORIA (02/10/2026): durante a entrega existia só o botão 'Delivered'. Se o tutor
+ * não estivesse em casa o motorista não tinha como registrar a falha — o caminho de "Problem"
+ * existia só na chegada ('arrived'). O dia nunca fechava e o cão ficava preso na van. Agora a
+ * entrega expõe as duas saídas, exatamente como a lista.
+ */
+export function nextActionsForStatus(status: DriverStop['status'], deliveredAt?: string | null): DriverAction[] {
+  const principal = nextActionForStatus(status, deliveredAt);
+  if (!principal) return [];
+  // Cão já na van (pick-up feito, entrega pendente): o motorista pode entregar OU apontar problema.
+  const naEntrega = !deliveredAt && (status === 'picked_up' || status === 'completed');
+  return naEntrega ? [principal, 'problem'] : [principal];
+}
+
 /** Rótulo do botão da próxima ação, na ordem do dia (texto do motorista, não o nome do status). */
 export const NEXT_ACTION_LABEL: Partial<Record<DriverAction, string>> = {
   arrived: 'I arrived',
   finish: 'Next',
   deliver: 'Delivered',
+};
+
+/** Rótulo das saídas SECUNDÁRIAS do cartão (a segunda saída da entrega: reportar problema). */
+export const SECONDARY_ACTION_LABEL: Partial<Record<DriverAction, string>> = {
+  problem: 'Problem',
 };
 
 /**
@@ -105,6 +127,13 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
     lateMinutes: stop.lateMinutes,
     done: Boolean(stop.deliveredAt) || stop.status === 'skipped',
   });
+  /**
+   * SAÍDAS que não são a principal. Na entrega, a segunda saída é o 'Problem' (o tutor não estava
+   * em casa) — sem ela o motorista ficava sem fechar o dia (achado da vistoria, 02/10/2026).
+   */
+  const secundarias = nextAction
+    ? nextActionsForStatus(stop.status, stop.deliveredAt).filter((acao) => acao !== nextAction)
+    : [];
 
   return (
     <View style={styles.card}>
@@ -138,6 +167,18 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
             <Text style={styles.actionGoldText}>{NEXT_ACTION_LABEL[nextAction] ?? nextAction}</Text>
           </Pressable>
         ) : null}
+        {/* 2b) A SEGUNDA SAÍDA da entrega: reportar problema (tutor não estava em casa). */}
+        {secundarias.map((acao) => (
+          <Pressable
+            key={acao}
+            accessibilityRole="button"
+            accessibilityLabel={`Next stop: ${SECONDARY_ACTION_LABEL[acao] ?? acao} for ${stop.dogName}`}
+            onPress={() => onAction(stop.id, acao)}
+            style={[styles.action, styles.actionProblem]}
+          >
+            <Text style={styles.actionProblemText}>{SECONDARY_ACTION_LABEL[acao] ?? acao}</Text>
+          </Pressable>
+        ))}
         {/* 3) AVISAR O TUTOR — o mesmo SMS da lista, aqui onde o motorista já está olhando. */}
         {onNotifyOwner ? (
           <Pressable
@@ -164,7 +205,7 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.paper, borderRadius: radii.large, borderWidth: 2, borderColor: colors.gold, padding: 15, marginBottom: 12 },
   /** Rota terminada: mesmo formato, sem o destaque dourado (não há nada a fazer aqui). */
   cardDone: { borderWidth: 1, borderColor: colors.line },
-  eyebrow: { color: colors.gold, fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
+  eyebrow: { color: colors.forest700, fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
   title: { color: colors.forest900, fontFamily: 'serif', fontSize: 19, fontWeight: '800', marginTop: 4 },
   body: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 5 },
   address: { color: colors.ink, fontSize: 13, marginTop: 5 },
@@ -182,11 +223,14 @@ const styles = StyleSheet.create({
   actionLateText: { color: '#7A5B12', fontWeight: '900', fontSize: 13 },
   /** Sem telefone no cadastro: o botão fica visível, apagado, com o motivo embaixo. */
   actionOff: { opacity: 0.5 },
-  notifyHint: { color: colors.muted, fontSize: 11, lineHeight: 15, marginTop: 6 },
+  notifyHint: { color: colors.muted, fontSize: 12, lineHeight: 16, marginTop: 6 },
   actionGold: { backgroundColor: colors.gold },
   actionGoldText: { color: colors.forest900, fontWeight: '900', fontSize: 13 },
+  /** A segunda saída da entrega (reportar problema): mesma família do "Problem" da lista. */
+  actionProblem: { backgroundColor: '#FBEAE6' },
+  actionProblemText: { color: colors.urgency, fontWeight: '900', fontSize: 13 },
   actionPhoto: { backgroundColor: colors.sage },
   actionPhotoText: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
   actionDisabled: { opacity: 0.45 },
-  hint: { color: colors.muted, fontSize: 11, marginTop: 8 },
+  hint: { color: colors.muted, fontSize: 12, marginTop: 8 },
 });

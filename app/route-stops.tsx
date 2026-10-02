@@ -13,8 +13,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { carregarFimDaRota, carregarParadasDaRota, type FimDaRota, type ParadaDaRota } from '@/features/dispatch/routeStops';
+import { loadRouteEndLocationForDriver } from '@/features/organization/locations';
 import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
 import { jaFeita, marcosDaParada, proximaPendente, resumoDaEntrega, resumoDaRota } from '@/features/dashboard/stopProgress';
 import { formatDayLabel } from '@/features/calendar/dates';
@@ -29,6 +31,25 @@ const SITUACAO: Record<string, string> = {
   completed: 'Completed',
   skipped: 'Problem',
 };
+
+/**
+ * O FIM da rota para a tela do GESTOR.
+ *
+ * 🪤 ACHADO DA VISTORIA (02/10/2026): `carregarFimDaRota` só lia `end_location_id`; quando a rota
+ * não aponta um fim (caso comum), o gestor NÃO via o cartão de fechamento — enquanto o motorista,
+ * na mesma rota, via "Back to the yard". As duas telas discordavam sobre onde o dia fecha. Aqui,
+ * sem fim apontado pela rota, cai no YARD cadastrado pela organização pelo MESMO helper do
+ * motorista (`loadRouteEndLocationForDriver`) — a fonte é a mesma, o destino é o mesmo.
+ */
+async function carregarFimDaRotaComYard(client: SupabaseClient, routeId: string): Promise<FimDaRota> {
+  const fim = await carregarFimDaRota(client, routeId);
+  if (fim.end) return fim;
+  const { data } = await client.from('routes').select('organization_id').eq('id', routeId).maybeSingle();
+  const organizationId = (data as { organization_id?: string | null } | null)?.organization_id ?? null;
+  if (!organizationId) return fim;
+  const yard = await loadRouteEndLocationForDriver(client, { organizationId, endLocationId: null });
+  return { start: fim.start, end: yard };
+}
 
 export default function RouteStopsScreen() {
   const router = useRouter();
@@ -59,8 +80,9 @@ export default function RouteStopsScreen() {
     setErro(null);
     try {
       const lista = await carregarParadasDaRota(supabase, routeId);
-      // O FIM da rota (yard/van): pedido do cliente, 02/10/2026 — o gestor vê onde o dia fecha.
-      setFimDaRota(await carregarFimDaRota(supabase, routeId));
+      // O FIM da rota (yard/van): pedido do cliente, 02/10/2026 — o gestor vê onde o dia fecha. Sem
+      // `end_location_id` na rota, cai no yard da organização (mesma regra da tela do motorista).
+      setFimDaRota(await carregarFimDaRotaComYard(supabase, routeId));
       if (lista === null) {
         setErro('This route is not available on this account.');
         setParadas([]);
@@ -199,7 +221,7 @@ const styles = StyleSheet.create({
   linhaTopo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   posicao: { color: colors.muted, fontWeight: '800', fontSize: 12, minWidth: 16 },
   cao: { color: colors.ink, fontWeight: '700', fontSize: 13.5, flex: 1 },
-  selo: { color: colors.urgency, fontSize: 10.5, fontWeight: '800' },
+  selo: { color: colors.urgency, fontSize: 12, fontWeight: '800' },
   seloFeito: { color: colors.success },
   endereco: { color: colors.muted, fontSize: 12, marginTop: 4, marginLeft: 24 },
   marcos: { color: colors.forest900, fontSize: 12, fontWeight: '700', marginTop: 4, marginLeft: 24 },

@@ -84,7 +84,7 @@ export default function DriverAssignedScreen() {
                       {indice + 1}. {stopLabel(stop.dog?.client?.name, stop.dog?.name)}
                     </Text>
                     <View style={[styles.chip, stop.status === 'completed' ? styles.chipDone : styles.chipPending]}>
-                      <Text style={styles.chipText}>{stopStatusLabel(stop.status)}</Text>
+                      <Text style={[styles.chipText, stop.status === 'completed' ? styles.chipTextDone : styles.chipTextPending]}>{stopStatusLabel(stop.status)}</Text>
                     </View>
                   </View>
                   {endereco ? <Text style={styles.address}>{endereco}</Text> : null}
@@ -102,7 +102,7 @@ export default function DriverAssignedScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.forest700 },
   header: { backgroundColor: colors.forest700, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 24, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
-  eyebrow: { color: colors.gold, fontSize: 10, fontWeight: '900', letterSpacing: 1.3 },
+  eyebrow: { color: colors.gold, fontSize: 12, fontWeight: '900', letterSpacing: 1.3 },
   title: { color: 'white', fontFamily: 'serif', fontSize: 28, fontWeight: '800', marginTop: 6 },
   subtitle: { color: colors.gold, fontSize: 12, marginTop: 6, fontWeight: '700' },
   body: { flex: 1, backgroundColor: colors.cream },
@@ -116,6 +116,13 @@ const styles = StyleSheet.create({
   chip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   chipDone: { backgroundColor: colors.forest700 },
   chipPending: { backgroundColor: colors.gold },
-  chipText: { color: 'white', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+  /**
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): o texto era BRANCO sobre o dourado do "Pending" (2,31:1,
+   * abaixo do mínimo) e saía em 10 px. Cada fundo tem o SEU texto: branco no verde escuro (contraste
+   * alto) e `forest900` no dourado, em 12 px.
+   */
+  chipText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
+  chipTextDone: { color: 'white' },
+  chipTextPending: { color: colors.forest900 },
   hint: { color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: 10 },
 });

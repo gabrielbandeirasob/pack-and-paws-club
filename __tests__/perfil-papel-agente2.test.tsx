@@ -26,7 +26,7 @@ jest.mock('@/lib/supabase', () => {
   // Cadeia tolerante: o perfil faz DUAS consultas (profiles e organization_members) com filtros diferentes.
   const cadeia = (resultado: unknown) => {
     const no: Record<string, unknown> = {};
-    for (const metodo of ['select', 'eq', 'order', 'limit']) no[metodo] = () => no;
+    for (const metodo of ['select', 'eq', 'order', 'gte', 'lte', 'limit']) no[metodo] = () => no;
     no.maybeSingle = async () => ({ data: resultado, error: null });
     return no;
   };

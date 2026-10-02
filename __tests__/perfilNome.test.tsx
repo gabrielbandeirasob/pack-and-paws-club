@@ -9,7 +9,7 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 /** Uma linha salva = update pegou; `[]` = a policy bloqueou (0 linhas, SEM erro). */
 let mockUpdateRows: unknown[] = [];
-let mockNomeAtual = 'Filó Rocha';
+let mockNomeAtual: string | null = 'Filó Rocha';
 let mockUltimoUpdate: { full_name?: string } | null = null;
 
 jest.mock('@/features/auth/useOrganizationRole', () => ({
@@ -28,7 +28,7 @@ jest.mock('@/lib/supabase', () => {
     let atualizando = false;
     b.select = () => b;
     b.update = (payload: { full_name?: string }) => { atualizando = true; mockUltimoUpdate = payload; return b; };
-    for (const metodo of ['eq', 'order', 'limit']) b[metodo] = () => b;
+    for (const metodo of ['eq', 'order', 'gte', 'lte', 'limit']) b[metodo] = () => b;
     b.maybeSingle = async () => (table === 'organization_members'
       ? { data: { created_at: '2026-03-14T12:00:00Z' }, error: null }
       : { data: { full_name: mockNomeAtual }, error: null });
@@ -75,5 +75,21 @@ describe('perfil — campo de nome', () => {
     // recarregou: o campo (e o nome do cartão) passam a mostrar o valor persistido
     expect(tela.getByDisplayValue('Filó Rocha Lima')).toBeTruthy();
     expect(mockUltimoUpdate).toEqual({ full_name: 'Filó Rocha Lima' });
+  });
+
+  /**
+   * 🪤 VISTORIA (02/10/2026) — RODINHA ETERNA.
+   *
+   * A tela usava `fullName === null` como "carregando". Com `full_name` NULO no banco (conta criada
+   * sem nome) o `null` era dado, não espera — e a rodinha girava PARA SEMPRE, sem cartão, sem campo
+   * de nome e sem o botão "Sign out" (que fica dentro do bloco escondido).
+   */
+  it('perfil SEM nome não trava em rodinha: mostra o cartão, "Add your name" e o Sign out', async () => {
+    mockNomeAtual = null;
+    const tela = await render(<PerfilDaConta />);
+
+    await waitFor(() => expect(tela.getByLabelText('Sign out')).toBeTruthy());
+    expect(tela.queryByTestId('profile-loading')).toBeNull();
+    expect(tela.getByText('Add your name')).toBeTruthy();
   });
 });

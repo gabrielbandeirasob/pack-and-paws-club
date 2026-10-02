@@ -57,9 +57,9 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.forest700,
-        tabBarInactiveTintColor: '#7C877E',
+        tabBarInactiveTintColor: colors.muted,
         tabBarStyle: { backgroundColor: colors.paper, borderTopColor: colors.line, height: 70, paddingTop: 7, paddingBottom: 8 },
-        tabBarLabelStyle: { fontSize: 9.5, fontWeight: '700' },
+        tabBarLabelStyle: { fontSize: 12, fontWeight: '700' },
       }}
     >
       {ALL_TABS.map((tab) => {

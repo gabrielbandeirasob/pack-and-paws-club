@@ -52,23 +52,48 @@ export function pendingOpenShift(queue: PendingWrite[]): PendingShift | null {
   return jornada && jornada.endedAt === null ? jornada : null;
 }
 
-/** Quantos avisos de ETA estão esperando registro. */
-export function pendingNoticeCount(queue: PendingWrite[]): number {
-  return queue.filter((entry) => entry.kind === 'eta_notice').length;
-}
-
 export type FlushResult = {
   /** o que continua na fila (falha de rede: tenta de novo depois) */
   remaining: PendingWrite[];
   /** quantos subiram agora */
   sent: number;
-  /** quantos falharam de vez (erro que não é de rede: não segura a fila) */
+  /** quantos foram RECUSADOS de vez e saíram da fila (recusa definitiva) */
   dropped: number;
 };
 
 /**
- * Tenta enviar a fila em ordem. Falha de rede PARA a fila (o resto tenta depois, na mesma ordem);
- * erro que não é de rede descarta o item — não pode travar a sincronização para sempre.
+ * Erro de RECUSA DEFINITIVA: o servidor já recusou este registro e tentar de novo nunca vai
+ * funcionar (ex.: já existe uma jornada aberta no banco). É a ÚNICA situação em que a entrada
+ * pode sair da fila, e quem envia precisa marcar o erro assim de propósito.
+ */
+export class RefusedWriteError extends Error {}
+
+/** O servidor recusou de vez (constraint, RLS, duplicata): repetir não ajuda. */
+const RECUSA_DEFINITIVA =
+  /violates .*constraint|constraint .*violat|new row violates|row-level security|duplicate key|driver_shifts_uma_aberta|permission denied|not authorized|invalid input syntax/i;
+
+/**
+ * A falha é uma RECUSA definitiva (nada a fazer além de tirar da fila) ou algo que pode melhorar
+ * depois (sem rede, organização ainda não disponível, sessão)? Só a recusa definitiva descarta.
+ */
+export function isDefinitiveWriteRefusal(reason: unknown): boolean {
+  const mensagem =
+    reason instanceof Error ? reason.message : typeof reason === 'string' ? reason : String(reason ?? '');
+  return reason instanceof RefusedWriteError || RECUSA_DEFINITIVA.test(mensagem);
+}
+
+/**
+ * Tenta enviar a fila em ordem.
+ *
+ * - Falha de REDE: PARA a fila e tenta tudo de novo depois, na mesma ordem;
+ * - Recusa DEFINITIVA (`isDefinitiveWriteRefusal`): o item sai da fila e a sincronização segue;
+ * - Qualquer outra falha (a organização ainda não está disponível, sessão, banco fora do ar): a
+ *   entrada FICA no aparelho e a fila para aqui.
+ *
+ * 🪤 ACHADO DA VISTORIA (02/10/2026): antes, TODO erro que não fosse de rede descartava o item em
+ * silêncio — e como `organizationId` só existia com rota publicada, um clock in feito num dia sem
+ * rota ("Organization not found for this account.") era APAGADO da fila sem o motorista saber. O dia
+ * de trabalho sumia do relatório de horas. Agora só a recusa definida no banco descarta.
  */
 export async function flushPendingWrites(
   queue: PendingWrite[],
@@ -85,7 +110,12 @@ export async function flushPendingWrites(
       if (isNetworkError(reason)) {
         return { remaining: queue.slice(indice), sent, dropped };
       }
-      dropped += 1;
+      if (isDefinitiveWriteRefusal(reason)) {
+        dropped += 1;
+        continue;
+      }
+      // Não é recusa definitiva: NADA é apagado — o registro continua no aparelho.
+      return { remaining: queue.slice(indice), sent, dropped };
     }
   }
   return { remaining: [], sent, dropped };
