@@ -1,3 +1,10 @@
+// A tela do Dispatch usa `useFocusEffect` (as vans são relidas ao voltar para ela): sem
+// NavigationContainer o hook do expo-router quebra — mesmo mock das outras telas de teste do projeto.
+jest.mock('expo-router', () => {
+  const { useEffect } = require('react');
+  return { useFocusEffect: (cb: () => void) => useEffect(cb, [cb]), useRouter: () => ({ push: jest.fn() }) };
+});
+
 /**
  * UM CLIQUE PARA A MESMA CASA — teste de tela do Dispatch (áudio do dono, 29/09/2026).
  *

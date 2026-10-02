@@ -20,6 +20,15 @@ let mockDrivers = [{ user_id: 'rafa', role: 'driver', profiles: { full_name: 'Ra
 // Vans cadastradas na organização (dono, 01/10/2026: "vamos supor que tenhas várias vans").
 const vanUnica = [{ id: 'van', name: 'Van', kind: 'van', is_default: true, latitude: 37.39, longitude: -122.14 }];
 let mockLocations: any[] = vanUnica;
+// Canais de tempo real criados pela tela (para provar que a van cadastrada em outro aparelho aparece).
+let mockCanais: any[] = [];
+// A tela usa `useFocusEffect` (as vans são relidas ao voltar para o Dispatch): sem NavigationContainer
+// o hook do expo-router quebra — mesmo mock que as outras telas de teste do projeto usam.
+jest.mock('expo-router', () => {
+  const { useEffect } = require('react');
+  return { useFocusEffect: (cb: () => void) => useEffect(cb, [cb]), useRouter: () => ({ push: jest.fn() }) };
+});
+
 jest.mock('@/lib/supabase', () => ({ supabase: {
   auth: { getUser: jest.fn(async () => ({ data: { user: { id: 'gestor' } } })) },
   from: jest.fn((table: string) => {
@@ -61,10 +70,16 @@ jest.mock('@/lib/supabase', () => ({ supabase: {
     r.lock_version++;
     return { error: null };
   }),
-  channel: () => { const c = { on: () => c, subscribe: () => c }; return c; }, removeChannel: jest.fn(),
+  channel: () => {
+    const c: any = { handlers: [] as { table?: string; cb: () => void }[] };
+    c.on = (_evento: string, cfg: { table?: string }, cb: () => void) => { c.handlers.push({ table: cfg?.table, cb }); return c; };
+    c.subscribe = () => c;
+    mockCanais.push(c);
+    return c;
+  }, removeChannel: jest.fn(),
 } }));
 
-beforeEach(() => { jest.clearAllMocks(); mockRotas = []; mockWrites = []; mockFailDog = null; mockLocationGate = null; mockStatus = 'draft'; mockDrivers = [{ user_id: 'rafa', role: 'driver', profiles: { full_name: 'Rafael' } }]; mockLocations = vanUnica; });
+beforeEach(() => { jest.clearAllMocks(); mockRotas = []; mockWrites = []; mockFailDog = null; mockLocationGate = null; mockStatus = 'draft'; mockDrivers = [{ user_id: 'rafa', role: 'driver', profiles: { full_name: 'Rafael' } }]; mockLocations = vanUnica; mockCanais = []; });
 
 it('gestor escolhe só ele: prévia e aplicação ficam no manager, não em todos os membros', async () => {
   mockDrivers.push({ user_id: 'gestor', role: 'manager', profiles: { full_name: 'Gabriel' } });
@@ -208,4 +223,31 @@ it('com DUAS vans e nenhuma escolha, a rota nasce SEM van (o app decide pela mai
   // A rota da sugestão nasce por INSERT (não sobrescreve rota existente).
   const criada = mockWrites.find(w => w.table === 'routes' && ['insert', 'upsert'].includes(w.operation));
   expect(criada.payload.start_location_id ?? null).toBeNull();
+});
+
+/**
+ * VAN CADASTRADA E O SELETOR QUE NÃO APARECIA (defeito relatado pelo dono, 01/10/2026: *"criei uma segunda
+ * van de teste e mesmo assim não apareceu"*).
+ *
+ * A lista de vans era lida DENTRO do "dia", que tem trava de 2 minutos e não escutava a tabela de vans:
+ * quem cadastrava a Van 2 e voltava para o Dispatch continuava vendo a lista velha (com uma van só o
+ * seletor nem existe). Agora a tela escuta `organization_locations` e relê no foco.
+ */
+it('van cadastrada em outro aparelho aparece na hora, sem recarregar a tela', async () => {
+  const screen = await render(<DispatchScreen />);
+  await waitFor(() => expect(screen.getByLabelText('Suggest routes')).toBeTruthy());
+  // Com UMA van não há o que escolher — nada de seletor.
+  expect(screen.queryByTestId('driver-van-rafa')).toBeNull();
+
+  // O gestor cadastra a Van 2 (em outro aparelho, ou na tela Van & yard e volta): o banco avisa.
+  mockLocations = [
+    { id: 'van', name: 'Van 1', kind: 'van', is_default: true, latitude: 37.5427669, longitude: -122.2849451 },
+    { id: 'van2', name: 'Van 2', kind: 'van', is_default: false, latitude: 37.469288, longitude: -122.1537186 },
+  ];
+  await act(async () => {
+    mockCanais.flatMap((c) => c.handlers).filter((h) => h.table === 'organization_locations').forEach((h) => h.cb());
+  });
+
+  await waitFor(() => expect(screen.getByTestId('driver-van-rafa')).toBeTruthy());
+  expect(screen.getByLabelText('Use Van 2 for Rafael')).toBeTruthy();
 });

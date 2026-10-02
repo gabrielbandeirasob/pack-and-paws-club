@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 
 import { buildDay, transportPool, vanPool, type DogRef, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { todayLocalISO } from '@/features/calendar/dates';
@@ -175,6 +176,26 @@ export default function DispatchScreen() {
     });
   }, []);
 
+  /**
+   * AS VANS DA ORGANIZAÇÃO (id, rótulo e qual é a padrão).
+   *
+   * ⚠️ Nasceu separada do `carregarDia` por um defeito real (01/10/2026): o dono cadastrou a **Van 2** e
+   * ela não apareceu no cartão do motorista. A lista de vans era lida DENTRO do "dia", que tem trava de
+   * 2 minutos e não escuta `organization_locations` — então quem cadastrava uma van voltava para o
+   * Dispatch e continuava vendo a lista velha (com uma van só, o seletor nem existe). Agora tem carga
+   * própria: no foco da tela e por tempo real da tabela de vans.
+   */
+  const carregarVans = useCallback(async (orgId: string) => {
+    try {
+      const carregadas = await loadOrganizationLocations(supabase, orgId);
+      sedePadraoId.current = vanLocationForRoute(carregadas, null)?.id ?? null;
+      setVans(carregadas.map((local) => ({ id: local.id, name: local.name, isDefault: local.isDefault })));
+    } catch {
+      // Best-effort: sem a lista o cartão fica como era (sem o seletor) — não derruba o dia por isso.
+      sedePadraoId.current = null;
+    }
+  }, []);
+
   const carregarDia = useCallback(async () => {
     const { orgId, date: dia } = contexto.current;
     const [driverResult, reservationResult, recurringResult, exceptionResult, dogResult] = await Promise.all([
@@ -197,13 +218,7 @@ export default function DispatchScreen() {
      * quando a consulta demorava (o dia não aparecia), e sem ela a rota nascia com `start_location_id`
      * NULL — que era o defeito original (item 1/3 da conferência, 01/10/2026).
      */
-    void loadOrganizationLocations(supabase, orgId)
-      .then((carregadas) => {
-        sedePadraoId.current = vanLocationForRoute(carregadas, null)?.id ?? null;
-        // Só interessa o que o cartão do motorista precisa (as vans com id/rótulo/padrão).
-        setVans(carregadas.map((local) => ({ id: local.id, name: local.name, isDefault: local.isDefault })));
-      })
-      .catch(() => { sedePadraoId.current = null; });
+    void carregarVans(orgId);
     const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? dogResult.error;
     if (firstError) { falhou('dia', firstError.message); return; }
     falhou('dia', null);
@@ -262,7 +277,7 @@ export default function DispatchScreen() {
     setDayItems(itens);
     return true;
 
-  }, []);
+  }, [carregarVans]);
 
   const carregarRotas = useCallback(async () => {
     const { orgId, date } = contexto.current;
@@ -376,6 +391,9 @@ export default function DispatchScreen() {
       ultimaCargaDoDia.current = agora;
       void carregarDia();
     };
+    // Van cadastrada/editada em outro aparelho (ou na tela Van & yard) vale na hora: consulta leve,
+    // sem passar pela trava do dia.
+    const atualizarVans = () => void carregarVans(organizationId);
     const refresh = () => {
       if (realtimeRefresh.current) clearTimeout(realtimeRefresh.current);
       realtimeRefresh.current = setTimeout(() => {
@@ -388,13 +406,25 @@ export default function DispatchScreen() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'routes', filter: `organization_id=eq.${organizationId}` }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'route_stops' }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_locations', filter: `organization_id=eq.${organizationId}` }, atualizarPosicoes)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'organization_locations', filter: `organization_id=eq.${organizationId}` }, atualizarVans)
       .subscribe();
     return () => {
       if (realtimeRefresh.current) clearTimeout(realtimeRefresh.current);
       if (posicoes) clearTimeout(posicoes);
       void supabase.removeChannel(channel);
     };
-  }, [organizationId, carregarDia, carregarRotas, carregarPosicoes]);
+  }, [organizationId, carregarDia, carregarRotas, carregarPosicoes, carregarVans]);
+
+  /**
+   * AO VOLTAR PARA ESTA TELA as vans são relidas (defeito de 01/10/2026: o dono cadastrou a Van 2, voltou
+   * para o Dispatch e o seletor não aparecia — a lista só era lida dentro do "dia", com trava de 2 min).
+   * É o caminho humano normal: Van & yard → cadastrar → voltar para o Dispatch.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      if (organizationId) void carregarVans(organizationId);
+    }, [organizationId, carregarVans]),
+  );
 
   const versaoDe = useCallback((routeId: string) => expectedVersion(versoes.current, routeId), []);
 
