@@ -109,20 +109,40 @@ function trilhaVizinhoMaisProximo(pontos: Ponto[], inicio: Ponto): number[] {
  * Corta a trilha em `pedacos` blocos CONTÍGUOS minimizando a distância total.
  * Custo de um bloco = (início → 1º cão, quando há início) + as pernas internas do bloco.
  * Programação dinâmica O(n²·K): n é o número de cães do dia (dezenas), não há motivo para esperteza.
+ *
+ * EQUILÍBRIO (pedido do dono, 01/10/2026: *"quero que vc dê uma balanceada senão vai ficar muito pesado
+ * para algum driver"*): com `pesos` (cães por casa, ao longo da trilha) e `limite`, o corte NÃO pode
+ * deixar um bloco passar de `limite` cães — o menor desvio continua sendo o objetivo, mas dentro do
+ * rateio. Sem corte possível com o limite, devolve null e quem chamou decide (o corte sem limite).
  */
-function dividirEmBlocos(trilha: number[], pontos: Ponto[], pedacos: number, inicio: Ponto | null): number[][] {
+function dividirEmBlocos(
+  trilha: number[],
+  pontos: Ponto[],
+  pedacos: number,
+  inicio: Ponto | null,
+  pesos?: number[],
+  limite?: number,
+): number[][] | null {
   const n = trilha.length;
   // prefixo[t] = distância de trilha[0] até trilha[t] seguindo a trilha.
   const prefixo = [0];
   for (let t = 1; t < n; t += 1) prefixo.push(prefixo[t - 1] + kmEntre(pontos[trilha[t - 1]], pontos[trilha[t]]));
   const custo = (i: number, j: number) => (prefixo[j] - prefixo[i]) + (inicio ? kmEntre(inicio, pontos[trilha[i]]) : 0);
+  // prefixo de CÃES: quantos cães existem da posição i até j (inclusive).
+  const prefC = [0];
+  for (let t = 0; t < n; t += 1) prefC.push(prefC[t] + (pesos?.[t] ?? 1));
+  const caesEntre = (i: number, j: number) => prefC[j + 1] - prefC[i];
+  const cabe = (i: number, j: number) => limite === undefined || caesEntre(i, j) <= limite;
 
   const dp: number[][] = Array.from({ length: pedacos + 1 }, () => new Array(n).fill(Infinity));
   const corte: number[][] = Array.from({ length: pedacos + 1 }, () => new Array(n).fill(-1));
-  for (let j = 0; j < n; j += 1) dp[1][j] = custo(0, j);
+  // Um pedaço só também respeita o teto (senão a conta de equilíbrio furava por aqui: o caso de 4 cães
+  // com 2 motoristas virava 3 + 1 em vez de 2 + 2).
+  for (let j = 0; j < n; j += 1) dp[1][j] = cabe(0, j) ? custo(0, j) : Infinity;
   for (let k = 2; k <= pedacos; k += 1) {
     for (let j = k - 1; j < n; j += 1) {
       for (let i = k - 1; i <= j; i += 1) {
+        if (!cabe(i, j)) continue;
         const valor = dp[k - 1][i - 1] + custo(i, j);
         if (valor < dp[k][j]) {
           dp[k][j] = valor;
@@ -130,6 +150,11 @@ function dividirEmBlocos(trilha: number[], pontos: Ponto[], pedacos: number, ini
         }
       }
     }
+  }
+  // Com limite pode não existir corte (dado torto). Nada de corte inválido: quem chamou decide.
+  if (limite !== undefined) {
+    if (!Number.isFinite(dp[pedacos][n - 1])) return null;
+    if (caesEntre(0, n - 1) > limite * pedacos) return null;
   }
 
   const blocos: number[][] = [];
@@ -174,7 +199,24 @@ export function sugerirRotas(
 
   const pontos = comPonto.map((item) => item.ponto);
   const trilha = trilhaVizinhoMaisProximo(pontos, inicio ?? centroide(pontos));
-  const blocos = dividirEmBlocos(trilha, pontos, pedacos, inicio);
+
+  /*
+   * EQUILÍBRIO DO PESO (pedido do dono, 01/10/2026: *"está funcionando porém quero que vc dê uma
+   * balanceada senão vai ficar muito pesado para algum driver"*).
+   *
+   * A geografia continua mandando, mas com TETO de cães por motorista: o teto nasce do rateio justo
+   * (total ÷ número de motoristas, arredondado para cima) e nunca fica menor que a maior casa — se
+   * ficasse, não existiria corte com os irmãos juntos, e separar irmãos é pior do que desequilibrar.
+   * Com 7 cães e 2 motoristas, por exemplo, sai 4 + 3 (antes podia sair 6 + 1).
+   */
+  const caesPorCasa = comPonto.map((item) => item.caes.length);
+  const totalCaes = caesPorCasa.reduce((soma, n) => soma + n, 0);
+  const maiorCasa = caesPorCasa.reduce((maior, n) => Math.max(maior, n), 1);
+  const limite = Math.max(Math.ceil(totalCaes / pedacos), maiorCasa);
+  const equilibrados = dividirEmBlocos(trilha, pontos, pedacos, inicio, caesPorCasa, limite);
+  // Rede de segurança: sem corte que caiba no teto, vale o corte por geografia pura (nunca ficar sem
+  // sugestão por causa da conta de equilíbrio).
+  const blocos = equilibrados ?? dividirEmBlocos(trilha, pontos, pedacos, inicio) ?? [trilha];
 
   // Motorista de cada bloco: o mais perto do primeiro cão do bloco. Se nenhum motorista tem posição
   // conhecida, vale a ordem da lista (a mesma que o gestor vê na tela do Dispatch).

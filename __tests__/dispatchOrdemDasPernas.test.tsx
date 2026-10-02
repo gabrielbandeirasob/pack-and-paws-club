@@ -195,6 +195,12 @@ it('Optimize mostra duas listas e conflitos, usa uma matriz e aplica numa única
     expect(mensagem).toContain('Pick-up:\n• 1. Filó');
     expect(mensagem).toContain('Drop-off:\n• 1. Luna');
     expect(mensagem).toContain('Conflicting locks #1: Luna, Max');
+    // ANTES -> DEPOIS (dúvida do dono, 01/10/2026: "não consigo confirmar se está realmente fazendo a
+    // melhor rota"): o alerta passa a mostrar o número das duas ordens, com a MESMA conta de
+    // deslocamento + serviço. Aqui as três paradas têm a mesma coordenada, então o ganho é zero —
+    // o que se prova é que a linha sai com os números e o rótulo certo.
+    expect(mensagem).toMatch(/Pick-up: \d+ min -> \d+ min \(no change\)/);
+    expect(mensagem).toMatch(/Drop-off: \d+ min -> \d+ min/);
     await act(async () => botoes?.find((botao) => botao.text === 'Apply')?.onPress?.());
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith('apply_route_order', {

@@ -131,6 +131,14 @@ type Props = {
   onChooseVan?: (driverId: string, locationId: string) => Promise<void>;
   /** Van já escolhida para o motorista quando a rota dele ainda não existe. */
   vanDoMotorista?: (driverId: string) => string | null;
+  /**
+   * Abrir a LISTA DE PARADAS com a hora de cada uma (a tela `route-stops`).
+   *
+   * O dono procurou isso no cartão do motorista do Dispatch e não achou (01/10/2026: *"cliquei no cartao
+   * do driver e nao vi nada disso"*) — a lista só abria pelo cartão da Home. Com a prop, o cartão do
+   * Dispatch ganha um atalho; sem ela nada muda.
+   */
+  onOpenStopList?: (routeId: string, driverName: string) => void;
 };
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -142,7 +150,7 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, vanDoMotorista }: Props) {
+export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, vanDoMotorista, onOpenStopList }: Props) {
   const [travas, setTravas] = useState<Travas>({});
   const [sheet, setSheet] = useState<SheetState>(null);
   /**
@@ -343,7 +351,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
               (drivers.find(d => routes.some(r => r.driverId === d.id && r.stops.length >= 2)) ?? drivers[0])?.id
               ? pedirSugestao : undefined}
             suggestionBusy={sugestaoBusy}
-            vans={vans} onChooseVan={onChooseVan} vanDoMotorista={vanDoMotorista}
+            vans={vans} onChooseVan={onChooseVan} vanDoMotorista={vanDoMotorista} onOpenStopList={onOpenStopList}
             onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
         ))}
         <View style={styles.unassigned}>
@@ -616,12 +624,13 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
   vans?: DispatchVan[];
   onChooseVan?: Props['onChooseVan'];
   vanDoMotorista?: Props['vanDoMotorista'];
+  onOpenStopList?: Props['onOpenStopList'];
 };
 
 const CartaoMotorista = memo(function CartaoMotorista({
   driver, route, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
   onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy,
-  vans, onChooseVan, vanDoMotorista,
+  vans, onChooseVan, vanDoMotorista, onOpenStopList,
 }: PropsCartao) {
   const [perna, setPerna] = useState<Perna>('pickup');
   const [salvandoVan, setSalvandoVan] = useState(false);
@@ -717,6 +726,16 @@ const CartaoMotorista = memo(function CartaoMotorista({
             </View>
             {!vanAtiva ? <Text style={styles.vanAuto}>auto · nearest</Text> : null}
           </View>
+        ) : null}
+        {route && onOpenStopList ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Stop list for ${driver.name}`}
+            onPress={() => onOpenStopList(route.routeId, driver.name)}
+            style={styles.stopListLink}
+          >
+            <Text style={styles.stopListText}>Stop list with times ›</Text>
+          </Pressable>
         ) : null}
         {onSuggest || (route && stops.length > 0) ? (
           <View style={styles.driverActions} testID="driver-actions">
@@ -887,6 +906,9 @@ const styles = StyleSheet.create({
   vanChipTexto: { color: colors.forest700, fontSize: 11, fontWeight: '800' },
   vanChipTextoAtivo: { color: 'white' },
   vanAuto: { color: colors.muted, fontSize: 10.5, fontStyle: 'italic' },
+  // Atalho para a lista de paradas com hora (o dono procurou aqui, 01/10/2026).
+  stopListLink: { alignSelf: 'flex-start', marginTop: 8, paddingVertical: 4 },
+  stopListText: { color: colors.forest700, fontSize: 11.5, fontWeight: '800', textDecorationLine: 'underline' },
   sugestaoBloco: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 11, marginBottom: 9, backgroundColor: '#FAFBF7' },
   sugestaoMotorista: { color: colors.ink, fontWeight: '800', fontSize: 13, marginBottom: 4 },
   sugestaoCao: { color: colors.muted, fontSize: 12, lineHeight: 17 },

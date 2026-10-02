@@ -98,3 +98,36 @@ describe('van por motorista no Dispatch', () => {
     await waitFor(() => expect(onChooseVan).not.toHaveBeenCalled());
   });
 });
+
+/**
+ * ATALHO PARA A LISTA DE PARADAS no cartão do Dispatch (o dono procurou ali e não achou, 01/10/2026:
+ * *"cliquei no cartao do driver e nao vi nada disso"*) — antes a lista só abria pelo cartão da Home.
+ */
+describe('lista de paradas no cartão do Dispatch', () => {
+  const rotaComParada = {
+    routeId: 'rota-1', driverId: 'motorista-1', status: 'draft' as const, startLocationId: null,
+    stops: [{
+      dogId: 'lucky', clientName: 'Cristina', dogName: 'Lucky', sequence: 1, status: 'pending' as const,
+      latitude: 37.44, longitude: -122.14, windowStart: null, windowEnd: null, exactTime: null,
+      priority: 'normal' as const,
+    }],
+  };
+
+  it('sem rota não há atalho (não existe parada para listar)', async () => {
+    const onOpenStopList = jest.fn();
+    const tela = await render(<DispatchBoard {...props({ onOpenStopList })} />);
+    expect(tela.queryByLabelText('Stop list for Rafael')).toBeNull();
+  });
+
+  it('com rota, o toque abre a lista do motorista certo', async () => {
+    const onOpenStopList = jest.fn();
+    const tela = await render(<DispatchBoard {...props({ onOpenStopList, routes: [rotaComParada] })} />);
+    fireEvent.press(tela.getByLabelText('Stop list for Rafael'));
+    expect(onOpenStopList).toHaveBeenCalledWith('rota-1', 'Rafael');
+  });
+
+  it('sem a prop o cartão fica como era (nada de link órfão)', async () => {
+    const tela = await render(<DispatchBoard {...props({ routes: [rotaComParada] })} />);
+    expect(tela.queryByLabelText('Stop list for Rafael')).toBeNull();
+  });
+});

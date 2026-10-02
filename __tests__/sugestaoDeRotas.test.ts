@@ -26,8 +26,12 @@ const LISTA = [
   cao('d', 37.43, LON),
 ];
 
-/** Menor distância total possível, testando TODAS as divisões contíguas (n pequeno). */
-function minimoPorForcaBruta(caes: CaoParaSugerir[], pedacos: number, inicio: { latitude: number; longitude: number } | null): number {
+/**
+ * Menor distância total possível testando TODAS as divisões contíguas (n pequeno).
+ * `limite` = teto de cães por bloco (o rateio justo). Sem ele, é o ótimo geográfico puro — que pode
+ * ser injusto (1 cão para um motorista e 5 para o outro) e por isso deixou de ser a regra em 01/10/2026.
+ */
+function minimoPorForcaBruta(caes: CaoParaSugerir[], pedacos: number, inicio: { latitude: number; longitude: number } | null, limite?: number): number {
   const ordem = [...caes];
   // Na força bruta todos os cães têm coordenada (a lista do teste é montada assim).
   const lat = (item: CaoParaSugerir) => item.latitude as number;
@@ -50,6 +54,7 @@ function minimoPorForcaBruta(caes: CaoParaSugerir[], pedacos: number, inicio: { 
         anterior = corte;
       }
       blocos.push(ordem.slice(anterior));
+      if (limite !== undefined && blocos.some((bloco) => bloco.length > limite)) return;
       melhor = Math.min(melhor, blocos.reduce((soma, bloco) => soma + custo(bloco), 0));
       return;
     }
@@ -67,17 +72,22 @@ describe('sugerirRotas — divisão por geografia', () => {
     expect(sugestao.semLugar).toEqual([]);
   });
 
-  it('dois motoristas: a divisão é a de MENOR distância total (conferida por força bruta)', () => {
+  it('dois motoristas: rateio justo (2 + 2) e a MENOR distância DENTRO do rateio (força bruta)', () => {
+    // O ótimo geográfico puro deste caso é 1 + 3 (medido: 5,56 km contra 6,67 km do 2 + 2), mas deixar
+    // um motorista com um cão só e o outro com três é o que o dono chamou de "pesado para um driver"
+    // (01/10/2026). A regra agora: geografia dentro do rateio justo — e o teto de 2 cães é provado aqui.
     const sugestao = sugerirRotas(LISTA, [motorista('m1'), motorista('m2')], VAN);
-    const bruto = minimoPorForcaBruta(LISTA, 2, VAN);
+    expect(sugestao.blocos.map((bloco) => bloco.caes.length).sort()).toEqual([2, 2]);
+    const bruto = minimoPorForcaBruta(LISTA, 2, VAN, 2);
     expect(sugestao.blocos.reduce((soma, bloco) => soma + bloco.km, 0)).toBeCloseTo(bruto, 6);
     expect(sugestao.kmTotal).toBeCloseTo(bruto, 6);
   });
 
-  it('três motoristas com cinco cães: idem (força bruta com k=3)', () => {
+  it('três motoristas com cinco cães: 2 + 2 + 1 e a menor distância dentro do rateio (força bruta k=3)', () => {
     const cinco = [...LISTA, cao('e', 37.44, LON)];
     const sugestao = sugerirRotas(cinco, [motorista('m1'), motorista('m2'), motorista('m3')], VAN);
-    expect(sugestao.kmTotal).toBeCloseTo(minimoPorForcaBruta(cinco, 3, VAN), 6);
+    expect(sugestao.blocos.map((bloco) => bloco.caes.length).sort()).toEqual([1, 2, 2]);
+    expect(sugestao.kmTotal).toBeCloseTo(minimoPorForcaBruta(cinco, 3, VAN, 2), 6);
     expect(sugestao.blocos.flatMap((bloco) => bloco.caes).map((item) => item.dogId).sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 
@@ -168,5 +178,45 @@ describe('sugerirRotas — casos de borda', () => {
     expect(pontoUtilizavel(120, 10)).toBeNull();
     expect(pontoUtilizavel('37.4', -122.14)).toBeNull();
     expect(pontoUtilizavel(37.4, -122.14)).toEqual({ latitude: 37.4, longitude: -122.14 });
+  });
+});
+
+/**
+ * PESO EQUILIBRADO ENTRE MOTORISTAS (pedido do dono, 01/10/2026: *"está funcionando porém quero que vc dê
+ * uma balanceada senão vai ficar muito pesado para algum driver"*).
+ *
+ * A geografia continua mandando, mas com TETO de cães por motorista: o teto é o rateio justo
+ * (total ÷ motoristas, arredondado para cima). Sem teto, um caso de 1 cão perto + 5 longe dava 1 + 5 —
+ * geograficamente ótimo e operacionalmente injusto.
+ */
+describe('sugerirRotas — equilíbrio do peso', () => {
+  it('rateia o peso em vez de deixar tudo com um motorista (1 perto + 5 longe = 3 + 3)', () => {
+    const perto = [cao('perto', 37.401, LON)];
+    // Cinco cães longe (≈11 km ao norte), onde a geografia pura mandaria UM motorista pegar todos.
+    const longe = Array.from({ length: 5 }, (_, i) => cao(`longe${i}`, 37.5 + i * 0.001, LON));
+    const sugestao = sugerirRotas([...perto, ...longe], [motorista('m1'), motorista('m2')], VAN);
+    const tamanhos = sugestao.blocos.map((bloco) => bloco.caes.length).sort();
+    expect(tamanhos).toEqual([3, 3]);
+    expect(sugestao.blocos.flatMap((bloco) => bloco.caes)).toHaveLength(6);
+  });
+
+  it('cinco cães na mesma casa: o teto nunca separa irmãos (2 + 3)', () => {
+    const casa = [0, 1].map((i) => ({ ...cao(`irmao${i}`, 37.5, LON), clientId: 'jose' }));
+    const vizinhos = [0, 1, 2].map((i) => ({ ...cao(`vizinho${i}`, 37.55 + i * 0.001, LON), clientId: `c${i}` }));
+    const sugestao = sugerirRotas([...casa, ...vizinhos], [motorista('m1'), motorista('m2')], VAN);
+    const blocoDosIrmaos = sugestao.blocos.find((bloco) => bloco.caes.some((c) => c.dogId === 'irmao0'));
+    expect(blocoDosIrmaos?.caes.map((c) => c.dogId).sort()).toEqual(['irmao0', 'irmao1']);
+    for (const bloco of sugestao.blocos) expect(bloco.caes.length).toBeLessThanOrEqual(3);
+  });
+
+  it('caso já equilibrado não muda (2 + 2 continua 2 + 2)', () => {
+    const sugestao = sugerirRotas(LISTA, [motorista('m1'), motorista('m2')], VAN);
+    expect(sugestao.blocos.map((bloco) => bloco.caes.length).sort()).toEqual([2, 2]);
+  });
+
+  it('um motorista só leva tudo, mesmo com teto', () => {
+    const longe = Array.from({ length: 7 }, (_, i) => cao(`c${i}`, 37.5 + i * 0.001, LON));
+    const sugestao = sugerirRotas(longe, [motorista('m1')], VAN);
+    expect(sugestao.blocos[0].caes).toHaveLength(7);
   });
 });

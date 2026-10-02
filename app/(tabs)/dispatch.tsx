@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 import { buildDay, transportPool, vanPool, type DogRef, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { todayLocalISO } from '@/features/calendar/dates';
@@ -11,7 +11,7 @@ import { avisoDeFalhaParcial, type FalhaParcial } from '@/features/dispatch/part
 import { criarFilaDeEscrita, trocarNaOrdem } from '@/features/dispatch/reorderQueue';
 import { ordemDaBusca, ordemDaEntrega, ordenarComTravas, pinDaParada, type Travas, type Perna } from '@/features/dispatch/orderPins';
 import { avisoDeFechamento, paradasPendentes, type FechamentoDeRota } from '@/features/dispatch/routeClosing';
-import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
+import { minutosDaOrdem, optimizeRoute } from '@/features/dispatch/routeOptimizer';
 import { GRACE_MINUTES } from '@/features/driver/eta';
 import { STALE_ROUTE_TITLE, expectedVersion, isStaleRouteError, routeErrorMessage } from '@/features/dispatch/staleRoute';
 import { fetchTravelTimes } from '@/features/dispatch/trafficProvider';
@@ -69,6 +69,7 @@ function erroParcial(mensagem: string): Error {
 }
 
 export default function DispatchScreen() {
+  const router = useRouter();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [date, setDate] = useState(todayLocalISO());
   const [drivers, setDrivers] = useState<DispatchDriver[]>([]);
@@ -424,6 +425,18 @@ export default function DispatchScreen() {
     useCallback(() => {
       if (organizationId) void carregarVans(organizationId);
     }, [organizationId, carregarVans]),
+  );
+
+  /**
+   * LISTA DE PARADAS com a hora de cada uma — a MESMA tela que a Home abre pelo cartão do motorista
+   * (`/route-stops`). Aqui dentro do Dispatch porque foi onde o dono procurou (01/10/2026: *"cliquei no
+   * cartao do driver e nao vi nada disso"*).
+   */
+  const abrirListaDeParadas = useCallback(
+    (routeId: string, driverName: string) => {
+      router.push({ pathname: '/route-stops', params: { route: routeId, driver: driverName, day: date } });
+    },
+    [router, date],
   );
 
   const versaoDe = useCallback((routeId: string) => expectedVersion(versoes.current, routeId), []);
@@ -922,18 +935,24 @@ export default function DispatchScreen() {
       priority: stop.priority,
     })));
 
+    /**
+     * As paradas que o otimizador vai ordenar (só as pendentes), no formato que ele entende. Guardadas
+     * numa const porque a comparação ANTES → DEPOIS usa exatamente esta lista.
+     */
+    const paradasOtimizadas = remaining.map((stop) => ({
+      dogId: stop.dogId,
+      clientName: stop.clientName,
+      dogName: stop.dogName,
+      latitude: stop.latitude,
+      longitude: stop.longitude,
+      windowStart: stop.windowStart,
+      windowEnd: stop.windowEnd,
+      exactTime: stop.exactTime,
+      priority: stop.priority,
+    }));
+
     const result = optimizeRoute(
-      remaining.map((stop) => ({
-        dogId: stop.dogId,
-        clientName: stop.clientName,
-        dogName: stop.dogName,
-        latitude: stop.latitude,
-        longitude: stop.longitude,
-        windowStart: stop.windowStart,
-        windowEnd: stop.windowEnd,
-        exactTime: stop.exactTime,
-        priority: stop.priority,
-      })),
+      paradasOtimizadas,
       // 3 min de serviço por pick-up (pedido do cliente, 30/09/2026 "três minutinhos por pick-up"):
       // até aqui a tela NÃO passava nada e o otimizador usava o padrão de 8 min. O número é o MESMO
       // da tolerância de atraso do motorista (GRACE_MINUTES) — decisão do dono, um valor só.
@@ -960,7 +979,29 @@ export default function DispatchScreen() {
     const linhas = (ordem: { dogName: string }[]) => ordem.map((stop, i) => `• ${i + 1}. ${stop.dogName}`).join('\n');
     const conflitos = (resultado: typeof busca, perna: string) => resultado.conflitos.map((conflito) =>
       `${perna}: ${conflito.motivo === 'collision' ? 'Conflicting locks' : 'Position outside route'} #${conflito.posicao}: ${conflito.dogIds.map((id) => sorted.find((stop) => stop.dogId === id)?.dogName ?? id).join(', ')}`);
-    const mensagem = `Pick-up:\n${linhas(busca.ordem)}\n\nDrop-off:\n${linhas(volta.ordem)}\n\n${[...conflitos(busca, 'Pick-up'), ...conflitos(volta, 'Drop-off')].join('\n')}`;
+    /**
+     * ANTES → DEPOIS (dúvida do dono, 01/10/2026: *"não consigo confirmar se está realmente fazendo a
+     * melhor rota"*). As DUAS ordens — a que estava na tela e a que o otimizador propõe — passam pela
+     * MESMA conta de deslocamento + serviço, e o alerta mostra a diferença. Só as paradas PENDENTES
+     * entram na conta (as concluídas ficam fixas no início das duas ordens e não mudam nada).
+     * Quando falta dado para a conta (matriz desligada e parada sem coordenada), a linha não aparece —
+     * número inventado seria pior que nenhum.
+     */
+    const pendentes = new Set(remaining.map((stop) => stop.dogId));
+    const opcoesDaConta = { travel: traffic.travel, serviceMinutes: GRACE_MINUTES };
+    const comparar = (rotulo: string, idsAntes: string[], idsDepois: string[]) => {
+      const antes = minutosDaOrdem(paradasOtimizadas, idsAntes.filter((id) => pendentes.has(id)), opcoesDaConta);
+      const depois = minutosDaOrdem(paradasOtimizadas, idsDepois.filter((id) => pendentes.has(id)), opcoesDaConta);
+      if (antes == null || depois == null) return null;
+      const ganho = Math.round(antes) - Math.round(depois);
+      const diferenca = ganho > 0 ? `-${ganho} min` : ganho < 0 ? `+${-ganho} min` : 'no change';
+      return `${rotulo}: ${Math.round(antes)} min -> ${Math.round(depois)} min (${diferenca})`;
+    };
+    const ganhos = [
+      comparar('Pick-up', remaining.map((stop) => stop.dogId), busca.ordem.map((stop) => stop.dogId)),
+      comparar('Drop-off', ordemDaEntrega(sorted).map((stop) => stop.dogId), volta.ordem.map((stop) => stop.dogId)),
+    ].filter((linha): linha is string => Boolean(linha));
+    const mensagem = `Pick-up:\n${linhas(busca.ordem)}\n\nDrop-off:\n${linhas(volta.ordem)}\n\n${[...ganhos, ...conflitos(busca, 'Pick-up'), ...conflitos(volta, 'Drop-off')].join('\n')}`;
     const origem = traffic.source === 'live' ? 'live traffic' : 'estimated times';
     showAlert(`Optimized route (${origem})`, mensagem, [
       { text: 'Cancel', style: 'cancel' },
@@ -1017,6 +1058,7 @@ export default function DispatchScreen() {
           vans={vans}
           onChooseVan={escolherVan}
           vanDoMotorista={(driverId) => vanPorMotorista.current.get(driverId) ?? null}
+          onOpenStopList={abrirListaDeParadas}
           onSaveStop={saveStopConstraint}
           onRemoveStop={removeStop}
           onMoveStop={moveStop}

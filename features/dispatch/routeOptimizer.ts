@@ -83,6 +83,42 @@ function travelMinutesFromHome(stop: OptimizeStop, options: OptimizeOptions): nu
   return (km / (options.speedKph ?? DEFAULT_SPEED_KPH)) * 60;
 }
 
+/**
+ * Minutos de DESLOCAMENTO + SERVIÇO de uma ordem JÁ definida, com as MESMAS contas do otimizador.
+ *
+ * Existe para o gestor CONFERIR o que o Optimize fez (dúvida do dono, 01/10/2026: *"cliquei em otimizar e
+ * fez algumas mudanças, só não consigo confirmar se está realmente fazendo a melhor rota"*): com o número
+ * das duas ordens ele lê "Pick-up: 52 min → 41 min (-11)" em vez de confiar na palavra do app.
+ *
+ * Devolve null quando falta dado para a conta (id desconhecido ou parada sem coordenada e sem matriz
+ * real) — número inventado seria pior do que nenhum número.
+ */
+export function minutosDaOrdem(
+  stops: OptimizeStop[],
+  ordemDeIds: string[],
+  options: OptimizeOptions = {},
+): number | null {
+  const porId = new Map(stops.map((stop) => [stop.dogId, stop]));
+  const ids = ordemDeIds.filter((id) => porId.has(id));
+  if (ids.length === 0) return null;
+
+  let total = 0;
+  for (let i = 0; i < ids.length; i += 1) {
+    const parada = porId.get(ids[i]) as OptimizeStop;
+    const anterior = i === 0 ? null : (porId.get(ids[i - 1]) as OptimizeStop);
+    if (parada.latitude == null || parada.longitude == null) {
+      // Sem coordenada a estimativa de linha reta não existe; só a matriz real cobre essa perna.
+      const real = anterior ? options.travel?.between(anterior.dogId, parada.dogId) : options.travel?.homeTo(parada.dogId);
+      if (typeof real !== 'number' || !Number.isFinite(real)) return null;
+      total += real + serviceOf(parada, options);
+      continue;
+    }
+    total += (anterior ? travelMinutesBetween(anterior, parada, options) : travelMinutesFromHome(parada, options))
+      + serviceOf(parada, options);
+  }
+  return total;
+}
+
 function serviceOf(stop: OptimizeStop, options: OptimizeOptions): number {
   return stop.serviceMinutes ?? options.serviceMinutes ?? DEFAULT_SERVICE_MIN;
 }
