@@ -226,7 +226,9 @@ describe('createDogsWithPhotos', () => {
     const update = jest.fn((values: { photo_url?: string | null }) => ({
       eq: (_coluna: string, id: string) => {
         atualizacoes.push({ id, values });
-        return Promise.resolve({ error: null });
+        // `createDogsWithPhotos` passou a conferir a linha atingida (`.select('id')`): o PostgREST real
+        // devolve a linha gravada — 0 linha seria policy bloqueando. Aqui o caminho feliz devolve a linha.
+        return { select: () => Promise.resolve({ data: [{ id }], error: null }) };
       },
     }));
     const base = clienteFake();

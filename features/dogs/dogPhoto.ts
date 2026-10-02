@@ -156,8 +156,15 @@ export async function createDogsWithPhotos(
     try {
       const foto = await storeDogPhoto(client, params.organizationId, dogId, dog.photo);
       if (!foto) continue;
-      const { error: fotoError } = await client.from('dogs').update({ photo_url: foto }).eq('id', dogId);
+      /**
+       * 🪤 ACHADO DA VISTORIA (02/10/2026): este UPDATE não conferia linhas. Com a policy bloqueando, o
+       * PostgREST responde SUCESSO com 0 linhas e a foto ficava SEM cão (arquivo no bucket, coluna
+       * vazia) — o cadastro dizia que subiu. `.select('id')` + 0 linha = falha; o catch abaixo devolve
+       * o cão em `pendentes` e o gestor vê o aviso (o cão continua salvo, só a foto fica pendente).
+       */
+      const { data: fotoSalva, error: fotoError } = await client.from('dogs').update({ photo_url: foto }).eq('id', dogId).select('id');
       if (fotoError) throw new Error(fotoError.message);
+      if (!fotoSalva || fotoSalva.length === 0) throw new Error('The photo was not linked to the dog.');
     } catch (reason) {
       pendentes.push(`${dog.name} (${reason instanceof Error ? reason.message : 'photo failed'})`);
     }

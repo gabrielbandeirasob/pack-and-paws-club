@@ -159,8 +159,15 @@ export default function ClientEditScreen() {
       for (const { id: dogId, values } of plano.updates) {
         const fotoAnterior = loaded.dogs.find((dog) => dog.id === dogId)?.photo_url ?? null;
         const foto = await storeDogPhoto(supabase, organizationId, dogId, values.photo_url);
-        const { error: dogError } = await supabase.from('dogs').update({ ...values, photo_url: foto }).eq('id', dogId);
+        /**
+         * 🪤 ACHADO DA VISTORIA (02/10/2026): o UPDATE de cada cão era enviado sem conferir as linhas
+         * atingidas. Quando a policy bloqueia, o PostgREST responde SUCESSO com 0 linhas — o cão
+         * "sumia" do formulário e reaparecia igual depois, sem o banco ter gravado nada.
+         * Mesmo padrão do UPDATE do cliente logo acima: `.select('id')` e zero linha = falha de verdade.
+         */
+        const { data: caoSalvo, error: dogError } = await supabase.from('dogs').update({ ...values, photo_url: foto }).eq('id', dogId).select('id');
         if (dogError) throw new Error(dogError.message);
+        if (!caoSalvo || caoSalvo.length === 0) throw new Error('Could not save this dog. Ask the manager to check your access.');
         // Trocou ou tirou a foto: o arquivo antigo sai do bucket (senão vira lixo para sempre).
         if (foto !== fotoAnterior) await deleteDogPhoto(supabase, fotoAnterior);
       }
@@ -178,30 +185,44 @@ export default function ClientEditScreen() {
         if (!novoId) continue;
         const foto = await storeDogPhoto(supabase, organizationId, novoId, novo.photo_url);
         if (foto) {
-          const { error: fotoError } = await supabase.from('dogs').update({ photo_url: foto }).eq('id', novoId);
+          // 🪤 ACHADO DA VISTORIA (02/10/2026): o UPDATE da foto do cão novo também não conferia
+          // linhas — a foto subia para o bucket e o cão ficava sem ela, com a tela dizendo que salvou.
+          const { data: fotoSalva, error: fotoError } = await supabase.from('dogs').update({ photo_url: foto }).eq('id', novoId).select('id');
           if (fotoError) throw new Error(fotoError.message);
+          if (!fotoSalva || fotoSalva.length === 0) throw new Error('Could not save this dog. Ask the manager to check your access.');
         }
       }
 
       if (plano.idsToDelete.length > 0) {
         const fotos = plano.idsToDelete.map((dogId) => loaded.dogs.find((dog) => dog.id === dogId)?.photo_url ?? null);
-        const { error: removeError } = await supabase.from('dogs').delete().eq('client_id', id).in('id', plano.idsToDelete);
+        /**
+         * 🪤 ACHADO DA VISTORIA (02/10/2026): o DELETE dos cães não conferia linhas. Se a policy
+         * bloqueasse, o cão saía do formulário como removido e o cadastro continuava vivo no banco
+         * (e as fotos eram apagadas do bucket sem o cão ter saído). `.select('id')` + 0 linha = erro.
+         */
+        const { data: removidos, error: removeError } = await supabase.from('dogs').delete().eq('client_id', id).in('id', plano.idsToDelete).select('id');
         if (removeError) throw new Error(removeError.message);
+        if (!removidos || removidos.length === 0) throw new Error('Could not remove this dog. Ask the manager to check your access.');
         for (const foto of fotos) await deleteDogPhoto(supabase, foto);
       }
 
       const instructions = normalizeText(payload.instructions);
       const plan = instructionWritePlan(loaded.instructionId, instructions);
       if (plan.mode === 'update') {
-        const { error: instructionError } = await supabase.from('client_instructions').update({ pickup_access_instructions: instructions }).eq('id', plan.id);
+        // 🪤 ACHADO DA VISTORIA (02/10/2026): escrita sem conferir linhas — 0 linha é policy bloqueando,
+        // não sucesso. Vale para instruções de acesso (o motorista depende delas na porta do cliente).
+        const { data: instrucoesSalvas, error: instructionError } = await supabase.from('client_instructions').update({ pickup_access_instructions: instructions }).eq('id', plan.id).select('id');
         if (instructionError) throw new Error(instructionError.message);
+        if (!instrucoesSalvas || instrucoesSalvas.length === 0) throw new Error('Could not save the access instructions. Ask the manager to check your access.');
       } else if (plan.mode === 'upsert') {
         const { data: client } = await supabase.from('clients').select('organization_id').eq('id', id).single();
         const organizationId = (client as { organization_id: string } | null)?.organization_id ?? null;
-        const { error: instructionError } = await supabase
+        const { data: instrucoesNovas, error: instructionError } = await supabase
           .from('client_instructions')
-          .upsert({ organization_id: organizationId, client_id: id, pickup_access_instructions: instructions }, { onConflict: 'client_id' });
+          .upsert({ organization_id: organizationId, client_id: id, pickup_access_instructions: instructions }, { onConflict: 'client_id' })
+          .select('id');
         if (instructionError) throw new Error(instructionError.message);
+        if (!instrucoesNovas || instrucoesNovas.length === 0) throw new Error('Could not save the access instructions. Ask the manager to check your access.');
       }
 
       router.back();
@@ -240,18 +261,39 @@ export default function ClientEditScreen() {
     const snapshot = loaded.snapshot;
     const podeDesfazer = canUndoClientDelete(loaded.impact);
 
+    /**
+     * FOTOS ÓRFÃS (🪤 ACHADO DA VISTORIA 02/10/2026): o DELETE do cliente apaga no banco os cães em
+     * cascata, mas os ARQUIVOS ficavam para sempre no bucket `dog-photos`. Aqui os arquivos saem junto
+     * (best-effort: deleteDogPhoto nunca estoura). Só quando a exclusão é FINAL — se o desfazer está
+     * na mesa, o arquivo precisa sobreviver para o cão voltar com a mesma foto.
+     */
+    const apagarFotosDosCaes = async () => {
+      for (const dog of loaded.dogs) await deleteDogPhoto(supabase, dog.photo_url);
+    };
+
     const apagarDeVerdade = async () => {
       setDeleting(true);
       setError(null);
-      const { error: deleteError } = await supabase.from('clients').delete().eq('id', id);
+      /**
+       * 🪤 ACHADO DA VISTORIA (02/10/2026): o DELETE do cliente não conferia linhas. Com a policy
+       * bloqueando, o PostgREST devolve SUCESSO com 0 linhas e a tela saía como se tivesse apagado —
+       * o cliente continuava no banco. `.select('id')` + 0 linha = erro visível, e a tela NÃO sai.
+       */
+      const { data: apagados, error: deleteError } = await supabase.from('clients').delete().eq('id', id).select('id');
       setDeleting(false);
       if (deleteError) { setError(deleteError.message); return; }
-      if (!podeDesfazer) { router.back(); return; }
+      if (!apagados || apagados.length === 0) { setError('Could not delete this client. Ask the manager to check your access.'); return; }
+      if (!podeDesfazer) {
+        await apagarFotosDosCaes();
+        router.back();
+        return;
+      }
       showAlert(
         'Client deleted',
         `${loaded.current.name} was removed. Nothing else was linked to this client, so it can still be put back exactly as it was.`,
         [
-          { text: 'Done', onPress: () => router.back() },
+          // "Done" fecha a exclusão: é aqui que as fotos do cão deixam de ser necessárias.
+          { text: 'Done', onPress: () => { void apagarFotosDosCaes(); router.back(); } },
           { text: 'Undo', onPress: () => void desfazerExclusao(snapshot) },
         ],
       );

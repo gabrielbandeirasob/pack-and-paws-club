@@ -94,11 +94,19 @@ export async function endManualShift(
   client: SupabaseClient,
   params: { shiftId: string; reason: string; endedAt?: string },
 ): Promise<void> {
-  const { error } = await client
+  /**
+   * 🪤 ACHADO DA VISTORIA (02/10/2026): o UPDATE do clock out não conferia linhas. A jornada é o
+   * número que PAGA o motorista — se a policy bloqueia, o PostgREST responde SUCESSO com 0 linhas e
+   * o horário de saída nunca é gravado (o relatório de horas perde o dia). `.select('id')` + 0 linha
+   * = erro, e a tela do motorista mostra o motivo em vez de dizer que fechou.
+   */
+  const { data: fechadas, error } = await client
     .from('driver_shifts')
     .update({ ended_at: params.endedAt ?? new Date().toISOString(), end_reason: params.reason })
-    .eq('id', params.shiftId);
+    .eq('id', params.shiftId)
+    .select('id');
   if (error) throw new Error(error.message);
+  if (!fechadas || fechadas.length === 0) throw new Error('Could not close this journey. Ask the manager to check your access.');
 }
 
 /**

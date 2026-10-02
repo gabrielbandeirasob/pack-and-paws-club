@@ -213,8 +213,14 @@ export default function CalendarScreen() {
 
   const removeReservation = async (item: DayItem) => {
     if (!item.reservationId) return;
-    const { error } = await supabase.from('reservations').update({ status: 'cancelled' }).eq('id', item.reservationId);
+    /**
+     * 🪤 ACHADO DA VISTORIA (02/10/2026): o UPDATE que cancela a reserva não conferia linhas. Quando a
+     * policy bloqueia, o PostgREST devolve SUCESSO com 0 linhas — o cão saía da lista como cancelado
+     * e o banco continuava com a reserva confirmada. `.select('id')` + 0 linha = erro, sem fingir.
+     */
+    const { data: canceladas, error } = await supabase.from('reservations').update({ status: 'cancelled' }).eq('id', item.reservationId).select('id');
     if (error) { showAlert('Unable to cancel', error.message); return; }
+    if (!canceladas || canceladas.length === 0) { showAlert('Unable to cancel', 'The cancellation did not go through. Ask the manager to check your access.'); return; }
     setReservations((current) => current.map((reservation) =>
       reservation.id === item.reservationId ? { ...reservation, status: 'cancelled' } : reservation,
     ));
@@ -237,14 +243,21 @@ export default function CalendarScreen() {
   };
 
   const removeSkipOnDate = async (scheduleId: string) => {
-    const { error } = await supabase
+    /**
+     * 🪤 ACHADO DA VISTORIA (02/10/2026): o DELETE das exceções não conferia linhas. Com a policy
+     * bloqueando, o PostgREST devolve SUCESSO com 0 linhas e a data parecia restaurada sem o banco
+     * ter mexido. `.select('id')` + 0 linha = aviso, sem seguir como se tivesse apagado.
+     */
+    const { data: removidas, error } = await supabase
       .from('recurring_exceptions')
       .delete()
       .eq('recurring_schedule_id', scheduleId)
       .eq('action', 'skip')
       .eq('start_date', selectedDay)
-      .eq('end_date', selectedDay);
-    if (error) showAlert('Unable to restore this date', error.message);
+      .eq('end_date', selectedDay)
+      .select('id');
+    if (error) { showAlert('Unable to restore this date', error.message); return; }
+    if (!removidas || removidas.length === 0) { showAlert('Unable to restore this date', 'Nothing was restored. Ask the manager to check your access.'); return; }
     await load();
   };
 
@@ -258,8 +271,10 @@ export default function CalendarScreen() {
         exception.endDate >= selectedDay,
     );
     if (covering.length > 0) {
-      const { error } = await supabase.from('recurring_exceptions').delete().in('id', covering.map((exception) => exception.id));
-      if (error) showAlert('Unable to clear transport override', error.message);
+      // 🪤 ACHADO DA VISTORIA (02/10/2026): DELETE sem conferir linhas — 0 linha é policy bloqueando, não sucesso.
+      const { data: removidas, error } = await supabase.from('recurring_exceptions').delete().in('id', covering.map((exception) => exception.id)).select('id');
+      if (error) { showAlert('Unable to clear transport override', error.message); return; }
+      if (!removidas || removidas.length === 0) { showAlert('Unable to clear transport override', 'Nothing was cleared. Ask the manager to check your access.'); return; }
     } else {
       const { error } = await supabase.from('recurring_exceptions').insert({
         organization_id: organizationId,
@@ -275,8 +290,11 @@ export default function CalendarScreen() {
   };
 
   const removeSeries = async (scheduleId: string) => {
-    const { error } = await supabase.from('recurring_schedules').delete().eq('id', scheduleId);
-    if (error) showAlert('Unable to remove the series', error.message);
+    // 🪤 ACHADO DA VISTORIA (02/10/2026): DELETE da série sem conferir linhas. 0 linha (policy bloqueou)
+    // não pode parecer "série removida". `.select('id')` + 0 linha = aviso, e a tela não recarrega como se fosse sucesso.
+    const { data: removidas, error } = await supabase.from('recurring_schedules').delete().eq('id', scheduleId).select('id');
+    if (error) { showAlert('Unable to remove the series', error.message); return; }
+    if (!removidas || removidas.length === 0) { showAlert('Unable to remove the series', 'The series was not removed. Ask the manager to check your access.'); return; }
     await load();
   };
 

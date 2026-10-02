@@ -26,12 +26,15 @@ const row = { id: 'r-kona', status: 'confirmed', service_type: 'daycare', start_
   dog: { id: 'kona', name: 'Kona', client: { name: 'Leigh Ann' } } };
 const mockUpdate = jest.fn();
 const mockEq = jest.fn();
+const mockSelect = jest.fn();
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetUser.mockResolvedValue({ data: { user: { id: 'manager' } } });
+  // O UPDATE agora confere a linha atingida (`.select('id')`): a cadeia do PostgREST é update → eq → select.
   mockUpdate.mockReturnValue({ eq: mockEq });
-  mockEq.mockResolvedValue({ error: null });
+  mockEq.mockReturnValue({ select: mockSelect });
+  mockSelect.mockResolvedValue({ data: [{ id: 'r-kona' }], error: null });
   mockFrom.mockImplementation((table: string) => {
     let statuses: string[] = [];
     const chain = {
@@ -71,7 +74,7 @@ it('Remove cancela sem DELETE e atualiza o dia e o espelho antes de terminar a r
 });
 
 it('erro ao cancelar mantém o cão visível e avisa o gestor', async () => {
-  mockEq.mockResolvedValue({ error: { message: 'permission denied' } });
+  mockSelect.mockResolvedValue({ data: null, error: { message: 'permission denied' } });
   const tela = await render(<CalendarScreen />);
   await waitFor(() => expect(tela.getByLabelText('Options Kona')).toBeTruthy());
   await remove(tela);
