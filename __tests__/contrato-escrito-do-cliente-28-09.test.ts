@@ -59,11 +59,14 @@ it('Daycare normal (default/Peacock): parada da rota, vai pro daycare e entra no
   });
 });
 
-it('Avocado (chegada ou saída do boarding): é ponto normal da rota e vai pro daycare', () => {
+it('Avocado (chegada ou saída do boarding): vai pro daycare e fica NA VAN (sem parada)', () => {
+  // 🪤 CLIENTE (02/10/2026): *"tô fazendo as rota e tá aparecendo os boarding na lista"* — este é o caso
+  // que aparecia como parada (boarding de um dia, transporte marcado). Passou a nascer na van; o gestor o
+  // inclui à mão se ele tiver de voltar para casa. O Total Pack continua contando o cão (pack: 1).
   expect(diaDe(reserva('r1', 'Filó', { serviceType: 'boarding', transportRequired: true, goesToDaycare: true }))).toEqual({
     indicadores: { daycare: 0, boarding: 1, totalDogs: 1, pack: 1, revenueCents: null },
-    paradas: ['Filó'],
-    naVan: [],
+    paradas: [],
+    naVan: ['Filó'],
   });
 });
 

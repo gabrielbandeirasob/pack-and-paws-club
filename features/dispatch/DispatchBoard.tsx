@@ -262,6 +262,13 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
   const unassigned = useMemo(() => paraTransporte.filter((item) => !assignedDogIds.has(item.dogId)), [paraTransporte, assignedDogIds]);
   /** Seção separada: já estão na van (sem pickup), mas o gestor pode incluir na rota à mão. */
   const naVan = useMemo(() => dayItems.filter((item) => item.inVan && !assignedDogIds.has(item.dogId)), [dayItems, assignedDogIds]);
+  /**
+   * 🪤 CLIENTE (print de 02/10/2026, encaminhado pelo dono): *"tô fazendo as rotas e tá aparecendo os
+   * boarding na lista"*. Eles NÃO são parada de rota (contrato do Total Pack, 28/09/2026: contam no
+   * pack, não na rota) — mas continuam à mão porque o gestor pode precisar que um volte para casa
+   * (pedido de 23/09/2026). Solução: a seção nasce RECOLHIDA e abre no toque.
+   */
+  const [mostrarNaVan, setMostrarNaVan] = useState(false);
   const routesByDriver = useMemo(() => new Map(routes.map((route) => [route.driverId, route])), [routes]);
 
   const constraintFromFields = (): DispatchConstraint => {
@@ -381,22 +388,39 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
         */}
         {naVan.length > 0 ? (
           <View style={styles.unassigned} testID="dispatch-ja-na-van">
-            <Text style={styles.unassignedTitle}>Boarding — already in the van</Text>
-            <Text style={styles.muted}>
-              They start the day in the van, so they don&apos;t need a pickup. Add one only if it has to go back
-              home today.
-            </Text>
-            {naVan.map((item) => (
-              <Pressable
-                key={item.dogId}
-                accessibilityRole="button"
-                accessibilityLabel={`Add boarding ${item.clientName} · ${item.dogName}`}
-                onPress={() => setSheet({ mode: 'assign', item })}
-                style={[styles.chip, styles.chipVan]}
-              >
-                <Text style={styles.chipText}>{item.clientName} · {item.dogName}</Text>
-              </Pressable>
-            ))}
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ expanded: mostrarNaVan }}
+              accessibilityLabel={mostrarNaVan
+                ? 'Hide boarding dogs already in the van'
+                : 'Show boarding dogs already in the van'}
+              onPress={() => setMostrarNaVan((v) => !v)}
+              style={styles.naVanCabecalho}
+            >
+              <Text style={styles.unassignedTitle}>
+                Boarding — already in the van ({naVan.length}) {mostrarNaVan ? '▾' : '▸'}
+              </Text>
+              <Text style={styles.naVanToque}>{mostrarNaVan ? 'Hide' : 'Show'}</Text>
+            </Pressable>
+            {mostrarNaVan ? (
+              <>
+                <Text style={styles.muted}>
+                  They start the day in the van, so they don&apos;t need a pickup — they are not route stops.
+                  Add one only if it has to go back home today.
+                </Text>
+                {naVan.map((item) => (
+                  <Pressable
+                    key={item.dogId}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Add boarding ${item.clientName} · ${item.dogName}`}
+                    onPress={() => setSheet({ mode: 'assign', item })}
+                    style={[styles.chip, styles.chipVan]}
+                  >
+                    <Text style={styles.chipText}>{item.clientName} · {item.dogName}</Text>
+                  </Pressable>
+                ))}
+              </>
+            ) : null}
           </View>
         ) : null}
       </ScrollView>
@@ -892,6 +916,14 @@ const styles = StyleSheet.create({
   optionsText: { color: colors.forest700, fontSize: 18, fontWeight: '900', lineHeight: 20 },
   noStops: { color: colors.muted, fontSize: 12, padding: 12 },
   unassigned: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#B9C4B9', borderRadius: radii.medium, padding: 13, backgroundColor: '#FAFBF7', marginTop: 4 },
+  naVanCabecalho: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 44, // alvo de toque (vistoria 02/10/2026)
+    gap: 8,
+  },
+  naVanToque: { color: colors.gold, fontSize: 12, fontWeight: '700' },
   unassignedTitle: { color: colors.muted, textTransform: 'uppercase', fontWeight: '900', fontSize: 11, marginBottom: 10 },
   sugestaoLista: { maxHeight: 400, flexShrink: 1 },
   sugestaoParticipantes: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },

@@ -109,8 +109,14 @@ describe('DispatchBoard', () => {
     // Fila principal: 3 (o da van não está ali) + a seção dele existe.
     expect(screen.getByText('3 unassigned')).toBeTruthy();
     expect(screen.getByTestId('dispatch-ja-na-van')).toBeTruthy();
-    expect(screen.getByText('Boarding — already in the van')).toBeTruthy();
+    expect(screen.getByText('Boarding — already in the van (1) ▸')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Assign Amor · Filó' })).toBeNull();
+
+    // 🪤 CLIENTE (02/10/2026): o boarding NÃO aparece na lista enquanto o gestor não pedir — ele não é
+    // parada de rota. A seção nasce recolhida; o chip só existe depois de abrir.
+    expect(screen.queryByRole('button', { name: 'Add boarding Amor · Filó' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Show boarding dogs already in the van' }));
+    expect(screen.getByText('Boarding — already in the van (1) ▾')).toBeTruthy();
 
     // E dá para incluir na rota à mão (a volta para casa).
     await fireEvent.press(screen.getByRole('button', { name: 'Add boarding Amor · Filó' }));

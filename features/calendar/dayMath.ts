@@ -100,7 +100,20 @@ export type DaySummary = { daycare: DayItem[]; boarding: DayItem[] };
 export function dogsJaNaVan(day: DaySummary): Set<string> {
   return new Set(
     day.boarding
-      .filter((item) => !item.transportRequired && item.goesToDaycare)
+      /**
+       * 🪤 CLIENTE (print de 02/10/2026, encaminhado pelo dono): *"tô fazendo as rota e tá aparecendo os
+       * boarding na lista"*. O contrato escrito (28/09/2026) é literal — *"por via de regra todo boarding
+       * vai pro daycare (ou seja eles no início do dia já estarão dentro da van … não entra como parada na
+       * rota, mas entram na lista de total pack e contagem do dia)"* — mas o código exigia
+       * `transport_required = false`, então o boarding de UM DIA com transporte (casos reais de 02/10:
+       * Honey Bea e Archie) voltava a ser parada de pickup.
+       *
+       * Agora TODO boarding que passa pelo daycare nasce DENTRO da van: sai da fila de pickup e aparece
+       * na seção "Boarding — already in the van" (recolhida), onde o gestor inclui à mão quando algum
+       * tiver de voltar para casa. Quem NÃO vai pro daycare (`goesToDaycare = false`, chegada fora do
+       * horário) continua sendo parada normal da rota.
+       */
+      .filter((item) => item.goesToDaycare)
       .map((item) => item.dogId),
   );
 }

@@ -68,8 +68,12 @@ describe('dogsJaNaVan (quem já está dentro da van)', () => {
     expect([...dogsJaNaVan(dia([basil('r1')]))]).toEqual(['d1']);
   });
 
-  it('dia de movimento (Avocado) NÃO está na van: ele é ponto da rota', () => {
-    expect([...dogsJaNaVan(dia([avocado('r1')]))]).toEqual([]);
+  // 🪤 CLIENTE (02/10/2026): *"tô fazendo as rota e tá aparecendo os boarding na lista"* — o boarding
+  // NÃO é parada de pickup por via de regra (contrato 28/09/2026: *"não entra como parada na rota, mas
+  // entram na lista de total pack e contagem do dia"*). A distinção antiga ("dia de movimento entra como
+  // parada") foi SUPERADA por este pedido: agora TODO boarding que passa pelo daycare nasce na van.
+  it('boarding de UM DIA com transporte também nasce na van (Honey Bea e Archie, 02/10/2026)', () => {
+    expect([...dogsJaNaVan(dia([avocado('r1')]))]).toEqual(['d1']);
   });
 
   it('chegada fora do horário (Cocoa no pick-up) NÃO está na van — o cão não vai pro daycare', () => {
@@ -88,9 +92,9 @@ describe('transportPool (fila principal que o Dispatch oferece)', () => {
     expect(transportPool(day).map((item) => item.dogId)).toEqual(['d2']);
   });
 
-  it('dia de movimento do boarding entra na fila (é parada normal da rota)', () => {
+  it('boarding NÃO entra na fila de pickup — o gestor o inclui à mão se precisar', () => {
     const day = dia([avocado('r1', { dog: cao('d1', 'Filó', 'Amor') })]);
-    expect(transportPool(day).map((item) => item.dogId)).toEqual(['d1']);
+    expect(transportPool(day).map((item) => item.dogId)).toEqual([]);
   });
 
   it('mantém quem precisa de transporte e não está na van', () => {
@@ -131,10 +135,10 @@ describe('vanPool (seção "já na van" do Dispatch)', () => {
     expect(vanPool(dia([basil('r1'), basil('r2')]))).toHaveLength(1);
   });
 
-  it('o dia de movimento NÃO entra na seção (ele é ponto da rota)', () => {
+  it('o boarding entra na seção "já na van" (e sai da fila)', () => {
     const day = dia([avocado('r1', { dog: cao('d2', 'Thor', 'Maria') })]);
-    expect(vanPool(day)).toEqual([]);
-    expect(transportPool(day).map((item) => item.dogId)).toEqual(['d2']);
+    expect(vanPool(day).map((item) => item.dogId)).toEqual(['d2']);
+    expect(transportPool(day).map((item) => item.dogId)).toEqual([]);
   });
 
   it('a chegada fora do horário não entra em nenhuma das duas', () => {

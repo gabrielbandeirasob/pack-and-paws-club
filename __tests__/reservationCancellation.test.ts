@@ -52,11 +52,12 @@ it('Kona em dois eventos conta uma vez por serviço, preservando boarding, recor
   expect(day.daycare).toHaveLength(1);
   expect(day.boarding).toHaveLength(1);
   expect(day.daycare[0].transportRequired).toBe(true);
-  // Contrato escrito do cliente (28/09/2026): quem está na seção "já na van" é o dia de HOTEL SEM
-  // movimento. Aqui o dia de boarding do Kona é de MOVIMENTO (transporte marcado) — ele é ponto da
-  // rota (fila principal) e não entra na seção. Antes desta regra ele aparecia nas duas.
-  expect(vanPool(day)).toEqual([]);
-  expect(transportPool(day).map((item) => item.dogId)).toEqual(['kona']);
+  // 🪤 CLIENTE (02/10/2026): *"tô fazendo as rota e tá aparecendo os boarding na lista"* — o boarding
+  // NÃO é parada de pickup por via de regra (contrato 28/09/2026: *"não entra como parada na rota, mas
+  // entram na lista de total pack e contagem do dia"*). A distinção antiga ("dia de movimento entra como
+  // parada") foi SUPERADA por este pedido: agora TODO boarding que passa pelo daycare nasce na van.
+  expect(vanPool(day).map((item) => item.dogId)).toEqual(['kona']);
+  expect(transportPool(day).map((item) => item.dogId)).toEqual([]);
   expect(dayIndicatorsFrom({ daycareCount: day.daycare.length, boardingCount: day.boarding.length,
     dogs: dogsOfDaySummary(day), entries: [], revenueCents: null })).toMatchObject({ daycare: 1, boarding: 1, totalDogs: 1 });
   expect(reservations).toHaveLength(4);
