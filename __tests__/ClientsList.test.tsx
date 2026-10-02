@@ -62,4 +62,28 @@ describe('ClientsList', () => {
     expect(screen.getByText('Maria Silva')).toBeTruthy();
     expect(screen.queryByText('Joao Souza')).toBeNull();
   });
+
+  /**
+   * 🪤 VISTORIA (02/10/2026): a lista era um `ScrollView` que montava TODOS os clientes de uma vez
+   * (cada cartão com foto de cão) — com centenas de famílias a tela fica pesada. Agora é `FlatList`
+   * (virtualizada): aqui se prova que, com 200 clientes, a tela monta só a PRIMEIRA janela.
+   */
+  it('a lista é virtualizada: 200 clientes não montam 200 cartões de uma vez', async () => {
+    const muitos: ClientWithDogs[] = Array.from({ length: 200 }, (_, indice) => ({
+      id: `c${indice}`,
+      name: `Cliente ${indice}`,
+      phone: null,
+      address_line_1: null,
+      city: null,
+      state: null,
+      active: true,
+      dogs: [{ name: `Cao ${indice}`, photo_url: null }],
+    }));
+
+    const screen = await render(<ClientsList clients={muitos} loading={false} onAddClient={jest.fn()} onOpenClient={jest.fn()} />);
+
+    // O primeiro entra (a janela inicial do FlatList) e o último NÃO é montado.
+    expect(screen.getByLabelText('Edit Cliente 0')).toBeTruthy();
+    expect(screen.queryByLabelText('Edit Cliente 199')).toBeNull();
+  });
 });

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ActivityIndicator, Image, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, Linking, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radii } from '@/features/theme/tokens';
 import { filterClients, inactiveCount, sortClientsForList } from '@/features/clients/clientsService';
@@ -28,6 +28,49 @@ export function ClientsList({ clients, loading, onAddClient, onOpenClient, refre
   const ordenados = sortClientsForList(clients, { showInactive });
   const visible = filterClients(ordenados, query);
   const filtroEscondeTudo = visible.length === 0 && inativos > 0 && !showInactive && query.trim().length === 0;
+  /** O cartão de um cliente (o mesmo de antes, agora reaproveitado pela lista virtualizada). */
+  const cartaoDoCliente = (client: ClientWithDogs) => {
+    // Acoes rapidas do dia a dia: ligar e mandar mensagem direto do card, sem abrir o cadastro.
+    // Sem numero valido (ou numero curto demais), o botao nem aparece.
+    const callUrl = phoneUrl(client.phone);
+    const textUrl = smsUrl(client.phone, clientMessageTemplate(client.name));
+    return (
+              <Pressable key={client.id} accessibilityRole="button" accessibilityLabel={`Edit ${client.name}`} onPress={() => onOpenClient(client.id)} style={({ pressed }) => [styles.card, pressed && styles.pressedCard]}>
+                  <View style={styles.cardTop}>
+                    <Text style={styles.clientName}>{client.name}</Text>
+                    {client.active ? <Text style={styles.editHint}>Edit ›</Text> : <Text style={styles.inactiveChip}>INACTIVE</Text>}
+                  </View>
+                  <Text style={styles.muted}>{client.phone || 'No phone number'}</Text>
+                  <Text style={styles.muted}>{client.address_line_1 ?? ''}{client.address_line_1 && client.city ? ' · ' : ''}{client.city ?? ''}</Text>
+                  <View style={styles.dogRow}>
+                    {client.dogs.map((dog: ClientWithDogs['dogs'][number]) => (
+                      <View key={dog.name} style={styles.dogChip}>
+                        {/* Foto do cao JÁ NA LISTA: e o que o gestor usa para reconhecer a familia
+                            sem abrir o cadastro (pedido do Gabriel, 23/09/2026). Sem foto, o chip
+                            fica so com o nome — nunca um espaco vazio. */}
+                        {dog.photo_url ? <Image source={{ uri: dog.photo_url }} style={styles.dogChipPhoto} accessibilityLabel={`Photo of ${dog.name}`} /> : null}
+                        <Text style={styles.dogChipText}>{dog.name}</Text>
+                      </View>
+                    ))}
+                  </View>
+                  {callUrl || textUrl ? (
+                    <View style={styles.quickRow}>
+                      {callUrl ? (
+                        <Pressable accessibilityRole="button" accessibilityLabel={`Call ${client.name}`} onPress={() => void Linking.openURL(callUrl)} style={({ pressed }) => [styles.quickButton, pressed && styles.pressedCard]}>
+                          <Text style={styles.quickText}>Call</Text>
+                        </Pressable>
+                      ) : null}
+                      {textUrl ? (
+                        <Pressable accessibilityRole="button" accessibilityLabel={`Text ${client.name}`} onPress={() => void Linking.openURL(textUrl)} style={({ pressed }) => [styles.quickButton, pressed && styles.pressedCard]}>
+                          <Text style={styles.quickText}>Text</Text>
+                        </Pressable>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </Pressable>
+    );
+  };
+
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
@@ -74,7 +117,15 @@ export function ClientsList({ clients, loading, onAddClient, onOpenClient, refre
             <Text style={styles.emptyText}>Add your first client from the iPhone contacts.</Text>
           </View>
         ) : (
-          <ScrollView
+          /**
+           * 🪤 ACHADO DA VISTORIA (02/10/2026): a lista era um `ScrollView` com TODOS os clientes
+           * montados de uma vez (cada cartão com foto de cão) — com centenas de famílias a tela fica
+           * pesada ao rolar e ao buscar. Agora é `FlatList` (virtualizada: monta só o que aparece).
+           */
+          <FlatList
+            data={visible}
+            keyExtractor={(client) => client.id}
+            renderItem={({ item: client }) => cartaoDoCliente(client)}
             automaticallyAdjustContentInsets={false}
             contentInsetAdjustmentBehavior="never"
             showsVerticalScrollIndicator={false}
@@ -82,51 +133,13 @@ export function ClientsList({ clients, loading, onAddClient, onOpenClient, refre
             refreshControl={
               onRefresh ? <RefreshControl refreshing={refreshing ?? false} onRefresh={onRefresh} tintColor={colors.gold} /> : undefined
             }
-          >
-            {visible.length === 0 && !filtroEscondeTudo ? <Text style={styles.noResults}>No clients match “{query}”.</Text> : null}
-            {filtroEscondeTudo ? <Text style={styles.noResults}>All clients are inactive — tap “Show {inativos} inactive” to see them.</Text> : null}
-            {visible.map((client) => {
-              // Acoes rapidas do dia a dia: ligar e mandar mensagem direto do card, sem abrir o
-              // cadastro. Sem numero valido (ou numero curto demais), o botao nem aparece.
-              const callUrl = phoneUrl(client.phone);
-              const textUrl = smsUrl(client.phone, clientMessageTemplate(client.name));
-              return (
-              <Pressable key={client.id} accessibilityRole="button" accessibilityLabel={`Edit ${client.name}`} onPress={() => onOpenClient(client.id)} style={({ pressed }) => [styles.card, pressed && styles.pressedCard]}>
-                <View style={styles.cardTop}>
-                  <Text style={styles.clientName}>{client.name}</Text>
-                  {client.active ? <Text style={styles.editHint}>Edit ›</Text> : <Text style={styles.inactiveChip}>INACTIVE</Text>}
-                </View>
-                <Text style={styles.muted}>{client.phone || 'No phone number'}</Text>
-                <Text style={styles.muted}>{client.address_line_1 ?? ''}{client.address_line_1 && client.city ? ' · ' : ''}{client.city ?? ''}</Text>
-                <View style={styles.dogRow}>
-                  {client.dogs.map((dog) => (
-                    <View key={dog.name} style={styles.dogChip}>
-                      {/* Foto do cao JÁ NA LISTA: e o que o gestor usa para reconhecer a familia
-                          sem abrir o cadastro (pedido do Gabriel, 23/09/2026). Sem foto, o chip
-                          fica so com o nome — nunca um espaco vazio. */}
-                      {dog.photo_url ? <Image source={{ uri: dog.photo_url }} style={styles.dogChipPhoto} accessibilityLabel={`Photo of ${dog.name}`} /> : null}
-                      <Text style={styles.dogChipText}>{dog.name}</Text>
-                    </View>
-                  ))}
-                </View>
-                {callUrl || textUrl ? (
-                  <View style={styles.quickRow}>
-                    {callUrl ? (
-                      <Pressable accessibilityRole="button" accessibilityLabel={`Call ${client.name}`} onPress={() => void Linking.openURL(callUrl)} style={({ pressed }) => [styles.quickButton, pressed && styles.pressedCard]}>
-                        <Text style={styles.quickText}>Call</Text>
-                      </Pressable>
-                    ) : null}
-                    {textUrl ? (
-                      <Pressable accessibilityRole="button" accessibilityLabel={`Text ${client.name}`} onPress={() => void Linking.openURL(textUrl)} style={({ pressed }) => [styles.quickButton, pressed && styles.pressedCard]}>
-                        <Text style={styles.quickText}>Text</Text>
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ) : null}
-              </Pressable>
-              );
-            })}
-          </ScrollView>
+            ListEmptyComponent={
+              <>
+                {visible.length === 0 && !filtroEscondeTudo ? <Text style={styles.noResults}>No clients match “{query}”.</Text> : null}
+                {filtroEscondeTudo ? <Text style={styles.noResults}>All clients are inactive — tap “Show {inativos} inactive” to see them.</Text> : null}
+              </>
+            }
+          />
         )}
       </View>
     </View>
