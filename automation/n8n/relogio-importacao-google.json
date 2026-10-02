@@ -23,6 +23,77 @@
     },
     {
       "parameters": {
+        "method": "GET",
+        "url": "https://n8n.automaorg.com.br/api/v1/executions?workflowId=04cK2kkcsvSoCMj0&status=running&limit=20",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "id": "ver-execucoes",
+      "name": "Já tem execução em curso?",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        160
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "yOiq9bsgDZ7MUSf2",
+          "name": "Pack & Paws — n8n API (trava de execução)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pendência #4: trava de execução paralela do relógio do Google Calendar.\n// A API do n8n (nó anterior) devolve {\"data\":[execuções em curso], \"nextCursor\":...}.\n// Regra: se existe OUTRA execução deste workflow em curso, encerra cedo (IF -> false).\n// Fail-open: se a checagem não veio em formato esperado, libera (não deixa o robô travado).\nconst bruto = $json;\nconst corpo = (bruto && bruto.data !== undefined) ? bruto.data : bruto;\nconst lista = Array.isArray(corpo) ? corpo : (Array.isArray(bruto && bruto.data) ? bruto.data : null);\nconst eu = String($execution.id);\nif (lista === null) {\n  return [{ json: { podeRodar: true, motivo: 'checagem indisponivel (fail-open)', execucoes: [] } }];\n}\nconst outras = lista.filter((e) => e && String(e.id) !== eu);\nreturn [{ json: {\n  podeRodar: outras.length === 0,\n  motivo: outras.length === 0 ? 'nenhuma outra execucao em curso' : 'ja existe execucao em curso',\n  execucoes: outras.map((e) => String(e.id)),\n} }];"
+      },
+      "id": "trava",
+      "name": "Trava de execução",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "pode",
+              "leftValue": "={{ $json.podeRodar }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "pode-importar",
+      "name": "Pode importar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://bhuexxjcrjdhkmsvagdw.supabase.co/functions/v1/google-calendar-sync",
         "sendHeaders": true,
@@ -48,7 +119,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        520,
+        1140,
         300
       ],
       "credentials": {
@@ -56,11 +127,47 @@
           "id": "hbTzue2cxBXHpInp",
           "name": "Pack & Paws — x-cron-secret"
         }
-      }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     }
   ],
   "connections": {
     "A cada 15 minutos": {
+      "main": [
+        [
+          {
+            "node": "Já tem execução em curso?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Já tem execução em curso?": {
+      "main": [
+        [
+          {
+            "node": "Trava de execução",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trava de execução": {
+      "main": [
+        [
+          {
+            "node": "Pode importar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pode importar?": {
       "main": [
         [
           {
