@@ -34,7 +34,7 @@ jest.mock('@/lib/supabase', () => ({ supabase: {
   from: jest.fn((table: string) => {
     let select = '', operation = '', payload: any; const filters: Record<string, any> = {};
     const q: any = {};
-    for (const method of ['select', 'eq', 'in', 'limit', 'order', 'update', 'delete', 'upsert', 'insert']) {
+    for (const method of ['select', 'eq', 'in', 'gte', 'lte', 'limit', 'order', 'update', 'delete', 'upsert', 'insert']) {
       q[method] = (...args: any[]) => {
         if (method === 'select') select = args[0];
         if (method === 'eq') filters[args[0]] = args[1];

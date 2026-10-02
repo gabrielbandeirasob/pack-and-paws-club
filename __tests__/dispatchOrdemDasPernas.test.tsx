@@ -44,7 +44,7 @@ jest.mock('@/lib/supabase', () => ({
     from: jest.fn((tabela: string) => {
       let selecao = '';
       const consulta: Record<string, any> = {};
-      for (const metodo of ['select', 'eq', 'in', 'limit', 'order', 'update', 'delete', 'single']) {
+      for (const metodo of ['select', 'eq', 'in', 'gte', 'lte', 'limit', 'order', 'update', 'delete', 'single']) {
         consulta[metodo] = (...args: unknown[]) => {
           if (metodo === 'select') selecao = args[0] as string;
           return consulta;

@@ -38,7 +38,7 @@ jest.mock('@/lib/supabase', () => ({
         if (tabela === 'routes') mockAtualizacoes.push(valores);
         return consulta;
       };
-      for (const metodo of ['select', 'eq', 'in', 'limit', 'order', 'delete', 'single']) {
+      for (const metodo of ['select', 'eq', 'in', 'gte', 'lte', 'limit', 'order', 'delete', 'single']) {
         consulta[metodo] = (...args: unknown[]) => {
           if (metodo === 'select') selecao = args[0] as string;
           return consulta;

@@ -1,0 +1,135 @@
+/**
+ * AUDITORIA DO GESTOR (02/10/2026) — M4 (contraste) e M5 (legendas/alvos de toque).
+ *
+ * M4: `colors.gold` (C7A75C) usado como TEXTO sobre cartão claro ficava em ~2,3:1 (abaixo do mínimo
+ *     WCAG de 4,5:1). Os links "Show/Hide", "Edit ›" e "›" passam a `forest700`.
+ * M5: legendas ≥12 pt e alvos de toque ≥44 pt no quadro do gestor.
+ */
+import { render, waitFor } from '@testing-library/react-native';
+
+jest.mock('expo-router', () => {
+  const { useEffect } = require('react');
+  return {
+    useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn() }),
+    useLocalSearchParams: () => ({}),
+    useFocusEffect: (cb: () => void) => useEffect(cb, [cb]),
+  };
+});
+
+jest.mock('@/features/auth/useOrganizationRole', () => ({
+  useOrganizationRole: () => ({ role: 'manager', view: 'manager', isLoading: false }),
+}));
+
+jest.mock('@/lib/supabase', () => {
+  const resposta = (tabela: string): { data: unknown; error: null } =>
+    tabela === 'organization_members' ? { data: [{ organization_id: 'org-1' }], error: null } : { data: [], error: null };
+  return {
+    supabase: {
+      auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) },
+      storage: { from: () => ({ createSignedUrl: jest.fn().mockResolvedValue({ data: { signedUrl: 'https://example.test/foto.jpg' }, error: null }) }) },
+      from: (tabela: string) => {
+        const chain: Record<string, unknown> = {};
+        const mesmo = () => chain;
+        for (const metodo of ['eq', 'lte', 'gte', 'in', 'order', 'limit']) chain[metodo] = mesmo;
+        chain.select = mesmo;
+        chain.maybeSingle = async () => resposta(tabela);
+        chain.single = async () => resposta(tabela);
+        chain.then = (res: (v: unknown) => unknown) => Promise.resolve(resposta(tabela)).then(res);
+        return chain;
+      },
+    },
+  };
+});
+
+import { ClientsList } from '@/features/clients/ClientsList';
+import { DayPlanCard } from '@/features/dashboard/DayPlanCard';
+import { PackSheet } from '@/features/dashboard/PackSheet';
+import { DispatchBoard, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
+import { colors } from '@/features/theme/tokens';
+import DaySummaryScreen from '@/app/day-summary';
+import WeekSummaryScreen from '@/app/week-summary';
+import { todayLocalISO } from '@/features/calendar/dates';
+import { dayChipLabel } from '@/features/dashboard/weeklySummary';
+
+const drivers: DispatchDriver[] = [{ id: 'driver-rafael', name: 'Rafael' }];
+const noops = {
+  onAssign: jest.fn().mockResolvedValue(undefined),
+  onSaveStop: jest.fn().mockResolvedValue(undefined),
+  onRemoveStop: jest.fn().mockResolvedValue(undefined),
+  onMoveStop: jest.fn().mockResolvedValue(undefined),
+  onOptimize: jest.fn().mockResolvedValue(undefined),
+  onPublish: jest.fn().mockResolvedValue(undefined),
+  onUnpublish: jest.fn().mockResolvedValue(undefined),
+  onCancelRoute: jest.fn().mockResolvedValue(undefined),
+  onCompleteRoute: jest.fn().mockResolvedValue(undefined),
+  onDateChange: jest.fn(),
+};
+
+describe('M4 — gold como TEXTO vira forest700 (contraste)', () => {
+  it('ClientsList: "Edit ›" usa forest700', async () => {
+    const tela = await render(
+      <ClientsList
+        clients={[{ id: 'c1', name: 'Maria', phone: null, address_line_1: null, city: null, state: null, active: true, dogs: [{ name: 'Bob' }] }]}
+        loading={false}
+        onAddClient={jest.fn()}
+        onOpenClient={jest.fn()}
+      />,
+    );
+    expect(tela.getByText('Edit ›')).toHaveStyle({ color: colors.forest700 });
+  });
+
+  it('DispatchBoard: "Show"/"Hide" (cão já na van) usa forest700', async () => {
+    const dayItems: DispatchStopItem[] = [{ dogId: 'dog-filo', clientName: 'Amor', dogName: 'Filó', reservationKind: 'boarding', inVan: true }];
+    const tela = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} />);
+    expect(tela.getByText('Show')).toHaveStyle({ color: colors.forest700 });
+  });
+});
+
+describe('M5 — legendas ≥12 pt e alvos ≥44 pt no quadro do gestor', () => {
+  const dayItems: DispatchStopItem[] = [
+    { dogId: 'dog-bob', clientName: 'Maria', dogName: 'Bob', reservationKind: 'daycare' },
+    { dogId: 'dog-filo', clientName: 'Amor', dogName: 'Filó', reservationKind: 'boarding', inVan: true },
+  ];
+
+  it('DispatchBoard: eyebrow, título da fila e "Show" têm ≥12 pt; chip tem 44 pt', async () => {
+    const tela = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} />);
+    expect(tela.getByText('PACK & PAWS CLUB · DISPATCH')).toHaveStyle({ fontSize: 12 });
+    expect(tela.getByText(/unassigned/)).toHaveStyle({ fontSize: 12 });
+    expect(tela.getByText('Show')).toHaveStyle({ fontSize: 12 });
+    expect(tela.getByRole('button', { name: 'Assign Maria · Bob' })).toHaveStyle({ minHeight: 44 });
+  });
+
+  it('DayPlanCard: o rótulo do campo tem ≥12 pt', async () => {
+    const tela = await render(<DayPlanCard walkLocation={null} photoIdea={null} onSave={jest.fn()} />);
+    expect(tela.getByText('Walk location')).toHaveStyle({ fontSize: 12 });
+  });
+
+  it('PackSheet: "Walking with" tem ≥12 pt', async () => {
+    const tela = await render(
+      <PackSheet
+        visible
+        dayLabel="Monday"
+        rows={[{ dogId: 'd1', dogName: 'Filó', clientName: 'Amor', serviceType: 'daycare', inPack: true, walkerId: null }] as never}
+        members={[]}
+        onToggle={jest.fn()}
+        onSetWalker={jest.fn()}
+        onClose={jest.fn()}
+      />,
+    );
+    expect(tela.getByText(/Walking with:/)).toHaveStyle({ fontSize: 12 });
+  });
+
+  it('Day summary: o rótulo do plano do dia tem ≥12 pt', async () => {
+    const tela = await render(<DaySummaryScreen />);
+    await waitFor(() => expect(tela.getByText('Walk location')).toBeTruthy());
+    expect(tela.getByText('Walk location')).toHaveStyle({ fontSize: 12 });
+    expect(tela.getByText('Photo of the day — idea')).toHaveStyle({ fontSize: 12 });
+  });
+
+  it('Week summary: o rótulo do dia no chip tem ≥12 pt', async () => {
+    const tela = await render(<WeekSummaryScreen />);
+    const rotulo = dayChipLabel(todayLocalISO());
+    await waitFor(() => expect(tela.getAllByText(rotulo).length).toBeGreaterThan(0));
+    expect(tela.getAllByText(rotulo)[0]).toHaveStyle({ fontSize: 12 });
+  });
+});

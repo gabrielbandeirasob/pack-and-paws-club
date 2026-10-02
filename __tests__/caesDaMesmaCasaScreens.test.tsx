@@ -48,7 +48,7 @@ jest.mock('@/lib/supabase', () => ({
     from: jest.fn((tabela: string) => {
       let selecao = '';
       const consulta: Record<string, any> = {};
-      for (const metodo of ['select', 'eq', 'in', 'limit', 'order', 'update', 'delete', 'upsert', 'insert']) {
+      for (const metodo of ['select', 'eq', 'in', 'gte', 'lte', 'limit', 'order', 'update', 'delete', 'upsert', 'insert']) {
         consulta[metodo] = (...args: unknown[]) => {
           if (metodo === 'select') selecao = args[0] as string;
           if (['insert', 'upsert', 'update'].includes(metodo)) mockEscritas.push({ tabela, metodo, payload: args[0] as Record<string, unknown> });

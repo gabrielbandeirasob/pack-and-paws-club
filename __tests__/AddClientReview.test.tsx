@@ -256,3 +256,34 @@ describe('foto do cao no cadastro por contato', () => {
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ dogs: ['Bob'], dogPhotos: {} }));
   });
 });
+
+/**
+ * B2 DA AUDITORIA (02/10/2026): a foto era indexada pelo NOME do cão. Renomear o cão depois de escolher
+ * a foto deixava a chave velha no mapa e a miniatura sumia — o cadastro salvava SEM foto. A correção
+ * migra a chave junto com o nome digitado.
+ */
+describe('renomear o cão depois da foto não perde a foto', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('a miniatura segue o nome novo e o payload leva a foto', async () => {
+    const alertas = capturarAlertas();
+    picker.requestMediaLibraryPermissionsAsync.mockResolvedValue({ granted: true });
+    picker.launchImageLibraryAsync.mockResolvedValue({ canceled: false, assets: [{ uri: 'file:///var/mobile/bob.jpg' }] });
+
+    const onSave = jest.fn().mockResolvedValue(undefined);
+    const screen = await render(<AddClientReview initial={input} onSave={onSave} onCancel={jest.fn()} />);
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Bob');
+    await fireEvent.press(screen.getByLabelText('Add photo for Bob'));
+    alertas[0].buttons?.find((b) => b.text === 'Choose from library')?.onPress?.();
+    await screen.findByLabelText('Photo of Bob');
+
+    // Renomeia para OUTRO nome (não só caixa/acento): a miniatura tem de seguir.
+    await fireEvent.changeText(screen.getByLabelText('Dog name'), 'Rex');
+    expect(screen.getByLabelText('Photo of Rex')).toBeTruthy();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Add as client' }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ dogs: ['Rex'], dogPhotos: { rex: 'file:///var/mobile/bob.jpg' } }),
+    );
+  });
+});

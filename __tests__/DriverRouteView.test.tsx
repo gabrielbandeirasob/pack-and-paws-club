@@ -169,4 +169,28 @@ describe('DriverRouteView', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Open navigation for Bob' }));
     expect(onAction).toHaveBeenCalledTimes(2);
   });
+
+  /**
+   * 🪤 VISTORIA (02/10/2026) — BECO SEM SAÍDA NA ENTREGA.
+   *
+   * Depois do 2º toque ("Next") a parada fica `completed` SEM `deliveredAt` e o botão "Problem" só
+   * existia na CHEGADA (`arrived`). Se o tutor não estivesse em casa, o motorista só tinha "Delivered"
+   * — a parada nunca fechava e o dia não acabava. Agora a ENTREGA expõe as DUAS saídas.
+   */
+  it('na ENTREGA (cão na van, sem deliveredAt) há DUAS saídas: Delivered e Problem', async () => {
+    const naVan: DriverStop[] = [{ ...stops[0], status: 'completed' }];
+    const onAction = jest.fn().mockResolvedValue(undefined);
+    const tela = await render(<DriverRouteView stops={naVan} onAction={onAction} />);
+
+    await fireEvent.press(tela.getByRole('button', { name: 'Delivered Bob' }));
+    expect(onAction).toHaveBeenCalledWith('stop-1', 'deliver');
+    await fireEvent.press(tela.getByRole('button', { name: 'Problem stop-1' }));
+    expect(onAction).toHaveBeenCalledWith('stop-1', 'problem');
+  });
+
+  it('parada ENTREGUE não oferece mais o Problem (o dia dela acabou)', async () => {
+    const entregue: DriverStop[] = [{ ...stops[0], status: 'completed', deliveredAt: '2026-10-01T21:05:00.000Z' }];
+    const tela = await render(<DriverRouteView stops={entregue} onAction={jest.fn()} />);
+    expect(tela.queryByRole('button', { name: 'Problem stop-1' })).toBeNull();
+  });
 });

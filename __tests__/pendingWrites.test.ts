@@ -10,7 +10,6 @@ jest.mock('@react-native-async-storage/async-storage', () => require('@react-nat
 import {
   enqueuePending,
   flushPendingWrites,
-  pendingNoticeCount,
   pendingOpenShift,
   type PendingWrite,
 } from '@/features/driver/pendingWrites';
@@ -46,7 +45,6 @@ describe('fila de escritas pendentes', () => {
     let fila: PendingWrite[] = enqueuePending([], aviso('s1'));
     fila = enqueuePending(fila, aviso('s1'));
     fila = enqueuePending(fila, aviso('s2'));
-    expect(pendingNoticeCount(fila)).toBe(2);
     expect(fila.filter((entry) => entry.kind === 'eta_notice')).toHaveLength(2);
   });
 
@@ -84,5 +82,18 @@ describe('fila de escritas pendentes', () => {
     expect(resultado.dropped).toBe(1);
     expect(resultado.sent).toBe(1);
     expect(resultado.remaining).toEqual([]);
+  });
+
+  it('falha que NÃO é recusa definitiva (ex.: organização ainda indisponível) PRESERVA o registro', async () => {
+    // 🪤 Vistoria 02/10/2026: um clock in num dia sem rota lançava "Organization not found for this
+    // account." e a jornada era DESCARTADA em silêncio — o dia sumia do relatório de horas. Agora só
+    // a recusa DEFINITIVA do banco descarta; qualquer outra falha mantém o registro no aparelho.
+    const resultado = await flushPendingWrites([jornadaAberta(), aviso('s1')], async (entry) => {
+      if (entry.kind === 'shift') throw new Error('Organization not found for this account.');
+    });
+    expect(resultado.dropped).toBe(0);
+    expect(resultado.sent).toBe(0);
+    expect(resultado.remaining).toHaveLength(2); // nem a jornada nem o aviso são apagados
+    expect(resultado.remaining[0].kind).toBe('shift');
   });
 });

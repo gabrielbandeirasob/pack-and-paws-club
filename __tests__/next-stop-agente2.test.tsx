@@ -24,6 +24,7 @@ import {
   NEXT_ACTION_LABEL,
   NextStopCard,
   nextActionForStatus,
+  nextActionsForStatus,
   nextStopFor,
 } from '@/features/driver/NextStopCard';
 import type { DriverStop } from '@/features/driver/DriverRouteView';
@@ -95,6 +96,32 @@ describe('mapa de ações do dia (mesmo caminho da lista)', () => {
     // Entregue (ou problema): aí sim nada mais a fazer.
     expect(nextActionForStatus('completed', '2026-10-01T21:00:00.000Z')).toBeNull();
     expect(nextActionForStatus('skipped')).toBeNull();
+  });
+});
+
+/**
+ * 🪤 VISTORIA (02/10/2026) — SAÍDAS DO DIA.
+ *
+ * Na BUSCA é uma saída por toque. Na ENTREGA (`deliver`) são DUAS: confirmar (Delivered) OU
+ * reportar problema (o tutor não estava em casa). Antes da correção a entrega só oferecia
+ * "Delivered" — um beco sem saída que deixava o dia sem fechar.
+ */
+describe('saídas do dia (Problem disponível na entrega)', () => {
+  it('na entrega expõe Delivered E Problem; nas outras fases, só a principal', () => {
+    expect(nextActionsForStatus('pending')).toEqual(['arrived']);
+    expect(nextActionsForStatus('arrived')).toEqual(['finish']);
+    expect(nextActionsForStatus('picked_up')).toEqual(['finish', 'problem']);
+    expect(nextActionsForStatus('completed')).toEqual(['deliver', 'problem']);
+    // Entregue: o dia dela acabou — nenhuma saída.
+    expect(nextActionsForStatus('completed', '2026-10-01T21:00:00.000Z')).toEqual([]);
+    expect(nextActionsForStatus('skipped')).toEqual([]);
+  });
+
+  it('o cartão da próxima parada mostra as DUAS saídas da entrega', async () => {
+    const { tela, onAction } = await painel(parada({ status: 'completed' }));
+    expect(tela.getByLabelText('Next stop: Delivered for Bob')).toBeTruthy();
+    await fireEvent.press(tela.getByLabelText('Next stop: Problem for Bob'));
+    expect(onAction).toHaveBeenCalledWith('stop-1', 'problem');
   });
 });
 
