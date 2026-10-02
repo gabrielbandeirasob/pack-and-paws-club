@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { buildDay, transportPool, vanPool, type DogRef, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { todayLocalISO } from '@/features/calendar/dates';
-import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
+import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem, type DispatchVan } from '@/features/dispatch/DispatchBoard';
 import { juntarIrmaosDeCasa, vaoJunto } from '@/features/dispatch/houseMates';
 import { avisoDeFalhaParcial, type FalhaParcial } from '@/features/dispatch/partialWrite';
 import { criarFilaDeEscrita, trocarNaOrdem } from '@/features/dispatch/reorderQueue';
@@ -18,7 +18,7 @@ import type { TravelTimes } from '@/features/dispatch/travelMatrix';
 import { showAlert } from '@/features/ui/alert';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
-import { loadOrganizationLocations, vanLocationForRoute } from '@/features/organization/locations';
+import { loadOrganizationLocations, vanDaRota, vanLocationForRoute } from '@/features/organization/locations';
 import { sugerirRotas, type BlocoSugerido, type SugestaoDeRotas } from '@/features/dispatch/routeSuggestion';
 
 type DriverRow = { user_id: string; role: 'manager' | 'driver'; profiles: { full_name: string | null } | null };
@@ -42,7 +42,7 @@ type StopRow = {
   dropoff_proof_path: string | null;
   dog: { id: string; name: string; client: { id?: string; name: string; latitude: number | null; longitude: number | null } };
 };
-type RouteRow = { id: string; driver_id: string; status: DispatchRoute['status']; lock_version: number | null; route_stops: StopRow[] | null };
+type RouteRow = { id: string; driver_id: string; status: DispatchRoute['status']; lock_version: number | null; start_location_id?: string | null; route_stops: StopRow[] | null };
 type DogRow = { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } };
 
 /** Coordenada do endereço do cliente por cão — é o que a sugestão de rota usa (geografia). */
@@ -90,6 +90,13 @@ export default function DispatchScreen() {
    * sugestão caíam na van padrão — que estava apontando para um cadastro de TESTE em outra cidade.
    */
   const sedePadraoId = useRef<string | null>(null);
+  /**
+   * VANS DA ORGANIZAÇÃO + a van ESCOLHIDA por motorista (pergunta do dono, 01/10/2026: *"vamos supor que
+   * tenhas várias vans, o erro não vai se repetir?"*). A escolha vale para a rota que já existe (update
+   * imediato) e para a rota que ainda vai nascer (o mapa é lido na criação).
+   */
+  const [vans, setVans] = useState<DispatchVan[]>([]);
+  const vanPorMotorista = useRef<Map<string, string>>(new Map());
   /**
    * Cães adicionados À MÃO pelo gestor. Guardados num ref (e não no estado) para sobreviverem ao
    * recarregamento: o carregamento reconstrói a fila a partir do calendário, e sem isso o cão manual
@@ -191,7 +198,11 @@ export default function DispatchScreen() {
      * NULL — que era o defeito original (item 1/3 da conferência, 01/10/2026).
      */
     void loadOrganizationLocations(supabase, orgId)
-      .then((vans) => { sedePadraoId.current = vanLocationForRoute(vans, null)?.id ?? null; })
+      .then((carregadas) => {
+        sedePadraoId.current = vanLocationForRoute(carregadas, null)?.id ?? null;
+        // Só interessa o que o cartão do motorista precisa (as vans com id/rótulo/padrão).
+        setVans(carregadas.map((local) => ({ id: local.id, name: local.name, isDefault: local.isDefault })));
+      })
       .catch(() => { sedePadraoId.current = null; });
     const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? dogResult.error;
     if (firstError) { falhou('dia', firstError.message); return; }
@@ -258,7 +269,7 @@ export default function DispatchScreen() {
     const consulta = ++leituraRotas.current;
     const leitura = { ...revisoes.current };
     const pendentes = new Set(routesRef.current.filter((rota) => (fila.pendente(rota.routeId) || gravandoOrdens.current.has(rota.routeId))).map((rota) => rota.routeId));
-    const routeResult = await supabase.from('routes').select('id, driver_id, status, lock_version, route_stops(dog_id, pickup_pin, pickup_pin_position, dropoff_pin, dropoff_pin_position, dropoff_sequence, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, client:clients(id, name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date);
+    const routeResult = await supabase.from('routes').select('id, driver_id, status, lock_version, start_location_id, route_stops(dog_id, pickup_pin, pickup_pin_position, dropoff_pin, dropoff_pin_position, dropoff_sequence, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, client:clients(id, name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date);
     if (date !== contexto.current.date || consulta !== leituraRotas.current) return;
     if (routeResult.error) { falhou('rotas', routeResult.error.message); return; }
     falhou('rotas', null);
@@ -271,6 +282,8 @@ export default function DispatchScreen() {
       routeId: row.id,
       driverId: row.driver_id,
       status: row.status,
+      // A van escolhida para ESTA rota (é o que o cartão mostra marcado).
+      startLocationId: row.start_location_id ?? null,
       stops: (row.route_stops ?? []).map((stop) => ({
         dogId: stop.dog_id,
         pickupPin: stop.pickup_pin,
@@ -437,20 +450,54 @@ export default function DispatchScreen() {
     [],
   );
 
+  /**
+   * A van que vai GRAVADA numa rota que nasce (dono, 01/10/2026 — organização com várias vans):
+   *  1. a van que o gestor escolheu para aquele motorista no cartão;
+   *  2. sem escolha e com UMA van cadastrada, a padrão (explícito e estável — o mundo de hoje);
+   *  3. com DUAS ou mais e nenhuma escolha, NENHUMA (`undefined`): a rota fica sem van de propósito para
+   *     o app resolver pela MAIS PRÓXIMA das paradas. É isso que impede a repetição do defeito de
+   *     01/10/2026, quando toda rota nascia apontando para a van padrão (que era um cadastro de teste).
+   */
+  const vanParaRota = useCallback(
+    (driverId: string) =>
+      vanPorMotorista.current.get(driverId) ?? (vans.length <= 1 ? sedePadraoId.current : null) ?? undefined,
+    [vans.length],
+  );
+
   const routeIdForDriver = useCallback(async (driverId: string) => {
     if (!organizationId) throw new Error('Organization not found.');
     const { data: route, error: routeError } = await supabase.from('routes').upsert(
       {
         organization_id: organizationId, route_date: date, driver_id: driverId, status: 'draft',
-        // A sede da organização vai gravada na rota (o app não tem seletor de sede ainda): sem isso a
-        // trava do clock-in e a sugestão ficavam reféns da van padrão do momento.
-        start_location_id: sedePadraoId.current ?? undefined,
+        start_location_id: vanParaRota(driverId),
       },
       { onConflict: 'organization_id,route_date,driver_id' },
     ).select('id').single();
     if (routeError) throw new Error(routeError.message);
     return (route as { id: string }).id;
-  }, [organizationId, date]);
+  }, [organizationId, date, vanParaRota]);
+
+  /**
+   * TROCA A VAN DE UM MOTORISTA (dono, 01/10/2026).
+   *
+   * Rota que já existe: grava na hora em `routes.start_location_id` — é o campo que decide o ponto do
+   * clock in e a partida da sugestão. Rota que ainda não existe: a escolha fica guardada e entra na
+   * criação (o gestor escolhe a van antes de atribuir o primeiro cão, que é o caso normal).
+   */
+  const escolherVan = useCallback(
+    async (driverId: string, locationId: string) => {
+      vanPorMotorista.current.set(driverId, locationId);
+      const rota = routesRef.current.find((item) => item.driverId === driverId);
+      if (!rota) return;
+      const { error } = await supabase.from('routes').update({ start_location_id: locationId }).eq('id', rota.routeId);
+      if (error) {
+        showAlert('Could not change the van', error.message);
+        return;
+      }
+      await carregarRotas();
+    },
+    [carregarRotas],
+  );
 
   /**
    * Atribui o cão ao motorista — e leva JUNTO os irmãos de casa (mesmo cliente) que ainda estão sem
@@ -548,9 +595,14 @@ export default function DispatchScreen() {
       return !rota || (rota.status === 'draft' && rota.stops.every(s =>
         s.status === 'pending' && !s.pickupPin && !s.dropoffPin));
     });
-    const vans = await loadOrganizationLocations(supabase, organizationId);
+    const sedes = await loadOrganizationLocations(supabase, organizationId);
     if (dia !== contexto.current.date || assinatura !== assinaturaDaSugestao()) return null;
-    const van = vanLocationForRoute(vans, null);
+    /*
+     * De onde a sugestão parte: a van do motorista escolhido (ou a padrão) — e, com MAIS DE UMA van
+     * cadastrada e nenhuma escolha, a MAIS PRÓXIMA dos cães do dia (pergunta do dono, 01/10/2026:
+     * organização com várias vans não pode ter todas as rotas saindo sempre da mesma).
+     */
+    const van = vanDaRota(sedes, disponiveis[0] ? vanPorMotorista.current.get(disponiveis[0].user_id) ?? null : null, caes);
     const inicio = van ? { latitude: van.latitude, longitude: van.longitude } : null;
     const motoristas = disponiveis.map(driver => ({ driverId: driver.user_id, driverName: driver.profiles?.full_name?.trim() || 'Driver' }));
     const motoristaDaCasa = new Map<string, Set<string>>();
@@ -617,6 +669,9 @@ export default function DispatchScreen() {
         if (!routeId) {
           const { data, error } = await supabase.from('routes').insert({
             organization_id: proposta!.org, route_date: proposta!.dia, driver_id: bloco.driverId, status: 'draft',
+            // Mesma regra da atribuição à mão: a van escolhida pelo gestor (ou nada, para o app decidir
+            // pela mais próxima). Sem isto a rota da sugestão nascia sem van e caía na PADRÃO.
+            start_location_id: vanParaRota(bloco.driverId),
           }).select('id, lock_version').single();
           if (error) throw new Error(error.message);
           routeId = (data as { id: string }).id;
@@ -649,7 +704,7 @@ export default function DispatchScreen() {
     } finally {
       try { await carregarRotas(); } finally { aplicandoSugestao.current = false; }
     }
-  }, [carregarDia, carregarRotas, assinaturaDaSugestao, fila, versaoDe, falhaDeEscrita]);
+  }, [carregarDia, carregarRotas, assinaturaDaSugestao, fila, versaoDe, falhaDeEscrita, vanParaRota]);
 
   const saveStopConstraint = useCallback(async (routeId: string, dogId: string, constraint: DispatchConstraint) => {
     const parada = routesRef.current.find((rota) => rota.routeId === routeId)?.stops.find((stop) => stop.dogId === dogId);
@@ -929,6 +984,9 @@ export default function DispatchScreen() {
           onAssign={assign}
           onSuggestRoutes={sugerirRotasDoDia}
           onApplySuggestion={aplicarSugestao}
+          vans={vans}
+          onChooseVan={escolherVan}
+          vanDoMotorista={(driverId) => vanPorMotorista.current.get(driverId) ?? null}
           onSaveStop={saveStopConstraint}
           onRemoveStop={removeStop}
           onMoveStop={moveStop}

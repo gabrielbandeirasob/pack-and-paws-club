@@ -75,7 +75,16 @@ export type DispatchRouteStop = DispatchStopItem & {
   pickupProofPath?: string | null;
   dropoffProofPath?: string | null;
 } & DispatchConstraint & Travas & { dropoffSequence?: number | null };
-export type DispatchRoute = { routeId: string; driverId: string; status: 'draft' | 'published' | 'completed' | 'cancelled'; stops: DispatchRouteStop[] };
+export type DispatchRoute = {
+  routeId: string;
+  driverId: string;
+  status: 'draft' | 'published' | 'completed' | 'cancelled';
+  /** Van escolhida para ESTA rota (`routes.start_location_id`). Sem ela, o app decide pela mais próxima. */
+  startLocationId?: string | null;
+  stops: DispatchRouteStop[];
+};
+/** Van da organização, na versão que o cartão do motorista precisa (pergunta do dono, 01/10/2026). */
+export type DispatchVan = { id: string; name: string; isDefault: boolean };
 
 type ConstraintKind = 'none' | 'window' | 'exact';
 
@@ -113,6 +122,15 @@ type Props = {
    */
   onSuggestRoutes?: (driverIds?: string[]) => Promise<SugestaoDeRotas | null>;
   onApplySuggestion?: (blocos: BlocoSugerido[]) => Promise<void>;
+  /**
+   * VAN POR MOTORISTA (pergunta do dono, 01/10/2026: *"vamos supor que tenhas várias vans, o erro não
+   * vai se repetir?"*). Com UMA van cadastrada nada aparece (zero ruído); com DUAS ou mais o cartão
+   * mostra a van de cada rota e o gestor escolhe num toque. Sem `onChooseVan` o controle não existe.
+   */
+  vans?: DispatchVan[];
+  onChooseVan?: (driverId: string, locationId: string) => Promise<void>;
+  /** Van já escolhida para o motorista quando a rota dele ainda não existe. */
+  vanDoMotorista?: (driverId: string) => string | null;
 };
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -124,7 +142,7 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion }: Props) {
+export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, vanDoMotorista }: Props) {
   const [travas, setTravas] = useState<Travas>({});
   const [sheet, setSheet] = useState<SheetState>(null);
   /**
@@ -325,6 +343,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
               (drivers.find(d => routes.some(r => r.driverId === d.id && r.stops.length >= 2)) ?? drivers[0])?.id
               ? pedirSugestao : undefined}
             suggestionBusy={sugestaoBusy}
+            vans={vans} onChooseVan={onChooseVan} vanDoMotorista={vanDoMotorista}
             onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
         ))}
         <View style={styles.unassigned}>
@@ -594,16 +613,36 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
   setSheet: (sheet: SheetState) => void;
   onSuggest?: () => Promise<void>;
   suggestionBusy?: boolean;
+  vans?: DispatchVan[];
+  onChooseVan?: Props['onChooseVan'];
+  vanDoMotorista?: Props['vanDoMotorista'];
 };
 
 const CartaoMotorista = memo(function CartaoMotorista({
   driver, route, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
   onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy,
+  vans, onChooseVan, vanDoMotorista,
 }: PropsCartao) {
   const [perna, setPerna] = useState<Perna>('pickup');
+  const [salvandoVan, setSalvandoVan] = useState(false);
   const avisoRota = avisoDeRotaInvisivel(route?.status);
   const mover = perna === 'pickup' ? onMoveStop : onMoveDropoff;
   const stops = useMemo(() => (perna === 'pickup' ? ordemDaBusca : ordemDaEntrega)(route?.stops ?? []), [route, perna]);
+  /*
+   * VAN DA ROTA (pergunta do dono, 01/10/2026). A van da rota manda; quando ela ainda não existe, vale a
+   * escolha que o gestor fez no cartão (fica guardada na tela e vai gravada na rota que nascer). Sem
+   * escolha nenhuma o app decide sozinho pela van mais próxima das paradas — o cartão diz isso em letras.
+   */
+  const vanAtiva = route?.startLocationId ?? vanDoMotorista?.(driver.id) ?? null;
+  const escolherVan = async (locationId: string) => {
+    if (!onChooseVan || salvandoVan || vanAtiva === locationId) return;
+    setSalvandoVan(true);
+    try {
+      await onChooseVan(driver.id, locationId);
+    } finally {
+      setSalvandoVan(false);
+    }
+  };
   // Idade da última posição: a tela avisa quando fica velha e ESCONDE o ETA quando é antiga
   // demais (melhoria 3 da revisão das contas) — número calculado de posição velha engana.
   const frescor = location ? frescorDaPosicao(location.updatedAt) : null;
@@ -653,6 +692,32 @@ const CartaoMotorista = memo(function CartaoMotorista({
             ) : null}
           </View>
         </View>
+        {vans && vans.length > 1 && onChooseVan ? (
+          <View style={styles.vanLinha} testID={`driver-van-${driver.id}`}>
+            <Text style={styles.vanRotulo}>Van</Text>
+            <View style={styles.vanChips}>
+              {vans.map((van) => {
+                const ativa = vanAtiva === van.id;
+                return (
+                  <Pressable
+                    key={van.id}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: ativa }}
+                    accessibilityLabel={`Use ${van.name} for ${driver.name}`}
+                    disabled={salvandoVan || working || route?.status === 'completed' || route?.status === 'cancelled'}
+                    onPress={() => void escolherVan(van.id)}
+                    style={[styles.vanChip, ativa ? styles.vanChipAtiva : null]}
+                  >
+                    <Text numberOfLines={1} style={[styles.vanChipTexto, ativa ? styles.vanChipTextoAtivo : null]}>
+                      {van.name}{van.isDefault ? ' ★' : ''}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {!vanAtiva ? <Text style={styles.vanAuto}>auto · nearest</Text> : null}
+          </View>
+        ) : null}
         {onSuggest || (route && stops.length > 0) ? (
           <View style={styles.driverActions} testID="driver-actions">
             {route && stops.length >= 2 ? (
@@ -813,6 +878,15 @@ const styles = StyleSheet.create({
   /** Rota em rascunho: uma linha fina, âmbar, dizendo que o motorista ainda não vê (não é erro). */
   draftBadge: { alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: colors.gold, backgroundColor: colors.cream, color: colors.forest700, fontSize: 11, fontWeight: '800', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden' },
   sugestaoErro: { color: colors.urgency, fontSize: 11.5, fontWeight: '700', marginBottom: 8 },
+  // VAN POR MOTORISTA (dono, 01/10/2026): uma linha fina, discreta — só aparece com 2+ vans cadastradas.
+  vanLinha: { flexDirection: 'row', alignItems: 'center', gap: 7, marginTop: 8 },
+  vanRotulo: { color: colors.muted, fontSize: 10.5, fontWeight: '800', letterSpacing: 0.4 },
+  vanChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, flexShrink: 1 },
+  vanChip: { borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 9, paddingVertical: 3, backgroundColor: 'white' },
+  vanChipAtiva: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
+  vanChipTexto: { color: colors.forest700, fontSize: 11, fontWeight: '800' },
+  vanChipTextoAtivo: { color: 'white' },
+  vanAuto: { color: colors.muted, fontSize: 10.5, fontStyle: 'italic' },
   sugestaoBloco: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 11, marginBottom: 9, backgroundColor: '#FAFBF7' },
   sugestaoMotorista: { color: colors.ink, fontWeight: '800', fontSize: 13, marginBottom: 4 },
   sugestaoCao: { color: colors.muted, fontSize: 12, lineHeight: 17 },

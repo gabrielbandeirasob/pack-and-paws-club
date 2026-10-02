@@ -61,6 +61,26 @@ function startOfTomorrow(): string {
   return new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + 1).toISOString();
 }
 
+/**
+ * Coordenadas das paradas do dia, na ordem da busca — é o que decide QUAL van vale quando a rota não
+ * aponta uma e a organização tem mais de uma van (pergunta do dono, 01/10/2026). Puro e tolerante:
+ * parada sem coordenada simplesmente não conta.
+ */
+function paradasDaLinha(
+  linhas?: Array<{
+    sequence?: number | null;
+    dog?: { client?: { latitude?: number | null; longitude?: number | null } | null } | null;
+  }> | null,
+): Array<{ latitude: number | null; longitude: number | null }> {
+  return (linhas ?? [])
+    .slice()
+    .sort((a, b) => (a?.sequence ?? 0) - (b?.sequence ?? 0))
+    .map((linha) => ({
+      latitude: linha?.dog?.client?.latitude ?? null,
+      longitude: linha?.dog?.client?.longitude ?? null,
+    }));
+}
+
 export default function DriverTodayScreen() {
   const [stops, setStops] = useState<DriverStop[]>([]);
   const [navTarget, setNavTarget] = useState<{ stopId: string; target: NavTarget } | null>(null);
@@ -270,11 +290,13 @@ export default function DriverTodayScreen() {
         setOrganizationId(route.organization_id);
         // Sede/van da organização (migration 034). Best-effort: sem resposta, fica null — e null
         // significa "sem trava" (o motorista nunca fica preso por causa de uma consulta que falhou).
-        // A sede escolhida NA ROTA tem prioridade sobre a padrão da organização.
+        // A sede escolhida NA ROTA tem prioridade; sem ela, com MAIS DE UMA van cadastrada, vale a mais
+        // próxima das paradas do dia — a padrão só decide depois disso (pergunta do dono, 01/10/2026).
         setVanLocation(
           await loadVanLocationForDriver(supabase, {
             organizationId: route.organization_id,
             startLocationId: route.start_location_id ?? null,
+            paradas: paradasDaLinha(route.route_stops),
           }),
         );
         setOffline(false);

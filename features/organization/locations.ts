@@ -120,6 +120,63 @@ export function vanLocationForRoute(
   return locations.length === 1 ? locations[0] : null;
 }
 
+/**
+ * VAN MAIS PRÓXIMA de um conjunto de pontos (pergunta do dono, 01/10/2026: *"vamos supor que tenhas
+ * várias vans, o erro não vai se repetir?"*).
+ *
+ * Existe para o caso de a rota NÃO dizer de qual van sai: com uma van só isso nunca foi problema, com
+ * várias a escolha "padrão" pode estar do outro lado da cidade — e é o motorista que paga a conta (a
+ * trava do clock in e a sugestão de rota partem dela). Sem ponto utilizável devolve null: quem chama
+ * cai na padrão, nunca chuta posição.
+ */
+export function vanMaisProxima(
+  locations: OrganizationLocation[],
+  pontos: Array<{ latitude?: number | null; longitude?: number | null }>,
+): OrganizationLocation | null {
+  const comPonto = (pontos ?? []).filter((ponto) => coordenadaUtilizavel(ponto?.latitude, ponto?.longitude));
+  if (!locations || locations.length === 0 || comPonto.length === 0) return null;
+  let melhor: OrganizationLocation | null = null;
+  let menorKm = Number.POSITIVE_INFINITY;
+  for (const local of locations) {
+    const km = Math.min(
+      ...comPonto.map((ponto) =>
+        haversineKm(ponto.latitude as number, ponto.longitude as number, local.latitude, local.longitude),
+      ),
+    );
+    if (km < menorKm) {
+      menorKm = km;
+      melhor = local;
+    }
+  }
+  return melhor;
+}
+
+/**
+ * A van que vale para UMA rota, com a conta completa — é o que a tela do motorista e o Dispatch usam.
+ *
+ * Precedência: van ESCOLHIDA na rota → (com DUAS ou mais vans) a mais PRÓXIMA das paradas → a PADRÃO →
+ * a única cadastrada. Com uma van só o resultado é o mesmo de `vanLocationForRoute`: nada muda para
+ * quem tem uma van; com várias, a rota para de cair sempre na padrão.
+ */
+export function vanDaRota(
+  locations: OrganizationLocation[],
+  startLocationId?: string | null,
+  paradas: Array<{ latitude?: number | null; longitude?: number | null }> = [],
+): OrganizationLocation | null {
+  if (!locations || locations.length === 0) return null;
+  if (startLocationId) {
+    const daRota = locations.find((item) => item.id === startLocationId);
+    if (daRota) return daRota;
+  }
+  if (locations.length > 1) {
+    const mais = vanMaisProxima(locations, paradas);
+    if (mais) return mais;
+  }
+  const padrao = locations.find((item) => item.isDefault);
+  if (padrao) return padrao;
+  return locations.length === 1 ? locations[0] : null;
+}
+
 export type ClockInGateKind = 'no-location' | 'no-position' | 'inside' | 'outside';
 
 export type ClockInGate = {
@@ -320,12 +377,18 @@ export async function loadOrganizationLocations(
 }
 
 /**
- * A sede que vale para o motorista AGORA: a da rota (quando ela aponta uma) ou a padrão.
+ * A sede que vale para o motorista AGORA: a da rota (quando ela aponta uma), senão — com mais de uma
+ * van cadastrada — a MAIS PRÓXIMA das paradas dele, e só então a padrão.
  * Best-effort de propósito: qualquer falha devolve null — e null significa "sem trava".
  */
 export async function loadVanLocationForDriver(
   client: SupabaseClient,
-  params: { organizationId: string; startLocationId?: string | null },
+  params: {
+    organizationId: string;
+    startLocationId?: string | null;
+    /** paradas do dia (coordenadas) — decidem a van quando a rota não aponta uma */
+    paradas?: Array<{ latitude?: number | null; longitude?: number | null }>;
+  },
 ): Promise<OrganizationLocation | null> {
   try {
     const { data, error } = await client
@@ -333,7 +396,7 @@ export async function loadVanLocationForDriver(
       .select(LOCATION_COLUMNS)
       .eq('organization_id', params.organizationId);
     if (error) return null;
-    return vanLocationForRoute(locationsFromRows(data), params.startLocationId ?? null);
+    return vanDaRota(locationsFromRows(data), params.startLocationId ?? null, params.paradas ?? []);
   } catch {
     return null;
   }

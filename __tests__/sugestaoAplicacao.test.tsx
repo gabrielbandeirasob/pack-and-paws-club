@@ -17,6 +17,9 @@ let mockFailDog: string | null = null;
 let mockLocationGate: Promise<void> | null = null;
 let mockStatus: string = 'draft';
 let mockDrivers = [{ user_id: 'rafa', role: 'driver', profiles: { full_name: 'Rafael' } }];
+// Vans cadastradas na organização (dono, 01/10/2026: "vamos supor que tenhas várias vans").
+const vanUnica = [{ id: 'van', name: 'Van', kind: 'van', is_default: true, latitude: 37.39, longitude: -122.14 }];
+let mockLocations: any[] = vanUnica;
 jest.mock('@/lib/supabase', () => ({ supabase: {
   auth: { getUser: jest.fn(async () => ({ data: { user: { id: 'gestor' } } })) },
   from: jest.fn((table: string) => {
@@ -44,7 +47,7 @@ jest.mock('@/lib/supabase', () => ({ supabase: {
       return { data: table === 'organization_members' ? (select === 'organization_id' ? [{ organization_id: 'clube' }] : mockDrivers)
         : table === 'reservations' ? mockReservas
         : table === 'routes' ? JSON.parse(JSON.stringify(mockRotas))
-        : table === 'organization_locations' ? [{ id: 'van', name: 'Van', kind: 'van', is_default: true, latitude: 37.39, longitude: -122.14 }] : [], error: null };
+        : table === 'organization_locations' ? mockLocations : [], error: null };
     };
     q.single = result; q.then = (resolve: any, reject: any) => result().then(resolve, reject); return q;
   }),
@@ -61,7 +64,7 @@ jest.mock('@/lib/supabase', () => ({ supabase: {
   channel: () => { const c = { on: () => c, subscribe: () => c }; return c; }, removeChannel: jest.fn(),
 } }));
 
-beforeEach(() => { jest.clearAllMocks(); mockRotas = []; mockWrites = []; mockFailDog = null; mockLocationGate = null; mockStatus = 'draft'; mockDrivers = [{ user_id: 'rafa', role: 'driver', profiles: { full_name: 'Rafael' } }]; });
+beforeEach(() => { jest.clearAllMocks(); mockRotas = []; mockWrites = []; mockFailDog = null; mockLocationGate = null; mockStatus = 'draft'; mockDrivers = [{ user_id: 'rafa', role: 'driver', profiles: { full_name: 'Rafael' } }]; mockLocations = vanUnica; });
 
 it('gestor escolhe só ele: prévia e aplicação ficam no manager, não em todos os membros', async () => {
   mockDrivers.push({ user_id: 'gestor', role: 'manager', profiles: { full_name: 'Gabriel' } });
@@ -175,4 +178,34 @@ it('falha parcial não cancela o lote: salva o resto, nomeia quem faltou e não 
   const n = mockWrites.length;
   await fireEvent.press(screen.getByLabelText('Apply suggestion'));
   expect(mockWrites).toHaveLength(n);
+});
+
+/**
+ * VAN NA ROTA QUE NASCE (pergunta do dono, 01/10/2026: *"vamos supor que tenhas várias vans, o erro não
+ * vai se repetir?"*).
+ *
+ * Com UMA van, a rota nasce apontando para ela (explícito e estável — o mundo de hoje). Com DUAS ou mais
+ * e nenhuma escolha do gestor, a rota nasce SEM van de propósito: o app resolve pela MAIS PRÓXIMA das
+ * paradas, em vez de cair sempre na padrão (que era o defeito do clock in).
+ */
+it('com UMA van, a rota que nasce grava essa van', async () => {
+  const screen = await open();
+  await fireEvent.press(screen.getByLabelText('Apply suggestion'));
+  await waitFor(() => expect(screen.queryByText('Suggested routes')).toBeNull());
+  // A rota da sugestão nasce por INSERT (não sobrescreve rota existente).
+  const criada = mockWrites.find(w => w.table === 'routes' && ['insert', 'upsert'].includes(w.operation));
+  expect(criada.payload.start_location_id).toBe('van');
+});
+
+it('com DUAS vans e nenhuma escolha, a rota nasce SEM van (o app decide pela mais próxima)', async () => {
+  mockLocations = [
+    { id: 'sf', name: 'Van teste', kind: 'van', is_default: true, latitude: 37.7793, longitude: -122.4192 },
+    { id: 'sm', name: 'Van 1', kind: 'van', is_default: false, latitude: 37.5427669, longitude: -122.2849451 },
+  ];
+  const screen = await open();
+  await fireEvent.press(screen.getByLabelText('Apply suggestion'));
+  await waitFor(() => expect(screen.queryByText('Suggested routes')).toBeNull());
+  // A rota da sugestão nasce por INSERT (não sobrescreve rota existente).
+  const criada = mockWrites.find(w => w.table === 'routes' && ['insert', 'upsert'].includes(w.operation));
+  expect(criada.payload.start_location_id ?? null).toBeNull();
 });
