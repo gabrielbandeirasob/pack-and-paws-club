@@ -49,11 +49,22 @@
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand",
     "test:coverage": "jest --runInBand --coverage",
-    "test:db": "node scripts/db-flows-test.mjs"
+    "test:db": "node scripts/db-flows-test.mjs",
+    "test:tz": "TZ=America/Los_Angeles jest --runInBand",
+    "test:fuzz": "jest __tests__/fuzz-operacao.test.ts --runInBand",
+    "test:mutacao": "python3 scripts/mutacao.py"
   },
   "jest": {
     "preset": "jest-expo",
-    "testTimeout": 20000
+    "testTimeout": 20000,
+    "coverageThreshold": {
+      "global": {
+        "statements": 82,
+        "lines": 86,
+        "branches": 76,
+        "functions": 79
+      }
+    }
   },
   "private": true
 }

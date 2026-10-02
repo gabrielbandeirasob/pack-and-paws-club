@@ -140,6 +140,67 @@ export function minutosDaOrdem(
   return total;
 }
 
+/**
+ * FUZZING (auditoria de 02/10/2026) — o ganancioso sozinho às vezes piora a rota.
+ *
+ * Sorteando 400 rotas, em ~3% delas a ordem "otimizada" ficava PIOR que a ordem que já estava na tela
+ * (ex.: 154 min -> 170 min). O vizinho mais próximo erra porque decide a ÚLTIMA perna tarde: deixa o
+ * cão mais longe por último e chega nele vindo de um lugar ruim.
+ *
+ * Duas correções aqui:
+ *  1. `doisOpt` — troca trechos enquanto isso ENCURTA a viagem (é o conserto clássico do ganancioso);
+ *  2. se mesmo assim o resultado não for melhor que a ordem que já estava lá, a ordem ORIGINAL é mantida
+ *     — o Optimize NUNCA propõe uma rota pior do que a que o gestor já tinha.
+ *
+ * As duas só valem quando NÃO há janela/horário marcado: com janela quem manda é o prazo, e a comparação
+ * por distância não diz nada (q presta).
+ */
+function totalDaOrdem(ordem: OptimizeStop[], options: OptimizeOptions, origem: Origem | null): number {
+  return minutosDaOrdem(ordem, ordem.map((parada) => parada.dogId), options, origem) ?? Number.POSITIVE_INFINITY;
+}
+
+function doisOpt(ordem: OptimizeStop[], options: OptimizeOptions, origem: Origem | null): OptimizeStop[] {
+  let melhor = [...ordem];
+  let melhorTotal = totalDaOrdem(melhor, options, origem);
+  let melhorou = true;
+  let voltas = 0;
+  while (melhorou && voltas < 25) {
+    melhorou = false;
+    voltas += 1;
+    for (let i = 0; i < melhor.length - 1; i += 1) {
+      for (let j = i + 1; j < melhor.length; j += 1) {
+        const tentativa = [...melhor];
+        const trecho = tentativa.slice(i, j + 1).reverse();
+        tentativa.splice(i, trecho.length, ...trecho);
+        const total = totalDaOrdem(tentativa, options, origem);
+        if (total < melhorTotal - 1e-9) {
+          melhor = tentativa;
+          melhorTotal = total;
+          melhorou = true;
+        }
+      }
+    }
+  }
+  return melhor;
+}
+
+/** O que a tela mostra: a ordem final com a hora prevista de cada parada (mesma conta do ganancioso). */
+function materializar(ordem: OptimizeStop[], options: OptimizeOptions, origem: Origem | null): OptimizedStop[] {
+  let agora = options.startAtMinutes ?? DEFAULT_START;
+  return ordem.map((parada, indice) => {
+    const anterior = indice === 0 ? null : ordem[indice - 1];
+    const travel = anterior
+      ? travelMinutesBetween(anterior, parada, options)
+      : travelMinutesFromHome(parada, options, origem);
+    const inicio = windowStartOf(parada);
+    const bruto = agora + travel;
+    const espera = inicio != null && bruto < inicio ? inicio - bruto : 0;
+    const chegada = inicio != null ? Math.max(bruto, inicio) : bruto;
+    agora = chegada + serviceOf(parada, options);
+    return { ...parada, sequence: indice + 1, plannedArrival: minutesToHHMM(chegada), waitsMinutes: espera };
+  });
+}
+
 function serviceOf(stop: OptimizeStop, options: OptimizeOptions): number {
   return stop.serviceMinutes ?? options.serviceMinutes ?? DEFAULT_SERVICE_MIN;
 }
@@ -230,6 +291,24 @@ export function optimizeRoute(
     const [chosen] = pending.splice(bestIndex, 1);
     ordered.push({ ...chosen, sequence: ordered.length + 1, plannedArrival: minutesToHHMM(bestArrival), waitsMinutes: bestWaits });
     now = bestArrival + serviceOf(chosen, options);
+  }
+
+  // Sem janela/horário marcado: 2-opt + só aceita se ficar MELHOR que a ordem que já estava lá.
+  const temJanela = stops.some((parada) => deadlineOf(parada) != null || windowStartOf(parada) != null);
+  // 🪤 Regressão pega pelos testes: o 2-opt compara por DISTÂNCIA e passava por cima da regra de
+  // "cão PRIORITÁRIO vai primeiro" (pedido do dono). Com prioridade em jogo, fica o ganancioso como
+  // sempre foi — a garantia de "nunca pior que a tela" vale para rota sem janela e sem prioridade.
+  const temPrioridade = stops.some((parada) => parada.priority === 'priority');
+  if (!temJanela && !temPrioridade) {
+    // 2-opt a partir das DUAS ordens candidatas (a gananciosa e a que já estava na tela) e fica com a
+    // melhor: nunca piora a rota do gestor e, na prática, chega na melhor das duas.
+    const doGanancioso = doisOpt(ordered, options, origem ?? null);
+    const daOriginal = doisOpt(stops, options, origem ?? null);
+    const escolhida = totalDaOrdem(daOriginal, options, origem ?? null)
+      <= totalDaOrdem(doGanancioso, options, origem ?? null)
+      ? daOriginal
+      : doGanancioso;
+    return { stops: materializar(escolhida, options, origem ?? null), feasible: true, reason: null };
   }
 
   return { stops: ordered, feasible: true, reason: null };

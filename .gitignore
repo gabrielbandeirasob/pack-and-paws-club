@@ -43,3 +43,6 @@ yarn-error.*
 
 # artefatos de teste
 coverage/
+
+# backup temporário do script de mutação (scripts/mutacao.py)
+.mutacao-backup/

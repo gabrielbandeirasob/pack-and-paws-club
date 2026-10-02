@@ -9,7 +9,7 @@
  *  - com matriz de tráfego (Google, já paga no Optimize), é ela que manda;
  *  - sem coordenada e sem matriz, a função devolve null (o alerta omite a linha em vez de inventar).
  */
-import { minutosDaOrdem } from '@/features/dispatch/routeOptimizer';
+import { minutosDaOrdem, haversineKm } from '@/features/dispatch/routeOptimizer';
 import type { TravelTimes } from '@/features/dispatch/travelMatrix';
 
 const parada = (dogId: string, latitude: number | null, longitude: number | null) => ({
@@ -88,5 +88,17 @@ describe('a ENTREGA começa na posição do motorista (o yard)', () => {
 
   it('sem origem informada, a conta segue partindo da base (nada muda para quem não usa yard)', () => {
     expect(minutosDaOrdem(stops, ordem, opcoes)).toBe(minutosDaOrdem(stops, ordem, opcoes, null));
+  });
+
+  it('a 1ª perna é medida DO YARD, com o número EXATO (não só a comparação entre dois totais)', () => {
+    // Este teste existe porque a MUTAÇÃO pegou o anterior: comparar "do yard" com "da van" usando a
+    // mesma função passa mesmo com a função quebrada (as duas contas ficam igualmente erradas).
+    const so = [parada('unico', 37.37, -121.86)];
+    const semServico = { homeLatitude: van.latitude, homeLongitude: van.longitude, serviceMinutes: 0 };
+    const doYard = minutosDaOrdem(so, ['unico'], semServico, yard) as number;
+    const kmYard = haversineKm(yard.latitude, yard.longitude, 37.37, -121.86);
+    expect(doYard).toBeCloseTo((kmYard / 25) * 60, 6);
+    const daVan = minutosDaOrdem(so, ['unico'], semServico, null) as number;
+    expect(daVan).toBeGreaterThan(doYard * 3);
   });
 });
