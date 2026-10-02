@@ -16,8 +16,17 @@
 // ENTRADA : { home?: {latitude, longitude} | null, stops: [{dogId, latitude, longitude}] }
 // SAIDA   : { dogIds: string[], durations: number[][], source: 'google' }  (segundos)
 //           dogIds[0] = base quando `home` vem preenchido; senao a matriz e so das paradas.
+//
+// AUTH (achado da auditoria de integracoes, 02/10/2026): a funcao usa a CHAVE PAGA do Google e nao
+// checava quem chamava — qualquer um com a URL gastava a chave. Agora exige um usuario logado (o
+// `functions.invoke` do app manda o JWT da sessao), igual a `google-calendar-token`.
+import { createClient } from 'npm:@supabase/supabase-js@2';
+
+import { exigirUsuarioLogado } from '../_shared/usuarioLogado.ts';
 
 const ROUTES_URL = 'https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix';
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
+const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const MAX_PONTOS = 27;
 
 type Ponto = { dogId: string; latitude: number; longitude: number };
@@ -28,6 +37,14 @@ function json(corpo: unknown, status = 200): Response {
 
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json({ error: 'method-not-allowed' }, 405);
+
+  // So usuario logado: a chave do Google aqui e PAGA (auditoria 02/10/2026).
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
+  const usuario = await exigirUsuarioLogado(req.headers.get('Authorization'), async (token) => {
+    const { data, error } = await admin.auth.getUser(token);
+    return error ? null : data?.user;
+  });
+  if (!usuario) return json({ error: 'unauthorized' }, 401);
 
   const chave = Deno.env.get('GOOGLE_ROUTES_KEY');
   if (!chave) return json({ error: 'sem-chave-do-google' }, 501);

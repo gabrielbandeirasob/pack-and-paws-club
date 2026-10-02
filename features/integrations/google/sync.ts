@@ -8,6 +8,7 @@
 import { planCalendarSync, type LocalReservation } from './calendarSync';
 import { createEvent, deleteEvent, listEvents, updateEvent, type CalendarFetch } from './calendarApi';
 import { DEFAULT_CALENDAR_ID } from './calendarChoice';
+import { motivoDaFalha } from './importPlan';
 import type { EventLabel } from '@/features/calendar/googleColors';
 
 export type SyncSummary = {
@@ -84,4 +85,18 @@ export function describeSummary(summary: SyncSummary): string {
   if (summary.deleted) parts.push(`${summary.deleted} removed`);
   if (summary.failures.length) parts.push(`${summary.failures.length} failed`);
   return parts.length ? parts.join(' · ') : 'Nothing to sync — already up to date';
+}
+
+/**
+ * Falha do ESPELHO para a tela — com o MOTIVO da primeira falha, como `describeImportFailure` faz do
+ * lado da importação.
+ *
+ * Achado da auditoria de integrações (02/10/2026): o cartão mostrava só "N event(s) could not be
+ * sent.", então nem o gestor nem o suporte sabiam se era permissão (calendário somente leitura), rede
+ * ou o Google recusando o evento. Reusa `motivoDaFalha` (o mesmo mapa de erros conhecidos da
+ * importação), com um prefixo que diz que a falha foi na ENVIO.
+ */
+export function describeSyncFailure(failures: SyncSummary['failures']): string {
+  if (failures.length === 0) return '';
+  return `${failures.length} event(s) could not be sent. First: ${motivoDaFalha(failures[0].error)}`;
 }

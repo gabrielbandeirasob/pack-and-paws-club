@@ -155,7 +155,9 @@ describe('createBooking grava o serviço que veio da COR', () => {
 });
 
 describe('skipRecurringDay (evento vermelho sobre um dia de escala)', () => {
-  const caminhoLimpeza = 'recurring_exceptions:delete:eq(recurring_schedule_id=serie-1):eq(action=skip):eq(start_date=2026-09-30)';
+  // 🪤 Auditoria de 02/10/2026: a limpeza passou a filtrar TAMBÉM o motivo, para não apagar a pausa que
+  // o GESTOR marcou no app no mesmo dia.
+  const caminhoLimpeza = 'recurring_exceptions:delete:eq(recurring_schedule_id=serie-1):eq(action=skip):eq(start_date=2026-09-30):eq(reason=Cancelled in Google Calendar)';
 
   it('apaga a pausa do mesmo dia antes de gravar (não acumula linha repetida)', async () => {
     const chamadas: string[] = [];

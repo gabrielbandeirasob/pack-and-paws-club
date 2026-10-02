@@ -64,8 +64,8 @@ import { escolhaDaRevisao, supabaseImportPorts } from './importPorts';
 import { describeImport, describeImportFailure, kindOf, type BookingForImport, type DogForImport } from './importPlan';
 import { carregarSnapshotDaImportacao } from './importSnapshot';
 import { runCalendarImport, type ImportReviewItem, type ImportSummary } from './importService';
-import { JANELA_AUTO_MS, lerUltimaSincronizacao, marcarSincronizacao, precisaSincronizar } from './lastSyncStore';
-import { describeSummary, runCalendarSync } from './sync';
+import { JANELA_AUTO_MS, esquecerSincronizacao, lerUltimaSincronizacao, marcarSincronizacao, precisaSincronizar } from './lastSyncStore';
+import { describeSummary, describeSyncFailure, runCalendarSync } from './sync';
 import {
   enviarCredencialAoServidor,
   revogarCredencialDoServidor,
@@ -136,7 +136,7 @@ type Props = {
 };
 
 export function CalendarConnectionCard({ reservations, organizationId, dogs, bookings, onImported, autoImport = false }: Props) {
-  const { status, email, connect, disconnect, getAccessToken } = useCalendarConnection();
+  const { status, email, connect, disconnect, getAccessToken, rememberEmail } = useCalendarConnection();
   const [ocupado, setOcupado] = useState<'conectando' | 'sincronizando' | 'desconectando' | 'escolhendo' | null>(null);
   const [resumo, setResumo] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
@@ -243,6 +243,24 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
   }, [carregarCalendarios]);
 
   /**
+   * IDENTIDADE DA CONTA (achado da auditoria de integrações, 02/10/2026): o token OAuth do app não
+   * pede escopo de e-mail, então `connected_email` nunca era gravado e o cartão caía no nome do
+   * calendário. O `id` do calendário PRINCIPAL é o e-mail da conta — assim que a lista chega, ele é
+   * guardado no cofre e reenviado à função, que passa a preencher `connected_email`.
+   */
+  useEffect(() => {
+    const principal = calendarios.find((item) => item.primary);
+    if (email || !principal?.id) return;
+    void (async () => {
+      try {
+        if (await rememberEmail(principal.id)) await enviarCredencialAoServidor(escolha.calendarId);
+      } catch {
+        // silencioso de propósito: é identidade para exibir, não pode atrapalhar a sincronização.
+      }
+    })();
+  }, [calendarios, email, escolha.calendarId, rememberEmail]);
+
+  /**
    * Cores do calendário escolhido (etiquetas da paleta NOVA do Google).
    *
    * Devolve a lista para quem chamou (o Sync usa a mesma lista nas DUAS vias, sem ler duas vezes) e
@@ -339,7 +357,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
         setErro(
           ehSomenteLeitura(summary.failures[0].error, acessoDoEscolhido)
             ? TEXTO_SOMENTE_LEITURA
-            : `${summary.failures.length} event(s) could not be sent.`,
+            : describeSyncFailure(summary.failures),
         );
       }
       setUltimoEnvio(new Date().toLocaleTimeString());
@@ -458,9 +476,26 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
 
   const desconectar = useCallback(async () => {
     setOcupado('desconectando');
+    setErro(null);
+    /**
+     * 🚨 ACHADO DA AUDITORIA DE INTEGRAÇÕES (02/10/2026): o desconectar chamava
+     * `revogarCredencialDoServidor()` e IGNORAVA o resultado — se o revoke falhasse (função fora do ar,
+     * sem rede), a tela dizia "desconectado" e o servidor continuava com o refresh token, importando o
+     * calendário do cliente nos bastidores. Agora o revoke vem PRIMEIRO: falhou, NÃO desconecta e o
+     * gestor pode tentar de novo.
+     */
+    const revogado = await revogarCredencialDoServidor();
+    if (!revogado) {
+      setOcupado(null);
+      setErro(
+        'Could not remove this Google credential from the server, so nothing was disconnected. Check your connection and try "Disconnect" again.',
+      );
+      return;
+    }
     await disconnect();
     // Sem isto o servidor continuaria com acesso a um calendário que o cliente não usa mais.
-    await revogarCredencialDoServidor();
+    // E o aparelho esquece a marca do robô: reconectar não pode achar que já sincronizou há pouco.
+    await esquecerSincronizacao();
     setOcupado(null);
     setResumo(null);
     setUltimoEnvio(null);
@@ -502,6 +537,18 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
       setEscolha(nova);
       setSeletorAberto(false);
       setCandidato(null);
+      /**
+       * 🚨 ACHADO DA AUDITORIA DE INTEGRAÇÕES (02/10/2026): trocar de calendário gravava só em
+       * `organizations` e o robô do SERVIDOR continuava sincronizando o calendário ANTIGO (a credencial
+       * lá tem o `calendar_id` velho). Aqui a escolha vai junto para a função `google-calendar-token`,
+       * que regrava a credencial cifrada com o calendário novo — o mesmo envio do Connect.
+       */
+      const enviado = await enviarCredencialAoServidor(nova.calendarId);
+      if (!enviado) {
+        setErro(
+          'Calendar saved in the app, but the server could not be updated with it. Pick the calendar again in "Change calendar" (or reconnect) so automatic sync uses the new one.',
+        );
+      }
       setResumo(`Calendar in use: ${candidato.summary}. Sync now to mirror and import in it.`);
     } catch (error) {
       setErro(mensagemDeFalha(error, null));
@@ -709,6 +756,29 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
               ))}
             </View>
           ) : null}
+        </>
+      ) : status === 'expired' ? (
+        /**
+         * CREDENCIAL MORTA (auditoria de integrações, 02/10/2026): o Google recusou o refresh
+         * (`invalid_grant`) — o token já foi apagado e o estado é 'expired'. Aqui o cartão oferece
+         * "Reconnect" direto, sem o gestor precisar tocar em Disconnect antes (o único aviso era o erro
+         * que só nascia depois de tentar sincronizar).
+         */
+        <>
+          <Text style={styles.body} testID="google-calendar-status">
+            The Google connection expired or was revoked, so bookings are not syncing. Reconnect to turn both
+            ways back on.
+          </Text>
+          <Pressable
+            accessibilityLabel="Reconnect Google Calendar"
+            accessibilityRole="button"
+            disabled={ocupado !== null}
+            onPress={() => void conectar()}
+            style={[styles.primary, ocupado !== null && styles.disabled]}
+            testID="google-calendar-reconnect"
+          >
+            {ocupado === 'conectando' ? <ActivityIndicator color={colors.cream} /> : <Text style={styles.primaryText}>Reconnect</Text>}
+          </Pressable>
         </>
       ) : (
         <>

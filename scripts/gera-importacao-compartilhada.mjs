@@ -24,6 +24,7 @@ const MODULOS = [
   'features/calendar/googleEvents.ts',
   'features/calendar/dayMath.ts',
   'features/integrations/google/calendarChoice.ts',
+  'features/integrations/google/credentialFailure.ts',
   'features/integrations/google/calendarSync.ts',
   'features/integrations/google/localReservations.ts',
   'features/integrations/google/calendarApi.ts',

@@ -85,6 +85,9 @@ export function supabaseImportPorts(
    */
   const PAUSA_DO_GOOGLE = 'Pausa marcada no Google Calendar';
 
+  /** O `reason` da pausa de UM dia gravada pelo evento VERMELHO (`skipRecurringDay`). */
+  const CANCELAMENTO_DO_GOOGLE = 'Cancelled in Google Calendar';
+
   const gravarPausas = async (scheduleId: string, skipDates: string[]): Promise<void> => {
     /**
      * 🪤 ACHADO DA VISTORIA (02/10/2026): o `delete` antigo varria TODA `action = 'skip'` da série
@@ -256,12 +259,20 @@ export function supabaseImportPorts(
      * vermelho for reescrito) para não acumular linhas repetidas.
      */
     skipRecurringDay: async ({ scheduleId, date }) => {
+      /**
+       * 🪤 ACHADO DA AUDITORIA DE INTEGRAÇÕES (02/10/2026): o delete antigo varria TODA `action = 'skip'`
+       * daquela data, sem olhar o `reason`. Se o GESTOR tivesse pausado o mesmo dia no app (reason
+       * 'Skipped on this date' — `app/(tabs)/calendar.tsx`) e o escritório pintasse o dia de vermelho no
+       * Google, a rodada APAGAVA a pausa do app e regravava a linha como se fosse do Google. Agora só a
+       * pausa que VEIO do vermelho (`CANCELAMENTO_DO_GOOGLE`) é substituída; a do app sobrevive.
+       */
       const { error: erroDaBusca } = await client
         .from('recurring_exceptions')
         .delete()
         .eq('recurring_schedule_id', scheduleId)
         .eq('action', 'skip')
-        .eq('start_date', date);
+        .eq('start_date', date)
+        .eq('reason', CANCELAMENTO_DO_GOOGLE);
       if (erroDaBusca) throw new Error(erroDaBusca.message);
 
       const { error } = await client.from('recurring_exceptions').insert({
@@ -271,7 +282,7 @@ export function supabaseImportPorts(
         action: 'skip',
         start_date: date,
         end_date: date,
-        reason: 'Cancelled in Google Calendar',
+        reason: CANCELAMENTO_DO_GOOGLE,
       });
       if (error) throw new Error(error.message);
     },

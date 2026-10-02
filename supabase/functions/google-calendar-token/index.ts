@@ -17,6 +17,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
 import { cifrarTextoClaro } from '../_shared/tokenCrypto.ts';
+import { escolherOrganizacao, organizacoesDeVinculos } from '../_shared/organizacaoDoGestor.ts';
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? '';
 const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -34,20 +35,61 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-/** Organização do gestor que está chamando (do VÍNCULO ativo, não do corpo). */
-async function organizacaoDoGestor(
+/**
+ * Organizações em que o gestor que está chamando tem vínculo ATIVO de manager (do VÍNCULO dele, não do
+ * corpo da requisição).
+ *
+ * 🚨 ACHADO DA AUDITORIA DE INTEGRAÇÕES (02/10/2026): antes isso usava `.limit(1).maybeSingle()` e
+ * escolhia UMA organização ARBITRÁRIA quando o gestor tinha mais de uma — a credencial podia ser
+ * gravada/apagada no tenant errado. Agora todas vêm e `resolverOrganizacao` desempata com o
+ * `calendar_id` informado (ou com a organização que já tem credencial).
+ */
+async function organizacoesDoGestor(
   admin: ReturnType<typeof createClient>,
   userId: string,
-): Promise<string | null> {
+): Promise<string[]> {
   const { data } = await admin
     .from('organization_members')
     .select('organization_id')
     .eq('user_id', userId)
     .eq('role', 'manager')
-    .eq('status', 'active')
-    .limit(1)
+    .eq('status', 'active');
+  return organizacoesDeVinculos(data as { organization_id: string }[] | null);
+}
+
+/**
+ * Com mais de uma organização, decide QUAL usar SEM chute (a decisão é a função pura
+ * `escolherOrganizacao`, testada em `__tests__/organizacao-do-gestor.test.ts`):
+ *  * `calendar_id` informado → a organização do gestor que está configurada com aquele calendário;
+ *  * sem `calendar_id` → a que JÁ tem credencial (é a linha que `check`/`revoke`/regravação miram);
+ *  * nada disso → `null` (a função responde 409 e o app/n8n vê que falta clareza, em vez de escrever no
+ *    tenant errado).
+ */
+async function resolverOrganizacao(
+  admin: ReturnType<typeof createClient>,
+  organizacoes: string[],
+  calendarId: string | null,
+): Promise<string | null> {
+  if (organizacoes.length <= 1) return escolherOrganizacao(organizacoes, calendarId, null, null);
+  /** Organização (dentre as do gestor) configurada com o calendário informado. */
+  let organizacaoDoCalendario: string | null = null;
+  if (calendarId) {
+    const { data } = await admin
+      .from('organizations')
+      .select('id')
+      .in('id', organizacoes)
+      .eq('google_calendar_id', calendarId)
+      .maybeSingle();
+    organizacaoDoCalendario = (data as { id?: string } | null)?.id ?? null;
+  }
+  /** Organização (dentre as do gestor) que JÁ tem credencial gravada. */
+  const { data } = await admin
+    .from('google_calendar_credentials')
+    .select('organization_id')
+    .in('organization_id', organizacoes)
     .maybeSingle();
-  return data?.organization_id ?? null;
+  const organizacaoComCredencial = (data as { organization_id?: string } | null)?.organization_id ?? null;
+  return escolherOrganizacao(organizacoes, calendarId, organizacaoDoCalendario, organizacaoComCredencial);
 }
 
 Deno.serve(async (request: Request) => {
@@ -63,9 +105,8 @@ Deno.serve(async (request: Request) => {
   );
   if (erroUsuario || !usuario?.user) return json({ error: 'unauthorized' }, 401);
 
-  const organizationId = await organizacaoDoGestor(admin, usuario.user.id);
-  if (!organizationId) return json({ error: 'forbidden' }, 403);
-
+  // O corpo entra ANTES da resolução da organização: é o `calendar_id` dele que desempata quando o
+  // gestor tem mais de uma organização.
   const corpo = (await request.json().catch(() => ({}))) as {
     refresh_token?: string;
     email?: string;
@@ -73,6 +114,12 @@ Deno.serve(async (request: Request) => {
     revoke?: boolean;
     check?: boolean;
   };
+
+  const organizacoes = await organizacoesDoGestor(admin, usuario.user.id);
+  if (organizacoes.length === 0) return json({ error: 'forbidden' }, 403);
+
+  const organizationId = await resolverOrganizacao(admin, organizacoes, corpo.calendar_id ?? null);
+  if (!organizationId) return json({ error: 'ambiguous-organization', organizations: organizacoes }, 409);
 
   /**
    * O aparelho pergunta se o servidor JÁ tem a credencial (o app não consegue ler a tabela — é o

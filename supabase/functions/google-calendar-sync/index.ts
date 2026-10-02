@@ -19,8 +19,14 @@
  */
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-import { addDaysISO, todayLocalISO } from '../_shared/importacao/dates.ts';
+import { addDaysISO, FUSO_DO_NEGOCIO, todayLocalISO } from '../_shared/importacao/dates.ts';
 import { getCalendarLabels } from '../_shared/importacao/calendarApi.ts';
+import { ehFalhaDeCredencial } from '../_shared/importacao/credentialFailure.ts';
+import {
+  houveFalhaNaRodada,
+  statusHttpDoRobo,
+  type ResultadoDaOrganizacao,
+} from '../_shared/resultadoDoRobo.ts';
 import { supabaseImportPorts } from '../_shared/importacao/importPorts.ts';
 import type { ImportPorts } from '../_shared/importacao/importService.ts';
 import { runCalendarImport } from '../_shared/importacao/importService.ts';
@@ -40,8 +46,14 @@ const CLIENT_ID = Deno.env.get('GOOGLE_OAUTH_CLIENT_ID') ?? '';
 const CLIENT_SECRET = Deno.env.get('GOOGLE_OAUTH_CLIENT_SECRET') ?? '';
 const CRON_SECRET = Deno.env.get('CRON_SECRET') ?? '';
 
-/** Mesma janela do app: de hoje para frente (nada do passado entra). */
-function janelaDeImportacao(hoje = todayLocalISO()): { from: string; to: string; timeMin: string; timeMax: string } {
+/**
+ * Mesma janela do app: de hoje para frente (nada do passado entra).
+ *
+ * 🚨 ACHADO DA AUDITORIA DE INTEGRAÇÕES (02/10/2026): o "hoje" saía do relógio do runtime (UTC no
+ * servidor) — entre 17h e 24h em America/Los_Angeles o UTC já é o dia SEGUINTE e o robô deixava de
+ * importar/cancelar o dia. Aqui o dia é calculado no fuso do NEGÓCIO.
+ */
+function janelaDeImportacao(hoje = todayLocalISO(FUSO_DO_NEGOCIO)): { from: string; to: string; timeMin: string; timeMax: string } {
   const to = addDaysISO(hoje, 180);
   return { from: hoje, to, timeMin: `${hoje}T00:00:00Z`, timeMax: `${to}T00:00:00Z` };
 }
@@ -76,6 +88,12 @@ type Credencial = {
   updated_by: string | null;
 };
 
+/**
+ * Erro que significa "a credencial MORREU" (o Google recusou o refresh token para sempre).
+ * Separado de um erro de rede: só este apaga a credencial e alarma o n8n.
+ */
+class ErroDeCredencial extends Error {}
+
 /** Troca o refresh token por um access token novo (o Google expira em ~1 h). */
 async function accessTokenDoGoogle(refreshToken: string): Promise<string> {
   const resposta = await fetch('https://oauth2.googleapis.com/token', {
@@ -90,6 +108,11 @@ async function accessTokenDoGoogle(refreshToken: string): Promise<string> {
   });
   const corpo = (await resposta.json().catch(() => ({}))) as { access_token?: string; error?: string };
   if (!resposta.ok || !corpo.access_token) {
+    // 🚨 ACHADO DA AUDITORIA DE INTEGRAÇÕES (02/10/2026): `invalid_grant`/401 = a credencial não vale
+    // mais; retentar é inútil e o cliente precisa reconectar. Erro de rede continua sendo erro comum.
+    if (ehFalhaDeCredencial(corpo.error, resposta.status)) {
+      throw new ErroDeCredencial(`credencial recusada pelo Google (${corpo.error ?? resposta.status})`);
+    }
     throw new Error(`google recusou o token (${corpo.error ?? resposta.status})`);
   }
   return corpo.access_token;
@@ -100,7 +123,7 @@ async function carregarDadosDaOrganizacao(
   admin: ReturnType<typeof createClient>,
   organizationId: string,
 ): Promise<{ dogs: DogForImport[]; bookings: BookingForImport[] }> {
-  const horizonte = addDaysISO(todayLocalISO(), 180);
+  const horizonte = addDaysISO(todayLocalISO(FUSO_DO_NEGOCIO), 180);
   const [reservas, series, excecoes, caes] = await Promise.all([
     admin
       .from('reservations')
@@ -270,6 +293,18 @@ async function sincronizarOrganizacao(
     return { organization_id: organizationId, ok: true, dry, resumo: texto };
   } catch (erro) {
     const mensagem = erro instanceof Error ? erro.message : String(erro);
+    /**
+     * 🚨 ACHADO DA AUDITORIA DE INTEGRAÇÕES (02/10/2026): quando a credencial morria (`invalid_grant`),
+     * o robô registrava o erro e RETENTAVA a mesma credencial inválida para sempre — a cada 15 min,
+     * batendo no Google com um token que não vale mais. Agora a linha da credencial é REMOVIDA (o
+     * caminho para voltar é o gestor reconectar no app) e o resultado sai com `ok: false` para o topo
+     * devolver 5xx e o n8n alarmar.
+     */
+    if (erro instanceof ErroDeCredencial) {
+      await registrar(`credencial invalida: ${mensagem}`);
+      await admin.from('google_calendar_credentials').delete().eq('organization_id', organizationId);
+      return { organization_id: organizationId, ok: false, credencial_invalida: true, erro: mensagem.slice(0, 200) };
+    }
     await registrar(`erro: ${mensagem}`);
     return { organization_id: organizationId, ok: false, erro: mensagem.slice(0, 200) };
   }
@@ -301,5 +336,12 @@ Deno.serve(async (request: Request) => {
     resultados.push(await sincronizarOrganizacao(admin, credencial, dry));
   }
 
-  return json({ ok: true, dry, organizacoes: resultados.length, resultados });
+  /**
+   * 🚨 ACHADO DA AUDITORIA DE INTEGRAÇÕES (02/10/2026): o topo devolvia SEMPRE `{ ok: true }` com
+   * HTTP 200, mesmo com organizações falhando — o n8n (que só olha o status) nunca alarmava. Agora
+   * QUALQUER organização que falhe vira 5xx no resumo, para o alarme do n8n disparar. A decisão é a
+   * função pura `statusHttpDoRobo` (`__tests__/robo-status.test.ts`).
+   */
+  const houveFalha = houveFalhaNaRodada(resultados as ResultadoDaOrganizacao[]);
+  return json({ ok: !houveFalha, dry, organizacoes: resultados.length, resultados }, statusHttpDoRobo(resultados as ResultadoDaOrganizacao[]));
 });

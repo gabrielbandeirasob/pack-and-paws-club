@@ -15,3 +15,8 @@ export async function unregisterDeviceForPush(): Promise<void> {}
 export function onNotificationTap(): () => void {
   return () => {}
 }
+
+/** Web nao tem notificacao nativa para abrir o app: nada a tratar. */
+export async function initialNotificationData(): Promise<unknown | null> {
+  return null
+}

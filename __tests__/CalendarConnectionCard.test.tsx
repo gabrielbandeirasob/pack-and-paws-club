@@ -5,7 +5,9 @@ import { CalendarConnectionCard, dentroDaJanela, janelaDeEspelho, janelaDeImport
 import { TEXTO_FALTA_DE_ESCOPO, TEXTO_FALTA_DE_ESCOPO_CORES, TEXTO_SOMENTE_LEITURA } from '@/features/integrations/google/calendarChoice';
 import type { LocalReservation } from '@/features/integrations/google/calendarSync';
 import type { BookingForImport, DogForImport } from '@/features/integrations/google/importPlan';
-import { esquecerSincronizacao, marcarSincronizacao } from '@/features/integrations/google/lastSyncStore';
+import { esquecerSincronizacao, lerUltimaSincronizacao, marcarSincronizacao } from '@/features/integrations/google/lastSyncStore';
+
+import { enviarCredencialAoServidor, revogarCredencialDoServidor } from '@/features/integrations/google/serverCredential';
 
 jest.mock('@/features/integrations/google/useCalendarConnection');
 jest.mock('@/features/integrations/google/sync', () => ({
@@ -29,8 +31,8 @@ jest.mock('@/features/integrations/google/importService', () => ({
  */
 jest.mock('@/features/integrations/google/serverCredential', () => ({
   servidorTemCredencial: jest.fn(async () => true),
-  enviarCredencialAoServidor: jest.fn(async () => undefined),
-  revogarCredencialDoServidor: jest.fn(async () => undefined),
+  enviarCredencialAoServidor: jest.fn(async () => true),
+  revogarCredencialDoServidor: jest.fn(async () => true),
 }));
 
 // A lista de calendarios e as cores do calendario vem da API do Google: aqui sao injetadas (nenhuma
@@ -93,13 +95,17 @@ const listCalendars = jest.requireMock('@/features/integrations/google/calendarA
 const getCalendarLabels = jest.requireMock('@/features/integrations/google/calendarApi').getCalendarLabels as jest.Mock;
 
 /** Conexao falsa no formato que o card consome. */
-function conexao(status: 'not_configured' | 'disconnected' | 'connected', extras: Record<string, unknown> = {}) {
+function conexao(
+  status: 'not_configured' | 'disconnected' | 'expired' | 'connected',
+  extras: Record<string, unknown> = {},
+) {
   return {
     status,
     email: status === 'connected' ? 'raphael@packandpawsclub.com' : null,
     connect: jest.fn().mockResolvedValue('connected'),
     disconnect: jest.fn().mockResolvedValue(undefined),
     getAccessToken: jest.fn().mockResolvedValue('token-123'),
+    rememberEmail: jest.fn().mockResolvedValue(true),
     ...extras,
   };
 }
@@ -214,13 +220,56 @@ describe('CalendarConnectionCard', () => {
     expect(screen.getByText(/2 created/)).toBeTruthy();
   });
 
-  it('desconecta quando o gestor pede', async () => {
+  it('desconecta quando o gestor pede (revoke no servidor deu certo)', async () => {
+    // 🪤 Auditoria de 02/10/2026: o revoke no servidor vem PRIMEIRO — sem ele a tela diria
+    // "desconectado" enquanto o robô continuaria lendo o calendário do cliente.
+    (revogarCredencialDoServidor as jest.Mock).mockResolvedValueOnce(true);
+    // A marca do robô está posta: desconectar tem de esquecê-la (item 16).
+    await marcarSincronizacao(Date.now());
     const ctx = conexao('connected');
     useCalendarConnection.mockReturnValue(ctx);
     const screen = await render(<CalendarConnectionCard {...props()} />);
 
     await fireEvent.press(screen.getByTestId('google-calendar-disconnect'));
-    expect(ctx.disconnect).toHaveBeenCalled();
+    await waitFor(() => expect(ctx.disconnect).toHaveBeenCalled());
+    // Item 16: o aparelho esquece a marca do robô — reconectar não pode achar que sincronizou há pouco.
+    expect(await lerUltimaSincronizacao()).toBeNull();
+  });
+
+  it('revoke que FALHA não diz que desconectou (e explica o motivo)', async () => {
+    (revogarCredencialDoServidor as jest.Mock).mockResolvedValueOnce(false);
+    const ctx = conexao('connected');
+    useCalendarConnection.mockReturnValue(ctx);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-disconnect'));
+    await waitFor(() => expect(screen.getByTestId('google-calendar-erro')).toBeTruthy());
+    expect(ctx.disconnect).not.toHaveBeenCalled();
+  });
+
+  // ------------------------------- identidade da conta e credencial MORTA (auditoria, 02/10/2026)
+
+  it('conta conectada sem e-mail: grava o primary e reenvia a credencial (identidade real)', async () => {
+    const ctx = conexao('connected', { email: null });
+    useCalendarConnection.mockReturnValue(ctx);
+    await render(<CalendarConnectionCard {...props()} />);
+
+    // O `id` do calendário PRINCIPAL é o e-mail da conta — é assim que o `connected_email` do servidor
+    // é preenchido (item 15) e o cartão passa a mostrar o e-mail em vez do nome do calendário.
+    await waitFor(() => expect(ctx.rememberEmail).toHaveBeenCalledWith(CAL_PRINCIPAL));
+    await waitFor(() => expect(enviarCredencialAoServidor).toHaveBeenCalledWith('primary'));
+  });
+
+  it('token expirado/revogado: o cartão oferece RECONNECT (não continua dizendo "Connected")', async () => {
+    const ctx = conexao('expired');
+    useCalendarConnection.mockReturnValue(ctx);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    expect(screen.getByTestId('google-calendar-reconnect')).toBeTruthy();
+    expect(screen.queryByTestId('google-calendar-disconnect')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('google-calendar-reconnect'));
+    expect(ctx.connect).toHaveBeenCalled();
   });
 
   it('mostra o erro quando a sincronizacao falha de verdade', async () => {
@@ -477,6 +526,10 @@ describe('CalendarConnectionCard', () => {
     await waitFor(() => expect(atualizacoes.length).toBe(1));
     expect(atualizacoes[0].tabela).toBe('organizations');
     expect(atualizacoes[0].valores).toEqual({ google_calendar_id: CAL_FERIADOS, google_calendar_summary: 'Feriados' });
+
+    // E o SERVIDOR passa a sincronizar o calendário NOVO (auditoria de integrações, 02/10/2026): antes
+    // só a organização mudava e o robô seguia lendo o calendário antigo.
+    expect(enviarCredencialAoServidor).toHaveBeenCalledWith(CAL_FERIADOS);
 
     // A escolha nova vale na hora e o aviso da troca fica na tela.
     await esperandoEscolha(screen, 'Feriados');
