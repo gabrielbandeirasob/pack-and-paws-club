@@ -22,7 +22,7 @@ describe('marcosDaParada', () => {
       status: 'completed',
       arrivedAt: emLocal(8, 12),
       completedAt: emLocal(8, 18),
-    })).toBe('arrived 08:12 · done 08:18');
+    })).toBe('arrived 8:12 AM · done 8:18 AM');
   });
 
   it('mesma hora na chegada e na conclusão aparece uma vez só na chegada', () => {
@@ -30,21 +30,21 @@ describe('marcosDaParada', () => {
       status: 'completed',
       arrivedAt: emLocal(8, 18),
       completedAt: emLocal(8, 18),
-    })).toBe('arrived 08:18 · done 08:18');
+    })).toBe('arrived 8:18 AM · done 8:18 AM');
   });
 
   it('só chegou: aparece apenas "arrived"', () => {
-    expect(marcosDaParada({ status: 'arrived', arrivedAt: emLocal(9, 5) })).toBe('arrived 09:05');
+    expect(marcosDaParada({ status: 'arrived', arrivedAt: emLocal(9, 5) })).toBe('arrived 9:05 AM');
   });
 
   it('problema usa a hora do problema', () => {
     expect(marcosDaParada({ status: 'skipped', arrivedAt: emLocal(8, 0), skippedAt: emLocal(8, 14) }))
-      .toBe('Problem · 08:14');
+      .toBe('Problem · 8:14 AM');
   });
 
   it('pendente sem marco nenhum cai na previsão da parada', () => {
-    expect(marcosDaParada({ status: 'pending', exactTime: '08:30:00' })).toBe('Must arrive by 08:30');
-    expect(marcosDaParada({ status: 'pending', windowEnd: '09:00:00' })).toBe('Window until 09:00');
+    expect(marcosDaParada({ status: 'pending', exactTime: '08:30:00' })).toBe('Must arrive by 8:30 AM');
+    expect(marcosDaParada({ status: 'pending', windowEnd: '09:00:00' })).toBe('Window until 9:00 AM');
     expect(marcosDaParada({ status: 'pending' })).toBe('Pending');
   });
 
@@ -54,13 +54,13 @@ describe('marcosDaParada', () => {
     expect(marcosDaParada({ status: 'arrived', arrivedAt: 'sem-hora' })).toBe('Pending');
   });
 
-  it('entrega aparece NO MEIO da frase, depois do done (a tarde da rota)', () => {
+  it('a busca não mostra a entrega mesmo quando já foi registrada', () => {
     expect(marcosDaParada({
       status: 'completed',
       arrivedAt: emLocal(8, 12),
       completedAt: emLocal(8, 18),
       deliveredAt: emLocal(14, 5),
-    })).toBe('arrived 08:12 · done 08:18 · delivered 14:05');
+    })).toBe('arrived 8:12 AM · done 8:18 AM');
   });
 
   it('sem o marco de entrega a frase fica igual à de antes (só a manhã)', () => {
@@ -69,11 +69,11 @@ describe('marcosDaParada', () => {
       arrivedAt: emLocal(8, 12),
       completedAt: emLocal(8, 18),
       deliveredAt: null,
-    })).toBe('arrived 08:12 · done 08:18');
+    })).toBe('arrived 8:12 AM · done 8:18 AM');
   });
 
   it('entrega sozinha (sem hora de busca registrada) ainda aparece', () => {
-    expect(marcosDaParada({ status: 'completed', deliveredAt: emLocal(16, 25) })).toBe('delivered 16:25');
+    expect(marcosDaParada({ status: 'completed', deliveredAt: emLocal(16, 25) }, 'dropoff')).toBe('delivered 4:25 PM');
   });
 });
 

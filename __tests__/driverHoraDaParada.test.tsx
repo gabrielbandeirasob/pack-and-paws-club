@@ -29,14 +29,14 @@ describe('DriverRouteView — hora de cada parada', () => {
         onAction={jest.fn()}
       />,
     );
-    expect(tela.getByText('arrived 08:12 · done 08:18')).toBeTruthy();
+    expect(tela.getByText('arrived 8:12 AM · done 8:18 AM')).toBeTruthy();
   });
 
   it('parada pendente mostra a previsão (janela/hora exigida)', async () => {
     const tela = await render(
       <DriverRouteView stops={[parada({ status: 'pending', exactTime: '08:30:00' })]} onAction={jest.fn()} />,
     );
-    expect(tela.getByText('Must arrive by 08:30')).toBeTruthy();
+    expect(tela.getByText('Must arrive by 8:30 AM')).toBeTruthy();
   });
 
   it('parada com problema mostra a hora do problema', async () => {
@@ -46,6 +46,6 @@ describe('DriverRouteView — hora de cada parada', () => {
         onAction={jest.fn()}
       />,
     );
-    expect(tela.getByText('Problem · 08:14')).toBeTruthy();
+    expect(tela.getByText('Problem · 8:14 AM')).toBeTruthy();
   });
 });

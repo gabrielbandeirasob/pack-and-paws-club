@@ -109,9 +109,9 @@ describe("Today's progress", () => {
     const Tela = require('../app/day-progress').default;
     const tela = await render(<Tela />);
 
-    await waitFor(() => expect(tela.getByText('14:05')).toBeTruthy());
-    expect(tela.getByText('14:20')).toBeTruthy();
-    expect(tela.queryByText('16:06')).toBeNull();
+    await waitFor(() => expect(tela.getByText('2:05 PM')).toBeTruthy());
+    expect(tela.getByText('2:20 PM')).toBeTruthy();
+    expect(tela.queryByText('4:06 PM')).toBeNull();
   });
 
   /**
@@ -127,7 +127,7 @@ describe("Today's progress", () => {
       const Tela = require('../app/day-progress').default;
       const tela = await render(<Tela />);
 
-      await waitFor(() => expect(tela.getByText('1 of 3 done · 1 late · last update 14:20')).toBeTruthy());
+      await waitFor(() => expect(tela.getByText('1 of 3 done · 1 late · last update 2:20 PM')).toBeTruthy());
       // O resumo do dia continua sendo o de sempre (nada de redesenhar a tela).
       expect(tela.getByText('1 of 3 dogs done · 2 left')).toBeTruthy();
     } finally {
@@ -142,7 +142,7 @@ describe("Today's progress", () => {
       const Tela = require('../app/day-progress').default;
       const tela = await render(<Tela />);
 
-      await waitFor(() => expect(tela.getByText('1 of 3 done · last update 14:20')).toBeTruthy());
+      await waitFor(() => expect(tela.getByText('1 of 3 done · last update 2:20 PM')).toBeTruthy());
     } finally {
       jest.useRealTimers();
     }

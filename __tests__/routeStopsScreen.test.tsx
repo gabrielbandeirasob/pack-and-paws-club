@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react-native';
+import { act, render, waitFor, within } from '@testing-library/react-native';
 import { RefreshControl } from 'react-native';
 
 import RouteStopsScreen from '@/app/route-stops';
@@ -85,10 +85,15 @@ describe('tela Route stops (gestor)', () => {
     expect(tela.getAllByText('Andrea · Oreo').length).toBeGreaterThan(0);
     expect(tela.getAllByText('Jez · Winter').length).toBeGreaterThan(0);
     // horas (fuso local do aparelho)
-    expect(tela.getAllByText('arrived 08:18 · done 08:18 · delivered 14:05').length).toBeGreaterThan(0);
-    expect(tela.getAllByText('arrived 08:54 · done 08:55').length).toBeGreaterThan(0);
+    expect(tela.getAllByText('arrived 8:18 AM · done 8:18 AM').length).toBeGreaterThan(0);
+    const pickup = within(tela.getByTestId('parada-stop-1'));
+    const dropoff = within(tela.getByTestId('entrega-stop-1'));
+    expect(pickup.queryByText(/delivered/i)).toBeNull();
+    expect(dropoff.getByText('delivered 2:05 PM')).toBeTruthy();
+    expect(dropoff.queryByText(/arrived|done/)).toBeNull();
+    expect(tela.getAllByText('arrived 8:54 AM · done 8:55 AM').length).toBeGreaterThan(0);
     // pendente cai na previsão
-    expect(tela.getAllByText('Must arrive by 09:30').length).toBeGreaterThan(0);
+    expect(tela.getAllByText('Must arrive by 9:30 AM').length).toBeGreaterThan(0);
     // situação e endereço
     expect(tela.getAllByText('Completed')).toHaveLength(2);
     expect(tela.getAllByText('Pending').length).toBeGreaterThan(0);
@@ -99,7 +104,7 @@ describe('tela Route stops (gestor)', () => {
     const tela = await render(<RouteStopsScreen />);
 
     await waitFor(() => expect(tela.getByText('2 of 3 done')).toBeTruthy());
-    expect(tela.getByText('Next: Winter · Must arrive by 09:30')).toBeTruthy();
+    expect(tela.getByText('Next: Winter · Must arrive by 9:30 AM')).toBeTruthy();
     // resumo do topo: as feitas da BUSCA mais as ENTREGUES da tarde (só a stop-1 foi entregue)
     expect(tela.getByText('Rafael · Thu, Oct 01 · 2 of 3 done · 1 of 3 delivered')).toBeTruthy();
   });

@@ -53,8 +53,8 @@ describe('Total Pack e progresso do dia', () => {
   });
 
   it('formata a hora da marcação no fuso local e tolera data vazia', () => {
-    const iso = '2026-09-22T14:35:00.000Z';
-    const esperado = new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }).slice(0, 5);
+    const iso = new Date(2026, 8, 22, 14, 35).toISOString();
+    const esperado = '2:35 PM';
     expect(clockOf(iso)).toBe(esperado);
     expect(clockOf(null)).toBeNull();
     expect(clockOf('')).toBeNull();

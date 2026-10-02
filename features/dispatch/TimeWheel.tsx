@@ -1,3 +1,4 @@
+import { sufixoDe } from '@/features/driver/etaMessage';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from 'react-native';
 
@@ -14,7 +15,8 @@ const ITEM_HEIGHT = 42;
 const VISIBLE_SIDE_ITEMS = 2;
 const PADDING = ITEM_HEIGHT * VISIBLE_SIDE_ITEMS;
 
-const HOURS = Array.from({ length: 24 }, (_, hour) => String(hour).padStart(2, '0'));
+const HOURS = Array.from({ length: 12 }, (_, hour) => String(hour || 12).padStart(2, '0'));
+const PERIODS = ['AM', 'PM'];
 const MINUTES = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, '0'));
 
 function indexOf(value: string | null, options: string[], fallback: number): number {
@@ -23,7 +25,7 @@ function indexOf(value: string | null, options: string[], fallback: number): num
   return found >= 0 ? found : fallback;
 }
 
-function Wheel({ testID, options, selected, onSelect }: { testID: string; options: string[]; selected: string; onSelect: (value: string) => void }) {
+function Wheel({ testID, options, selected, onSelect, hourLabels = false }: { hourLabels?: boolean; testID: string; options: string[]; selected: string; onSelect: (value: string) => void }) {
   const scrollRef = useRef<ScrollView>(null);
   const [activeIndex, setActiveIndex] = useState(() => indexOf(selected, options, 0));
   const valueRef = useRef(selected);
@@ -60,7 +62,7 @@ function Wheel({ testID, options, selected, onSelect }: { testID: string; option
           const active = index === activeIndex;
           return (
             <View key={option} style={[styles.item, active && styles.itemActive]} pointerEvents="none">
-              <Text style={[styles.itemText, active && styles.itemTextActive]}>{option}</Text>
+              <Text style={[styles.itemText, active && styles.itemTextActive]}>{hourLabels ? String(Number(option)) : option}</Text>
             </View>
           );
         })}
@@ -69,26 +71,36 @@ function Wheel({ testID, options, selected, onSelect }: { testID: string; option
   );
 }
 
-/** Two-column scrolling time wheel (hour + 5-minute steps) — plain React Native, renders anywhere. */
+/** 12-hour scrolling time wheel (hour + 5-minute steps + AM/PM) — plain React Native, renders anywhere. */
 export function TimeWheel({ testID, value, onChange, onDone }: TimeWheelProps) {
-  const [hour, setHour] = useState(() => (value ? value.slice(0, 2) : '08'));
+  const [hour, setHour] = useState(() => String((Number(value?.slice(0, 2) ?? 8) % 12) || 12).padStart(2, '0'));
+  const [period, setPeriod] = useState(() => sufixoDe(Number(value?.slice(0, 2) ?? 8) * 60));
   const [minute, setMinute] = useState(() => (value && value.length >= 5 ? value.slice(3, 5) : '00'));
 
+  const emit = (nextHour: string, nextMinute: string, nextPeriod: string) => {
+    const hour24 = Number(nextHour) % 12 + (nextPeriod === 'PM' ? 12 : 0);
+    onChange(`${String(hour24).padStart(2, '0')}:${nextMinute}`);
+  };
+  const pickPeriod = (nextPeriod: string) => {
+    setPeriod(nextPeriod as 'AM' | 'PM');
+    emit(hour, minute, nextPeriod);
+  };
   const pickHour = (nextHour: string) => {
     setHour(nextHour);
-    onChange(`${nextHour}:${minute}`);
+    emit(nextHour, minute, period);
   };
   const pickMinute = (nextMinute: string) => {
     setMinute(nextMinute);
-    onChange(`${hour}:${nextMinute}`);
+    emit(hour, nextMinute, period);
   };
 
   return (
     <View style={styles.box} testID={testID}>
       <View style={styles.row}>
-        <Wheel testID={`${testID}-hours`} options={HOURS} selected={hour} onSelect={pickHour} />
+        <Wheel testID={`${testID}-hours`} hourLabels options={HOURS} selected={hour} onSelect={pickHour} />
         <Text style={styles.colon}>:</Text>
         <Wheel testID={`${testID}-minutes`} options={MINUTES} selected={minute} onSelect={pickMinute} />
+        <Wheel testID={`${testID}-period`} options={PERIODS} selected={period} onSelect={pickPeriod} />
       </View>
       <View style={styles.actions}>
         <Pressable accessibilityRole="button" accessibilityLabel="Done" onPress={onDone} style={styles.doneButton}>

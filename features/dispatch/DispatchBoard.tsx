@@ -1,3 +1,4 @@
+import { formatTimeOfDay } from '@/lib/clock';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -860,10 +861,10 @@ const CartaoMotorista = memo(function CartaoMotorista({
               {stop.status === 'skipped' ? <Badge text="⚠ Problem" color={colors.urgency} /> : null}
               {stop.status === 'pending' && isPastDeadline(stop.windowEnd, stop.exactTime) ? <Badge text="Late" color={colors.urgency} /> : null}
               {stop.priority === 'priority' ? <Badge text="⚡ High" color={colors.urgency} /> : null}
-              {stop.windowStart && stop.windowEnd ? <Badge text={`⏰ ${stop.windowStart}–${stop.windowEnd}`} color={colors.forest500} /> : null}
+              {stop.windowStart && stop.windowEnd ? <Badge text={`⏰ ${formatTimeOfDay(stop.windowStart)}–${formatTimeOfDay(stop.windowEnd)}`} color={colors.forest500} /> : null}
               {/* M4 da auditoria (02/10/2026): a hora exata era `colors.gold` como TEXTO do badge
                   (~2,27:1 sobre o papel) — vira `forest700`; o gold segue no fundo translúcido. */}
-              {stop.exactTime ? <Badge text={`@ ${stop.exactTime}`} color={colors.forest700} /> : null}
+              {stop.exactTime ? <Badge text={`@ ${formatTimeOfDay(stop.exactTime)}`} color={colors.forest700} /> : null}
             </View>
             <StopProofChips pickupPath={stop.pickupProofPath} dropoffPath={stop.dropoffProofPath} />
           </View>
@@ -902,7 +903,7 @@ function TimeTargetButton({ label, accessibilityLabel, value, active, onPress, h
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={[styles.timeTarget, half && styles.timeTargetHalf, active && styles.timeTargetActive]}>
       <Text style={styles.timeTargetLabel}>{label}</Text>
-      <Text style={[styles.timeTargetValue, !value && styles.timeTargetPlaceholder]}>{value || 'Select…'}</Text>
+      <Text style={[styles.timeTargetValue, !value && styles.timeTargetPlaceholder]}>{value ? formatTimeOfDay(value) : 'Select…'}</Text>
     </Pressable>
   );
 }

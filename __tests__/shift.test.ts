@@ -66,7 +66,7 @@ describe('dedução da jornada pelos eventos da rota', () => {
     expect(estado.source).toBe('route');
     expect(estado.minutes).toBe(60);
     // A hora é a do relógio do aparelho (fuso do motorista), então o teste checa a forma.
-    expect(shiftLabel(estado)).toMatch(/^On the clock since \d{2}:\d{2} · 1h00 so far$/);
+    expect(shiftLabel(estado)).toMatch(/^On the clock since \d{1,2}:\d{2} (AM|PM) · 1h00 so far$/);
   });
 
   it('"problema" na última parada também fecha a jornada (o motorista foi embora)', () => {
@@ -119,7 +119,7 @@ describe('tempo e relógio', () => {
 
   it('hora no fuso do aparelho e dia local', () => {
     const hora = clockText('2026-09-23T12:07:00Z');
-    expect(hora).toMatch(/^\d{2}:\d{2}$/);
+    expect(hora).toMatch(/^\d{1,2}:\d{2} (AM|PM)$/);
     expect(clockText(null)).toBeNull();
     expect(dayKey(new Date(2026, 8, 23))).toBe('2026-09-23');
   });

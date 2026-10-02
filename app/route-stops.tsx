@@ -231,7 +231,7 @@ export default function RouteStopsScreen() {
                       <Text style={[styles.selo, entregue && styles.seloFeito]}>{situacaoDaEntrega(parada)}</Text>
                     </View>
                     {parada.address ? <Text style={styles.endereco}>{parada.address}</Text> : null}
-                    <Text style={[styles.marcos, entregue && styles.marcosFeito]}>{marcosDaParada(parada)}</Text>
+                    <Text style={[styles.marcos, entregue && styles.marcosFeito]}>{marcosDaParada(parada, 'dropoff')}</Text>
                   </View>
                 );
               })

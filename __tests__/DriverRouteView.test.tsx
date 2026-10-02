@@ -7,6 +7,22 @@ const stops: DriverStop[] = [
 ];
 
 describe('DriverRouteView', () => {
+  it('keeps pickup and delivery milestones in their respective phases', async () => {
+    const completed: DriverStop[] = [{
+      ...stops[0], status: 'completed',
+      arrivedAt: new Date(2026, 9, 2, 8, 28).toISOString(),
+      completedAt: new Date(2026, 9, 2, 8, 28).toISOString(),
+      deliveredAt: new Date(2026, 9, 2, 14, 46).toISOString(),
+    }];
+    const screen = await render(<DriverRouteView stops={completed} fase="pickup" onAction={jest.fn()} />);
+    expect(screen.getByText('arrived 8:28 AM · done 8:28 AM')).toBeTruthy();
+    expect(screen.queryByText(/delivered /i)).toBeNull();
+    await screen.rerender(<DriverRouteView stops={completed} fase="dropoff" onAction={jest.fn()} />);
+    expect(screen.queryByText(/arrived 8:28|done 8:28/)).toBeNull();
+    expect(screen.getByText('delivered 2:46 PM')).toBeTruthy();
+    expect(screen.getByText('Delivered at 2:46 PM')).toBeTruthy();
+  });
+
   // AVISO DE ETA AO TUTOR (pedido do cliente em áudio, 16/09/2026): o motorista avisa com o
   // texto pronto. O botão só existe quando o cliente tem telefone e a parada ainda está viva.
   it('avisa o tutor com o ETA da parada', async () => {
@@ -74,11 +90,11 @@ describe('DriverRouteView', () => {
       ...stops[0], status: 'completed', clientPhone: '+1 415 555 0134', etaMinutes: 5,
       deliveredAt: '2026-10-01T21:05:00.000Z',
     }];
-    const tela = await render(<DriverRouteView stops={entregue} onAction={jest.fn()} onNotifyOwner={jest.fn()} />);
+    const tela = await render(<DriverRouteView fase="dropoff" stops={entregue} onAction={jest.fn()} onNotifyOwner={jest.fn()} />);
 
     expect(tela.queryByLabelText('Notify owner Bob')).toBeNull();
     expect(tela.getByText('Delivered')).toBeTruthy();
-    expect(tela.getByText(/Delivered at \d{2}:\d{2}/)).toBeTruthy();
+    expect(tela.getByText(/Delivered at \d{1,2}:\d{2} (AM|PM)/)).toBeTruthy();
   });
 
   it('o toque da ENTREGA aparece para o cão que já está na van', async () => {
@@ -215,7 +231,7 @@ describe('DriverRouteView', () => {
 
   it('parada ENTREGUE não oferece mais o Problem (o dia dela acabou)', async () => {
     const entregue: DriverStop[] = [{ ...stops[0], status: 'completed', deliveredAt: '2026-10-01T21:05:00.000Z' }];
-    const tela = await render(<DriverRouteView stops={entregue} onAction={jest.fn()} />);
+    const tela = await render(<DriverRouteView fase="dropoff" stops={entregue} onAction={jest.fn()} />);
     expect(tela.queryByRole('button', { name: 'Problem stop-1' })).toBeNull();
   });
 });

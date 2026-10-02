@@ -1,3 +1,4 @@
+import { formatClock } from '@/lib/clock';
 /**
  * Card do gestor para o Google Calendar (duas vias).
  *
@@ -367,7 +368,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
             : describeSyncFailure(summary.failures),
         );
       }
-      setUltimoEnvio(new Date().toLocaleTimeString());
+      setUltimoEnvio(formatClock(new Date().toISOString()) ?? '');
       // Sincronizou agora: o automático guarda a hora para não repetir a cada volta na aba.
       await marcarSincronizacao();
     } catch (error) {

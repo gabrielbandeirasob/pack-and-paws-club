@@ -1,3 +1,5 @@
+import { formatClock, formatTimeOfDay } from '@/lib/clock';
+
 /**
  * MARCOS DE TEMPO DA PARADA — o que o gestor e o motorista leem.
  *
@@ -31,12 +33,9 @@ export type ParadaComMarcos = {
   windowEnd?: string | null;
 };
 
-/** HH:MM na hora do aparelho. `null` quando não há marco (ou o valor não é uma data). */
+/** Hora em 12 h na hora do aparelho. `null` quando não há marco (ou o valor não é uma data). */
 export function horaCurta(iso?: string | null): string | null {
-  if (!iso) return null;
-  const quando = new Date(iso);
-  if (Number.isNaN(quando.getTime())) return null;
-  return `${String(quando.getHours()).padStart(2, '0')}:${String(quando.getMinutes()).padStart(2, '0')}`;
+  return formatClock(iso);
 }
 
 /** A parada já terminou? (`completed` e `skipped`/problema contam como resolvidas.) */
@@ -46,11 +45,16 @@ export function jaFeita(parada: Pick<ParadaComMarcos, 'status'>): boolean {
 
 /**
  * Linha de tempo de UMA parada:
- *  - concluída/pendente com marcos → `arrived 08:12 · done 08:18 · delivered 14:05` (só o que existe);
- *  - problema → `Problem · 08:14`;
- *  - sem marco nenhum → a previsão da parada (`Must arrive by 08:30` / `until 09:00`) ou `Pending`.
+ *  - concluída/pendente com marcos → `arrived 8:12 AM · done 8:18 AM` (só o que existe);
+ *  - entrega → `delivered 2:05 PM`, sem os marcos da busca;
+ *  - problema → `Problem · 8:14 AM`;
+ *  - sem marco nenhum → a previsão da parada (`Must arrive by 8:30 AM` / `until 9:00 AM`) ou `Pending`.
  */
-export function marcosDaParada(parada: ParadaComMarcos): string {
+export function marcosDaParada(parada: ParadaComMarcos, phase: 'pickup' | 'dropoff' = 'pickup'): string {
+  if (phase === 'dropoff') {
+    const entrega = horaCurta(parada.deliveredAt);
+    return entrega ? `delivered ${entrega}` : situacaoDaEntrega(parada);
+  }
   if (parada.status === 'skipped') {
     const quando = horaCurta(parada.skippedAt) ?? horaCurta(parada.arrivedAt);
     return quando ? `Problem · ${quando}` : 'Problem';
@@ -58,13 +62,11 @@ export function marcosDaParada(parada: ParadaComMarcos): string {
   const partes: string[] = [];
   const chegada = horaCurta(parada.arrivedAt);
   const conclusao = horaCurta(parada.completedAt) ?? horaCurta(parada.pickedUpAt);
-  const entrega = horaCurta(parada.deliveredAt);
   if (chegada) partes.push(`arrived ${chegada}`);
   if (conclusao) partes.push(`done ${conclusao}`);
-  if (entrega) partes.push(`delivered ${entrega}`);
   if (partes.length > 0) return partes.join(' · ');
-  if (parada.exactTime) return `Must arrive by ${parada.exactTime.slice(0, 5)}`;
-  if (parada.windowEnd) return `Window until ${parada.windowEnd.slice(0, 5)}`;
+  if (parada.exactTime) return `Must arrive by ${formatTimeOfDay(parada.exactTime)}`;
+  if (parada.windowEnd) return `Window until ${formatTimeOfDay(parada.windowEnd)}`;
   return 'Pending';
 }
 

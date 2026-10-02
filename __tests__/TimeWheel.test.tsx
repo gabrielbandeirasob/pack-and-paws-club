@@ -12,6 +12,10 @@ describe('TimeWheel', () => {
   it('emits the picked hour and minute as HH:MM', async () => {
     const onChange = jest.fn();
     const screen = await render(<TimeWheel testID="wheel" value={null} onChange={onChange} onDone={jest.fn()} />);
+    expect(screen.getByText('12')).toBeTruthy();
+    expect(screen.getByText('AM')).toBeTruthy();
+    expect(screen.getByText('PM')).toBeTruthy();
+    expect(screen.queryByText('14')).toBeNull();
     await scrollTo(screen, 'wheel-hours', 7);
     await scrollTo(screen, 'wheel-minutes', 6);
     expect(onChange).toHaveBeenLastCalledWith('07:30');
@@ -28,7 +32,18 @@ describe('TimeWheel', () => {
     const onChange = jest.fn();
     const screen = await render(<TimeWheel testID="wheel" value={null} onChange={onChange} onDone={jest.fn()} />);
     await scrollTo(screen, 'wheel-hours', 999);
-    expect(onChange).toHaveBeenLastCalledWith('23:00');
+    expect(onChange).toHaveBeenLastCalledWith('11:00');
+  });
+
+  it('displays PM and preserves 24-hour storage when changing the period', async () => {
+    const onChange = jest.fn();
+    const screen = await render(<TimeWheel testID="wheel" value="14:15" onChange={onChange} onDone={jest.fn()} />);
+    await scrollTo(screen, 'wheel-minutes', 6);
+    expect(onChange).toHaveBeenLastCalledWith('14:30');
+    await scrollTo(screen, 'wheel-hours', 0);
+    expect(onChange).toHaveBeenLastCalledWith('12:30');
+    await scrollTo(screen, 'wheel-period', 0);
+    expect(onChange).toHaveBeenLastCalledWith('00:30');
   });
 
   it('closes through Done', async () => {

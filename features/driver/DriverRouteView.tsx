@@ -1,3 +1,4 @@
+import { formatTimeOfDay } from '@/lib/clock';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ordenarParadasDoDia } from '@/features/driver/dayOrder';
@@ -239,17 +240,17 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing, onNav
               <StatusBadge status={stop.status} entregue={Boolean(stop.deliveredAt)} />
             </View>
             {address ? <Text style={styles.address}>{address}</Text> : null}
-            {stop.exactTime ? <Text style={styles.deadline}>⏱ Must arrive by {stop.exactTime}</Text> : stop.windowEnd ? <Text style={styles.deadline}>⏱ Window until {stop.windowEnd}</Text> : null}
+            {stop.exactTime ? <Text style={styles.deadline}>⏱ Must arrive by {formatTimeOfDay(stop.exactTime)}</Text> : stop.windowEnd ? <Text style={styles.deadline}>⏱ Window until {formatTimeOfDay(stop.windowEnd)}</Text> : null}
             {/* HORA DE CADA MARCO (chegada/conclusão), carimbada no servidor desde a migration 024 —
                 pedido do cliente em áudio (01/10/2026): "podia aparecer qual cachorro já foi e que
                 hora". É a MESMA frase que o gestor lê na lista da rota (módulo `stopProgress`). */}
-            <Text style={styles.marcos}>{marcosDaParada(stop)}</Text>
+            <Text style={styles.marcos}>{marcosDaParada(stop, fase)}</Text>
             {!finalizada && stop.etaMinutes != null ? (
               <Text style={[styles.eta, (stop.lateMinutes ?? 0) > 0 && styles.etaLate]}>
                 {stop.etaMinutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${stop.etaMinutes} min away` : 'far from your stops'}{(stop.lateMinutes ?? 0) > 0 ? ` · ${stop.lateMinutes} min late` : ''}
               </Text>
             ) : null}
-            {stop.deliveredAt ? <Text style={styles.delivered}>Delivered at {clockText(stop.deliveredAt)}</Text> : null}
+            {fase === 'dropoff' && stop.deliveredAt ? <Text style={styles.delivered}>Delivered at {clockText(stop.deliveredAt)}</Text> : null}
             {/* Transferência de cão entre motoristas (item 5, migration 052): de quem veio e a hora. */}
             {stop.handedFromName ? (
               <Text style={styles.notified}>Received from {stop.handedFromName}{stop.handedAt ? ` · ${clockText(stop.handedAt)}` : ''}</Text>

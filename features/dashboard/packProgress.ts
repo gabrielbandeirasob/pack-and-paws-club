@@ -1,3 +1,5 @@
+import { formatClock } from '@/lib/clock';
+
 /**
  * "Total Pack" e progresso do dia — regras puras, testáveis.
  *
@@ -79,14 +81,9 @@ export function progressSummary(routes: PackRoute[]): string {
   return `${done} of ${total} done`;
 }
 
-/** Horário local HH:MM a partir de um ISO; null quando não há data válida. */
+/** Horário local em 12 h a partir de um ISO; null quando não há data válida. */
 export function clockOf(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const data = new Date(iso);
-  if (Number.isNaN(data.getTime())) return null;
-  const hh = String(data.getHours()).padStart(2, '0');
-  const mm = String(data.getMinutes()).padStart(2, '0');
-  return `${hh}:${mm}`;
+  return formatClock(iso);
 }
 
 export type ProgressRow = {
@@ -109,7 +106,7 @@ export type DriverPerformance = {
   problems: number;
   /** Pendentes FORA do prazo, já com a tolerância de 3 minutos do app. */
   late: number;
-  /** Última atualização do dia nesta rota (HH:MM do carimbo do servidor). */
+  /** Última atualização do dia nesta rota (hora em 12 h do carimbo do servidor). */
   lastUpdate: string | null;
 };
 
@@ -138,7 +135,7 @@ export function driverPerformance(route: PackRoute, now: Date = new Date()): Dri
   };
 }
 
-/** Texto curto do cartão: "3 of 5 done · 1 problem · 2 late · last update 14:20". */
+/** Texto curto do cartão: "3 of 5 done · 1 problem · 2 late · last update 2:20 PM". */
 export function performanceSummary(performance: DriverPerformance): string {
   const partes = [`${performance.done} of ${performance.total} done`];
   if (performance.problems > 0) partes.push(`${performance.problems} problem${performance.problems === 1 ? '' : 's'}`);

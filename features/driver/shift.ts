@@ -1,3 +1,5 @@
+import { formatClock } from '@/lib/clock';
+
 /**
  * JORNADA DO MOTORISTA (clock in / clock out).
  *
@@ -173,12 +175,9 @@ export function shiftState(
   return { kind: 'none', source: 'none', startedAt: null, endedAt: null, minutes: 0, manualOpen: false };
 }
 
-/** "07:12" no fuso do aparelho (é o horário que o motorista enxerga no relógio dele). */
+/** "7:12 AM" no fuso do aparelho (é o horário que o motorista enxerga no relógio dele). */
 export function clockText(iso: string | null | undefined): string | null {
-  const t = quando(iso);
-  if (t === null) return null;
-  const d = new Date(t);
-  return `${`${d.getHours()}`.padStart(2, '0')}:${`${d.getMinutes()}`.padStart(2, '0')}`;
+  return formatClock(iso);
 }
 
 /** "3h05" (a partir de 60 min) ou "45 min". */

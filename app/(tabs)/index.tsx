@@ -1,3 +1,4 @@
+import { formatTimeOfDay } from '@/lib/clock';
 import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -158,9 +159,9 @@ export function toDashboardRoute(
   const suffix = eta
     ? `~${eta.minutes} min`
     : next?.exact_time
-      ? next.exact_time.slice(0, 5)
+      ? formatTimeOfDay(next.exact_time)
       : next?.window_end
-        ? `by ${next.window_end.slice(0, 5)}`
+        ? `by ${formatTimeOfDay(next.window_end)}`
         : null;
 
   return {
