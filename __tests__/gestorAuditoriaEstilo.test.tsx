@@ -180,7 +180,8 @@ describe('M4 — gold como TEXTO restante vira forest700', () => {
     const tela = await render(
       <DispatchBoard date="2026-09-09" drivers={drivers} dayItems={[{ dogId: 'dog-bob', clientName: 'Maria', dogName: 'Bob', reservationKind: 'daycare' }]} routes={rota} {...noops} />,
     );
-    expect(tela.getByText('@ 7:45 AM')).toHaveStyle({ color: colors.forest700 });
+    // A hora exata aparece nas DUAS pernas do cartão (busca e entrega, dono 03/10/2026) — o ouro é o mesmo.
+    tela.getAllByText('@ 7:45 AM').forEach((no) => expect(no).toHaveStyle({ color: colors.forest700 }));
   });
 });
 

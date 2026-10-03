@@ -57,7 +57,8 @@ const noops = {
 describe('Dispatch — parada que saiu do dia (Defeito A)', () => {
   it('marca a parada cancelada com selo em inglês', async () => {
     const tela = await render(<DispatchBoard date="2026-10-03" drivers={drivers} dayItems={dayItems} routes={rotaComOCancelado} {...noops} />);
-    expect(tela.getByText("Booking cancelled — no longer in today's day")).toBeTruthy();
+    // O selo aparece nas DUAS pernas do cartão (busca e entrega, dono 03/10/2026).
+    expect(tela.getAllByText("Booking cancelled — no longer in today's day").length).toBeGreaterThan(0);
   });
 
   it('avisa no topo do cartão quantas e quais paradas estão fora do dia', async () => {

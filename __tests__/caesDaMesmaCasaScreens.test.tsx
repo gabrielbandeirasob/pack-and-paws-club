@@ -137,8 +137,10 @@ it('um clique manda as duas paradas, com a versão da rota andando a cada escrit
   await act(async () => confirmar[1]({ data: null, error: null }));
 
   await waitFor(() => {
-    expect(tela.getByText('Jose · Sam')).toBeTruthy();
-    expect(tela.getByText('Jose · Ollie')).toBeTruthy();
+    // O cartão mostra as DUAS pernas do mesmo motorista (busca e entrega, dono 03/10/2026): o cão
+    // aparece uma vez em cada bloco — por isso a contagem, e não um único nó.
+    expect(tela.getAllByText('Jose · Sam').length).toBeGreaterThan(0);
+    expect(tela.getAllByText('Jose · Ollie').length).toBeGreaterThan(0);
   });
   // O cão da outra casa continua na fila de quem não tem motorista.
   expect(tela.getByRole('button', { name: 'Assign Chuck · Sammy' })).toBeTruthy();

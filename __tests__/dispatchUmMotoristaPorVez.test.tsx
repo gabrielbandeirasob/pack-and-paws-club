@@ -16,7 +16,7 @@ jest.mock('@/lib/supabase', () => ({
   supabase: { from: jest.fn(), storage: { from: jest.fn(() => ({ createSignedUrl: jest.fn() })) } },
 }));
 
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render, within } from '@testing-library/react-native';
 import { DispatchBoard, type DispatchDriver, type DispatchRoute } from '@/features/dispatch/DispatchBoard';
 
 const drivers: DispatchDriver[] = [
@@ -67,23 +67,25 @@ describe('Dispatch — um motorista por vez (Proposta B)', () => {
     expect(tela.queryByTestId('dispatch-route-driver-rafael-pickup')).toBeNull();
   });
 
-  it('a troca de perna mostra a rota de drop-off do mesmo motorista', async () => {
+  it('mostra as DUAS pernas do mesmo motorista de uma vez — a troca de perna saiu', async () => {
     const tela = await montar();
-    expect(tela.getByTestId('dispatch-route-driver-rafael-pickup')).toBeTruthy();
-    await fireEvent.press(tela.getByRole('button', { name: 'Show drop-off for Rafael' }));
-    expect(tela.getByTestId('dispatch-route-driver-rafael-dropoff')).toBeTruthy();
-    expect(tela.queryByTestId('dispatch-route-driver-rafael-pickup')).toBeNull();
+    // Rafael tem a busca (Billy, Maui) e a perna de ENTREGA (Billy): os dois blocos aparecem JUNTOS,
+    // sem clique nenhum — o dono (03/10/2026) tirou o par de botões porque quem busca é quem entrega.
+    const busca = within(tela.getByTestId('dispatch-leg-pickup-driver-rafael'));
+    expect(busca.getByText('Amy · Billy')).toBeTruthy();
+    expect(busca.getByText('Adi · Maui')).toBeTruthy();
+    expect(within(tela.getByTestId('dispatch-leg-dropoff-driver-rafael')).getByText('Amy · Billy')).toBeTruthy();
+    // E não existe mais botão para alternar a perna.
+    expect(tela.queryByRole('button', { name: /Show (pick-up|drop-off) for / })).toBeNull();
   });
 
-  it('sem perna de drop-off, a aba Drop-off oferece o "Create drop-off route"', async () => {
+  it('sem perna de drop-off, o cartão oferece o "Create drop-off route"', async () => {
     const onCreateDropoffRoute = jest.fn().mockResolvedValue(undefined);
     const tela = await montar({
       dropoffItems: [{ dogId: 'd-ruby', clientName: 'Katia', dogName: 'Ruby', reservationKind: 'daycare' }],
       onCreateDropoffRoute,
     });
     await fireEvent.press(tela.getByRole('button', { name: 'Show Jordan' }));
-    await fireEvent.press(tela.getByRole('button', { name: 'Show drop-off for Jordan' }));
-    expect(tela.getByText('No drop-off route.')).toBeTruthy();
     await fireEvent.press(tela.getByRole('button', { name: 'Create drop-off route for Jordan' }));
     expect(onCreateDropoffRoute).toHaveBeenCalledWith('driver-jordan');
   });

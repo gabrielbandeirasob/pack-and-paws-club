@@ -90,7 +90,8 @@ it('o cão seguinte é tentado depois de uma recusa no meio do lote, e a tela di
 
   // A frase nomeia o que falhou e o que entrou — não é mais um erro cru do banco.
   await waitFor(() => expect(tela.getByText(/1 dog could not be saved: Sam — permission denied\. 1 dog was saved/)).toBeTruthy());
-  await waitFor(() => expect(tela.getByText('Jose · Ollie')).toBeTruthy());
+  // O cartão lista as DUAS pernas (busca e entrega, dono 03/10/2026): o mesmo cão aparece nos dois blocos.
+  await waitFor(() => expect(tela.getAllByText('Jose · Ollie').length).toBeGreaterThan(0));
 });
 
 it('a versão do banco recusando (stale_route) continua parando o lote, como antes', async () => {

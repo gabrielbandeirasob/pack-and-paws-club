@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render, within } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { DispatchBoard, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
 
@@ -177,7 +177,8 @@ describe('DispatchBoard', () => {
   it('lists assigned stops under each driver and publishes a route', async () => {
     const onPublish = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={routes} {...noops} onPublish={onPublish} />);
-    expect(screen.getByText('John · Luna')).toBeTruthy();
+    // O cão aparece nas DUAS pernas do mesmo cartão (busca + entrega) — a troca de perna saiu.
+    expect(screen.getAllByText('John · Luna').length).toBeGreaterThan(0);
     await fireEvent.press(screen.getByRole('button', { name: 'Publish Rafael route' }));
     expect(onPublish).toHaveBeenCalledWith('route-1');
   });
@@ -192,14 +193,17 @@ describe('DispatchBoard', () => {
   it('moves a stop up and reorders through the route callback', async () => {
     const onMoveStop = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={routes} {...noops} onMoveStop={onMoveStop} />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Move Max up' }));
+    // As duas pernas ficam na tela: a seta da BUSCA mora no bloco de busca.
+    const busca = within(screen.getByTestId('dispatch-leg-pickup-driver-rafael'));
+    await fireEvent.press(busca.getByRole('button', { name: 'Move Max up' }));
     expect(onMoveStop).toHaveBeenCalledWith('route-1', 'dog-max', -1);
   });
 
   it('edits an assigned stop constraint and saves it on the same route', async () => {
     const onSaveStop = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={routes} {...noops} onSaveStop={onSaveStop} />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Options for Luna' }));
+    const busca = within(screen.getByTestId('dispatch-leg-pickup-driver-rafael'));
+    await fireEvent.press(busca.getByRole('button', { name: 'Options for Luna' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Exact time' }));
     await pickTime(screen, 'Exact time input', 'time-picker-exact', 7, 45);
     await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
@@ -213,7 +217,8 @@ describe('DispatchBoard', () => {
       destructive?.onPress?.();
     });
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={routes} {...noops} onRemoveStop={onRemoveStop} />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Options for Luna' }));
+    const busca = within(screen.getByTestId('dispatch-leg-pickup-driver-rafael'));
+    await fireEvent.press(busca.getByRole('button', { name: 'Options for Luna' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Remove from route' }));
     expect(alertSpy).toHaveBeenCalledWith('Remove stop', expect.stringContaining('John · Luna'), expect.any(Array));
     expect(onRemoveStop).toHaveBeenCalledWith('route-1', 'dog-luna');
@@ -287,12 +292,15 @@ it('mostra selos por perna e rótulos acessíveis dos controles novos', async ()
     })),
   }];
   const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={comTravas} {...noops} />);
-  expect(screen.getAllByText('🔒 1st')).toHaveLength(2);
-  await fireEvent.press(screen.getByRole('button', { name: 'Drop-off Rafael route' }));
-  expect(screen.getAllByText('🔒 #3')).toHaveLength(2);
-  expect(screen.queryByText('🔒 1st')).toBeNull();
-  expect(screen.getByRole('button', { name: 'Pick-up Rafael route' })).toBeTruthy();
-  await fireEvent.press(screen.getByRole('button', { name: 'Options for Luna' }));
+  // A TROCA DE PERNA SAIU (dono, 03/10/2026): os dois blocos ficam na tela ao MESMO tempo, cada um com os
+  // selos da SUA perna — o "1st" da busca e o "#3" da entrega convivem (antes só um aparecia por vez).
+  const busca = within(screen.getByTestId('dispatch-leg-pickup-driver-rafael'));
+  const entrega = within(screen.getByTestId('dispatch-leg-dropoff-driver-rafael'));
+  expect(busca.getAllByText('🔒 1st')).toHaveLength(2);
+  expect(entrega.getAllByText('🔒 #3')).toHaveLength(2);
+  // E não existe mais botão para alternar a perna.
+  expect(screen.queryByRole('button', { name: /(Pick-up|Drop-off) Rafael route/ })).toBeNull();
+  await fireEvent.press(busca.getByRole('button', { name: 'Options for Luna' }));
   for (const perna of ['Pick-up', 'Drop-off']) {
     for (const regra of ['Free', '1st', 'Last', 'Position #']) {
       expect(screen.getByRole('button', { name: `${perna} rule ${regra}` })).toBeTruthy();

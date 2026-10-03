@@ -5,7 +5,7 @@ jest.mock('expo-router', () => {
   return { useFocusEffect: (cb: () => void) => useEffect(cb, [cb]), useRouter: () => ({ push: jest.fn() }) };
 });
 
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import DispatchScreen from '@/app/(tabs)/dispatch';
 import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
@@ -86,48 +86,58 @@ beforeEach(() => {
 });
 async function montar() {
   const tela = await render(<DispatchScreen />);
-  await waitFor(() => expect(tela.getByRole('button', { name: 'Move Max up' })).toBeTruthy());
+  await waitFor(() => expect(tela.getByTestId('dispatch-leg-pickup-motorista')).toBeTruthy());
   return tela;
 }
-function ordem(tela: Awaited<ReturnType<typeof montar>>) {
-  return tela.getAllByText(/^Sarah · /).map((item) => item.props.children.join(''));
+/**
+ * O BLOCO de uma perna. O cartão mostra as DUAS pernas juntas (a troca de perna saiu, dono 03/10/2026),
+ * então toda interação é lida dentro do bloco da perna — e os controles da ENTREGA levam o sufixo
+ * " · drop-off" para não colidirem com os da busca.
+ */
+function perna(tela: Awaited<ReturnType<typeof montar>>, leg: 'pickup' | 'dropoff' = 'pickup') {
+  return within(tela.getByTestId(`dispatch-leg-${leg}-motorista`));
+}
+function ordem(tela: Awaited<ReturnType<typeof montar>>, leg: 'pickup' | 'dropoff' = 'pickup') {
+  return perna(tela, leg).getAllByText(/^Sarah · /).map((item) => item.props.children.join(''));
 }
 async function concluir(indice: number) {
   await act(async () => confirmar[indice]({ data: null, error: null }));
 }
 
-it('alterna as ordens sem spinner e exibe selo apenas na perna correspondente', async () => {
+it('as duas pernas ficam na tela, cada uma com a sua ordem e o seu selo', async () => {
   mockOrdem = mockParadas.map((stop) => ({ ...stop, dropoff_pin: stop.dog_id === 'Filó' ? 'first' : null }));
   const tela = await montar();
-  expect(ordem(tela)).toEqual(['Sarah · Luna', 'Sarah · Max', 'Sarah · Filó']);
-  expect(tela.queryByText('🔒 1st')).toBeNull();
-  const consultas = (supabase.from as jest.Mock).mock.calls.length;
-  await fireEvent.press(tela.getByRole('button', { name: 'Drop-off Rafael route' }));
-  expect(ordem(tela)).toEqual(['Sarah · Filó', 'Sarah · Max', 'Sarah · Luna']);
-  expect(tela.getByText('🔒 1st')).toBeTruthy();
+  // BUSCA: ordem por `sequence`, e sem selo de entrega no bloco de busca.
+  expect(ordem(tela, 'pickup')).toEqual(['Sarah · Luna', 'Sarah · Max', 'Sarah · Filó']);
+  expect(perna(tela, 'pickup').queryByText('🔒 1st')).toBeNull();
+  // ENTREGA: a ordem é a da TARDE (`dropoff_sequence`) e o selo fica SÓ neste bloco.
+  expect(ordem(tela, 'dropoff')).toEqual(['Sarah · Filó', 'Sarah · Max', 'Sarah · Luna']);
+  expect(perna(tela, 'dropoff').getByText('🔒 1st')).toBeTruthy();
+  // Sem clique nenhum (a troca de perna saiu) e sem recarregar a tela do banco.
   expect(tela.queryByTestId('dispatch-loading')).toBeNull();
+  const consultas = (supabase.from as jest.Mock).mock.calls.length;
+  await act(async () => {});
   expect((supabase.from as jest.Mock).mock.calls).toHaveLength(consultas);
 });
 
 it('agrupa toques da entrega, incrementa versão e mantém busca independente', async () => {
   const tela = await montar();
-  await fireEvent.press(tela.getByRole('button', { name: 'Drop-off Rafael route' }));
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Max up' }));
-  expect(ordem(tela)).toEqual(['Sarah · Max', 'Sarah · Filó', 'Sarah · Luna']);
+  await fireEvent.press(perna(tela, 'dropoff').getByRole('button', { name: 'Move Max up · drop-off' }));
+  expect(ordem(tela, 'dropoff')).toEqual(['Sarah · Max', 'Sarah · Filó', 'Sarah · Luna']);
   expect(rpc).toHaveBeenLastCalledWith('apply_route_order', {
     p_route_id: 'rota', p_pickup_ids: null, p_dropoff_ids: ['Max', 'Filó', 'Luna'], p_esperado: 4,
   });
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Luna up' }));
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Luna up' }));
+  await fireEvent.press(perna(tela, 'dropoff').getByRole('button', { name: 'Move Luna up · drop-off' }));
+  await fireEvent.press(perna(tela, 'dropoff').getByRole('button', { name: 'Move Luna up · drop-off' }));
   expect(rpc).toHaveBeenCalledTimes(1);
   await concluir(0);
   expect(rpc).toHaveBeenLastCalledWith('apply_route_order', {
     p_route_id: 'rota', p_pickup_ids: null, p_dropoff_ids: ['Luna', 'Max', 'Filó'], p_esperado: 5,
   });
   await concluir(1);
-  await fireEvent.press(tela.getByRole('button', { name: 'Pick-up Rafael route' }));
-  expect(ordem(tela)).toEqual(['Sarah · Luna', 'Sarah · Max', 'Sarah · Filó']);
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Max up' }));
+  // A BUSCA segue independente: a ordem da manhã não foi tocada pelas mexidas da tarde.
+  expect(ordem(tela, 'pickup')).toEqual(['Sarah · Luna', 'Sarah · Max', 'Sarah · Filó']);
+  await fireEvent.press(perna(tela, 'pickup').getByRole('button', { name: 'Move Max up' }));
   expect(rpc).toHaveBeenLastCalledWith('reorder_route_stops', {
     p_route_id: 'rota', p_dog_ids: ['Max', 'Luna', 'Filó'], p_esperado: 6,
   });
@@ -233,13 +243,11 @@ it('Optimize mantém concluídas na frente e relata trava incompatível', async 
   } finally { alerta.mockRestore(); }
 });
 
-it('não perde intenções ao alternar perna durante uma escrita pendente', async () => {
+it('não perde intenções ao mexer nas duas pernas durante uma escrita pendente', async () => {
   const tela = await montar();
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Max up' }));
-  await fireEvent.press(tela.getByRole('button', { name: 'Drop-off Rafael route' }));
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Luna up' }));
-  await fireEvent.press(tela.getByRole('button', { name: 'Pick-up Rafael route' }));
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Filó up' }));
+  await fireEvent.press(perna(tela, 'pickup').getByRole('button', { name: 'Move Max up' }));
+  await fireEvent.press(perna(tela, 'dropoff').getByRole('button', { name: 'Move Luna up · drop-off' }));
+  await fireEvent.press(perna(tela, 'pickup').getByRole('button', { name: 'Move Filó up' }));
   await concluir(0);
   expect(rpc).toHaveBeenLastCalledWith('reorder_route_stops', {
     p_route_id: 'rota', p_dog_ids: ['Max', 'Filó', 'Luna'], p_esperado: 5,

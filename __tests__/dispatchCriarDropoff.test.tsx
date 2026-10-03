@@ -102,8 +102,8 @@ describe('Dispatch — ação "Create drop-off route" (tela do quadro)', () => {
     const tela = await render(
       <DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[]} dropoffItems={[Billy]} routes={[]} {...noops} onCreateDropoffRoute={onCreateDropoffRoute} />,
     );
-    // PROPOSTA B (03/10/2026): a ação vive na ABA de drop-off do motorista visível.
-    await fireEvent.press(tela.getByRole('button', { name: 'Show drop-off for Maui' }));
+    // A TROCA DE PERNA SAIU (dono, 03/10/2026): o cartão já mostra as duas pernas — a ação aparece
+    // direto para o motorista visível, sem passar por aba nenhuma.
     await fireEvent.press(tela.getByRole('button', { name: 'Create drop-off route for Maui' }));
     expect(onCreateDropoffRoute).toHaveBeenCalledWith('driver-maui');
   });
@@ -112,8 +112,6 @@ describe('Dispatch — ação "Create drop-off route" (tela do quadro)', () => {
     const tela = await render(
       <DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[]} dropoffItems={[]} routes={ROTA_DE_BUSCA} {...noops} onCreateDropoffRoute={jest.fn()} />,
     );
-    await fireEvent.press(tela.getByRole('button', { name: 'Show drop-off for Maui' }));
-    expect(tela.getByText('No drop-off route.')).toBeTruthy();
     expect(tela.queryByRole('button', { name: 'Create drop-off route for Maui' })).toBeNull();
   });
 
@@ -142,8 +140,7 @@ describe('Dispatch — a ação cria a perna de verdade (tela com Supabase falsi
 
   it('cria a perna como `draft`/drop-off e põe os cães elegíveis do dia como paradas pendentes — sem publicar', async () => {
     const tela = await render(<DispatchScreen />);
-    // PROPOSTA B (03/10/2026): a ação mora na ABA de drop-off do motorista visível.
-    await fireEvent.press(await tela.findByRole('button', { name: 'Show drop-off for Rafael' }));
+    // A troca de perna saiu (dono, 03/10/2026): a ação mora no cartão do motorista visível.
     const botao = await tela.findByRole('button', { name: 'Create drop-off route for Rafael' });
     await fireEvent.press(botao);
 

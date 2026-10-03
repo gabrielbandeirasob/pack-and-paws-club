@@ -151,13 +151,11 @@ describe('Dispatch — a trava do motorista na tela', () => {
       <DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[]} dropoffItems={[Billy, Ruby]}
         routes={routes} pickupDriverByDog={mapa} {...noops} onCreateDropoffRoute={onCreateDropoffRoute} />,
     );
-    // Jordan buscou a Ruby: pode criar a perna dele.
+    // Jordan buscou a Ruby: pode criar a perna dele (a TROCA DE PERNA saiu — o cartão já mostra as duas).
     await fireEvent.press(tela.getByRole('button', { name: 'Show Jordan' }));
-    await fireEvent.press(tela.getByRole('button', { name: 'Show drop-off for Jordan' }));
     expect(tela.getByRole('button', { name: 'Create drop-off route for Jordan' })).toBeTruthy();
     // Sam não buscou ninguém e não há cão órfão: não tem o que entregar.
     await fireEvent.press(tela.getByRole('button', { name: 'Show Sam' }));
-    expect(tela.queryByRole('button', { name: 'Show drop-off for Sam' })).toBeNull();
     expect(tela.queryByRole('button', { name: 'Create drop-off route for Sam' })).toBeNull();
   });
 
@@ -167,7 +165,6 @@ describe('Dispatch — a trava do motorista na tela', () => {
         routes={routes} {...noops} onCreateDropoffRoute={jest.fn()} />,
     );
     await fireEvent.press(tela.getByRole('button', { name: 'Show Jordan' }));
-    await fireEvent.press(tela.getByRole('button', { name: 'Show drop-off for Jordan' }));
     expect(tela.getByRole('button', { name: 'Create drop-off route for Jordan' })).toBeTruthy();
   });
 

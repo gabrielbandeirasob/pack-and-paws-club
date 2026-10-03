@@ -299,10 +299,10 @@ it('sugere e grava duas pernas independentes, sem boarding e sem publicar drop-o
   expect(inserts.map(w => [w.payload.phase, w.payload.start_location_id, w.payload.end_location_id])).toEqual([
     ['pickup', 'van', 'yard'], ['dropoff', 'yard', 'van'],
   ]);
-  // PROPOSTA B (dono, 03/10/2026): o quadro mostra UMA perna por vez — a perna de entrega tem a sua aba;
-  // é nela que o rótulo "Draft only" (drop-off nunca publica) aparece.
-  await fireEvent.press(screen.getByLabelText('Show drop-off for Rafael'));
-  expect(screen.getByText('Draft only')).toBeTruthy();
+  // A troca de perna saiu (dono, 03/10/2026): as DUAS pernas ficam na tela ao mesmo tempo. A de ENTREGA
+  // nunca publica (drop-off é só rascunho) — o botão de publicar é o da rota de BUSCA.
+  expect(screen.getAllByText(/^Jose · sam$/)).toHaveLength(2);   // na busca E na entrega
+  expect(screen.queryByText('Draft only')).toBeNull();
   expect((supabase.rpc as jest.Mock).mock.calls.every(c => c[0] === 'assign_stop_to_route')).toBe(true);
 });
 

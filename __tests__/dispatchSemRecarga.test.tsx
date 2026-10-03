@@ -5,7 +5,7 @@ jest.mock('expo-router', () => {
   return { useFocusEffect: (cb: () => void) => useEffect(cb, [cb]), useRouter: () => ({ push: jest.fn() }) };
 });
 
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import DispatchScreen from '@/app/(tabs)/dispatch';
 import { supabase } from '@/lib/supabase';
@@ -69,8 +69,12 @@ async function montar() {
   await waitFor(() => expect(tela.getByRole('button', { name: 'Move Max up' })).toBeTruthy());
   return tela;
 }
+/**
+ * A ordem da perna de BUSCA. O cartão mostra as DUAS pernas juntas (a troca de perna saiu, dono
+ * 03/10/2026), então a leitura é por BLOCO — sem isso o mesmo cão aparece duas vezes na lista.
+ */
 function ordem(tela: Awaited<ReturnType<typeof montar>>) {
-  return tela.getAllByText(/^Sarah · /).map((item) => item.props.children.join(''));
+  return within(tela.getByTestId('dispatch-leg-pickup-motorista')).getAllByText(/^Sarah · /).map((item) => item.props.children.join(''));
 }
 async function concluir(indice: number) {
   await act(async () => confirmar[indice]({ data: null, error: null }));
