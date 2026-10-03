@@ -29,13 +29,17 @@ type Props = {
    * registro). A distância entra no motivo gravado, então o gestor VÊ a exceção no relatório de horas.
    */
   foraDaVan?: { distanceKm: number; vanName: string } | null;
+  /** Navigate independently of the clock-in radius or pending shift writes. */
+  navigation?: { kind: 'van' | 'yard'; onPress: () => void };
+  /** A tela mantém a condição existente de buscas concluídas e entregas pendentes. */
+  onStartDropoffs?: () => void;
   onClockIn: (reason: string) => void;
   onClockOut: (reason: string) => void;
   /** Registro de exceção pedido pelo motorista depois da recusa (grava a distância no motivo). */
   onClockInAnyway?: (reason: string) => void;
 };
 
-export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHint = null, foraDaVan = null, onClockIn, onClockOut, onClockInAnyway }: Props) {
+export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHint = null, foraDaVan = null, navigation, onStartDropoffs, onClockIn, onClockOut, onClockInAnyway }: Props) {
   const [pedindo, setPedindo] = useState<'in' | 'out' | 'in-fora' | null>(null);
   const [motivo, setMotivo] = useState('');
 
@@ -72,6 +76,16 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHi
       {gateHint ? <Text style={styles.gateHint}>{gateHint}</Text> : null}
 
       <View style={styles.acoes}>
+        {navigation ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Navigate to ${navigation.kind}`}
+            onPress={navigation.onPress}
+            style={({ pressed }) => [styles.botao, pressed && styles.pressed]}
+          >
+            <Text style={[styles.botaoTexto, styles.navegarTexto]}>Navigate to {navigation.kind}</Text>
+          </Pressable>
+        ) : null}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={aberta ? 'Clock out' : 'Clock in'}
@@ -84,6 +98,18 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHi
           </Text>
         </Pressable>
       </View>
+
+      {onStartDropoffs ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Start drop-offs"
+          onPress={onStartDropoffs}
+          style={styles.iniciarEntregas}
+          testID="start-dropoffs"
+        >
+          <Text style={styles.iniciarEntregasTexto}>Start drop-offs</Text>
+        </Pressable>
+      ) : null}
 
       {error ? <Text style={styles.erro}>{error}</Text> : null}
 
@@ -174,6 +200,9 @@ const styles = StyleSheet.create({
   botaoExcecao: { borderWidth: 1.5, borderColor: colors.urgency, borderRadius: 12, paddingVertical: 13, alignItems: 'center', justifyContent: 'center', minHeight: 44, marginTop: 8 },
   botaoExcecaoTexto: { color: colors.urgency, fontWeight: '900', fontSize: 12.5 },
   botaoTexto: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
+  navegarTexto: { textAlign: 'center', paddingHorizontal: 6 },
+  iniciarEntregas: { backgroundColor: colors.gold, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 15, alignItems: 'center', minWidth: 120, marginTop: 8 },
+  iniciarEntregasTexto: { color: colors.forest900, fontWeight: '900', fontSize: 13 },
   botaoTextoPrincipal: { color: 'white' },
   erro: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginTop: 9, lineHeight: 17 },
   fundo: { flex: 1, backgroundColor: 'rgba(23,43,29,0.45)', justifyContent: 'flex-end' },

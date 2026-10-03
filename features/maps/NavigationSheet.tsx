@@ -23,14 +23,14 @@ export function NavigationSheet({ visible, target, onClose, onChoose }: Props) {
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
-          <Text style={styles.title}>Abrir navegação em…</Text>
-          <Text style={styles.subtitle}>{target?.address ?? 'Parada selecionada'}</Text>
+          <Text style={styles.title}>Open navigation in…</Text>
+          <Text style={styles.subtitle}>{target?.address ?? 'Selected destination'}</Text>
 
           {NAV_APPS.map((app) => (
             <Pressable
               key={app}
               accessibilityRole="button"
-              accessibilityLabel={`Abrir no ${labelFor(app)}`}
+              accessibilityLabel={`Open in ${labelFor(app)}`}
               onPress={() => onChoose(app, remember)}
               style={({ pressed }) => [styles.option, pressed && styles.pressed]}
             >

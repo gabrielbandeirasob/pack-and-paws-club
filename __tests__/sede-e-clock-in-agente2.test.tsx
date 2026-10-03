@@ -17,7 +17,10 @@
  * (1 grau de latitude ≈ 111 km, mesmo meridiano), nada aqui depende de GPS de verdade.
  */
 import React from 'react';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import { Linking } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { savePreferredNavApp } from '@/features/maps/preferences';
 
 import {
   SEM_POSICAO_MENSAGEM,
@@ -300,7 +303,7 @@ const mockEstado: {
 
 jest.mock('@/lib/supabase', () => {
   const dados = (tabela: string) => {
-    if (tabela === 'routes') return [ROTA];
+    if (tabela === 'routes') return [mockRota];
     if (tabela === 'organization_locations') return mockEstado.erroSedes ? null : mockEstado.sedes;
     return [];
   };
@@ -462,12 +465,12 @@ jest.mock('expo-router', () => ({
   useRouter: () => ({ push: () => undefined, replace: () => undefined, back: () => undefined }),
 }));
 
-const ROTA = {
+const mockRota = {
   id: 'r1',
   organization_id: 'org-1',
   lock_version: 3,
   published_at: '2026-09-25T12:00:00.000Z',
-  start_location_id: null,
+  start_location_id: null as string | null,
   end_location_id: null,
   organization: { proof_pickup_required: false, proof_dropoff_required: false },
   route_stops: [
@@ -485,6 +488,7 @@ const ROTA = {
       arrived_at: null,
       picked_up_at: null,
       completed_at: null,
+      delivered_at: null as string | null,
       skipped_at: null,
       status_updated_at: null,
       eta_notice_at: null,
@@ -527,6 +531,147 @@ async function apertarClockIn() {
   await fireEvent.press(tela.getByLabelText('Save manual record'));
   return tela;
 }
+
+describe('van navigation in JOURNEY', () => {
+  beforeEach(async () => {
+    await AsyncStorage.clear();
+    mockEstado.insercoes.length = 0;
+    mockEstado.erroSedes = false;
+    mockEstado.sedes = [SEDE_ROW, { ...SEDE_ROW, id: 'v2', name: 'Bay van', latitude: 38, longitude: -121, is_default: false }];
+    mockRota.start_location_id = 'v2';
+    mockPosicao.compartilhada = LONGE;
+    mockPosicao.fresca = LONGE;
+  });
+
+  afterEach(() => {
+    mockRota.start_location_id = null;
+    mockRota.route_stops[0].status = 'pending';
+    mockRota.route_stops[0].delivered_at = null;
+    jest.restoreAllMocks();
+  });
+
+  it('moves yard navigation into JOURNEY once pickups finish without changing phase', async () => {
+    mockEstado.sedes.push({ ...SEDE_ROW, id: 'yard', name: 'Day yard', kind: 'yard', latitude: 36, longitude: -120, is_default: false });
+    mockRota.route_stops[0].status = 'completed';
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    await savePreferredNavApp('google');
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+    await waitFor(() => expect(tela.getByTestId('cartao-jornada')).toBeTruthy());
+    const card = within(tela.getByTestId('cartao-jornada'));
+    await fireEvent.press(card.getByRole('button', { name: 'Navigate to yard' }));
+    await waitFor(() => expect(openURL).toHaveBeenCalledWith(expect.stringContaining('destination=36,-120')));
+    expect(tela.getByText('PICK-UPS')).toBeTruthy();
+    expect(tela.queryByTestId('navigate-closing')).toBeNull();
+    expect(tela.queryByTestId('navigate-start')).toBeNull();
+    expect(card.queryByRole('button', { name: 'Navigate to van' })).toBeNull();
+    expect(insercoesDe('driver_shifts')).toHaveLength(0);
+    await tela.unmount();
+  });
+
+  it.each([
+    ['no van', []],
+    ['van without coordinates', [{ ...SEDE_ROW, latitude: null, longitude: null }]],
+  ])('does not invent a navigation target with %s', async (_, sedes) => {
+    mockEstado.sedes = sedes;
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+    await waitFor(() => expect(tela.getByLabelText('Clock in')).toBeTruthy());
+    const card = within(tela.getByTestId('cartao-jornada'));
+    expect(card.queryByRole('button', { name: /Navigate to/ })).toBeNull();
+    expect(tela.getByLabelText('Next stop: navigate to Bob')).toBeTruthy();
+    await tela.unmount();
+  });
+
+  it('keeps yard navigation and the existing manual drop-off transition after pickups', async () => {
+    mockEstado.sedes.push({ ...SEDE_ROW, id: 'yard', name: 'Day yard', kind: 'yard', latitude: 36, longitude: -120, is_default: false });
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+    await waitFor(() => expect(tela.getByLabelText('Clock in')).toBeTruthy());
+    expect(tela.queryByTestId('start-dropoffs')).toBeNull();
+    mockRota.route_stops[0].status = 'completed';
+    await act(async () => { tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+    await waitFor(() => expect(tela.getByTestId('start-dropoffs')).toBeTruthy());
+    const journey = within(tela.getByTestId('cartao-jornada'));
+    const buttons = journey.getAllByRole('button');
+    const yardIndex = buttons.findIndex((button) => button.props.accessibilityLabel === 'Navigate to yard');
+    const dropoffIndex = buttons.findIndex((button) => button.props.accessibilityLabel === 'Start drop-offs');
+    expect(yardIndex).toBeGreaterThanOrEqual(0);
+    expect(dropoffIndex).toBeGreaterThan(yardIndex);
+    expect(tela.getAllByTestId('start-dropoffs')).toHaveLength(1);
+    expect(tela.getByText('PICK-UPS')).toBeTruthy();
+    await fireEvent.press(journey.getByRole('button', { name: 'Start drop-offs' }));
+    await waitFor(() => expect(tela.getByText('DROP-OFFS')).toBeTruthy());
+    expect(tela.queryByTestId('start-dropoffs')).toBeNull();
+    await act(async () => { tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+    await waitFor(() => expect(tela.getByText('DROP-OFFS')).toBeTruthy());
+    const card = within(tela.getByTestId('cartao-jornada'));
+    expect(card.getByRole('button', { name: 'Navigate to yard' })).toBeTruthy();
+    expect(tela.queryByTestId('navigate-start')).toBeNull();
+    expect(tela.queryByTestId('navigate-closing')).toBeNull();
+    expect(tela.getByLabelText('Next stop: navigate to Bob')).toBeTruthy();
+    await tela.unmount();
+  });
+
+  it.each([
+    ['pending', null, false],
+    ['arrived', null, false],
+    ['completed', null, true],
+    ['completed', '2026-10-03T20:00:00.000Z', false],
+    ['skipped', null, false],
+  ] as const)('preserves drop-off availability for %s / %s without GPS or yard', async (status, deliveredAt, available) => {
+    mockPosicao.compartilhada = null;
+    mockPosicao.fresca = null;
+    mockRota.route_stops[0].status = status;
+    mockRota.route_stops[0].delivered_at = deliveredAt;
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+    await waitFor(() => expect(tela.getByTestId('cartao-jornada')).toBeTruthy());
+    const card = within(tela.getByTestId('cartao-jornada'));
+    expect(Boolean(card.queryByRole('button', { name: 'Start drop-offs' }))).toBe(available);
+    expect(tela.queryAllByTestId('start-dropoffs')).toHaveLength(available ? 1 : 0);
+    expect(card.queryByRole('button', { name: 'Navigate to yard' })).toBeNull();
+    if (available) {
+      await fireEvent.press(card.getByRole('button', { name: 'Start drop-offs' }));
+      await waitFor(() => expect(tela.getByText('DROP-OFFS')).toBeTruthy());
+      expect(tela.queryByTestId('start-dropoffs')).toBeNull();
+      expect(insercoesDe('driver_shifts')).toHaveLength(0);
+    }
+    await tela.unmount();
+  });
+
+  it('opens an English chooser without GPS and navigates to the assigned van', async () => {
+    mockPosicao.compartilhada = null;
+    mockPosicao.fresca = null;
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+    await waitFor(() => expect(tela.getByLabelText('Clock in')).toBeTruthy());
+    await fireEvent.press(within(tela.getByTestId('cartao-jornada')).getByRole('button', { name: 'Navigate to van' }));
+    await waitFor(() => expect(tela.getByText('Open navigation in…')).toBeTruthy());
+    await fireEvent.press(tela.getByRole('button', { name: 'Open in Google Maps' }));
+    expect(openURL).toHaveBeenCalledWith(expect.stringContaining('destination=38,-121'));
+    expect(insercoesDe('driver_shifts')).toHaveLength(0);
+    await tela.unmount();
+  });
+
+  it('navigates to the assigned second van from Clock in, not the default or closest van', async () => {
+    const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    await savePreferredNavApp('google');
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+    await waitFor(() => expect(tela.getByLabelText('Clock in')).toBeTruthy());
+    const card = within(tela.getByTestId('cartao-jornada'));
+    expect(card.getByText(/Clock in opens at the van "Bay van"/)).toBeTruthy();
+    await fireEvent.press(card.getByRole('button', { name: 'Navigate to van' }));
+    await waitFor(() => expect(openURL).toHaveBeenCalledWith(expect.stringContaining('destination=38,-121')));
+    expect(insercoesDe('driver_shifts')).toHaveLength(0);
+    expect(tela.queryByTestId('navigate-start')).toBeNull();
+    expect(tela.getByText('PICK-UPS')).toBeTruthy();
+    expect(tela.getByLabelText('Next stop: navigate to Bob')).toBeTruthy();
+    await tela.unmount();
+  });
+});
 
 describe('clock in na tela do motorista (trava por distância)', () => {
   beforeEach(() => {

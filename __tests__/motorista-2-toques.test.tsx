@@ -603,12 +603,15 @@ it('duas pernas mantêm fechamento navegável na busca (yard) e na entrega (van)
   try {
     const Tela = require('../app/(tabs)/driver').default;
     const tela = await render(<Tela />);
-    await waitFor(() => expect(tela.getByLabelText('Navigate to the yard')).toBeTruthy());
+    await waitFor(() => expect(tela.getByLabelText('Navigate to yard')).toBeTruthy());
     await fireEvent.press(tela.getByTestId('start-dropoffs'));
     await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Luna')).toBeTruthy());
-    expect(tela.queryByLabelText('Navigate to the yard')).toBeNull();
+    // The yard is now the drop-off start; its navigation moved from route-start into JOURNEY.
+    expect(tela.getByLabelText('Navigate to yard')).toBeTruthy();
+    expect(tela.queryByTestId('navigate-start')).toBeNull();
     await fireEvent.press(tela.getByLabelText('Next stop: Delivered for Luna'));
-    await waitFor(() => expect(tela.getByLabelText('Navigate to the van')).toBeTruthy());
+    await waitFor(() => expect(tela.getByLabelText('Navigate to van')).toBeTruthy());
+    expect(tela.queryByLabelText('Navigate to yard')).toBeNull();
     expect(tela.queryByLabelText('Next stop: Delivered for Luna')).toBeNull();
   } finally {
     mockLocais = [];

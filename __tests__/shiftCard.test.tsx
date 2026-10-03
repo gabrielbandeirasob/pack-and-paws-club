@@ -37,6 +37,23 @@ describe('ShiftCard (jornada do motorista)', () => {
     expect(tela.getByText('Worked out from your route stops — nothing to press.')).toBeTruthy();
   });
 
+  it('offers van navigation beside Clock in outside the radius without recording a journey', async () => {
+    const onNavigateVan = jest.fn();
+    const { tela, onClockIn, onClockOut } = await montar({
+      state: shiftState([], []),
+      gateHint: 'Clock in opens at the van — you are 3.2 km away (radius of 300 m).',
+      foraDaVan: { distanceKm: 3.2, vanName: 'Assigned van' },
+      navigation: { kind: 'van', onPress: onNavigateVan },
+    });
+    const card = within(tela.getByTestId('cartao-jornada'));
+    expect(card.getByLabelText('Clock in')).toBeTruthy();
+    await fireEvent.press(card.getByRole('button', { name: 'Navigate to van' }));
+    expect(onNavigateVan).toHaveBeenCalledTimes(1);
+    expect(onClockIn).not.toHaveBeenCalled();
+    expect(onClockOut).not.toHaveBeenCalled();
+    expect(tela.queryByLabelText('Reason for the manual record')).toBeNull();
+  });
+
   it('sem jornada ainda, oferece o clock in', async () => {
     const { onClockIn, tela } = await montar({ state: shiftState([{ ...PARADAS[1] }], []) });
     await fireEvent.press(tela.getByLabelText('Clock in'));

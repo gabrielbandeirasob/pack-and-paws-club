@@ -14,7 +14,7 @@ import { NextStopCard, nextActionForStatus, nextStopFor } from '@/features/drive
 import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
 import { mudarFila, chaveDoPendente, enqueuePending, flushPendingWrites, semPendentesSaidos, RefusedWriteError, abrirFilaDoUsuario, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
 import { carregarFase, gravarFase } from '@/features/driver/dayPhaseStore';
-import { ordenarPelaFase, paradaDaFaseConcluida, type DayPhase } from '@/features/driver/dayPhase';
+import { ordenarPelaFase, paradaDaFaseConcluida, podeIniciarDropoff, type DayPhase } from '@/features/driver/dayPhase';
 import { planClockOut } from '@/features/driver/clockOutPlan';
 import { pickDriverDisplayName, resolveDriverOrganizationId } from '@/features/driver/driverOrganization';
 import { ShiftCard } from '@/features/driver/ShiftCard';
@@ -1217,6 +1217,9 @@ export default function DriverTodayScreen() {
     };
   }, [fase, vanLocation, yardLocation]);
 
+  // Keep the current leg's destination beside the clock controls, not below the stop list.
+  const journeyDestination = fechamento ?? start;
+
   /** Início e fechamento usam o app preferido, com fallback para a folha de escolha. */
   const navegarPara = useCallback(async (location: NavTarget | null, stopId: 'start' | 'closing') => {
     if (!location) return;
@@ -1341,6 +1344,21 @@ export default function DriverTodayScreen() {
                     error={shiftError}
                     gateHint={gateHint}
                     foraDaVan={foraDaVan}
+                    navigation={journeyDestination ? {
+                      kind: journeyDestination.kind,
+                      onPress: () => void navegarPara(journeyDestination, fechamento ? 'closing' : 'start'),
+                    } : undefined}
+                    onStartDropoffs={stops.length > 0 && fase === 'pickup' && (dropoffStops ? buscaTerminou(stops) && !entregaTerminou(dropoffStops) : podeIniciarDropoff(stopsDaFase)) ? () => {
+                      // Vira a perna e GRAVA no aparelho: o dia não volta a "busca" sozinho.
+                      void (async () => {
+                        await cargaEmAndamento.current;
+                        const dia = faseDoDia.current;
+                        if (!dia || !routeId || dia.userId !== driverId) return;
+                        dia.fase = 'dropoff';
+                        await gravarFase(dia.key, dia.userId, 'dropoff');
+                        await load();
+                      })();
+                    } : undefined}
                     onClockIn={(motivo) => void clockIn(motivo)}
                     onClockInAnyway={(motivo) => void clockIn(motivo, true)}
                     onClockOut={(motivo) => void clockOut(motivo)}
@@ -1389,22 +1407,8 @@ export default function DriverTodayScreen() {
                     onAction={act}
                     onNotifyOwner={avisarTutor}
                     start={start}
-                    onNavigateStart={() => void navegarPara(start, 'start')}
                     closing={fechamento}
-                    onNavigateClosing={() => void navegarPara(fechamento, 'closing')}
                     fase={fase}
-                    canStartDropoffs={dropoffStops ? buscaTerminou(stops) && !entregaTerminou(dropoffStops) : undefined}
-                    onStartDropoffs={() => {
-                      // Vira a perna e GRAVA no aparelho: o dia não volta a "busca" sozinho.
-                      void (async () => {
-                        await cargaEmAndamento.current;
-                        const dia = faseDoDia.current;
-                        if (!dia || !routeId || dia.userId !== driverId) return;
-                        dia.fase = 'dropoff';
-                        await gravarFase(dia.key, dia.userId, 'dropoff');
-                        await load();
-                      })();
-                    }}
                   />
                 </>
               )}
