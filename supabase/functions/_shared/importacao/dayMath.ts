@@ -24,6 +24,9 @@ export type ReservationRecord = {
   startDate: string;
   endDate: string;
   transportRequired: boolean;
+  /** Per-leg override; omitted legacy records use transportRequired. */
+  pickupRequired?: boolean;
+  dropoffRequired?: boolean;
   /**
    * O cão passa pelo DAYCARE neste dia (entra no Total Pack e na seção "já está na van"). Contrato do
    * cliente, escrito em 28/09/2026: *"por via de regra todo boarding vai pro daycare (ou seja eles no
@@ -46,6 +49,9 @@ export type RecurringScheduleRecord = {
   endDate: string | null;
   active: boolean;
   transportRequired: boolean;
+  /** Per-leg override; omitted legacy records use transportRequired. */
+  pickupRequired?: boolean;
+  dropoffRequired?: boolean;
   /** Evento do Google que originou a série (importada) — ver migration 025. */
   googleEventId?: string | null;
   /** 'google' = nasceu no Google Calendar (lá manda); 'app' = nasceu no aplicativo. */
@@ -74,6 +80,9 @@ export type DayItem = {
   /** A casa do cão (`dogs.client_id`) — ver `DogRef.clientId`. */
   clientId?: string | null;
   transportRequired: boolean;
+  /** Per-leg override; omitted legacy records use transportRequired. */
+  pickupRequired?: boolean;
+  dropoffRequired?: boolean;
   /** O cão passa pelo daycare hoje (ver `ReservationRecord.goesToDaycare`). */
   goesToDaycare: boolean;
   // True when this recurring occurrence is currently overridden to skip (paused) on the built day.
@@ -128,11 +137,19 @@ export function dogsJaNaVan(day: DaySummary): Set<string> {
  * pickup mesmo já estando no daycare — era o que o cliente apontou.
  */
 export function transportPool(day: DaySummary): DayItem[] {
+  return transportPoolForPhase(day, 'pickup');
+}
+
+/** Independent candidate lists. Boarding never creates a delivery stop. */
+export function transportPoolForPhase(day: DaySummary, phase: 'pickup' | 'dropoff'): DayItem[] {
   const jaNaVan = dogsJaNaVan(day);
+  const boarding = new Set(day.boarding.map(item => item.dogId));
   const vistos = new Set<string>();
   return [...day.daycare, ...day.boarding].filter((item) => {
-    if (!item.transportRequired) return false;
-    if (jaNaVan.has(item.dogId)) return false;
+    const required = phase === 'pickup' ? item.pickupRequired : item.dropoffRequired;
+    if (!(required ?? item.transportRequired)) return false;
+    if (phase === 'pickup' && jaNaVan.has(item.dogId)) return false;
+    if (phase === 'dropoff' && boarding.has(item.dogId)) return false;
     if (vistos.has(item.dogId)) return false;
     vistos.add(item.dogId);
     return true;
@@ -183,6 +200,8 @@ function itemize(kind: DayItem['kind'], reservation: ReservationRecord | null, s
     reservationId: reservation?.id ?? null,
     recurringScheduleId: schedule?.id ?? null,
     transportRequired: source.transportRequired,
+    pickupRequired: source.pickupRequired,
+    dropoffRequired: source.dropoffRequired,
     goesToDaycare: reservation?.goesToDaycare ?? true,
   };
 }
@@ -273,7 +292,9 @@ export function buildDay(
     for (const item of items) {
       const existing = dogs.get(item.dogId);
       dogs.set(item.dogId, existing
-        ? { ...existing, transportRequired: existing.transportRequired || item.transportRequired }
+        ? { ...existing, transportRequired: existing.transportRequired || item.transportRequired,
+          pickupRequired: (existing.pickupRequired ?? existing.transportRequired) || (item.pickupRequired ?? item.transportRequired),
+          dropoffRequired: (existing.dropoffRequired ?? existing.transportRequired) || (item.dropoffRequired ?? item.transportRequired) }
         : item);
     }
     return [...dogs.values()];

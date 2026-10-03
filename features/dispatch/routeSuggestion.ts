@@ -1,31 +1,9 @@
-/**
- * SUGESTÃO DE ROTA — o app propõe QUEM leva QUAIS cães e em QUE ORDEM, e o gestor confirma.
- *
- * Pedido do cliente em áudio (01/10/2026, encaminhado pelo dono): *"sugestão de rota automática ali
- * mano… leva um tempinho aí de clicar e mandar pro driver certo"* — hoje a distribuição é 100% manual
- * (cão por cão no Dispatch) e pesa mais quando o próprio gestor vai fazer a rota.
- *
- * Decisões do dono (mesmo dia, perguntas de múltipla escolha):
- *  1. a sugestão cobre as DUAS coisas: a distribuição entre os motoristas e a ordem dentro de cada rota;
- *  2. a base é GEOGRAFIA — juntar os cães por proximidade para o menor desvio total;
- *  3. ela só PROPÕE: o gestor confirma num toque antes de qualquer escrita.
- *
- * Como decide (heurística explicável, sem dependência nova):
- *  a) monta UMA trilha passando por todos os cães, sempre pelo vizinho mais próximo (partindo da van,
- *     quando ela existe — é de lá que a rota sai de manhã);
- *  b) corta a trilha em K pedaços CONTÍGUOS minimizando a distância total (programação dinâmica) — é o
- *     clássico "dividir um tour gigante": pedaços contíguos são justamente os que ficam grudados no
- *     mapa, e é isso que evita um motorista atravessar a cidade para pegar um cão;
- *  c) entrega cada pedaço ao motorista mais próximo do primeiro cão do pedaço (posição atual dele, se
- *     o app tem; senão, na ordem em que os motoristas aparecem no Dispatch).
- *
- * ⚠️ Quem identifica um cão é o **índice dele na lista** — NUNCA a coordenada: dois cães da mesma casa
- * (mesmo cliente) têm exatamente o mesmo endereço e a mesma coordenada, e trocar cães entre motoristas
- * por causa disso seria um defeito silencioso.
- *
- * Módulo puro: nada de rede, nada de UI — a tela só mostra o que sai daqui e aplica depois do ok.
+/** Pure route proposals: balance dog counts first, then group by proximity.
+ * Housemates stay together. Each phase has its own candidates and assignments.
  */
 import { haversineKm } from '@/features/dispatch/routeOptimizer';
+import { transportPoolForPhase, type DaySummary } from '@/features/calendar/dayMath';
+import type { Perna } from '@/features/dispatch/orderPins';
 
 export type CaoParaSugerir = {
   dogId: string;
@@ -113,7 +91,7 @@ function trilhaVizinhoMaisProximo(pontos: Ponto[], inicio: Ponto): number[] {
  * EQUILÍBRIO (pedido do dono, 01/10/2026: *"quero que vc dê uma balanceada senão vai ficar muito pesado
  * para algum driver"*): com `pesos` (cães por casa, ao longo da trilha) e `limite`, o corte NÃO pode
  * deixar um bloco passar de `limite` cães — o menor desvio continua sendo o objetivo, mas dentro do
- * rateio. Sem corte possível com o limite, devolve null e quem chamou decide (o corte sem limite).
+ * rateio. O mínimo também é obrigatório; sem corte viável, busca outra combinação de casas.
  */
 function dividirEmBlocos(
   trilha: number[],
@@ -122,6 +100,7 @@ function dividirEmBlocos(
   inicio: Ponto | null,
   pesos?: number[],
   limite?: number,
+  minimo = 0,
 ): number[][] | null {
   const n = trilha.length;
   // prefixo[t] = distância de trilha[0] até trilha[t] seguindo a trilha.
@@ -132,7 +111,7 @@ function dividirEmBlocos(
   const prefC = [0];
   for (let t = 0; t < n; t += 1) prefC.push(prefC[t] + (pesos?.[t] ?? 1));
   const caesEntre = (i: number, j: number) => prefC[j + 1] - prefC[i];
-  const cabe = (i: number, j: number) => limite === undefined || caesEntre(i, j) <= limite;
+  const cabe = (i: number, j: number) => limite === undefined || (caesEntre(i, j) <= limite && caesEntre(i, j) >= minimo);
 
   const dp: number[][] = Array.from({ length: pedacos + 1 }, () => new Array(n).fill(Infinity));
   const corte: number[][] = Array.from({ length: pedacos + 1 }, () => new Array(n).fill(-1));
@@ -165,6 +144,48 @@ function dividirEmBlocos(
     fim = ini - 1;
   }
   return blocos;
+}
+
+/** Exact count feasibility with indivisible households; symmetric states are memoized.
+ * Larger households first prune impossible allocations early. Geographic order breaks ties.
+ * When no floor/ceil partition exists, use least-loaded allocation, preserving households.
+ */
+function distribuirCasas(trilha: number[], pesos: number[], quantidade: number): number[][] {
+  const total = pesos.reduce((sum, n) => sum + n, 0);
+  const targets = Array.from({ length: quantidade }, (_, i) =>
+    Math.floor(total / quantidade) + (i < total % quantidade ? 1 : 0));
+  const ordem = [...trilha].sort((a, b) => pesos[b] - pesos[a]);
+  const blocos: number[][] = targets.map(() => []);
+  const cargas = targets.map(() => 0);
+  const falhas = new Set<string>();
+  function alocar(pos: number): boolean {
+    if (pos === ordem.length) return true;
+    const key = `${pos}:${targets.map((t, i) => t - cargas[i]).sort((a, b) => a - b).join(',')}`;
+    if (falhas.has(key)) return false;
+    const vistos = new Set<number>();
+    const casa = ordem[pos];
+    for (let i = 0; i < quantidade; i += 1) {
+      const livre = targets[i] - cargas[i];
+      if (vistos.has(livre) || pesos[casa] > livre) continue;
+      vistos.add(livre);
+      cargas[i] += pesos[casa];
+      blocos[i].push(casa);
+      if (alocar(pos + 1)) return true;
+      blocos[i].pop();
+      cargas[i] -= pesos[casa];
+    }
+    falhas.add(key);
+    return false;
+  }
+  if (!alocar(0)) {
+    for (const casa of ordem) {
+      const i = cargas.indexOf(Math.min(...cargas));
+      blocos[i].push(casa);
+      cargas[i] += pesos[casa];
+    }
+  }
+  const posicao = new Map(trilha.map((casa, i) => [casa, i]));
+  return blocos.filter(b => b.length).map(b => b.sort((a, c) => posicao.get(a)! - posicao.get(c)!));
 }
 
 /**
@@ -200,23 +221,14 @@ export function sugerirRotas(
   const pontos = comPonto.map((item) => item.ponto);
   const trilha = trilhaVizinhoMaisProximo(pontos, inicio ?? centroide(pontos));
 
-  /*
-   * EQUILÍBRIO DO PESO (pedido do dono, 01/10/2026: *"está funcionando porém quero que vc dê uma
-   * balanceada senão vai ficar muito pesado para algum driver"*).
-   *
-   * A geografia continua mandando, mas com TETO de cães por motorista: o teto nasce do rateio justo
-   * (total ÷ número de motoristas, arredondado para cima) e nunca fica menor que a maior casa — se
-   * ficasse, não existiria corte com os irmãos juntos, e separar irmãos é pior do que desequilibrar.
-   * Com 7 cães e 2 motoristas, por exemplo, sai 4 + 3 (antes podia sair 6 + 1).
-   */
-  const caesPorCasa = comPonto.map((item) => item.caes.length);
-  const totalCaes = caesPorCasa.reduce((soma, n) => soma + n, 0);
-  const maiorCasa = caesPorCasa.reduce((maior, n) => Math.max(maior, n), 1);
-  const limite = Math.max(Math.ceil(totalCaes / pedacos), maiorCasa);
-  const equilibrados = dividirEmBlocos(trilha, pontos, pedacos, inicio, caesPorCasa, limite);
-  // Rede de segurança: sem corte que caiba no teto, vale o corte por geografia pura (nunca ficar sem
-  // sugestão por causa da conta de equilíbrio).
-  const blocos = equilibrados ?? dividirEmBlocos(trilha, pontos, pedacos, inicio) ?? [trilha];
+  const pesos = trilha.map(indice => comPonto[indice].caes.length);
+  const total = pesos.reduce((sum, weight) => sum + weight, 0);
+  const minimo = Math.floor(total / pedacos);
+  const limite = Math.ceil(total / pedacos);
+  // First prefer geographic contiguous blocks with fair counts. If house sizes prevent that
+  // cut, search non-contiguous allocations before declaring exact balance impossible.
+  const blocos = dividirEmBlocos(trilha, pontos, pedacos, inicio, pesos, limite, minimo)
+    ?? distribuirCasas(trilha, comPonto.map(item => item.caes.length), pedacos);
 
   // Motorista de cada bloco: o mais perto do primeiro cão do bloco. Se nenhum motorista tem posição
   // conhecida, vale a ordem da lista (a mesma que o gestor vê na tela do Dispatch).
@@ -254,4 +266,52 @@ export function sugerirRotas(
   }
 
   return { blocos: resultado, semLugar, kmTotal };
+}
+
+/** Model contract for the next Dispatch slice: assignments are local to one phase. */
+export type AtribuicaoPorFase = { phase: Perna; dogIds: readonly string[] };
+export type CaoDoDiaParaSugerir = CaoParaSugerir & {
+  pickupRequired: boolean;
+  dropoffRequired: boolean;
+  boarding?: boolean;
+  inVan?: boolean;
+};
+export type SugestaoPorFase = SugestaoDeRotas & { phase: Perna };
+export type SugestoesDoDia = Record<Perna, SugestaoPorFase>;
+
+export function sugerirRotasPorFase(
+  caes: CaoDoDiaParaSugerir[],
+  motoristas: MotoristaParaSugerir[],
+  atribuicoes: readonly AtribuicaoPorFase[] = [],
+  inicios: Partial<Record<Perna, Ponto | null>> = {},
+): SugestoesDoDia {
+  function sugerir(phase: Perna): SugestaoPorFase {
+    const atribuidos = new Set(atribuicoes.filter(a => a.phase === phase).flatMap(a => [...a.dogIds]));
+    const candidatos = caes.filter(c => !atribuidos.has(c.dogId) && (phase === 'pickup'
+      ? c.pickupRequired && !c.inVan
+      : c.dropoffRequired && !c.boarding));
+    return { phase, ...sugerirRotas(candidatos, motoristas, inicios[phase] ?? null) };
+  }
+  return { pickup: sugerir('pickup'), dropoff: sugerir('dropoff') };
+}
+
+/** Adapter for the calendar data consumed by Dispatch, without any screen/network dependency. */
+export function sugerirRotasDoDia(
+  day: DaySummary,
+  coordenadas: ReadonlyMap<string, { latitude: number | null; longitude: number | null }>,
+  motoristas: MotoristaParaSugerir[],
+  atribuicoes: readonly AtribuicaoPorFase[] = [],
+  inicios: Partial<Record<Perna, Ponto | null>> = {},
+): SugestoesDoDia {
+  const pickup = new Set(transportPoolForPhase(day, 'pickup').map(c => c.dogId));
+  const dropoff = new Set(transportPoolForPhase(day, 'dropoff').map(c => c.dogId));
+  const boarding = new Set(day.boarding.map(c => c.dogId));
+  const caes = [...new Map([...day.daycare, ...day.boarding].map(c => [c.dogId, c])).values()];
+  return sugerirRotasPorFase(caes.map(c => ({
+    dogId: c.dogId, dogName: c.dogName, clientName: c.clientName, clientId: c.clientId,
+    latitude: coordenadas.get(c.dogId)?.latitude ?? null,
+    longitude: coordenadas.get(c.dogId)?.longitude ?? null,
+    pickupRequired: pickup.has(c.dogId), dropoffRequired: dropoff.has(c.dogId),
+    boarding: boarding.has(c.dogId),
+  })), motoristas, atribuicoes, inicios);
 }
