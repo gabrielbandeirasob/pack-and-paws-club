@@ -218,7 +218,7 @@ describe('(2) CLOCK-OUT funciona LONGE da van — e nem consulta a localização
     // 🎯 A PROVA: o clock-out NÃO consultou a localização (nem para negar, nem para permitir).
     expect(getCurrentDriverLocation).toHaveBeenCalledTimes(leiturasAntes);
     // E nenhum erro de "fora da van" apareceu no fechamento.
-    expect(tela.queryByText(/Você está a/)).toBeNull();
+    expect(tela.queryByText(/3\.2 km/)).toBeNull();
   });
 });
 
@@ -229,7 +229,7 @@ describe('(1) CLOCK-IN travado pela localização — longe da van é RECUSADO (
 
     // Toque NORMAL, longe da van → recusado, nada gravado.
     await registrar(tela, 'Clock in', 'At the van');
-    await waitFor(() => expect(tela.getByText(/Você está a/)).toBeTruthy());
+    await waitFor(() => expect(tela.getByText(/3\.2 km/)).toBeTruthy());
     expect(insercoesDe('driver_shifts')).toHaveLength(0);
     expect(getCurrentDriverLocation).toHaveBeenCalled(); // o clock-in SIM consulta a localização (a trava)
 

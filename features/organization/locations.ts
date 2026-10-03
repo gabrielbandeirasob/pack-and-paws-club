@@ -211,21 +211,26 @@ export type ClockInGate = {
 
 /** Mensagem do caso "não deu para conferir" (o registro continua liberado). */
 export const SEM_POSICAO_MENSAGEM =
-  'Não foi possível conferir sua posição agora — o clock in está liberado.';
+  'We could not check your position right now — clock in is allowed.';
 
-/** "850 m" / "3,2 km" — o número que o motorista lê no motivo. */
+/** "850 m" / "3.2 km" — o número que o motorista lê no motivo. */
 export function distanceText(km: number): string {
   const seguro = Number.isFinite(km) && km > 0 ? km : 0;
   if (seguro < 1) {
     const metros = Math.max(0, Math.round((seguro * 1000) / 10) * 10);
     return `${metros} m`;
   }
-  return `${seguro.toFixed(1).replace('.', ',')} km`;
+  return `${seguro.toFixed(1)} km`;
 }
 
-/** O motivo em PT-BR do motorista (a operação é brasileira; o resto da tela segue em inglês). */
+/**
+ * O motivo que o motorista lê quando está fora do raio.
+ *
+ * Dono, 02/10/2026: *"1- deixa em inglês"* — o app é em inglês e este era o último texto em português
+ * que o MOTORISTA lia. O decimal também virou ponto (`3.2 km`), como o resto dos números do app.
+ */
 export function foraDoRaioMensagem(location: Pick<OrganizationLocation, 'name' | 'radiusMeters'>, km: number): string {
-  return `Você está a ${distanceText(km)} da van "${location.name}" — o ponto abre quando você chegar (raio de ${location.radiusMeters} m).`;
+  return `You are ${distanceText(km)} from the van "${location.name}" — it opens when you get there (radius of ${location.radiusMeters} m).`;
 }
 
 /**

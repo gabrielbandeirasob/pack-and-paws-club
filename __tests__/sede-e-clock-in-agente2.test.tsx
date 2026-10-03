@@ -73,7 +73,7 @@ describe('(a) com sede cadastrada e motorista LONGE, o clock in não acontece e 
     expect(trava.kind).toBe('outside');
     expect(trava.distanceKm).toBeCloseTo(3.2, 1);
     expect(trava.message).toBe(
-      'Você está a 3,2 km da van "Van — Palo Alto" — o ponto abre quando você chegar (raio de 300 m).',
+      'You are 3.2 km from the van "Van — Palo Alto" — it opens when you get there (radius of 300 m).',
     );
     expect(trava.radiusMeters).toBe(300);
   });
@@ -177,9 +177,9 @@ describe('qual sede vale para a rota', () => {
 });
 
 describe('número que o motorista lê', () => {
-  it('metros abaixo de 1 km, vírgula decimal acima', () => {
+  it('metros abaixo de 1 km, ponto decimal acima (textos em inglês, dono 02/10/2026)', () => {
     expect(distanceText(0.278)).toBe('280 m');
-    expect(distanceText(3.2024)).toBe('3,2 km');
+    expect(distanceText(3.2024)).toBe('3.2 km');
     expect(distanceText(0)).toBe('0 m');
     expect(distanceText(Number.NaN)).toBe('0 m');
   });
@@ -543,8 +543,8 @@ describe('clock in na tela do motorista (trava por distância)', () => {
 
     const tela = await apertarClockIn();
 
-    await waitFor(() => expect(tela.getByText(/o ponto abre quando você chegar/)).toBeTruthy());
-    expect(tela.getByText(/Você está a 3,2 km da van "Van — Palo Alto"/)).toBeTruthy();
+    await waitFor(() => expect(tela.getByText(/it opens when you get there/)).toBeTruthy());
+    expect(tela.getByText(/You are 3.2 km from the van "Van — Palo Alto"/)).toBeTruthy();
     expect(insercoesDe('driver_shifts')).toHaveLength(0);
   });
 
@@ -609,8 +609,8 @@ describe('clock in na tela do motorista (trava por distância)', () => {
     const Tela = require('../app/(tabs)/driver').default;
     const tela = await render(<Tela />);
 
-    await waitFor(() => expect(tela.getByText(/O clock in abre na van "Van — Palo Alto"/)).toBeTruthy());
-    expect(tela.getByText(/você está a 3,2 km/)).toBeTruthy();
+    await waitFor(() => expect(tela.getByText(/Clock in opens at the van "Van — Palo Alto"/)).toBeTruthy());
+    expect(tela.getByText(/you are 3.2 km/)).toBeTruthy();
   });
 
   it('sem sede cadastrada o cartão da jornada não fala de van (nada mudou para quem já usa)', async () => {
@@ -622,7 +622,7 @@ describe('clock in na tela do motorista (trava por distância)', () => {
     const tela = await render(<Tela />);
 
     await waitFor(() => expect(tela.getByLabelText('Clock in')).toBeTruthy());
-    expect(tela.queryByText(/O clock in abre na van/)).toBeNull();
-    expect(tela.queryByText(/Você está a/)).toBeNull();
+    expect(tela.queryByText(/Clock in opens at the van/)).toBeNull();
+    expect(tela.queryByText(/You are/)).toBeNull();
   });
 });

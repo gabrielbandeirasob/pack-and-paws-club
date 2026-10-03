@@ -55,7 +55,7 @@ describe('motivoDoClockIn (texto que vai para o banco)', () => {
     const texto = motivoDoClockIn('Cheguei na van e o app não abriu', fora, VAN.name);
     expect(texto).toContain('Cheguei na van e o app não abriu');
     expect(texto).toContain('started outside the van "Van — Palo Alto"');
-    expect(texto).toMatch(/\(3,2 km\)/);
+    expect(texto).toMatch(/\(3\.2 km\)/);
   });
 
   it('dentro do raio o motivo fica exatamente como o motorista escreveu', () => {

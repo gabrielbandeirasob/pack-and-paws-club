@@ -931,13 +931,13 @@ export default function DriverTodayScreen() {
     // 15,8 km). Com o endereço na tela, dá para conferir o cadastro em segundos.
     const endereco = [vanLocation.addressLine1, vanLocation.city].filter(Boolean).join(', ');
     const onde = endereco ? `"${vanLocation.name}" (${endereco})` : `"${vanLocation.name}"`;
-    if (!position) return `O clock in abre na van ${onde} (raio de ${vanLocation.radiusMeters} m).`;
+    if (!position) return `Clock in opens at the van ${onde} (radius of ${vanLocation.radiusMeters} m).`;
     const trava = clockInGate({ location: vanLocation, position });
-    if (trava.kind === 'inside') return `Você está na van ${onde} — o clock in está aberto.`;
+    if (trava.kind === 'inside') return `You are at the van ${onde} — clock in is open.`;
     if (trava.kind === 'outside') {
-      return `O clock in abre na van ${onde} — você está a ${distanceText(trava.distanceKm ?? 0)} (raio de ${vanLocation.radiusMeters} m).`;
+      return `Clock in opens at the van ${onde} — you are ${distanceText(trava.distanceKm ?? 0)} away (radius of ${vanLocation.radiusMeters} m).`;
     }
-    return `O clock in abre na van ${onde} (raio de ${vanLocation.radiusMeters} m).`;
+    return `Clock in opens at the van ${onde} (radius of ${vanLocation.radiusMeters} m).`;
   }, [vanLocation, position]);
 
   const recarregarJornadas = async (motorista: string) => {
