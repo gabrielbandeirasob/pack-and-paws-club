@@ -31,6 +31,12 @@ type Props = {
   foraDaVan?: { distanceKm: number; vanName: string } | null;
   /** Navigate independently of the clock-in radius or pending shift writes. */
   navigation?: { kind: 'van' | 'yard'; onPress: () => void };
+  /**
+   * START PICK-UPS (dono, 03/10/2026): o caminho de volta para a fila de busca depois do ponto batido
+   * na van. A tela decide QUANDO ele existe (jornada aberta, perna de busca, cão ainda para buscar) e
+   * passa só o FOCO — este cartão não grava nada.
+   */
+  onStartPickups?: () => void;
   /** A tela mantém a condição existente de buscas concluídas e entregas pendentes. */
   onStartDropoffs?: () => void;
   onClockIn: (reason: string) => void;
@@ -39,7 +45,7 @@ type Props = {
   onClockInAnyway?: (reason: string) => void;
 };
 
-export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHint = null, foraDaVan = null, navigation, onStartDropoffs, onClockIn, onClockOut, onClockInAnyway }: Props) {
+export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHint = null, foraDaVan = null, navigation, onStartPickups, onStartDropoffs, onClockIn, onClockOut, onClockInAnyway }: Props) {
   const [pedindo, setPedindo] = useState<'in' | 'out' | 'in-fora' | null>(null);
   const [motivo, setMotivo] = useState('');
 
@@ -98,6 +104,22 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHi
           </Text>
         </Pressable>
       </View>
+
+      {/*
+        * START PICK-UPS (dono, 03/10/2026): o atalho de volta para a lista depois que o ponto foi
+        * batido na van. Fica ACIMA do "Start drop-offs" porque é sempre o passo anterior do dia.
+        */}
+      {onStartPickups ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Start pick-ups"
+          onPress={onStartPickups}
+          style={styles.iniciarBuscas}
+          testID="start-pickups"
+        >
+          <Text style={styles.iniciarBuscasTexto}>Start pick-ups</Text>
+        </Pressable>
+      ) : null}
 
       {onStartDropoffs ? (
         <Pressable
@@ -201,6 +223,9 @@ const styles = StyleSheet.create({
   botaoExcecaoTexto: { color: colors.urgency, fontWeight: '900', fontSize: 12.5 },
   botaoTexto: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
   navegarTexto: { textAlign: 'center', paddingHorizontal: 6 },
+  /** Start pick-ups: o passo da MANHÃ (verde cheio) — o dourado fica para a virada do dia. */
+  iniciarBuscas: { backgroundColor: colors.forest700, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 15, alignItems: 'center', minWidth: 120, marginTop: 8 },
+  iniciarBuscasTexto: { color: 'white', fontWeight: '900', fontSize: 13 },
   iniciarEntregas: { backgroundColor: colors.gold, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 15, alignItems: 'center', minWidth: 120, marginTop: 8 },
   iniciarEntregasTexto: { color: colors.forest900, fontWeight: '900', fontSize: 13 },
   botaoTextoPrincipal: { color: 'white' },

@@ -1220,6 +1220,22 @@ export default function DriverTodayScreen() {
   // Keep the current leg's destination beside the clock controls, not below the stop list.
   const journeyDestination = fechamento ?? start;
 
+  /**
+   * ATALHO "START PICK-UPS" (pedido do dono, 03/10/2026): depois de bater o ponto na van o motorista
+   * quer cair DIRETO na fila de busca — antes tinha de arrastar a tela de volta até a lista.
+   *
+   * É só FOCO: rola até a próxima parada e não grava NADA (nem fase, nem status de cão). Quem marca
+   * cão pego continua sendo o toque da parada, e a virada da perna continua sendo o "Start drop-offs".
+   * As posições vêm do `onLayout` (o corpo é o índice 0 do conteúdo rolável; a próxima parada é
+   * relativa a ele), então funciona com qualquer tamanho de tela e cabeçalho de altura variável.
+   */
+  const scrollRef = useRef<ScrollView | null>(null);
+  const corpoY = useRef(0);
+  const proximaParadaY = useRef(0);
+  const focarBusca = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: corpoY.current + proximaParadaY.current, animated: true });
+  }, []);
+
   /** Início e fechamento usam o app preferido, com fallback para a folha de escolha. */
   const navegarPara = useCallback(async (location: NavTarget | null, stopId: 'start' | 'closing') => {
     if (!location) return;
@@ -1287,6 +1303,7 @@ export default function DriverTodayScreen() {
        * A tab bar do expo-router vive fora desta árvore, então não é empurrada nem quebra.
        */}
       <ScrollView
+        ref={scrollRef}
         testID="driver-scroll"
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
@@ -1325,7 +1342,11 @@ export default function DriverTodayScreen() {
             </Text>
           </View>
         ) : null}
-        <View style={styles.body}>
+        <View
+          style={styles.body}
+          testID="driver-body"
+          onLayout={(evento) => { corpoY.current = evento.nativeEvent.layout.y; }}
+        >
           {loading ? <ActivityIndicator testID="driver-loading" style={styles.center} color={colors.gold} size="large" /> : (
             <>
               {/*
@@ -1348,6 +1369,13 @@ export default function DriverTodayScreen() {
                       kind: journeyDestination.kind,
                       onPress: () => void navegarPara(journeyDestination, fechamento ? 'closing' : 'start'),
                     } : undefined}
+                    /**
+                     * START PICK-UPS: só depois do PONTO BATIDO (`journey.kind === 'open'`), na perna de
+                     * busca e enquanto ainda houver cão para buscar. Quando a busca termina quem manda é o
+                     * "Start drop-offs" — os dois nunca aparecem juntos (o motorista não fica com dois
+                     * botões dourados empilhados sem saber qual é o próximo passo).
+                     */
+                    onStartPickups={journey.kind === 'open' && stops.length > 0 && fase === 'pickup' && !buscaTerminou(stops) ? focarBusca : undefined}
                     onStartDropoffs={stops.length > 0 && fase === 'pickup' && (dropoffStops ? buscaTerminou(stops) && !entregaTerminou(dropoffStops) : podeIniciarDropoff(stopsDaFase)) ? () => {
                       // Vira a perna e GRAVA no aparelho: o dia não volta a "busca" sozinho.
                       void (async () => {
@@ -1392,7 +1420,16 @@ export default function DriverTodayScreen() {
                   {/* NEXT STOP: a próxima parada e as ações primárias (navegar / cheguei / próximo passo),
                       sempre no mesmo lugar — logo abaixo do otimizador e ACIMA da lista de paradas.
                       Nenhuma lógica de gravação nova: os callbacks chamam o `act` que já existe. */}
-                  <View style={styles.nextStop}>
+                  {/*
+                    * PONTO DE FOCO (dono, 03/10/2026): é este cartão que o "Start pick-ups" traz para a
+                    * tela — o motorista volta do ponto batido direto para o próximo cão. O `onLayout`
+                    * entrega a posição relativa ao corpo, e o corpo (índice 0 do scroller) dá o resto.
+                    */}
+                  <View
+                    style={styles.nextStop}
+                    testID={fase === 'pickup' ? 'pickup-focus' : 'dropoff-focus'}
+                    onLayout={(evento) => { proximaParadaY.current = evento.nativeEvent.layout.y; }}
+                  >
                     <NextStopCard
                       stop={proximaParada}
                       nextAction={proximaParada ? fase === 'dropoff' ? 'deliver' : nextActionForStatus(proximaParada.status, proximaParada.deliveredAt) : null}

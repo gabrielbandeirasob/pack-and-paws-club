@@ -10,7 +10,8 @@
  * O banco é falsificado: o que se prova é o que o app GRAVA (a fila e as escritas) em cada caminho.
  */
 import React from 'react';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import { ScrollView } from 'react-native';
 
 const mockEstado: {
   falhaDeRede: boolean;
@@ -151,6 +152,32 @@ beforeEach(async () => {
   mockEstado.recusaDefinitiva = false;
   mockEstado.insercoes.length = 0;
   mockAssinaturas.length = 0;
+});
+
+describe('Start pick-ups in JOURNEY', () => {
+  it('requires clock-in and focuses the current pickup without writing dog status or phase', async () => {
+    const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+    const tela = await abrirTela();
+    await waitFor(() => expect(tela.getByLabelText('Clock in')).toBeTruthy());
+    expect(tela.queryByLabelText('Start pick-ups')).toBeNull();
+    mockEstado.falhaDeRede = true;
+    await registrar(tela, 'Clock in', 'Journey started at the van');
+    await waitFor(() => expect(tela.getByLabelText('Clock out')).toBeTruthy());
+    expect(within(tela.getByTestId('cartao-jornada')).getByRole('button', { name: 'Start pick-ups' })).toBeTruthy();
+    await fireEvent(tela.getByTestId('driver-body'), 'layout', { nativeEvent: { layout: { y: 120 } } });
+    await fireEvent(tela.getByTestId('pickup-focus'), 'layout', { nativeEvent: { layout: { y: 240 } } });
+    const queueBefore = await loadPendingWrites();
+    const storageBefore = await AsyncStorage.multiGet(await AsyncStorage.getAllKeys());
+    await fireEvent.press(within(tela.getByTestId('cartao-jornada')).getByRole('button', { name: 'Start pick-ups' }));
+    expect(scrollTo).toHaveBeenCalledWith({ y: 360, animated: true });
+    expect(tela.getByText('PICK-UPS')).toBeTruthy();
+    expect(mockRotaPublicada.route_stops[0].status).toBe('pending');
+    expect(await loadPendingWrites()).toEqual(queueBefore);
+    expect(await AsyncStorage.multiGet(await AsyncStorage.getAllKeys())).toEqual(storageBefore);
+    expect(mockEstado.insercoes).toHaveLength(0);
+    await tela.unmount();
+    scrollTo.mockRestore();
+  });
 });
 
 describe('A1 — clock out enxerga a jornada ABERTA NA FILA (sem sinal)', () => {
