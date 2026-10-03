@@ -713,6 +713,45 @@ export default function DispatchScreen() {
   }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas, nomeDoCao]);
 
   /**
+   * CRIAR A PERNA DE DROP-OFF que ainda não existe (Defeito B, dono, 03/10/2026).
+   *
+   * A seção "Drop-offs · <motorista>" era texto puro ("No drop-off route.") quando a perna do dia nunca
+   * nasceu — o gestor não tinha caminho nenhum para criá-la. Esta ação cria a perna do jeito que
+   * `assign(…, 'dropoff')` cria: `routeIdForDriver` (insert `status='draft'` com `phase='dropoff'`, começa
+   * no YARD e fecha na VAN — a direção da entrega) e põe os cães ELEGÍVEIS do dia (pool de drop-off, sem
+   * boarding, ainda sem motorista) como paradas pendentes, UMA RPC por cão — as MESMAS regras da fila de
+   * drop-offs (`assign_stop_to_route`). NÃO publica nada: a regra "Drop-offs are draft only" continua.
+   * Sem nada a entregar a tela nem oferece a ação (o cálculo de elegíveis mora no quadro).
+   */
+  const criarPernaDeDropoff = useCallback(async (driverId: string) => {
+    if (routesRef.current.some((rota) => rota.driverId === driverId && rota.phase === 'dropoff')) return;
+    const naRota = new Set(routesRef.current.filter((rota) => rota.phase === 'dropoff').flatMap((rota) => rota.stops.map((stop) => stop.dogId)));
+    const elegiveis = itensDropoff.current.filter((item) => !item.inVan && item.reservationKind !== 'boarding' && !naRota.has(item.dogId));
+    if (elegiveis.length === 0) return;
+    const routeId = await routeIdForDriver(driverId, 'dropoff');
+    const naoSalvos: FalhaParcial[] = [];
+    for (const cao of elegiveis) {
+      const { error } = await supabase.rpc('assign_stop_to_route', {
+        p_route_id: routeId,
+        p_dog_id: cao.dogId,
+        p_window_start: null,
+        p_window_end: null,
+        p_exact_time: null,
+        p_priority: 'normal',
+        p_esperado: versaoDe(routeId),
+      });
+      if (error) {
+        if (isStaleRouteError(error)) falhaDeEscrita(error);
+        naoSalvos.push({ dogId: cao.dogId, dogName: cao.dogName, motivo: routeErrorMessage(error) });
+        continue;
+      }
+      versoes.current[routeId] = (versoes.current[routeId] ?? 1) + 1;
+    }
+    await carregarRotas();
+    if (naoSalvos.length > 0) throw new Error(avisoDeFalhaParcial(naoSalvos, elegiveis.length - naoSalvos.length));
+  }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas]);
+
+  /**
    * SUGESTÃO DE ROTA (cliente, áudio de 01/10/2026): *"sugestão de rota automática… leva um tempinho aí
    * de clicar e mandar pro driver certo"*. A conta é PURA (`features/dispatch/routeSuggestion.ts`):
    * junta os cães por endereço e corta a trilha em blocos contíguos, minimizando a distância.
@@ -1285,6 +1324,7 @@ export default function DispatchScreen() {
           routes={summary.routes}
           driverLocations={driverLocations}
           onAssign={assign}
+          onCreateDropoffRoute={criarPernaDeDropoff}
           onSuggestRoutes={sugerirRotasDoDia}
           onApplySuggestion={aplicarSugestao}
           vans={vans}

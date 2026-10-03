@@ -6,9 +6,10 @@ import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
 import { DogPicker } from '@/features/calendar/DogPicker';
 import type { BlocoSugerido, SugestaoDeRotas, SugestoesDoDia } from '@/features/dispatch/routeSuggestion';
 import type { DogRef } from '@/features/calendar/dayMath';
-import { frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
+import { ETA_MAXIMO_PLAUSIVEL_MIN, frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
 import { avisoDeRotaInvisivel, rotuloDeStatus } from '@/features/dispatch/routeStatusLabel';
+import { SELO_PARADA_FORA_DO_DIA, avisoDeParadasForaDoDia, paradasForaDoDia } from '@/features/dispatch/dayReconciliation';
 import { colors, radii } from '@/features/theme/tokens';
 import { StopProofChips } from '@/features/dispatch/ProofViewer';
 import { showAlert } from '@/features/ui/alert';
@@ -121,6 +122,13 @@ type Props = {
   routes: DispatchRoute[];
   driverLocations?: Record<string, { latitude: number; longitude: number; updatedAt: string }>;
   onAssign: (dogId: string, driverId: string, constraint: DispatchConstraint, phase?: Perna) => Promise<void>;
+  /**
+   * CRIAR a perna de drop-off que ainda não existe (Defeito B, 03/10/2026): a seção
+   * "Drop-offs · <motorista>" era texto puro quando a perna do dia nunca nasceu. A ação cria a perna do
+   * jeito que `assign(…, 'dropoff')` cria (`routeIdForDriver`) e põe os cães elegíveis do dia como
+   * paradas — SEM publicar ("Drop-offs are draft only"). Sem a prop, o quadro fica como era.
+   */
+  onCreateDropoffRoute?: (driverId: string) => Promise<void>;
   onSaveStop: (routeId: string, dogId: string, constraint: DispatchConstraint) => Promise<void>;
   onRemoveStop: (routeId: string, dogId: string) => Promise<void>;
   onMoveStop: (routeId: string, dogId: string, direction: -1 | 1) => Promise<void>;
@@ -172,7 +180,7 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, vanDoMotorista, onOpenStopList }: Props) {
+export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onCreateDropoffRoute, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, vanDoMotorista, onOpenStopList }: Props) {
   const [assignmentPhase, setAssignmentPhase] = useState<Perna>('pickup');
   const [travas, setTravas] = useState<Travas>({});
   const [sheet, setSheet] = useState<SheetState>(null);
@@ -280,6 +288,13 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
   }, [sheet]);
 
   const assignedDogIds = useMemo(() => new Set(routes.filter(r => (r.phase ?? 'pickup') === assignmentPhase).flatMap((route) => route.stops.map((stop) => stop.dogId))), [routes, assignmentPhase]);
+  /**
+   * Cães do DIA confirmado, para CONFERIR as paradas da rota (dono, 03/10/2026). A lista de pick-up
+   * desenha o que está em `route_stops`, que congela o dia da PUBLICAÇÃO: um cão cancelado depois
+   * continua na linha, e o cão novo não entra sozinho. A união dos pools (fila de transporte do dia +
+   * pool de drop-off) é o que o dia confirmado oferece hoje — quem não está aí saiu do dia.
+   */
+  const diaDogIds = useMemo(() => new Set([...dayItems, ...(dropoffItems ?? [])].map((item) => item.dogId)), [dayItems, dropoffItems]);
   /** Fila principal: precisa de transporte e não está já na van. */
   const paraTransporte = useMemo(() => (assignmentPhase === 'pickup' ? dayItems : dropoffItems ?? []).filter((item) => !item.inVan && (assignmentPhase === 'pickup' || item.reservationKind !== 'boarding')), [dayItems, dropoffItems, assignmentPhase]);
   const unassigned = useMemo(() => paraTransporte.filter((item) => !assignedDogIds.has(item.dogId)), [paraTransporte, assignedDogIds]);
@@ -295,6 +310,14 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
    * na lista"*).
    */
   const [mostrarNaVan, setMostrarNaVan] = useState(false);
+  /**
+   * DEFEITO B (03/10/2026): perna de drop-off. `entregaveis` são os cães do dia que ainda podem virar
+   * parada de uma perna nova (pool de drop-off, sem boarding, ainda sem motorista) — sem nada a entregar
+   * a ação não aparece. `criandoDropoff` é só o estado visual do botão.
+   */
+  const assignedDropoffIds = useMemo(() => new Set(routes.filter((rota) => rota.phase === 'dropoff').flatMap((rota) => rota.stops.map((stop) => stop.dogId))), [routes]);
+  const entregaveis = useMemo(() => (dropoffItems ?? []).filter((item) => !item.inVan && item.reservationKind !== 'boarding' && !assignedDropoffIds.has(item.dogId)), [dropoffItems, assignedDropoffIds]);
+  const [criandoDropoff, setCriandoDropoff] = useState<string | null>(null);
   const routesByDriver = useMemo(() => new Map(routes.map((route) => [`${route.driverId}:${route.phase ?? 'pickup'}`, route])), [routes]);
 
   const constraintFromFields = (): DispatchConstraint => {
@@ -387,13 +410,37 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
               ? pedirSugestao : undefined}
             suggestionBusy={sugestaoBusy} separateDropoff={routesByDriver.has(`${driver.id}:dropoff`)}
             vans={vans} onChooseVan={onChooseVan} vanDoMotorista={vanDoMotorista} onOpenStopList={onOpenStopList}
+            diaDogIds={diaDogIds}
             onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
           <Text style={styles.unassignedTitle}>Drop-offs · {driver.name}</Text>
           {routesByDriver.has(`${driver.id}:dropoff`) ? <CartaoMotorista
             driver={driver} route={routesByDriver.get(`${driver.id}:dropoff`)} working={working} setSheet={setSheet}
             onMoveStop={onMoveStop} onMoveDropoff={onMoveDropoff} onOptimize={onOptimize} onPublish={onPublish}
             onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute}
-            onOpenStopList={onOpenStopList} /> : <Text style={styles.noStops}>No drop-off route.</Text>}
+            onOpenStopList={onOpenStopList} diaDogIds={diaDogIds} /> : (
+            <View>
+              <Text style={styles.noStops}>No drop-off route.</Text>
+              {/* DEFEITO B (03/10/2026): cria a perna que nunca nasceu — draft, sem publicar. */}
+              {onCreateDropoffRoute && entregaveis.length > 0 ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Create drop-off route for ${driver.name}`}
+                  disabled={working || criandoDropoff !== null}
+                  onPress={() => {
+                    setCriandoDropoff(driver.id);
+                    void onCreateDropoffRoute(driver.id)
+                      .catch((erro) => showAlert('Could not create the drop-off route', erro instanceof Error ? erro.message : 'Try again.'))
+                      .finally(() => setCriandoDropoff(null));
+                  }}
+                  style={styles.createDropoffButton}
+                >
+                  <Text style={styles.createDropoffText}>
+                    {criandoDropoff === driver.id ? 'Creating…' : 'Create drop-off route'}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          )}
           </View>
         ))}
         <View style={styles.unassigned}>
@@ -700,12 +747,14 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
   onChooseVan?: Props['onChooseVan'];
   vanDoMotorista?: Props['vanDoMotorista'];
   onOpenStopList?: Props['onOpenStopList'];
+  /** Cães do dia confirmado — a linha confere as paradas contra este conjunto (Defeito A, 03/10/2026). */
+  diaDogIds?: ReadonlySet<string>;
 };
 
 const CartaoMotorista = memo(function CartaoMotorista({
   driver, route, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
   onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy, separateDropoff,
-  vans, onChooseVan, vanDoMotorista, onOpenStopList,
+  vans, onChooseVan, vanDoMotorista, onOpenStopList, diaDogIds,
 }: PropsCartao) {
   const [pernaLegada, setPerna] = useState<Perna>('pickup');
   const perna = route?.phase === 'dropoff' ? 'dropoff' : separateDropoff ? 'pickup' : pernaLegada;
@@ -713,6 +762,14 @@ const CartaoMotorista = memo(function CartaoMotorista({
   const avisoRota = avisoDeRotaInvisivel(route?.status);
   const mover = perna === 'pickup' ? onMoveStop : onMoveDropoff;
   const stops = useMemo(() => (perna === 'pickup' ? ordemDaBusca : ordemDaEntrega)(route?.stops ?? []), [route, perna]);
+  /**
+   * DEFEITO A (dono, 03/10/2026): as paradas vêm de `route_stops` — congeladas na PUBLICAÇÃO. A linha
+   * confere contra o dia confirmado: cão que saiu do dia (reserva cancelada/substituída) ganha selo na
+   * própria linha e o cartão avisa no topo com o nome. O app NÃO remove a parada sozinho — a saída
+   * continua sendo o "Remove from route" da folha "⋯".
+   */
+  const foraDoDia = useMemo(() => paradasForaDoDia(route?.stops ?? [], diaDogIds ?? new Set<string>()), [route, diaDogIds]);
+  const avisoForaDoDia = avisoDeParadasForaDoDia(foraDoDia);
   /*
    * VAN DA ROTA (pergunta do dono, 01/10/2026). A van da rota manda; quando ela ainda não existe, vale a
    * escolha que o gestor fez no cartão (fica guardada na tela e vai gravada na rota que nascer). Sem
@@ -770,14 +827,25 @@ const CartaoMotorista = memo(function CartaoMotorista({
             {avisoRota ? (
               <Text style={styles.draftBadge} testID="driver-draft-badge">{avisoRota}</Text>
             ) : null}
+            {/* Aviso do topo (Defeito A, 03/10/2026): quantas e QUAIS paradas saíram do dia. */}
+            {avisoForaDoDia ? (
+              <Text style={styles.foraDoDiaAviso} testID={`route-off-day-${driver.id}`}>{avisoForaDoDia}</Text>
+            ) : null}
             {route && stops.length > 0 ? (
               <Text style={[styles.muted, eta?.lateMinutes || frescor?.velha ? styles.lateText : null]}>
                 {location && frescor
                   ? `📍 ${frescor.texto}${frescor.muitoVelha ? ' · ⚠️ position stale' : frescor.velha ? ' · ⚠️ going stale' : ''}`
                   : '📍 not sharing'}
                 {/* ETA só com posição do motorista: sem posição, "~0 min" é número inventado
-                    (achado no print de 25/09/2026, com o motorista em "not sharing"). */}
-                {eta && location && !frescor?.muitoVelha ? ` · ~${eta.minutes} min to ${eta.dogName}` : ''}
+                    (achado no print de 25/09/2026, com o motorista em "not sharing").
+                    Motorista LONGE demais para o número fazer sentido (Defeito C, 03/10/2026: "~23322
+                    min to Maui" com 9.716 km de distância): usa o MESMO limite e o MESMO texto do app do
+                    motorista (ETA_MAXIMO_PLAUSIVEL_MIN → "far from your stops"). Regra de ETA nova, não. */}
+                {eta && location && !frescor?.muitoVelha
+                  ? eta.minutes <= ETA_MAXIMO_PLAUSIVEL_MIN
+                    ? ` · ~${eta.minutes} min to ${eta.dogName}`
+                    : ' · far from your stops'
+                  : ''}
                 {eta && frescor?.muitoVelha ? ' · ETA hidden (position too old)' : ''}
                 {eta && eta.lateMinutes > 0 ? ` · ⚠️ ${eta.lateMinutes} min late` : ''}
               </Text>
@@ -888,6 +956,10 @@ const CartaoMotorista = memo(function CartaoMotorista({
           <View style={styles.stopMain}>
             <Text style={styles.stopName}>{stop.clientName} · {stop.dogName}</Text>
             <View style={styles.badgeRow}>
+              {/* Selo da parada que saiu do dia (Defeito A, 03/10/2026) — só sinaliza. */}
+              {foraDoDia.some((parada) => parada.dogId === stop.dogId) ? (
+                <Text style={styles.foraDoDiaSelo} testID={`stop-off-day-${stop.dogId}`}>{SELO_PARADA_FORA_DO_DIA}</Text>
+              ) : null}
               {pinDaParada(stop, perna) ? <Badge text={`🔒 ${stop[`${perna}Pin`] === 'first' ? '1st' : stop[`${perna}Pin`] === 'last' ? 'last' : `#${stop[`${perna}PinPosition`]}`}`} color={colors.forest700} /> : null}
               {stop.status === 'skipped' ? <Badge text="⚠ Problem" color={colors.urgency} /> : null}
               {stop.status === 'pending' && isPastDeadline(stop.windowEnd, stop.exactTime) ? <Badge text="Late" color={colors.urgency} /> : null}
@@ -998,6 +1070,9 @@ const styles = StyleSheet.create({
   moveDisabled: { color: colors.muted, opacity: 0.4 },
   optionsText: { color: colors.forest700, fontSize: 18, fontWeight: '900', lineHeight: 20 },
   noStops: { color: colors.muted, fontSize: 12, padding: 12 },
+  /** Ação "Create drop-off route" (Defeito B, 03/10/2026): discreta, com alvo de 44 pt. */
+  createDropoffButton: { alignSelf: 'flex-start', marginTop: 8, marginHorizontal: 12, borderWidth: 1, borderColor: colors.forest500, backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
+  createDropoffText: { color: colors.forest700, fontWeight: '900', fontSize: 12 },
   unassigned: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#B9C4B9', borderRadius: radii.medium, padding: 13, backgroundColor: '#FAFBF7', marginTop: 4 },
   naVanCabecalho: {
     flexDirection: 'row',
@@ -1014,6 +1089,9 @@ const styles = StyleSheet.create({
   sugestaoParticipantes: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
   /** Rota em rascunho: uma linha fina, âmbar, dizendo que o motorista ainda não vê (não é erro). */
   draftBadge: { alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: colors.gold, backgroundColor: colors.cream, color: colors.forest700, fontSize: 12, fontWeight: '800', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden' },
+  /** Parada que saiu do dia (Defeito A, 03/10/2026): aviso no topo do cartão e selo na linha, em vermelho. */
+  foraDoDiaAviso: { alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: colors.urgency, backgroundColor: '#FBEDED', color: colors.urgency, fontSize: 12, fontWeight: '800', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden' },
+  foraDoDiaSelo: { color: colors.urgency, fontSize: 12, fontWeight: '900' },
   sugestaoErro: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginBottom: 8 },
   // VAN POR MOTORISTA (dono, 01/10/2026): uma linha fina, discreta — só aparece com 2+ vans cadastradas.
   // Em BLOCO (rótulo em cima, chips/valores embaixo) porque o rótulo agora diz o PAPEL da sede:
