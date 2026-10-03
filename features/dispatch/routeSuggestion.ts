@@ -1,5 +1,11 @@
 /** Pure route proposals: balance dog counts first, then group by proximity.
  * Housemates stay together. Each phase has its own candidates and assignments.
+ *
+ * TRAVA DO DONO (03/10/2026), só na perna de ENTREGA: *"não faz sentido eu colocar o pick-up de um
+ * cachorro com um motorista e depois o drop-off com outro"* — o cão desce com quem o buscou, sem
+ * exceção. A sugestão de drop-off prende cada cão ao motorista do pick-up dele (`sugerirEntregas`);
+ * os cães que só têm drop-off (chegaram sozinhos, boarding voltando) continuam livres e seguem a
+ * regra antiga: equilíbrio por NÚMERO DE CÃES e proximidade.
  */
 import { haversineKm } from '@/features/dispatch/routeOptimizer';
 import { transportPoolForPhase, type DaySummary } from '@/features/calendar/dayMath';
@@ -40,6 +46,26 @@ export type SugestaoDeRotas = {
 };
 
 type Ponto = { latitude: number; longitude: number };
+
+/** Rotas do dia no formato mínimo que a regra precisa (a perna de pick-up é a fonte do motorista). */
+export type RotaParaRegra = {
+  driverId: string;
+  phase?: Perna | null;
+  stops: readonly { dogId: string }[];
+};
+
+/**
+ * Motorista do pick-up de cada cão do dia — a FONTE da regra "o cão desce com quem o buscou".
+ * Rota sem `phase` é pick-up (é o valor da DEFAULT da migração 202610020053).
+ */
+export function motoristaDoPickupPorCao(rotas: readonly RotaParaRegra[]): Map<string, string> {
+  const mapa = new Map<string, string>();
+  for (const rota of rotas) {
+    if ((rota.phase ?? 'pickup') !== 'pickup') continue;
+    for (const stop of rota.stops) mapa.set(stop.dogId, rota.driverId);
+  }
+  return mapa;
+}
 
 /** Coordenada utilizável (número finito dentro das faixas do planeta). `(0,0)` é "sem cadastro". */
 export function pontoUtilizavel(latitude: unknown, longitude: unknown): Ponto | null {
@@ -270,6 +296,109 @@ export function sugerirRotas(
 
 /** Model contract for the next Dispatch slice: assignments are local to one phase. */
 export type AtribuicaoPorFase = { phase: Perna; dogIds: readonly string[] };
+
+/** Distância do que o carro JÁ leva até a casa que está sendo distribuída (desempate da entrega). */
+function kmAteBloco(bloco: BlocoSugerido, casa: CaoParaSugerir[], inicio: Ponto | null): number {
+  const alvo = casa.map(pontoDoCao).find((ponto): ponto is Ponto => ponto !== null);
+  if (!alvo) return 0;
+  const pontos = bloco.caes.map(pontoDoCao).filter((ponto): ponto is Ponto => ponto !== null);
+  if (pontos.length === 0) return inicio ? kmEntre(inicio, alvo) : 0;
+  return Math.min(...pontos.map((ponto) => kmEntre(ponto, alvo)));
+}
+
+/** Ordem de um bloco por vizinho mais próximo saindo do início; cão sem coordenada vai para o FIM. */
+function ordenarPerto(caes: CaoParaSugerir[], inicio: Ponto | null): { caes: CaoParaSugerir[]; km: number } {
+  const comPonto: { cao: CaoParaSugerir; ponto: Ponto }[] = [];
+  const semPonto: CaoParaSugerir[] = [];
+  for (const cao of caes) {
+    const ponto = pontoDoCao(cao);
+    if (ponto) comPonto.push({ cao, ponto }); else semPonto.push(cao);
+  }
+  if (comPonto.length === 0) return { caes: [...semPonto], km: 0 };
+  const pontos = comPonto.map((item) => item.ponto);
+  const trilha = trilhaVizinhoMaisProximo(pontos, inicio ?? centroide(pontos));
+  let km = inicio ? kmEntre(inicio, comPonto[trilha[0]].ponto) : 0;
+  for (let t = 1; t < trilha.length; t += 1)
+    km += kmEntre(comPonto[trilha[t - 1]].ponto, comPonto[trilha[t]].ponto);
+  return { caes: [...trilha.map((indice) => comPonto[indice].cao), ...semPonto], km };
+}
+
+/**
+ * ENTREGA COM MOTORISTA PRESO — trava do dono (03/10/2026): *"não faz sentido eu colocar o pick-up de
+ * um cachorro com um motorista e depois o drop-off com outro"*. O cão que tem motorista no pick-up do
+ * dia é entregue por ELE; sem exceção.
+ *
+ * 1. cada cão preso vai para o bloco do seu motorista; se esse motorista não está disponível (folga,
+ *    rota travada), o cão NÃO é oferecido a outro: cai em `semLugar` e o gestor resolve o pick-up dele;
+ * 2. irmão de casa sem motorista próprio acompanha o irmão preso — a casa não se reparte;
+ * 3. cães sem motorista no pick-up seguem a regra antiga: casa inteira, para o carro com MENOS cães,
+ *    desempatando pela proximidade do que ele já leva;
+ * 4. a ordem do bloco é vizinho mais próximo saindo do yard; cão sem coordenada vai para o fim.
+ */
+export function sugerirEntregas(
+  caes: CaoParaSugerir[],
+  motoristas: MotoristaParaSugerir[],
+  inicio: Ponto | null = null,
+  motoristaDoCao: ReadonlyMap<string, string> = new Map(),
+): SugestaoDeRotas {
+  const semLugar: CaoParaSugerir[] = [];
+  const blocos: BlocoSugerido[] = motoristas.map((motorista) => ({
+    driverId: motorista.driverId, driverName: motorista.driverName, caes: [], km: 0,
+  }));
+  const blocoDe = (driverId: string) => blocos.find((bloco) => bloco.driverId === driverId);
+
+  // 1. Quem tem motorista no pick-up fica com ele. Motorista indisponível na perna: o cão vai para
+  //    revisão e NÃO entra no rateio dos livres (é o ponto da trava: ninguém mais entrega).
+  const presos = new Map<string, string>();
+  for (const cao of caes) {
+    const dono = motoristaDoCao.get(cao.dogId);
+    if (!dono) continue;
+    presos.set(cao.dogId, dono);
+    if (!blocoDe(dono)) semLugar.push(cao);
+  }
+  // 2. Irmão de casa sem motorista próprio acompanha o irmão preso.
+  const casaPresa = new Map<string, string>();
+  for (const cao of caes) if (cao.clientId && presos.has(cao.dogId)) casaPresa.set(cao.clientId, presos.get(cao.dogId)!);
+  for (const cao of caes) {
+    if (presos.has(cao.dogId) || !cao.clientId) continue;
+    const dono = casaPresa.get(cao.clientId);
+    if (!dono) continue;
+    presos.set(cao.dogId, dono);
+    if (!blocoDe(dono)) semLugar.push(cao);
+  }
+
+  const carga = new Map(motoristas.map((motorista) => [motorista.driverId, 0]));
+  for (const cao of caes) {
+    const dono = presos.get(cao.dogId);
+    if (!dono) continue;
+    const bloco = blocoDe(dono);
+    if (!bloco) continue;                       // dono fora da perna: já está em `semLugar`
+    bloco.caes.push(cao);
+    carga.set(dono, carga.get(dono)! + 1);
+  }
+
+  // 3. Sem motorista no pick-up: casa inteira para o carro menos carregado (equilíbrio por cães).
+  const casas = new Map<string, CaoParaSugerir[]>();
+  for (const cao of caes) {
+    if (presos.has(cao.dogId)) continue;
+    const chave = cao.clientId ? `c:${cao.clientId}` : `d:${cao.dogId}`;
+    casas.set(chave, [...(casas.get(chave) ?? []), cao]);
+  }
+  for (const casa of [...casas.values()].sort((a, b) => b.length - a.length)) {
+    // Menos cães primeiro (equilíbrio por número de cães); empate cai na proximidade de quem já está
+    // no carro e, se ainda empatar, na ordem da lista de motoristas (sort estável).
+    const destino = [...blocos].sort((a, b) => carga.get(a.driverId)! - carga.get(b.driverId)!
+      || kmAteBloco(a, casa, inicio) - kmAteBloco(b, casa, inicio))[0];
+    destino.caes.push(...casa);
+    carga.set(destino.driverId, carga.get(destino.driverId)! + casa.length);
+  }
+
+  // 4. Ordem e km de cada bloco.
+  const comCao = blocos.filter((bloco) => bloco.caes.length > 0)
+    .map((bloco) => ({ ...bloco, ...ordenarPerto(bloco.caes, inicio) }));
+  return { blocos: comCao, semLugar, kmTotal: comCao.reduce((soma, bloco) => soma + bloco.km, 0) };
+}
+
 export type CaoDoDiaParaSugerir = CaoParaSugerir & {
   pickupRequired: boolean;
   dropoffRequired: boolean;
@@ -284,12 +413,17 @@ export function sugerirRotasPorFase(
   motoristas: MotoristaParaSugerir[],
   atribuicoes: readonly AtribuicaoPorFase[] = [],
   inicios: Partial<Record<Perna, Ponto | null>> = {},
+  /** cão -> motorista do pick-up do dia: a trava da entrega (dono, 03/10/2026). */
+  motoristaDoCao: ReadonlyMap<string, string> = new Map(),
 ): SugestoesDoDia {
   function sugerir(phase: Perna): SugestaoPorFase {
     const atribuidos = new Set(atribuicoes.filter(a => a.phase === phase).flatMap(a => [...a.dogIds]));
     const candidatos = caes.filter(c => !atribuidos.has(c.dogId) && (phase === 'pickup'
       ? c.pickupRequired && !c.inVan
       : c.dropoffRequired && !c.boarding));
+    // A entrega nunca oferece o cão a outro motorista: quem buscou, entrega.
+    if (phase === 'dropoff')
+      return { phase, ...sugerirEntregas(candidatos, motoristas, inicios.dropoff ?? null, motoristaDoCao) };
     return { phase, ...sugerirRotas(candidatos, motoristas, inicios[phase] ?? null) };
   }
   return { pickup: sugerir('pickup'), dropoff: sugerir('dropoff') };
@@ -302,6 +436,8 @@ export function sugerirRotasDoDia(
   motoristas: MotoristaParaSugerir[],
   atribuicoes: readonly AtribuicaoPorFase[] = [],
   inicios: Partial<Record<Perna, Ponto | null>> = {},
+  /** cão -> motorista do pick-up do dia: a trava da entrega (dono, 03/10/2026). */
+  motoristaDoCao: ReadonlyMap<string, string> = new Map(),
 ): SugestoesDoDia {
   const pickup = new Set(transportPoolForPhase(day, 'pickup').map(c => c.dogId));
   const dropoff = new Set(transportPoolForPhase(day, 'dropoff').map(c => c.dogId));
@@ -313,5 +449,5 @@ export function sugerirRotasDoDia(
     longitude: coordenadas.get(c.dogId)?.longitude ?? null,
     pickupRequired: pickup.has(c.dogId), dropoffRequired: dropoff.has(c.dogId),
     boarding: boarding.has(c.dogId),
-  })), motoristas, atribuicoes, inicios);
+  })), motoristas, atribuicoes, inicios, motoristaDoCao);
 }

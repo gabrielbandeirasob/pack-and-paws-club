@@ -20,7 +20,7 @@ import { showAlert } from '@/features/ui/alert';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 import { loadOrganizationLocations, origemDaEntregaDaRota, vanDaRota, vanLocationForRoute, yardDaOrganizacao } from '@/features/organization/locations';
-import { sugerirRotas, type CaoParaSugerir } from '@/features/dispatch/routeSuggestion';
+import { motoristaDoPickupPorCao, sugerirRotas, type CaoParaSugerir } from '@/features/dispatch/routeSuggestion';
 
 type DriverRow = { user_id: string; role: 'manager' | 'driver'; profiles: { full_name: string | null } | null };
 type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; goes_to_daycare: boolean | null; dog: { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } } };
@@ -549,6 +549,32 @@ export default function DispatchScreen() {
     [],
   );
 
+  /** Nome do motorista para as mensagens da trava da entrega. */
+  const nomeDoMotorista = useCallback(
+    (driverId: string) =>
+      membrosDoDia.current.find((membro) => membro.user_id === driverId)?.profiles?.full_name?.trim() || 'that driver',
+    [],
+  );
+
+  /**
+   * TRAVA DO DONO (03/10/2026): *"não faz sentido eu colocar o pick-up de um cachorro com um motorista
+   * e depois o drop-off com outro"* — o cão desce com quem o buscou, sem exceção. `motoristaDoPickup`
+   * é o motorista do pick-up de cada cão do dia (rota sem `phase` é pick-up: é a DEFAULT da migração
+   * 202610020053). É a fonte da regra em três lugares: na sugestão (o cão já nasce no bloco dele), na
+   * atribuição à mão (recusa outro motorista) e ao criar a perna de drop-off (só leva os cães dele).
+   */
+  const motoristaDoPickup = useCallback(() => motoristaDoPickupPorCao(routesRef.current), []);
+
+  /** Frase única da recusa — o gestor lê quem buscou e por que não muda. */
+  const motivoDaTrava = useCallback(
+    (dogId: string, driverId: string) => {
+      const dono = motoristaDoPickup().get(dogId);
+      if (!dono || dono === driverId) return null;
+      return `${nomeDoCao(dogId)} was picked up by ${nomeDoMotorista(dono)} — the drop-off has to stay with ${nomeDoMotorista(dono)}.`;
+    },
+    [motoristaDoPickup, nomeDoCao, nomeDoMotorista],
+  );
+
   /**
    * A van que vai GRAVADA numa rota que nasce (dono, 01/10/2026 — organização com várias vans):
    *  1. a van que o gestor escolheu para aquele motorista no cartão;
@@ -667,6 +693,13 @@ export default function DispatchScreen() {
    */
   const assign = useCallback(async (dogId: string, driverId: string, constraint: DispatchConstraint, phase: Perna = 'pickup') => {
     if (phase === 'dropoff') {
+      /**
+       * TRAVA DO DONO (03/10/2026): o cão desce com quem o buscou. Sem exceção — se o motorista do
+       * pick-up não estiver fazendo a entrega, o gestor resolve no pick-up (trocar o cão de lá), e não
+       * aqui: a entrega nunca recebe um cão que outro motorista buscou.
+       */
+      const trava = motivoDaTrava(dogId, driverId);
+      if (trava) throw new Error(trava);
       const boarding = itensDoDia.current.some(item => item.dogId === dogId && (item.inVan || item.reservationKind === 'boarding'));
       const eligible = itensDropoff.current.some(item => item.dogId === dogId)
         || routesRef.current.some(r => r.phase === 'dropoff' && r.stops.some(s => s.dogId === dogId));
@@ -685,6 +718,15 @@ export default function DispatchScreen() {
     const naoSalvos: FalhaParcial[] = [];
     let salvos = 0;
     for (const alvo of junto) {
+      /**
+       * A trava vale também para os irmãos que entram junto: um cão que OUTRO motorista buscou não
+       * entra na entrega nem de carona (03/10/2026).
+       */
+      const travaDoAlvo = phase === 'dropoff' ? motivoDaTrava(alvo, driverId) : null;
+      if (travaDoAlvo) {
+        naoSalvos.push({ dogId: alvo, dogName: nomeDoCao(alvo), motivo: travaDoAlvo });
+        continue;
+      }
       const { error } = await supabase.rpc('assign_stop_to_route', {
         p_route_id: routeId,
         p_dog_id: alvo,
@@ -710,7 +752,7 @@ export default function DispatchScreen() {
     }
     await carregarRotas();
     if (naoSalvos.length > 0) throw new Error(avisoDeFalhaParcial(naoSalvos, salvos));
-  }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas, nomeDoCao]);
+  }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas, nomeDoCao, motivoDaTrava]);
 
   /**
    * CRIAR A PERNA DE DROP-OFF que ainda não existe (Defeito B, dono, 03/10/2026).
@@ -726,7 +768,18 @@ export default function DispatchScreen() {
   const criarPernaDeDropoff = useCallback(async (driverId: string) => {
     if (routesRef.current.some((rota) => rota.driverId === driverId && rota.phase === 'dropoff')) return;
     const naRota = new Set(routesRef.current.filter((rota) => rota.phase === 'dropoff').flatMap((rota) => rota.stops.map((stop) => stop.dogId)));
-    const elegiveis = itensDropoff.current.filter((item) => !item.inVan && item.reservationKind !== 'boarding' && !naRota.has(item.dogId));
+    /**
+     * TRAVA DO DONO (03/10/2026): a perna nova leva SÓ os cães que ESTE motorista buscou (mais os que
+     * não têm motorista de pick-up do dia). Cão que outro motorista buscou não entra nem aqui — é o
+     * mesmo portão da atribuição à mão e da sugestão.
+     */
+    const donos = motoristaDoPickup();
+    const dele = (dogId: string) => {
+      const dono = donos.get(dogId);
+      return !dono || dono === driverId;
+    };
+    const elegiveis = itensDropoff.current.filter((item) => !item.inVan && item.reservationKind !== 'boarding'
+      && !naRota.has(item.dogId) && dele(item.dogId));
     if (elegiveis.length === 0) return;
     const routeId = await routeIdForDriver(driverId, 'dropoff');
     const naoSalvos: FalhaParcial[] = [];
@@ -749,7 +802,7 @@ export default function DispatchScreen() {
     }
     await carregarRotas();
     if (naoSalvos.length > 0) throw new Error(avisoDeFalhaParcial(naoSalvos, elegiveis.length - naoSalvos.length));
-  }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas]);
+  }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas, motoristaDoPickup]);
 
   /**
    * SUGESTÃO DE ROTA (cliente, áudio de 01/10/2026): *"sugestão de rota automática… leva um tempinho aí
@@ -817,13 +870,35 @@ export default function DispatchScreen() {
         ids.add(rota.driverId);
         motoristaDaCasa.set(stop.clientId, ids);
       }
-      const livres = caes.filter(c => !c.clientId || !motoristaDaCasa.has(c.clientId));
+      /**
+       * TRAVA DO DONO (03/10/2026) — só na perna de ENTREGA: o cão desce com quem o buscou, sem
+       * exceção. `presos` é o cão (e o irmão de casa dele que não tem motorista próprio) preso ao
+       * motorista do pick-up; esses cães não entram no rateio dos livres — nascem no bloco do dono.
+       * Cão preso cujo motorista NÃO está disponível nesta perna não é oferecido a ninguém: cai em
+       * `semLugar` para o gestor acertar o pick-up.
+       */
+      const presos = new Map<string, string>();
+      if (phase === 'dropoff') {
+        const doPickup = motoristaDoPickup();
+        for (const cao of caes) {
+          const dono = doPickup.get(cao.dogId);
+          if (dono) presos.set(cao.dogId, dono);
+        }
+        const casasPresas = new Map<string, string>();
+        for (const cao of caes) if (cao.clientId && presos.has(cao.dogId)) casasPresas.set(cao.clientId, presos.get(cao.dogId)!);
+        for (const cao of caes) {
+          if (presos.has(cao.dogId) || !cao.clientId) continue;
+          const dono = casasPresas.get(cao.clientId);
+          if (dono) presos.set(cao.dogId, dono);
+        }
+      }
+      const livres = caes.filter(c => !presos.has(c.dogId) && (!c.clientId || !motoristaDaCasa.has(c.clientId)));
       const proposta = sugerirRotas(
         livres, motoristas, inicio,
       );
       // Casa parcialmente atribuída não é repartida para preencher outro carro. Respeitamos também
       // separações manuais já existentes: se há dois motoristas na casa, o restante fica para revisão.
-      const fixos = caes.filter(c => c.clientId && motoristaDaCasa.has(c.clientId));
+      const fixos = caes.filter(c => !presos.has(c.dogId) && c.clientId && motoristaDaCasa.has(c.clientId));
       for (const cao of fixos) {
         const ids = motoristaDaCasa.get(cao.clientId!)!;
         const motorista = motoristas.find(m => ids.size === 1 && ids.has(m.driverId));
@@ -832,14 +907,28 @@ export default function DispatchScreen() {
         if (!bloco) { bloco = { ...motorista, caes: [], km: 0 }; proposta.blocos.push(bloco); }
         bloco.caes.push(cao);
       }
+      // Blocos dos cães presos: um bloco por motorista que buscou alguém. Motorista indisponível na
+      // perna → o cão vai para revisão (a regra não deixa outro levar).
+      const blocosPresos = motoristas.map(m => ({ ...m, caes: [] as CaoParaSugerir[], km: 0 }));
+      for (const cao of caes) {
+        const dono = presos.get(cao.dogId);
+        if (!dono) continue;
+        const bloco = blocosPresos.find(b => b.driverId === dono);
+        if (!bloco) { proposta.semLugar.push(cao); continue; }
+        bloco.caes.push(cao);
+      }
+      const temPresos = blocosPresos.some(b => b.caes.length > 0);
       // Existing assignments and fixed housemates count toward the same dog workload.
       // Keep the geographic/count-balanced proposal for a fresh phase; only distribute the
       // remaining houses against current loads when some dogs already have a driver.
       const rotasDaFase = routesRef.current.filter(r => (r.phase ?? 'pickup') === phase);
-      if (rotasDaFase.some(r => r.stops.length > 0)) {
-        const blocos = motoristas.map(m => ({ ...m, caes: [] as CaoParaSugerir[], km: 0 }));
+      if (rotasDaFase.some(r => r.stops.length > 0) || temPresos) {
+        // O bloco nasce com os cães presos e a carga conta rota atual + presos: é isso que mantém o
+        // equilíbrio por NÚMERO DE CÃES (decisão do dono, 02/10/2026) com a trava ligada.
+        const blocos = motoristas.map(m => ({ ...m, caes: [...(blocosPresos.find(b => b.driverId === m.driverId)?.caes ?? [])], km: 0 }));
         const cargas = new Map(motoristas.map(m => [m.driverId,
-          rotasDaFase.find(r => r.driverId === m.driverId)?.stops.length ?? 0]));
+          (rotasDaFase.find(r => r.driverId === m.driverId)?.stops.length ?? 0)
+          + (blocos.find(b => b.driverId === m.driverId)?.caes.length ?? 0)]));
         const casas = new Map<string, { caes: CaoParaSugerir[]; preferido: string }>();
         for (const bloco of proposta.blocos) for (const cao of bloco.caes) {
           if (cao.clientId && motoristaDaCasa.has(cao.clientId)) {
@@ -860,7 +949,7 @@ export default function DispatchScreen() {
         }
         proposta.blocos = blocos.filter(b => b.caes.length > 0);
       }
-      if (fixos.length || rotasDaFase.some(r => r.stops.length > 0)) {
+      if (fixos.length || temPresos || rotasDaFase.some(r => r.stops.length > 0)) {
         proposta.blocos = proposta.blocos.flatMap(bloco => {
           const ordenada = sugerirRotas(bloco.caes, [bloco], inicio);
           proposta.semLugar.push(...ordenada.semLugar);
@@ -1312,6 +1401,12 @@ export default function DispatchScreen() {
 
   const summary = useMemo(() => ({ date, drivers, dayItems, routes, dogs: caesCadastro, onAddExtraDog: adicionarCaoForaDoCalendario }), [date, drivers, dayItems, routes, caesCadastro, adicionarCaoForaDoCalendario]);
 
+  /**
+   * Motorista do pick-up de cada cão (trava da entrega, 03/10/2026) — vai para o quadro para a folha
+   * de atribuição não oferecer outro motorista na perna de drop-off.
+   */
+  const pickupDriverByDog = useMemo(() => motoristaDoPickupPorCao(summary.routes), [summary.routes]);
+
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -1325,6 +1420,7 @@ export default function DispatchScreen() {
           driverLocations={driverLocations}
           onAssign={assign}
           onCreateDropoffRoute={criarPernaDeDropoff}
+          pickupDriverByDog={pickupDriverByDog}
           onSuggestRoutes={sugerirRotasDoDia}
           onApplySuggestion={aplicarSugestao}
           vans={vans}

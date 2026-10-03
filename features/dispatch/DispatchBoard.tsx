@@ -129,6 +129,14 @@ type Props = {
    * paradas — SEM publicar ("Drop-offs are draft only"). Sem a prop, o quadro fica como era.
    */
   onCreateDropoffRoute?: (driverId: string) => Promise<void>;
+  /**
+   * TRAVA DO DONO (03/10/2026): *"não faz sentido eu colocar o pick-up de um cachorro com um motorista
+   * e depois o drop-off com outro"* — o cão desce com quem o buscou. Este mapa (cão → motorista do
+   * pick-up do dia) faz o quadro: (a) só oferecer "Create drop-off route" para quem buscou algum cão,
+   * e (b) na folha de atribuição de entrega, nem listar outro motorista — o cão já vem com o dono
+   * selecionado. Sem a prop, o quadro fica como era (é o caminho do app antigo/testes).
+   */
+  pickupDriverByDog?: ReadonlyMap<string, string>;
   onSaveStop: (routeId: string, dogId: string, constraint: DispatchConstraint) => Promise<void>;
   onRemoveStop: (routeId: string, dogId: string) => Promise<void>;
   onMoveStop: (routeId: string, dogId: string, direction: -1 | 1) => Promise<void>;
@@ -180,7 +188,7 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onCreateDropoffRoute, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, vanDoMotorista, onOpenStopList }: Props) {
+export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onCreateDropoffRoute, pickupDriverByDog, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, vanDoMotorista, onOpenStopList }: Props) {
   const [assignmentPhase, setAssignmentPhase] = useState<Perna>('pickup');
   const [travas, setTravas] = useState<Travas>({});
   const [sheet, setSheet] = useState<SheetState>(null);
@@ -283,7 +291,8 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
       }
       setPriority(sheet.stop.priority);
     } else {
-      setDriverId(null);
+      // Entrega: o cão já vem com o motorista do pick-up selecionado (trava do dono, 03/10/2026).
+      setDriverId(sheet.phase === 'dropoff' ? pickupDriverByDog?.get(sheet.item.dogId) ?? null : null);
     }
   }, [sheet]);
 
@@ -317,8 +326,62 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
    */
   const assignedDropoffIds = useMemo(() => new Set(routes.filter((rota) => rota.phase === 'dropoff').flatMap((rota) => rota.stops.map((stop) => stop.dogId))), [routes]);
   const entregaveis = useMemo(() => (dropoffItems ?? []).filter((item) => !item.inVan && item.reservationKind !== 'boarding' && !assignedDropoffIds.has(item.dogId)), [dropoffItems, assignedDropoffIds]);
+  /**
+   * Quem pode criar a perna de entrega e com QUAIS cães: os que AQUELE motorista buscou (a trava do
+   * dono, 03/10/2026) mais os que não têm motorista de pick-up no dia. Sem o mapa, vale a regra antiga
+   * (qualquer cão elegível) — é o caminho de quem não passa a prop.
+   */
+  const entregaveisDoMotorista = useMemo(
+    () => (driverId: string) => entregaveis.filter((item) => {
+      const dono = pickupDriverByDog?.get(item.dogId);
+      return !dono || dono === driverId;
+    }),
+    [entregaveis, pickupDriverByDog],
+  );
+  /**
+   * Na ENTREGA o cão é de quem o buscou: a folha de atribuição não oferece outro motorista e já abre
+   * com o dono selecionado.
+   */
+  const motoristaPreso = sheet?.mode === 'assign' && sheet.phase === 'dropoff'
+    ? pickupDriverByDog?.get(sheet.item.dogId) : undefined;
+  const nomeDoPreso = motoristaPreso
+    ? drivers.find((driver) => driver.id === motoristaPreso)?.name ?? 'the pick-up driver' : null;
+  const motoristasDaFolha = motoristaPreso
+    ? drivers.filter((driver) => driver.id === motoristaPreso) : drivers;
   const [criandoDropoff, setCriandoDropoff] = useState<string | null>(null);
   const routesByDriver = useMemo(() => new Map(routes.map((route) => [`${route.driverId}:${route.phase ?? 'pickup'}`, route])), [routes]);
+  /**
+   * UM MOTORISTA POR VEZ (Proposta B, dono 03/10/2026): a tela desenhava DOIS blocos por motorista (o
+   * cartão de pick-ups e o bloco "Drop-offs · <motorista>") — com N motoristas viravam 2N cartões e o
+   * quadro ficava poluído. Agora uma LINHA de chips escolhe o motorista e o cartão ÚNICO tem a troca de
+   * perna (Pick-up | Drop-off), com o contador da outra perna.
+   */
+  const [motoristaVisivel, setMotoristaVisivel] = useState<string | null>(null);
+  const [pernaPorMotorista, setPernaPorMotorista] = useState<Record<string, Perna>>({});
+  const paradasDaPerna = (driverId: string, leg: Perna) => routesByDriver.get(`${driverId}:${leg}`)?.stops.length ?? 0;
+  /** Perna que a tela mostra: a escolhida pelo gestor; senão a que TEM paradas (pick-up primeiro). */
+  const pernaDe = (driverId: string): Perna => {
+    const escolhida = pernaPorMotorista[driverId];
+    if (escolhida) return escolhida;
+    if (paradasDaPerna(driverId, 'pickup') > 0) return 'pickup';
+    if (paradasDaPerna(driverId, 'dropoff') > 0) return 'dropoff';
+    return 'pickup';
+  };
+  const motoristaVisivelObj = drivers.find((driver) => driver.id === motoristaVisivel) ?? drivers[0] ?? null;
+  const pernaVisivel: Perna = motoristaVisivelObj ? pernaDe(motoristaVisivelObj.id) : 'pickup';
+  const rotaVisivel = motoristaVisivelObj ? routesByDriver.get(`${motoristaVisivelObj.id}:${pernaVisivel}`) : undefined;
+  /**
+   * A TROCA DE PERNA só aparece quando o dia TEM fases: rota com `phase` (a migração aplicada) ou cão
+   * elegível para entregar. Num dia LEGADO (rota sem `phase`) o cartão mantém o alternador de ordem que
+   * sempre teve — nada muda para quem ainda não tem a migração.
+   */
+  const trocaDePerna = motoristaVisivelObj
+    ? routes.some((rota) => rota.driverId === motoristaVisivelObj.id && rota.phase) || (Boolean(onCreateDropoffRoute) && entregaveisDoMotorista(motoristaVisivelObj.id).length > 0)
+    : false;
+  /** Cães que a ação "Create drop-off route" levaria para o motorista visível (regra do dono: quem buscou, entrega). */
+  const entregaveisVisiveis = motoristaVisivelObj ? entregaveisDoMotorista(motoristaVisivelObj.id) : [];
+  /** O "Suggest routes" é ação do DIA e vive nas ações do cartão (ao lado do Optimize). */
+  const podeSugerir = Boolean(onSuggestRoutes && onApplySuggestion) && (unassigned.length > 0 || (dropoffItems?.length ?? 0) > 0);
 
   const constraintFromFields = (): DispatchConstraint => {
     if (kind === 'window') return { windowStart, windowEnd, exactTime: null, priority };
@@ -399,50 +462,89 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
         </Text>
       </View>
       <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {drivers.map((driver) => (
-          <View key={driver.id}>
-          <Text style={styles.unassignedTitle}>Pick-ups</Text>
-          <CartaoMotorista driver={driver} route={routesByDriver.get(`${driver.id}:pickup`)}
-            location={driverLocations[driver.id]} working={working} setSheet={setSheet}
-            onMoveStop={onMoveStop} onMoveDropoff={onMoveDropoff} onOptimize={onOptimize} onPublish={onPublish}
-            onSuggest={onSuggestRoutes && onApplySuggestion && (unassigned.length > 0 || (dropoffItems?.length ?? 0) > 0) && driver.id ===
-              (drivers.find(d => routes.some(r => r.driverId === d.id && r.stops.length >= 2)) ?? drivers[0])?.id
-              ? pedirSugestao : undefined}
-            suggestionBusy={sugestaoBusy} separateDropoff={routesByDriver.has(`${driver.id}:dropoff`)}
-            vans={vans} onChooseVan={onChooseVan} vanDoMotorista={vanDoMotorista} onOpenStopList={onOpenStopList}
-            diaDogIds={diaDogIds}
-            onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
-          <Text style={styles.unassignedTitle}>Drop-offs · {driver.name}</Text>
-          {routesByDriver.has(`${driver.id}:dropoff`) ? <CartaoMotorista
-            driver={driver} route={routesByDriver.get(`${driver.id}:dropoff`)} working={working} setSheet={setSheet}
-            onMoveStop={onMoveStop} onMoveDropoff={onMoveDropoff} onOptimize={onOptimize} onPublish={onPublish}
-            onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute}
-            onOpenStopList={onOpenStopList} diaDogIds={diaDogIds} /> : (
-            <View>
-              <Text style={styles.noStops}>No drop-off route.</Text>
-              {/* DEFEITO B (03/10/2026): cria a perna que nunca nasceu — draft, sem publicar. */}
-              {onCreateDropoffRoute && entregaveis.length > 0 ? (
+        {/* LINHA DE MOTORISTAS (Proposta B, 03/10/2026): escolhe quem está na tela — um por vez. */}
+        {drivers.length > 0 ? (
+          <View style={styles.motoristaSeletor}>
+            {drivers.map((driver) => {
+              const ativo = motoristaVisivelObj?.id === driver.id;
+              const quantos = paradasDaPerna(driver.id, pernaDe(driver.id));
+              return (
+                <Pressable
+                  key={driver.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Show ${driver.name}`}
+                  accessibilityState={{ selected: ativo }}
+                  onPress={() => setMotoristaVisivel(driver.id)}
+                  style={[styles.motoristaChip, ativo && styles.motoristaChipAtivo]}
+                >
+                  <Text numberOfLines={1} style={[styles.motoristaChipTexto, ativo && styles.motoristaChipTextoAtivo]}>
+                    {driver.name}{driver.alsoManager ? ' · manager' : ''}{quantos > 0 ? ` · ${quantos}` : ''}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+        {motoristaVisivelObj ? (
+          <View>
+            {/* TROCA DE PERNA do motorista visível: uma linha fina, com o contador de cada perna. */}
+            {trocaDePerna ? (
+              <View style={styles.pernaSwitch}>
+                {(['pickup', 'dropoff'] as const).map((opcao) => {
+                  const ativa = pernaVisivel === opcao;
+                  const quantos = paradasDaPerna(motoristaVisivelObj.id, opcao);
+                  return (
+                    <Pressable
+                      key={opcao}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Show ${opcao === 'pickup' ? 'pick-up' : 'drop-off'} for ${motoristaVisivelObj.name}`}
+                      accessibilityState={{ selected: ativa }}
+                      onPress={() => setPernaPorMotorista((atual) => ({ ...atual, [motoristaVisivelObj.id]: opcao }))}
+                      style={[styles.pernaOpcao, ativa && styles.pernaOpcaoAtiva]}
+                    >
+                      <Text style={[styles.pernaTexto, ativa && styles.pernaTextoAtivo]}>
+                        {opcao === 'pickup' ? 'Pick-up' : 'Drop-off'}{quantos > 0 ? ` · ${quantos}` : ''}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+            {/* O cartão é SEMPRE desenhado — inclusive sem rota, porque o seletor de van/yard do motorista
+                (escolhido ANTES de atribuir o primeiro cão) mora nele. */}
+            <CartaoMotorista
+              driver={motoristaVisivelObj} route={rotaVisivel} leg={trocaDePerna ? pernaVisivel : undefined}
+              location={driverLocations[motoristaVisivelObj.id]} working={working} setSheet={setSheet}
+              onMoveStop={onMoveStop} onMoveDropoff={onMoveDropoff} onOptimize={onOptimize} onPublish={onPublish}
+              onSuggest={podeSugerir ? pedirSugestao : undefined} suggestionBusy={sugestaoBusy}
+              separateDropoff={trocaDePerna}
+              vans={vans} onChooseVan={onChooseVan} vanDoMotorista={vanDoMotorista} onOpenStopList={onOpenStopList}
+              diaDogIds={diaDogIds}
+              onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
+            {/* DEFEITO B (03/10/2026): cria a perna que nunca nasceu — draft, sem publicar. Fica FORA do
+                cartão (o cartão não conhece a ação) e só na aba Drop-off de quem tem cão a entregar. */}
+            {trocaDePerna && pernaVisivel === 'dropoff' && !rotaVisivel && onCreateDropoffRoute && entregaveisVisiveis.length > 0 ? (
+              <View style={styles.pernaVazia}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`Create drop-off route for ${driver.name}`}
+                  accessibilityLabel={`Create drop-off route for ${motoristaVisivelObj.name}`}
                   disabled={working || criandoDropoff !== null}
                   onPress={() => {
-                    setCriandoDropoff(driver.id);
-                    void onCreateDropoffRoute(driver.id)
+                    setCriandoDropoff(motoristaVisivelObj.id);
+                    void onCreateDropoffRoute(motoristaVisivelObj.id)
                       .catch((erro) => showAlert('Could not create the drop-off route', erro instanceof Error ? erro.message : 'Try again.'))
                       .finally(() => setCriandoDropoff(null));
                   }}
                   style={styles.createDropoffButton}
                 >
                   <Text style={styles.createDropoffText}>
-                    {criandoDropoff === driver.id ? 'Creating…' : 'Create drop-off route'}
+                    {criandoDropoff === motoristaVisivelObj.id ? 'Creating…' : 'Create drop-off route'}
                   </Text>
                 </Pressable>
-              ) : null}
-            </View>
-          )}
+              </View>
+            ) : null}
           </View>
-        ))}
+        ) : null}
         <View style={styles.unassigned}>
           {dropoffItems ? <View style={styles.pinRow}>{(['pickup', 'dropoff'] as const).map(phase =>
             <Pressable key={phase} accessibilityRole="button" accessibilityLabel={`Assign ${phase === 'pickup' ? 'pick-ups' : 'drop-offs'}`}
@@ -634,10 +736,16 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
             {sheet?.mode === 'edit' && sheet.route.phase || sheet?.mode === 'assign' && sheet.phase ?
               <Text style={styles.fieldLabel}>{(sheet.mode === 'edit' ? sheet.route.phase : sheet.phase) === 'dropoff' ? 'Drop-offs' : 'Pick-ups'}</Text> : null}
             {casaAviso ? <Text style={styles.houseHint}>{casaAviso}</Text> : null}
+            {/* Trava do dono (03/10/2026): na entrega o outro motorista nem aparece — quem buscou, entrega. */}
+            {nomeDoPreso && sheet?.mode === 'assign' ? (
+              <Text style={styles.houseHint}>
+                {`${sheet.item.dogName} was picked up by ${nomeDoPreso} — the drop-off stays with them.`}
+              </Text>
+            ) : null}
 
             <Text style={styles.fieldLabel}>Driver</Text>
             <View style={styles.driverOptions}>
-              {drivers.map((driver) => {
+              {motoristasDaFolha.map((driver) => {
                 const active = driver.id === driverId;
                 return (
                   <Pressable key={driver.id} accessibilityRole="button" accessibilityLabel={`Driver ${driver.name}`} onPress={() => setDriverId(driver.id)} style={[styles.driverOption, active && styles.driverOptionActive]}>
@@ -749,15 +857,20 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
   onOpenStopList?: Props['onOpenStopList'];
   /** Cães do dia confirmado — a linha confere as paradas contra este conjunto (Defeito A, 03/10/2026). */
   diaDogIds?: ReadonlySet<string>;
+  /**
+   * Perna que o QUADRO mandou mostrar (Proposta B, 03/10/2026: um motorista por vez + troca de perna).
+   * Sem esta prop o cartão decide sozinho, como sempre — é o caminho de quem o desenha direto.
+   */
+  leg?: Perna;
 };
 
 const CartaoMotorista = memo(function CartaoMotorista({
   driver, route, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
   onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy, separateDropoff,
-  vans, onChooseVan, vanDoMotorista, onOpenStopList, diaDogIds,
+  vans, onChooseVan, vanDoMotorista, onOpenStopList, diaDogIds, leg,
 }: PropsCartao) {
   const [pernaLegada, setPerna] = useState<Perna>('pickup');
-  const perna = route?.phase === 'dropoff' ? 'dropoff' : separateDropoff ? 'pickup' : pernaLegada;
+  const perna = leg ?? (route?.phase === 'dropoff' ? 'dropoff' : separateDropoff ? 'pickup' : pernaLegada);
   const [salvandoVan, setSalvandoVan] = useState(false);
   const avisoRota = avisoDeRotaInvisivel(route?.status);
   const mover = perna === 'pickup' ? onMoveStop : onMoveDropoff;
@@ -988,7 +1101,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
           </View>
         </View>
       ))}
-      {stops.length === 0 ? <Text style={styles.noStops}>{route ? 'No stops assigned yet.' : 'No pick-up route.'}</Text> : null}
+      {stops.length === 0 ? <Text style={styles.noStops}>{route ? 'No stops assigned yet.' : perna === 'dropoff' ? 'No drop-off route.' : 'No pick-up route.'}</Text> : null}
     </View>
   );
 
@@ -1027,6 +1140,25 @@ const styles = StyleSheet.create({
   arrowText: { color: colors.gold, fontSize: 30, fontWeight: '700', lineHeight: 32 },
   summary: { color: '#D7E1D4', fontSize: 12, marginTop: 2 },
   content: { padding: 14, paddingBottom: 30 },
+  /**
+   * SELETOR DE MOTORISTA e TROCA DE PERNA (Proposta B, dono 03/10/2026): o quadro desenhava 2N cartões;
+   * agora é uma linha de chips (um motorista por vez) + um cartão único com a troca Pick-up | Drop-off.
+   * Controles de UMA LINHA FINA, alvo de 44 pt, cores discretas (o dono não quer cor forte em área grande).
+   */
+  motoristaSeletor: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  motoristaChip: { borderWidth: 1, borderColor: colors.line, borderRadius: 9, paddingHorizontal: 11, paddingVertical: 8, minHeight: 44, justifyContent: 'center', backgroundColor: '#F4F2EA' },
+  motoristaChipAtivo: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
+  motoristaChipTexto: { color: colors.ink, fontSize: 12, fontWeight: '800' },
+  motoristaChipTextoAtivo: { color: 'white' },
+  pernaSwitch: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  pernaOpcao: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 44, borderRadius: 9, borderWidth: 1, borderColor: colors.line, backgroundColor: '#F4F2EA' },
+  pernaOpcaoAtiva: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
+  pernaTexto: { color: colors.ink, fontSize: 12, fontWeight: '800' },
+  pernaTextoAtivo: { color: 'white' },
+  pernaSugerir: { alignItems: 'center', justifyContent: 'center', minHeight: 44, borderRadius: 9, paddingHorizontal: 12, backgroundColor: colors.forest500 },
+  pernaSugerirTexto: { color: 'white', fontSize: 12, fontWeight: '900' },
+  /** Perna sem rota (ex.: drop-off que ainda não nasceu): caixa discreta com a ação de criar. */
+  pernaVazia: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, marginBottom: 12 },
   driverCard: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, overflow: 'hidden', marginBottom: 12 },
   driverHeader: { padding: 12, flexDirection: 'row', flexWrap: 'wrap', rowGap: 10, alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FAFBF8', borderBottomWidth: 1, borderBottomColor: colors.line },
   driverIdentity: { flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1, minWidth: 200 },

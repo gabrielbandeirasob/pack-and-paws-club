@@ -58,7 +58,11 @@ describe('van por motorista no Dispatch', () => {
 
     expect(tela.getByLabelText('Use Van teste for Rafael')).toBeTruthy();
     expect(tela.getByLabelText('Use Van 1 for Rafael')).toBeTruthy();
+    // PROPOSTA B (dono, 03/10/2026): um motorista por vez — o chip troca quem está na tela; cada
+    // motorista visível tem o seu próprio seletor de van.
+    await fireEvent.press(tela.getByRole('button', { name: 'Show Jordan' }));
     expect(tela.getByLabelText('Use Van 1 for Jordan')).toBeTruthy();
+    await fireEvent.press(tela.getByRole('button', { name: 'Show Rafael' }));
 
     fireEvent.press(tela.getByLabelText('Use Van 1 for Rafael'));
     await waitFor(() => expect(onChooseVan).toHaveBeenCalledTimes(1));

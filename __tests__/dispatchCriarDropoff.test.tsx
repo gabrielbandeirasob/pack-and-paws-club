@@ -70,10 +70,18 @@ jest.mock('@/lib/supabase', () => ({
 
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import DispatchScreen from '@/app/(tabs)/dispatch';
-import { DispatchBoard, type DispatchDriver } from '@/features/dispatch/DispatchBoard';
+import { DispatchBoard, type DispatchDriver, type DispatchRoute } from '@/features/dispatch/DispatchBoard';
 
 const drivers: DispatchDriver[] = [{ id: 'driver-maui', name: 'Maui' }];
 const Billy = { dogId: 'dog-billy', clientName: 'Amy', dogName: 'Billy', reservationKind: 'daycare' };
+const molde = (dogId: string, clientName: string, dogName: string, sequence = 1) => ({
+  dogId, clientName, dogName, sequence, status: 'pending' as const,
+  latitude: null, longitude: null, windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' as const,
+});
+/** Dia COM fases: o motorista já tem a perna de busca (é o estado normal depois da migração). */
+const ROTA_DE_BUSCA: DispatchRoute[] = [{
+  routeId: 'r-busca', driverId: 'driver-maui', phase: 'pickup', status: 'draft', stops: [molde('dog-billy', 'Amy', 'Billy')],
+}];
 
 const noops = {
   onAssign: jest.fn().mockResolvedValue(undefined),
@@ -94,14 +102,17 @@ describe('Dispatch — ação "Create drop-off route" (tela do quadro)', () => {
     const tela = await render(
       <DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[]} dropoffItems={[Billy]} routes={[]} {...noops} onCreateDropoffRoute={onCreateDropoffRoute} />,
     );
+    // PROPOSTA B (03/10/2026): a ação vive na ABA de drop-off do motorista visível.
+    await fireEvent.press(tela.getByRole('button', { name: 'Show drop-off for Maui' }));
     await fireEvent.press(tela.getByRole('button', { name: 'Create drop-off route for Maui' }));
     expect(onCreateDropoffRoute).toHaveBeenCalledWith('driver-maui');
   });
 
   it('não oferece a ação quando não há nada a entregar', async () => {
     const tela = await render(
-      <DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[]} dropoffItems={[]} routes={[]} {...noops} onCreateDropoffRoute={jest.fn()} />,
+      <DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[]} dropoffItems={[]} routes={ROTA_DE_BUSCA} {...noops} onCreateDropoffRoute={jest.fn()} />,
     );
+    await fireEvent.press(tela.getByRole('button', { name: 'Show drop-off for Maui' }));
     expect(tela.getByText('No drop-off route.')).toBeTruthy();
     expect(tela.queryByRole('button', { name: 'Create drop-off route for Maui' })).toBeNull();
   });
@@ -131,6 +142,8 @@ describe('Dispatch — a ação cria a perna de verdade (tela com Supabase falsi
 
   it('cria a perna como `draft`/drop-off e põe os cães elegíveis do dia como paradas pendentes — sem publicar', async () => {
     const tela = await render(<DispatchScreen />);
+    // PROPOSTA B (03/10/2026): a ação mora na ABA de drop-off do motorista visível.
+    await fireEvent.press(await tela.findByRole('button', { name: 'Show drop-off for Rafael' }));
     const botao = await tela.findByRole('button', { name: 'Create drop-off route for Rafael' });
     await fireEvent.press(botao);
 
