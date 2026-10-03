@@ -28,3 +28,28 @@ export async function carregarFase(rotaId: string, userId: string | null | undef
 export async function gravarFase(rotaId: string, userId: string | null | undefined, fase: DayPhase): Promise<void> {
   await gravarCru(chaveDaFase(rotaId, userId), fase);
 }
+
+const BUSCA_BASE = 'pnp:driver:pickups-started';
+
+/**
+ * A BUSCA JÁ COMEÇOU? (dono, 03/10/2026 — *"quero que tudo siga pelas etapas: os cachorros do pick up só
+ * apareçam depois de dar clock in e apertar pick up"*).
+ *
+ * É REVELAÇÃO DE TELA, não regra de negócio: antes de o motorista apertar, ele vê só o cartão da jornada —
+ * e o botão que revela a lista ("Start pick-ups") só existe com a jornada ABERTA, então o "depois do clock
+ * in" já está garantido por ele. Fica gravada no MESMO escopo da fase (rota de busca × usuário) para a lista
+ * não voltar a se esconder quando a tela recarrega (foco, tempo real, reabrir o app).
+ */
+export function chaveDaBuscaIniciada(rotaId: string, userId: string | null | undefined): string {
+  return chaveDeEscopo(`${BUSCA_BASE}:${rotaId}`, userId);
+}
+
+/** Lê a marca. Ausência/erro = ainda NÃO começou (a tela abre no cartão da jornada). */
+export async function carregouABusca(rotaId: string, userId: string | null | undefined): Promise<boolean> {
+  return (await lerCru(chaveDaBuscaIniciada(rotaId, userId))) === '1';
+}
+
+/** Marca que a busca começou. Best-effort: se o storage falhar, a tela revela nesta sessão do mesmo jeito. */
+export async function gravarBuscaIniciada(rotaId: string, userId: string | null | undefined): Promise<void> {
+  await gravarCru(chaveDaBuscaIniciada(rotaId, userId), '1');
+}

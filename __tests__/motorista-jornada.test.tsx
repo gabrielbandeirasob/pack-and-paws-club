@@ -132,6 +132,8 @@ function insercoesDe(tabela: string) {
 }
 
 async function abrirTela() {
+  // A lista de cães só aparece depois de "Start pick-ups" (etapa do dia, dono 03/10/2026).
+  await (require('@/features/driver/dayPhaseStore') as typeof import('@/features/driver/dayPhaseStore')).gravarBuscaIniciada('r1', 'driver-1');
   const Tela = require('../app/(tabs)/driver').default;
   return render(<Tela />);
 }

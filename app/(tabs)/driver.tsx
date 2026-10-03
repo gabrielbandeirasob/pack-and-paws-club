@@ -13,7 +13,7 @@ import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/f
 import { NextStopCard, nextActionForStatus, nextStopFor } from '@/features/driver/NextStopCard';
 import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
 import { mudarFila, chaveDoPendente, enqueuePending, flushPendingWrites, semPendentesSaidos, RefusedWriteError, abrirFilaDoUsuario, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
-import { carregarFase, gravarFase } from '@/features/driver/dayPhaseStore';
+import { carregarFase, carregouABusca, gravarBuscaIniciada, gravarFase } from '@/features/driver/dayPhaseStore';
 import { ordenarPelaFase, paradaDaFaseConcluida, podeIniciarDropoff, faseEfetiva, etapaDoDia, type DayPhase, type EtapaDoDia } from '@/features/driver/dayPhase';
 import { planClockOut } from '@/features/driver/clockOutPlan';
 import { pickDriverDisplayName, resolveDriverOrganizationId } from '@/features/driver/driverOrganization';
@@ -119,8 +119,25 @@ export default function DriverTodayScreen() {
    */
   const [dropoffStops, setDropoffStops] = useState<DriverStop[] | null>(null);
   const [fase, setFase] = useState<DayPhase>('pickup');
+  /**
+   * A LISTA DE CÃES já foi REVELADA? (dono, 03/10/2026 — *"quero que tudo siga pelas etapas: os cachorros do
+   * pick up só apareçam depois de dar clock in e apertar pick up"*). Antes de apertar, a tela mostra SÓ o
+   * cartão da jornada; o botão que revela ("Start pick-ups") só existe com a jornada ABERTA — então o
+   * "depois do clock in" já vem dele. Gravada no aparelho pela rota de busca × usuário.
+   */
+  const [buscaIniciada, setBuscaIniciada] = useState(false);
   // A busca ancora as duas pernas, mantendo inclusive a fase gravada por versões anteriores.
   const faseDoDia = useRef<{ key: string; userId: string; fase: DayPhase } | null>(null);
+  /**
+   * GERAÇÃO DA ESCRITA DO MOTORISTA (dono, 03/10/2026 — *"o sistema trava e dá roll Back sendo necessário
+   * apertar duas vezes"*).
+   *
+   * Cada toque dele que GRAVA incrementa este contador. Uma carga que começou ANTES do toque traz a
+   * resposta VELHA do banco; aplicá-la apaga o que ele acabou de fazer — é o "roll back" (a parada volta
+   * a `pending`, a jornada volta a "Clock in") que o obrigava a tocar de novo. Com a geração, a carga
+   * sabe que o estado da TELA é mais novo que a resposta e a descarta.
+   */
+  const geracaoDaEscrita = useRef(0);
   const [position, setPosition] = useState<LocationUpdate | null>(null);
   /**
    * Preenchido quando a trava da van RECUSOU o clock in por distância: é o que faz o cartão oferecer
@@ -380,6 +397,8 @@ export default function DriverTodayScreen() {
       setLoading(true);
       setMessage(null);
     }
+    /** Geração desta carga: se o motorista GRAVAR no meio dela, a resposta dela já nasceu velha. */
+    const geracaoDaCarga = geracaoDaEscrita.current;
     /**
      * 🪤 ACHADO DA VISTORIA (02/10/2026): IDENTIDADE ANTES DAS FILAS. As filas locais (jornada e
      * passos da rota) são POR USUÁRIO (`scopedStorage.ts`): ler/subir a fila de OUTRA conta é o que
@@ -452,6 +471,8 @@ export default function DriverTodayScreen() {
         const atual = faseEfetiva(guardada, pickup?.route_stops ?? []);
         if (atual !== guardada) await gravarFase(key, usuarioId, atual);
         faseDoDia.current = { key, userId: usuarioId, fase: atual };
+        /** A tela já foi revelada neste dia/aparelho? (a lista não pode voltar a se esconder) */
+        setBuscaIniciada(await carregouABusca(key, usuarioId));
       }
       const atual = faseDoDia.current.fase;
       setFase(atual);
@@ -478,6 +499,18 @@ export default function DriverTodayScreen() {
         resultado = await consultar(false);
       }
       if (resultado.error) throw resultado.error;
+      /*
+       * 🪤 "DÁ ROLL BACK, PRECISA APERTAR DUAS VEZES" (dono, 03/10/2026): esta carga pode ter começado
+       * ANTES do toque dele. A resposta que acabou de chegar é do estado ANTERIOR à escrita: aplicá-la
+       * apagaria da tela o passo que ele já deu (a parada voltava a `pending`, a jornada voltava a
+       * "Clock in") e ele tocava de novo achando que nada tinha acontecido. O estado da TELA é mais novo
+       * que esta resposta — descarta a carga e recarrega por baixo, com o banco já atualizado.
+       */
+      if (geracaoDaCarga !== geracaoDaEscrita.current) {
+        setLoading(false);
+        setTimeout(() => void load(true), 0);
+        return;
+      }
       setDriverId(usuarioId);
       const rotas = (resultado.data as unknown as RouteResult[] | null) ?? [];
       const route = await selecionarPerna(rotas);
@@ -744,6 +777,8 @@ export default function DriverTodayScreen() {
 
   const act = async (stopId: string, action: DriverAction) => {
     setMessage(null);
+    /** Ação do motorista: qualquer carga que já estava em voo nasceu velha (ver `geracaoDaEscrita`). */
+    geracaoDaEscrita.current += 1;
     /*
      * ENTREGA (conferência do dono, 01/10/2026 — itens 2 e 5). Não é troca de status: o pick-up já
      * marcou `completed`; aqui grava-se o marco `delivered_at`, que é o que fecha a parada, devolve o
@@ -967,6 +1002,8 @@ export default function DriverTodayScreen() {
   const clockIn = async (motivo: string, excecao = false) => {
     setShiftBusy(true);
     setShiftError(null);
+    /** Escrita do motorista: carga em voo nasceu velha (ver `geracaoDaEscrita`). */
+    geracaoDaEscrita.current += 1;
     const startedAt = new Date().toISOString();
     // Declarado FORA do try: a fila offline do catch também grava o motivo (com a distância, quando
     // o registro é a exceção "fora da van").
@@ -1059,6 +1096,8 @@ export default function DriverTodayScreen() {
   const clockOut = async (motivo: string) => {
     setShiftBusy(true);
     setShiftError(null);
+    /** Escrita do motorista: carga em voo nasceu velha (ver `geracaoDaEscrita`). */
+    geracaoDaEscrita.current += 1;
     const agora = new Date().toISOString();
     const plano = planClockOut({
       shifts,
@@ -1250,8 +1289,14 @@ export default function DriverTodayScreen() {
       const dia = faseDoDia.current;
       if (!dia || !routeId || dia.userId !== driverId) return;
       dia.fase = 'dropoff';
+      geracaoDaEscrita.current += 1;
       await gravarFase(dia.key, dia.userId, 'dropoff');
-      await load();
+      /*
+       * SILENCIOSO de propósito (regra do projeto, `tela-do-motorista-toque-avisos-e-eta`): escrita do
+       * próprio motorista NÃO pode jogar a tela em "carregando". Era o `await load()` daqui que fazia a
+       * lista sumir e voltar ("o sistema trava") a cada virada de perna.
+       */
+      void load(true);
     })();
   };
 
@@ -1285,6 +1330,22 @@ export default function DriverTodayScreen() {
   const focarBusca = useCallback(() => {
     scrollRef.current?.scrollTo({ y: corpoY.current + proximaParadaY.current, animated: true });
   }, []);
+  /**
+   * "START PICK-UPS" — a ETAPA do dia (dono, 03/10/2026): a lista de cães só aparece depois que o motorista
+   * diz que começou. O toque REVELA a lista, GRAVA a marca no aparelho (a recarga do foco/tempo real não
+   * volta a esconder) e traz o próximo cão para a tela. Não grava nada no banco: é revelação de tela.
+   */
+  const iniciarBusca = useCallback(() => {
+    setBuscaIniciada(true);
+    const dia = faseDoDia.current;
+    if (dia && dia.userId === driverId) void gravarBuscaIniciada(dia.key, dia.userId);
+    focarBusca();
+  }, [driverId, focarBusca]);
+  /**
+   * A ROTA na tela (próxima parada, mapa e lista de cães) segue a ETAPA do dia: antes de começar, a tela é só
+   * o cartão da jornada. Na ENTREGA a lista é a consequência do yard — a virada é que a revela.
+   */
+  const mostrarRota = fase === 'dropoff' || buscaIniciada;
 
   /** Início e fechamento usam o app preferido, com fallback para a folha de escolha. */
   const navegarPara = useCallback(async (location: NavTarget | null, stopId: 'start' | 'closing') => {
@@ -1425,7 +1486,7 @@ export default function DriverTodayScreen() {
                      * VIRADA DA PERNA (logo abaixo) — os dois nunca aparecem juntos: o motorista não fica
                      * com dois botões dourados empilhados sem saber qual é o próximo passo.
                      */
-                    onStartPickups={journey.kind === 'open' && stops.length > 0 && fase === 'pickup' && !buscaTerminou(stops) ? focarBusca : undefined}
+                    onStartPickups={journey.kind === 'open' && stops.length > 0 && fase === 'pickup' && !buscaTerminou(stops) ? iniciarBusca : undefined}
                     /*
                      * A VIRADA DA PERNA (busca → entrega) é um ATO DO MOTORISTA (dono, 02/10/2026) e segue
                      * NESTE cartão, ao lado do "Navigate to yard": depois da última busca o app pede o YARD
@@ -1464,7 +1525,7 @@ export default function DriverTodayScreen() {
                           : 'When the manager publishes your route, it will appear here with every stop and instruction.'}
                   </Text>
                 </View>
-              ) : (
+              ) : mostrarRota ? (
                 <>
                   {/* NEXT STOP: a próxima parada e as ações primárias (navegar / cheguei / próximo passo),
                       sempre no mesmo lugar — logo abaixo do otimizador e ACIMA da lista de paradas.
@@ -1498,6 +1559,12 @@ export default function DriverTodayScreen() {
                     etapa={etapaAtual}
                   />
                 </>
+              ) : (
+                /* ETAPA DO DIA (dono, 03/10/2026): antes de começar, a tela é SÓ o cartão da jornada —
+                 * a lista de cães é o trabalho dele e aparece quando ele aperta "Start pick-ups". */
+                <View style={styles.empty}>
+                  <Text style={styles.emptyText}>Your stop list opens when you tap Start pick-ups.</Text>
+                </View>
               )}
             </>
           )}

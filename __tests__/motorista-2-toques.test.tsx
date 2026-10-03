@@ -221,7 +221,12 @@ jest.mock('expo-router', () => ({
 const { loadOutbox, passosDoEvento } = require('@/features/driver/offlineStore') as typeof import('@/features/driver/offlineStore');
 const AsyncStorage = require('@react-native-async-storage/async-storage') as typeof import('@react-native-async-storage/async-storage').default;
 
+/**
+ * A ETAPA DO DIA (dono, 03/10/2026): a lista de cães só aparece depois de o motorista apertar "Start
+ * pick-ups" — estes vetores olham a LISTA, então já entram com o dia COMEÇADO (rota `r1` × usuário do caso).
+ */
 async function abrirTelaDoMotorista() {
+  await (require('@/features/driver/dayPhaseStore') as typeof import('@/features/driver/dayPhaseStore')).gravarBuscaIniciada('r1', mockDriverId);
   const Tela = require('../app/(tabs)/driver').default;
   const tela = await render(<Tela />);
   await waitFor(() => expect(tela.getByLabelText('Next stop: I arrived for Bob')).toBeTruthy());
@@ -522,6 +527,8 @@ it('depois do toque a tela NÃO volta para o "carregando"', async () => {
     await saveOutbox(enqueueEvent([], { stopId: 's1', status: 'completed', createdAt: new Date().toISOString() }));
 
     const Tela = require('../app/(tabs)/driver').default;
+    // A lista de cães só aparece depois de "Start pick-ups" (etapa do dia, dono 03/10/2026).
+    await (require('@/features/driver/dayPhaseStore') as typeof import('@/features/driver/dayPhaseStore')).gravarBuscaIniciada('r1', mockDriverId);
     const tela = await render(<Tela />);
 
     // O aviso de recusa aparece (o evento foi removido da fila pelo sync)...
@@ -535,6 +542,11 @@ it('depois do toque a tela NÃO volta para o "carregando"', async () => {
 describe('duas pernas publicadas do motorista', () => {
   async function abrirBuscaConcluida() {
     mockEstado.statusDaParada = 'completed';
+    // A lista de cães só aparece depois de "Start pick-ups" (etapa do dia, dono 03/10/2026) — e a marca é POR
+    // USUÁRIO: este caso troca de conta no meio, então os dois entram com o dia começado.
+    const { gravarBuscaIniciada } = require('@/features/driver/dayPhaseStore') as typeof import('@/features/driver/dayPhaseStore');
+    await gravarBuscaIniciada('r1', 'driver-1');
+    await gravarBuscaIniciada('r1', 'driver-2');
     const Tela = require('../app/(tabs)/driver').default;
     const tela = await render(<Tela />);
     await waitFor(() => expect(tela.getByTestId('start-dropoffs')).toBeTruthy());
