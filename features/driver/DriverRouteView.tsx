@@ -86,7 +86,17 @@ export type DriverStop = {
  */
 export type DriverAction = 'navigate' | 'arrived' | 'picked_up' | 'completed' | 'problem' | 'finish' | 'deliver';
 
+export type DriverStartPoint = {
+  kind: 'van' | 'yard';
+  name: string;
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
+};
+
 type Props = {
+  start?: DriverStartPoint | null;
+  onNavigateStart?: () => void;
   stops: DriverStop[];
   onAction: (stopId: string, action: DriverAction) => Promise<void>;
   /** Abre o mensageiro com o aviso de ETA pronto para o tutor (pedido do cliente, 16/09/2026). */
@@ -119,7 +129,7 @@ function addressLine(stop: DriverStop): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-export function DriverRouteView({ stops, onAction, onNotifyOwner, closing, onNavigateClosing, fase: faseProp, onStartDropoffs, canStartDropoffs }: Props) {
+export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavigateStart, closing, onNavigateClosing, fase: faseProp, onStartDropoffs, canStartDropoffs }: Props) {
   const fase: DayPhase = faseProp ?? 'pickup';
   const fire = (stop: DriverStop, action: DriverAction) => onAction(stop.id, action);
   /**
@@ -164,6 +174,26 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing, onNav
           <Text style={styles.closingSub}>The pick-up run is over — everything here is a delivery.</Text>
         ) : null}
       </View>
+      {start?.name.trim() && onNavigateStart ? (
+        <View style={[styles.closing, styles.start]} testID="route-start">
+          <Text style={styles.closingTag}>
+            {start.kind === 'van' ? 'VAN · where the day starts' : 'YARD · where the drop-offs start'}
+          </Text>
+          <Text style={styles.closingTitle}>{start.name}</Text>
+          {start.address ? <Text style={styles.closingAddress}>{start.address}</Text> : null}
+          <View style={styles.actions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Navigate to the start"
+              onPress={onNavigateStart}
+              style={[styles.action, styles.actionDark]}
+              testID="navigate-start"
+            >
+              <Text style={styles.actionDarkText}>Navigate</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
       {tarefas.length > 0 ? (
         <RouteMap
           stops={tarefas.map((tarefa, index) => {
@@ -441,6 +471,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.paper,
     gap: 2,
   },
+  start: { marginBottom: 12 },
   closingTag: { fontSize: 12, fontWeight: '800', letterSpacing: 1, color: colors.muted },
   closingTitle: { fontSize: 16, fontWeight: '800', color: colors.ink },
   closingSub: { fontSize: 12, color: colors.muted, lineHeight: 16 },

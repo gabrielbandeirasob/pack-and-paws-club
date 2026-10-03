@@ -4,7 +4,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { todayLocalISO } from '@/features/calendar/dates';
-import { DriverRouteView, type DriverAction, type DriverStop } from '@/features/driver/DriverRouteView';
+import { DriverRouteView, type DriverAction, type DriverStartPoint, type DriverStop } from '@/features/driver/DriverRouteView';
 import { resolveDriverOptimizationOrigin } from '@/features/driver/driverRouteLocation';
 import { clockInGate, distanceText, estaNaVan, loadOrganizationLocations, loadRouteEndLocationForDriver, loadVanLocationForDriver, motivoDoClockIn, travaDoClockIn, vanLocationForRoute, type OrganizationLocation } from '@/features/organization/locations';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutosAteParada, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
@@ -1205,17 +1205,25 @@ export default function DriverTodayScreen() {
     [stops, fase, dropoffStops, yardLocation, vanLocation, vanDeFechamento],
   );
 
-  /**
-   * NAVEGAR até o fechamento (yard/van) — cliente, 02/10/2026: *"apenas informa que termina no yard,
-   * mas na realidade não mudou nada"*. Usa o MESMO caminho da navegação das paradas: app preferido
-   * quando já escolhido; senão, a folha de escolha.
-   */
-  const navegarParaFechamento = useCallback(async () => {
-    if (!fechamento) return;
+  const start = useMemo<DriverStartPoint | null>(() => {
+    const location = fase === 'pickup' ? vanLocation : yardLocation;
+    if (!location) return null;
+    return {
+      kind: fase === 'pickup' ? 'van' : 'yard',
+      name: location.name,
+      address: [location.addressLine1, location.city].filter(Boolean).join(' · ') || null,
+      latitude: location.latitude,
+      longitude: location.longitude,
+    };
+  }, [fase, vanLocation, yardLocation]);
+
+  /** Início e fechamento usam o app preferido, com fallback para a folha de escolha. */
+  const navegarPara = useCallback(async (location: NavTarget | null, stopId: 'start' | 'closing') => {
+    if (!location) return;
     const target: NavTarget = {
-      address: fechamento.address,
-      latitude: fechamento.latitude,
-      longitude: fechamento.longitude,
+      address: location.address,
+      latitude: location.latitude,
+      longitude: location.longitude,
     };
     try {
       const preferred = await loadPreferredNavApp();
@@ -1226,8 +1234,8 @@ export default function DriverTodayScreen() {
     } catch {
       // sem app preferido/erro ao abrir → cai na folha de escolha
     }
-    setNavTarget({ stopId: 'closing', target });
-  }, [fechamento]);
+    setNavTarget({ stopId, target });
+  }, []);
 
   // A trava acompanha a visão: o gestor que ligou o interruptor também pode dirigir.
   const { liberado, role, isLoading: carregandoPapel } = useRoleGuard('driver');
@@ -1380,8 +1388,10 @@ export default function DriverTodayScreen() {
                     stops={stopsDaFase}
                     onAction={act}
                     onNotifyOwner={avisarTutor}
+                    start={start}
+                    onNavigateStart={() => void navegarPara(start, 'start')}
                     closing={fechamento}
-                    onNavigateClosing={() => void navegarParaFechamento()}
+                    onNavigateClosing={() => void navegarPara(fechamento, 'closing')}
                     fase={fase}
                     canStartDropoffs={dropoffStops ? buscaTerminou(stops) && !entregaTerminou(dropoffStops) : undefined}
                     onStartDropoffs={() => {
