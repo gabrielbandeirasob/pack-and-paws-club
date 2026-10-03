@@ -43,6 +43,10 @@ export type DriverEvent = {
 };
 
 export type RouteSnapshot = {
+  /** As pernas publicadas ficam separadas também no cache por usuário. */
+  routes?: import('./rows').DriverRouteRow[];
+  routeDate?: string;
+  locations?: import('../organization/locations').OrganizationLocation[];
   savedAt: string;
   publishedAt: string | null;
   stops: DriverStop[];

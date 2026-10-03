@@ -108,6 +108,8 @@ type Props = {
    * tem que fazer essa mudança automática"*. Ausente = `pickup` (o dia começa buscando).
    */
   fase?: DayPhase;
+  /** Permite decidir a virada com as paradas da perna independente de entrega. */
+  canStartDropoffs?: boolean;
   /** Vira o dia para a perna de ENTREGA. Sem ele, o botão "Start drop-offs" não aparece. */
   onStartDropoffs?: () => void;
 };
@@ -117,7 +119,7 @@ function addressLine(stop: DriverStop): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-export function DriverRouteView({ stops, onAction, onNotifyOwner, closing, onNavigateClosing, fase: faseProp, onStartDropoffs }: Props) {
+export function DriverRouteView({ stops, onAction, onNotifyOwner, closing, onNavigateClosing, fase: faseProp, onStartDropoffs, canStartDropoffs }: Props) {
   const fase: DayPhase = faseProp ?? 'pickup';
   const fire = (stop: DriverStop, action: DriverAction) => onAction(stop.id, action);
   /**
@@ -330,7 +332,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, closing, onNav
         * VIRADA DE FASE — decisão do dono (02/10/2026): *"deve ser um botão do motorista"*. Só aparece
         * quando a BUSCA acabou e ainda há ENTREGA: nada muda sozinho.
         */}
-      {fase === 'pickup' && onStartDropoffs && podeIniciarDropoff(stops) ? (
+      {fase === 'pickup' && onStartDropoffs && (canStartDropoffs ?? podeIniciarDropoff(stops)) ? (
         <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"

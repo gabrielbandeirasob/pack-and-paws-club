@@ -54,6 +54,18 @@ const mockEstado: {
 /** Rota publicada de hoje com UMA parada pendente (o caminho curto: chegou → pegou+concluiu). */
 /** Sedes da organização (van/yard). Vazio por padrão: os testes antigos não precisam delas. */
 let mockLocais: unknown[] = [];
+let mockDuasPernas = false;
+let mockDriverId = 'driver-1';
+let mockLeituraOffline = false;
+let mockSemColunaFase = false;
+let mockConsultas: { campos: string; filtros: Record<string, unknown>; limite?: number }[] = [];
+const mockRotasDoDia = () => {
+  const pickup = { ...mockRota(), phase: 'pickup' };
+  if (!mockDuasPernas) return [pickup];
+  return [{ ...pickup, id: 'r2', phase: 'dropoff', end_location_id: 'van-1',
+    route_stops: pickup.route_stops.map(stop => ({ ...stop, id: 's2', status: 'pending',
+      dog: { ...stop.dog, id: 'd2', name: 'Luna' } })) }, pickup];
+};
 
 const mockRota = () => ({
   id: 'r1',
@@ -105,7 +117,7 @@ const mockRota = () => ({
 
 jest.mock('@/lib/supabase', () => {
   const dados = (tabela: string) => (
-    tabela === 'routes' ? [mockRota()]
+    tabela === 'routes' ? mockRotasDoDia()
       : tabela === 'organization_locations' ? mockLocais
         : []
   );
@@ -113,13 +125,15 @@ jest.mock('@/lib/supabase', () => {
     const chain: Record<string, unknown> = { __tabela: tabela };
     let payloadDoUpdate: Record<string, unknown> | null = null;
     const mesmo = () => chain;
-    chain.select = mesmo;
-    chain.eq = mesmo;
+    const consulta = { campos: '', filtros: {} as Record<string, unknown>, limite: undefined as number | undefined };
+    if (tabela === 'routes') mockConsultas.push(consulta);
+    chain.select = (campos: string) => { consulta.campos = campos; return chain; };
+    chain.eq = (campo: string, valor: unknown) => { consulta.filtros[campo] = valor; return chain; };
     chain.gte = mesmo;
     chain.lt = mesmo;
     chain.lte = mesmo;
     chain.order = mesmo;
-    chain.limit = mesmo;
+    chain.limit = (limite: number) => { consulta.limite = limite; return chain; };
     chain.maybeSingle = mesmo;
     chain.insert = mesmo;
     chain.upsert = () => Promise.resolve({ error: null });
@@ -130,6 +144,10 @@ jest.mock('@/lib/supabase', () => {
       return chain;
     };
     chain.then = (res: (v: unknown) => unknown) => {
+      if (tabela === 'routes' && mockLeituraOffline) return Promise.resolve({ data: null, error: { message: 'Network request failed' } }).then(res);
+      if (tabela === 'routes' && mockSemColunaFase && consulta.campos.startsWith('phase,')) {
+        return Promise.resolve({ data: null, error: { code: '42703', message: 'column routes.phase does not exist' } }).then(res);
+      }
       if (payloadDoUpdate) {
         if (mockEstado.falhaDeRede) {
           return Promise.resolve({ data: null, error: { message: 'Network request failed' } }).then(res);
@@ -161,7 +179,7 @@ jest.mock('@/lib/supabase', () => {
     supabase: {
       auth: { getUser: async () => (mockEstado.semSessao
         ? { data: { user: null } }
-        : { data: { user: { id: 'driver-1' } } }) },
+        : { data: { user: { id: mockDriverId } } }) },
       from: (tabela: string) => {
         if (tabela === 'routes') mockEstado.consultasRota += 1;
         return cadeia(tabela);
@@ -217,6 +235,12 @@ beforeEach(async () => {
   // A fila offline (e o retrato da rota) moram no aparelho: limpar entre os casos evita que o
   // "sem rede" de um teste suba a fila no seguinte.
   await AsyncStorage.clear();
+  mockDuasPernas = false;
+  mockDriverId = 'driver-1';
+  mockLeituraOffline = false;
+  mockSemColunaFase = false;
+  mockConsultas = [];
+  mockEstado.deliveredAtDaParada = null;
   mockEstado.atualizacoes.length = 0;
   mockEstado.rpcs.length = 0;
   mockEstado.statusDaParada = 'pending';
@@ -506,4 +530,88 @@ it('depois do toque a tela NÃO volta para o "carregando"', async () => {
     expect(tela.getByLabelText('Next stop: I arrived for Bob')).toBeTruthy();
     expect(tela.queryByLabelText('Next stop: Delivered for Bob')).toBeNull();
   });
+});
+
+describe('duas pernas publicadas do motorista', () => {
+  async function abrirBuscaConcluida() {
+    mockEstado.statusDaParada = 'completed';
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+    await waitFor(() => expect(tela.getByTestId('start-dropoffs')).toBeTruthy());
+    return tela;
+  }
+
+  it('ignora a ordem de publicação, troca a lista inteira e restaura a entrega na recarga', async () => {
+    mockDuasPernas = true;
+    const tela = await abrirBuscaConcluida();
+    expect(tela.queryByLabelText('Delivered Luna')).toBeNull();
+    expect(tela.getByLabelText('Delivered Bob')).toBeTruthy();
+    expect(mockConsultas[0].filtros).toMatchObject({ driver_id: 'driver-1', status: 'published' });
+    expect(mockConsultas[0].limite).toBeUndefined();
+    await fireEvent.press(tela.getByTestId('start-dropoffs'));
+    await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Luna')).toBeTruthy());
+    expect(tela.queryByLabelText('Delivered Bob')).toBeNull();
+    expect(tela.queryByLabelText('Next stop: I arrived for Luna')).toBeNull();
+    await tela.unmount();
+    const Tela = require('../app/(tabs)/driver').default;
+    const reaberta = await render(<Tela />);
+    await waitFor(() => expect(reaberta.getByLabelText('Next stop: Delivered for Luna')).toBeTruthy());
+    mockDriverId = 'driver-2';
+    await act(async () => { await reaberta.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+    await waitFor(() => expect(reaberta.getByText('PICK-UPS')).toBeTruthy());
+    expect(reaberta.queryByLabelText('Delivered Luna')).toBeNull();
+    mockDriverId = 'driver-1';
+    await act(async () => { await reaberta.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+    await waitFor(() => expect(reaberta.getByLabelText('Next stop: Delivered for Luna')).toBeTruthy());
+  });
+
+  it('sem entrega publicada mantém as mesmas paradas e suporta banco sem phase', async () => {
+    mockSemColunaFase = true;
+    const tela = await abrirBuscaConcluida();
+    await fireEvent.press(tela.getByTestId('start-dropoffs'));
+    await waitFor(() => expect(tela.getByText('DROP-OFFS')).toBeTruthy());
+    expect(tela.getByLabelText('Delivered Bob')).toBeTruthy();
+    expect(mockConsultas.some(c => !c.campos.startsWith('phase,'))).toBe(true);
+  });
+
+  it('troca para a entrega em cache quando perde a rede', async () => {
+    mockDuasPernas = true;
+    const tela = await abrirBuscaConcluida();
+    mockLeituraOffline = true;
+    await fireEvent.press(tela.getByTestId('start-dropoffs'));
+    await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Luna')).toBeTruthy());
+    expect(tela.queryByLabelText('Delivered Bob')).toBeNull();
+  });
+
+  it('não vira automaticamente nem oferece a virada enquanto falta buscar', async () => {
+    mockDuasPernas = true;
+    const tela = await abrirTelaDoMotorista();
+    expect(tela.queryByTestId('start-dropoffs')).toBeNull();
+    expect(tela.getByText('PICK-UPS')).toBeTruthy();
+    expect(tela.queryByLabelText('Delivered Luna')).toBeNull();
+  });
+});
+
+it('duas pernas mantêm fechamento navegável na busca (yard) e na entrega (van)', async () => {
+  mockDuasPernas = true;
+  mockEstado.statusDaParada = 'completed';
+  mockEstado.endLocationId = 'yard-1';
+  mockLocais = [
+    { id: 'van-1', name: 'Van', kind: 'van', latitude: 37, longitude: -122, is_default: true },
+    { id: 'yard-1', name: 'Yard', kind: 'yard', latitude: 38, longitude: -122, is_default: false },
+  ];
+  try {
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+    await waitFor(() => expect(tela.getByLabelText('Navigate to the yard')).toBeTruthy());
+    await fireEvent.press(tela.getByTestId('start-dropoffs'));
+    await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Luna')).toBeTruthy());
+    expect(tela.queryByLabelText('Navigate to the yard')).toBeNull();
+    await fireEvent.press(tela.getByLabelText('Next stop: Delivered for Luna'));
+    await waitFor(() => expect(tela.getByLabelText('Navigate to the van')).toBeTruthy());
+    expect(tela.queryByLabelText('Next stop: Delivered for Luna')).toBeNull();
+  } finally {
+    mockLocais = [];
+    mockEstado.endLocationId = null;
+  }
 });

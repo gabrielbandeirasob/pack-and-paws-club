@@ -1,7 +1,7 @@
 /**
  * PERSISTÊNCIA DA FASE DO DIA (pick-up × drop-off) — separada das regras puras de propósito.
  *
- * A fase fica no APARELHO, por rota e por USUÁRIO (a mesma regra de dono das filas: trocar de conta no
+ * A fase fica no APARELHO, pela rota de busca e por USUÁRIO (a mesma regra de dono das filas: trocar de conta no
  * mesmo aparelho não herda a perna do outro). O I/O é best-effort, no mesmo espírito de `pendingWrites`
  * — se o storage falhar, o motorista continua no que está na tela.
  *
@@ -13,7 +13,7 @@ import { chaveDeEscopo, gravarCru, lerCru } from '@/features/driver/scopedStorag
 
 const FASE_BASE = 'pnp:driver:phase';
 
-/** Chave da fase de UMA rota, de UM usuário. Sem rota não há fase. */
+/** Escopo estável do dia: ID da busca (mesmo durante a entrega), de UM usuário. */
 export function chaveDaFase(rotaId: string, userId: string | null | undefined): string {
   return chaveDeEscopo(`${FASE_BASE}:${rotaId}`, userId);
 }

@@ -142,7 +142,7 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
    * em casa) — sem ela o motorista ficava sem fechar o dia (achado da vistoria, 02/10/2026).
    */
   const secundarias = nextAction
-    ? nextActionsForStatus(stop.status, stop.deliveredAt).filter((acao) => acao !== nextAction)
+    ? nextAction === 'deliver' ? ['problem' as const] : nextActionsForStatus(stop.status, stop.deliveredAt).filter((acao) => acao !== nextAction)
     : [];
 
   return (

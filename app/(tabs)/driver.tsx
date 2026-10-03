@@ -14,7 +14,7 @@ import { NextStopCard, nextActionForStatus, nextStopFor } from '@/features/drive
 import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
 import { mudarFila, chaveDoPendente, enqueuePending, flushPendingWrites, semPendentesSaidos, RefusedWriteError, abrirFilaDoUsuario, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
 import { carregarFase, gravarFase } from '@/features/driver/dayPhaseStore';
-import { ordenarPelaFase, type DayPhase } from '@/features/driver/dayPhase';
+import { ordenarPelaFase, paradaDaFaseConcluida, type DayPhase } from '@/features/driver/dayPhase';
 import { planClockOut } from '@/features/driver/clockOutPlan';
 import { pickDriverDisplayName, resolveDriverOrganizationId } from '@/features/driver/driverOrganization';
 import { ShiftCard } from '@/features/driver/ShiftCard';
@@ -114,10 +114,13 @@ export default function DriverTodayScreen() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   /**
    * A PERNA do dia (pick-up × drop-off) — cliente, 02/10/2026: *"tem que ter uma mudança clara de
-   * rota... ele não tem que fazer essa mudança automática"*. Fica gravada no aparelho por rota (e por
+   * rota... ele não tem que fazer essa mudança automática"*. Fica gravada no aparelho pela rota de busca (e por
    * usuário, a mesma regra de dono das filas) e só o MOTORISTA vira — com um botão (decisão do dono).
    */
+  const [dropoffStops, setDropoffStops] = useState<DriverStop[] | null>(null);
   const [fase, setFase] = useState<DayPhase>('pickup');
+  // A busca ancora as duas pernas, mantendo inclusive a fase gravada por versões anteriores.
+  const faseDoDia = useRef<{ key: string; userId: string; fase: DayPhase } | null>(null);
   const [position, setPosition] = useState<LocationUpdate | null>(null);
   /**
    * Preenchido quando a trava da van RECUSOU o clock in por distância: é o que faz o cartão oferecer
@@ -175,20 +178,6 @@ export default function DriverTodayScreen() {
   const [driverId, setDriverId] = useState<string | null>(null);
   /** Nome do motorista que assina o aviso ao tutor ("This is {MOTORISTA} from Pack & Paws Club"). */
   const [driverName, setDriverName] = useState<string | null>(null);
-  /**
-   * A FASE gravada volta quando a rota do dia aparece (rota nova = dia novo = começa buscando).
-   * Por rota E por usuário: trocar de conta no mesmo aparelho não herda a perna do outro.
-   */
-  useEffect(() => {
-    if (!routeId || !driverId) return;
-    let vivo = true;
-    void carregarFase(routeId, driverId).then((f) => {
-      if (vivo) setFase(f);
-    });
-    return () => {
-      vivo = false;
-    };
-  }, [routeId, driverId]);
   const locationHandle = useRef<LocationHandle | null>(null);
   const realtimeRefresh = useRef<ReturnType<typeof setTimeout> | null>(null);
   /**
@@ -420,6 +409,16 @@ export default function DriverTodayScreen() {
         throw new Error(falha);
       }
       usuarioId = user.id;
+      if (faseDoDia.current && faseDoDia.current.userId !== usuarioId) {
+        setLoading(true);
+        setStops([]);
+        setFase('pickup');
+        setRouteId(null);
+        setDropoffStops(null);
+        setVanLocation(null);
+        setYardLocation(null);
+        setVanDeFechamento(null);
+      }
       setSessaoExpirada(false);
       // Escopo das filas locais + migração de leitura do que ficou sem dono (uma vez por usuário).
       await abrirFilaDoUsuario(usuarioId);
@@ -434,6 +433,20 @@ export default function DriverTodayScreen() {
       setOffline(true);
     }
 
+    const selecionarPerna = async (rotas: RouteResult[]) => {
+      const pickup = rotas.find((rota) => (rota.phase ?? 'pickup') === 'pickup');
+      const dropoff = rotas.find((rota) => rota.phase === 'dropoff');
+      setDropoffStops(dropoff ? (dropoff.route_stops ?? []).map(rowToStop) : null);
+      const key = pickup?.id ?? `day:${todayLocalISO()}`;
+      if (!usuarioId) return undefined;
+      if (faseDoDia.current?.key !== key || faseDoDia.current?.userId !== usuarioId) {
+        faseDoDia.current = { key, userId: usuarioId, fase: await carregarFase(key, usuarioId) };
+      }
+      const atual = faseDoDia.current.fase;
+      setFase(atual);
+      return atual === 'dropoff' ? dropoff ?? pickup : pickup;
+    };
+
     const events = await loadOutbox();
     setPendingSync(events.length);
 
@@ -441,17 +454,22 @@ export default function DriverTodayScreen() {
     /** A carga caiu por REDE? (se sim, o vazio não pode afirmar que não existe rota) */
     let semRede = false;
     try {
-      const { data: routes, error } = await supabase
-        .from('routes')
-        .select('id, organization_id, lock_version, published_at, start_location_id, end_location_id, route_stops(id, sequence, dropoff_sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, delivered_at, travel_seconds, dropoff_travel_seconds, status_updated_at, eta_notice_at, eta_notice_kind, handed_from_name, handed_at, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))')
+      const campos = 'id, organization_id, lock_version, published_at, start_location_id, end_location_id, route_stops(id, sequence, dropoff_sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, delivered_at, travel_seconds, dropoff_travel_seconds, status_updated_at, eta_notice_at, eta_notice_kind, handed_from_name, handed_at, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))';
+      const consultar = (comFase: boolean) => supabase.from('routes')
+        .select(comFase ? `phase, ${campos}` : campos)
         .eq('driver_id', usuarioId ?? '')
         .eq('route_date', todayLocalISO())
         .eq('status', 'published')
-        .order('published_at', { ascending: false })
-        .limit(1);
-      if (error) throw error;
+        .order('published_at', { ascending: false });
+      let resultado = await consultar(true);
+      // A migração 053 é aplicada separadamente: mantém a rota única no banco antigo.
+      if (resultado.error && ['42703', 'PGRST204'].includes(resultado.error.code) && /phase/.test(resultado.error.message)) {
+        resultado = await consultar(false);
+      }
+      if (resultado.error) throw resultado.error;
       setDriverId(usuarioId);
-      const route = (routes as unknown as RouteResult[] | null)?.[0];
+      const rotas = (resultado.data as unknown as RouteResult[] | null) ?? [];
+      const route = await selecionarPerna(rotas);
       /*
        * 🪤 ACHADO DA VISTORIA (02/10/2026): a organização só existia DENTRO do `if (route)`. Num dia
        * SEM rota publicada ela ficava nula e o clock in manual ("esqueci de bater o ponto") era
@@ -464,8 +482,7 @@ export default function DriverTodayScreen() {
         orgDaCarga = route.organization_id;
         rotaDaCarga = route.id;
         const mapped = ((route.route_stops ?? []) as StopRow[]).map(rowToStop);
-        snapshot = { savedAt: new Date().toISOString(), publishedAt: route.published_at, stops: mapped };
-        await saveRouteSnapshot(snapshot);
+        snapshot = { savedAt: new Date().toISOString(), publishedAt: route.published_at, stops: mapped, routes: rotas, routeDate: todayLocalISO() };
         setRouteId(route.id);
         setRouteVersion(route.lock_version);
         setOrganizationId(route.organization_id);
@@ -496,10 +513,13 @@ export default function DriverTodayScreen() {
             endLocationId: route.end_location_id ?? null,
           }),
         );
+        snapshot.locations = locaisDaOrg;
+        await saveRouteSnapshot(snapshot);
         setOffline(false);
       } else {
         // Route finished/not published: drop the cached copy (sensitive instructions must not linger).
         await clearRouteSnapshot();
+        snapshot = null;
         orgDaCarga = orgDoVinculo;
         rotaDaCarga = null;
         setRouteId(null);
@@ -531,6 +551,21 @@ export default function DriverTodayScreen() {
       setOffline(true);
       semRede = true;
       snapshot = await loadRouteSnapshot();
+      if (snapshot?.routes && snapshot.routeDate !== todayLocalISO()) snapshot = null;
+      if (snapshot?.routes) {
+        const route = await selecionarPerna(snapshot.routes);
+        snapshot = route ? { ...snapshot, publishedAt: route.published_at, stops: (route.route_stops ?? []).map(rowToStop) } : null;
+        orgDaCarga = route?.organization_id ?? null;
+        rotaDaCarga = route?.id ?? null;
+        const locais = snapshot?.locations ?? [];
+        setVanLocation(vanLocationForRoute(locais, route?.start_location_id));
+        setVanDeFechamento(vanLocationForRoute(locais, route?.end_location_id));
+        setYardLocation(locais.find(local => local.id === route?.end_location_id) ?? locais.find(local => local.kind === 'yard') ?? null);
+        setRouteId(route?.id ?? null);
+        setRouteVersion(route?.lock_version ?? null);
+        setOrganizationId(route?.organization_id ?? null);
+        setDriverId(usuarioId);
+      }
     }
 
     /**
@@ -1151,7 +1186,9 @@ export default function DriverTodayScreen() {
   /** A lista na ORDEM DA PERNA (busca × entrega): é a que o motorista vê e a que alimenta o cartão
    *  "próxima parada" — sem isto o cartão de cima discordaria da lista depois da virada. */
   const stopsDaFase = useMemo(() => ordenarPelaFase(stopsComEta, fase), [stopsComEta, fase]);
-  const proximaParada = useMemo(() => nextStopFor(stopsDaFase), [stopsDaFase]);
+  const proximaParada = useMemo(() => fase === 'dropoff'
+    ? stopsDaFase.find((stop) => !paradaDaFaseConcluida(stop, fase)) ?? null
+    : nextStopFor(stopsDaFase), [stopsDaFase, fase]);
 
   /**
    * ONDE A ROTA FECHA (pedido do cliente, 02/10/2026): depois da última BUSCA o dia vai para o YARD;
@@ -1161,11 +1198,11 @@ export default function DriverTodayScreen() {
   const fechamento = useMemo(
     () => fechamentoDaRota({
       buscaTerminou: buscaTerminou(stops),
-      entregaTerminou: entregaTerminou(stops),
+      entregaTerminou: (fase === 'dropoff' || !dropoffStops) && entregaTerminou(stops),
       yard: yardLocation,
       van: vanDeFechamento ?? vanLocation,
     }),
-    [stops, yardLocation, vanLocation, vanDeFechamento],
+    [stops, fase, dropoffStops, yardLocation, vanLocation, vanDeFechamento],
   );
 
   /**
@@ -1332,7 +1369,7 @@ export default function DriverTodayScreen() {
                   <View style={styles.nextStop}>
                     <NextStopCard
                       stop={proximaParada}
-                      nextAction={proximaParada ? nextActionForStatus(proximaParada.status, proximaParada.deliveredAt) : null}
+                      nextAction={proximaParada ? fase === 'dropoff' ? 'deliver' : nextActionForStatus(proximaParada.status, proximaParada.deliveredAt) : null}
                       onNavigate={(stop) => void act(stop.id, 'navigate')}
                       onAction={(stopId, action) => void act(stopId, action)}
                       // O aviso ao tutor também no cartão grande (o dono procurou aqui, 01/10/2026).
@@ -1346,11 +1383,17 @@ export default function DriverTodayScreen() {
                     closing={fechamento}
                     onNavigateClosing={() => void navegarParaFechamento()}
                     fase={fase}
+                    canStartDropoffs={dropoffStops ? buscaTerminou(stops) && !entregaTerminou(dropoffStops) : undefined}
                     onStartDropoffs={() => {
                       // Vira a perna e GRAVA no aparelho: o dia não volta a "busca" sozinho.
-                      if (!routeId) return;
-                      setFase('dropoff');
-                      void gravarFase(routeId, driverId, 'dropoff');
+                      void (async () => {
+                        await cargaEmAndamento.current;
+                        const dia = faseDoDia.current;
+                        if (!dia || !routeId || dia.userId !== driverId) return;
+                        dia.fase = 'dropoff';
+                        await gravarFase(dia.key, dia.userId, 'dropoff');
+                        await load();
+                      })();
                     }}
                   />
                 </>

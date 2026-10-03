@@ -62,6 +62,7 @@ export type DriverStopRow = {
 };
 
 export type DriverRouteRow = {
+  phase?: 'pickup' | 'dropoff';
   id: string;
   organization_id: string;
   lock_version: number;
