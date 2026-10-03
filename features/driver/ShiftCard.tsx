@@ -39,13 +39,21 @@ type Props = {
   onStartPickups?: () => void;
   /** A tela mantém a condição existente de buscas concluídas e entregas pendentes. */
   onStartDropoffs?: () => void;
+  /**
+   * Rótulo VISÍVEL da virada, decidido pela TELA. No passo do YARD (`to_yard`) a tela passa
+   * `I'm at the yard — start drop-offs` para deixar a ORDEM clara (sequência do dono, 03/10/2026:
+   * *"depois de pegar todos os cachorros é pra ir pro yard, depois do yard começa o drop off"*).
+   * O `accessibilityLabel` continua `Start drop-offs` DE PROPÓSITO: é o nome estável para leitores de
+   * tela e para os testes que casam por role/name.
+   */
+  dropoffsLabel?: string;
   onClockIn: (reason: string) => void;
   onClockOut: (reason: string) => void;
   /** Registro de exceção pedido pelo motorista depois da recusa (grava a distância no motivo). */
   onClockInAnyway?: (reason: string) => void;
 };
 
-export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHint = null, foraDaVan = null, navigation, onStartPickups, onStartDropoffs, onClockIn, onClockOut, onClockInAnyway }: Props) {
+export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHint = null, foraDaVan = null, navigation, onStartPickups, onStartDropoffs, dropoffsLabel, onClockIn, onClockOut, onClockInAnyway }: Props) {
   const [pedindo, setPedindo] = useState<'in' | 'out' | 'in-fora' | null>(null);
   const [motivo, setMotivo] = useState('');
 
@@ -129,7 +137,7 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHi
           style={styles.iniciarEntregas}
           testID="start-dropoffs"
         >
-          <Text style={styles.iniciarEntregasTexto}>Start drop-offs</Text>
+          <Text style={styles.iniciarEntregasTexto}>{dropoffsLabel ?? 'Start drop-offs'}</Text>
         </Pressable>
       ) : null}
 

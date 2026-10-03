@@ -8,7 +8,7 @@ import { notifyButtonState } from '@/features/driver/etaMessage';
 import { ETA_MAXIMO_PLAUSIVEL_MIN } from '@/features/driver/eta';
 import { clockText } from '@/features/driver/shift';
 import { marcosDaParada } from '@/features/dashboard/stopProgress';
-import { ordenarPelaFase, paradaDaFaseConcluida, paradaEntregavel, podeIniciarDropoff, type DayPhase } from '@/features/driver/dayPhase';
+import { ordenarPelaFase, paradaDaFaseConcluida, paradaEntregavel, podeIniciarDropoff, type DayPhase, type EtapaDoDia } from '@/features/driver/dayPhase';
 import { agruparEmTarefas, posicoesDasParadas } from '@/features/driver/tasks';
 import { RouteMap } from '@/features/maps/RouteMap';
 import { colors, radii } from '@/features/theme/tokens';
@@ -118,6 +118,12 @@ type Props = {
    * tem que fazer essa mudança automática"*. Ausente = `pickup` (o dia começa buscando).
    */
   fase?: DayPhase;
+  /**
+   * A ETAPA corrente do dia (`pickups` → `to_yard` → `dropoffs` → `to_van`), já decidida pela tela com
+   * `etapaDoDia` (regras puras). Quando é `'to_yard'`, o cartão do yard vira a ETAPA do momento e
+   * carrega a única ação dourada — a virada da perna, re-rotulada para deixar a ORDEM clara.
+   */
+  etapa?: EtapaDoDia;
   /** Permite decidir a virada com as paradas da perna independente de entrega. */
   canStartDropoffs?: boolean;
   /** Vira o dia para a perna de ENTREGA. Sem ele, o botão "Start drop-offs" não aparece. */
@@ -129,8 +135,16 @@ function addressLine(stop: DriverStop): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavigateStart, closing, onNavigateClosing, fase: faseProp, onStartDropoffs, canStartDropoffs }: Props) {
+export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavigateStart, closing, onNavigateClosing, fase: faseProp, etapa: etapaProp, onStartDropoffs, canStartDropoffs }: Props) {
   const fase: DayPhase = faseProp ?? 'pickup';
+  /**
+   * A VIRADA da perna só existe quando a BUSCA acabou e ainda há ENTREGA (mesma condição de antes).
+   * A ETAPA (regras puras) decide COMO ela aparece: fora do yard continua o botão avulso; na etapa
+   * `'to_yard'`, ela vive DENTRO do cartão do yard — que passa a ser a etapa do momento.
+   */
+  const viradaDisponivel = Boolean(onStartDropoffs) && fase === 'pickup' && (canStartDropoffs ?? podeIniciarDropoff(stops));
+  const etapa: EtapaDoDia = etapaProp ?? (fase === 'dropoff' ? 'dropoffs' : viradaDisponivel ? 'to_yard' : 'pickups');
+  const viradaNoCartaoDoYard = viradaDisponivel && etapa === 'to_yard' && closing?.kind === 'yard';
   const fire = (stop: DriverStop, action: DriverAction) => onAction(stop.id, action);
   /**
    * A ORDEM segue a PERNA declarada (`fase`), não o estado das paradas. Antes esta linha usava
@@ -359,10 +373,15 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
       })}
 
       {/*
-        * VIRADA DE FASE — decisão do dono (02/10/2026): *"deve ser um botão do motorista"*. Só aparece
+        * VIRADA DE PERNA — decisão do dono (02/10/2026): *"deve ser um botão do motorista"*. Só aparece
         * quando a BUSCA acabou e ainda há ENTREGA: nada muda sozinho.
+        *
+        * SEQUÊNCIA DO DIA (dono, 03/10/2026, verbatim): *"depois de pegar todos os cachorros é pra ir pro
+        * yard, depois do yard começa o drop off"*. Na etapa `'to_yard'` a virada NÃO fica avulsa: ela vive
+        * DENTRO do cartão do yard (abaixo), que vira a etapa do momento. Aqui fica só o caso SEM cartão de
+        * yard — e o único caso em que o rótulo segue "Start drop-offs".
         */}
-      {fase === 'pickup' && onStartDropoffs && (canStartDropoffs ?? podeIniciarDropoff(stops)) ? (
+      {viradaDisponivel && !viradaNoCartaoDoYard ? (
         <View style={styles.actions}>
           <Pressable
             accessibilityRole="button"
@@ -371,7 +390,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
             style={[styles.action, styles.actionGold]}
             testID="start-dropoffs"
           >
-            <Text style={styles.actionGoldText}>Start drop-offs</Text>
+            <Text style={styles.actionGoldText}>{etapa === 'to_yard' ? "I'm at the yard — start drop-offs" : 'Start drop-offs'}</Text>
           </Pressable>
         </View>
       ) : null}
@@ -382,7 +401,12 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
         */}
       {closing ? (
         <View style={styles.closing} testID="route-closing">
-          <Text style={styles.closingTag}>{closing.kind === 'yard' ? 'YARD' : 'VAN'}</Text>
+          {/*
+            * ETAPA DO MOMENTO (dono, 03/10/2026): depois da última BUSCA o dia VAI AO YARD antes de
+            * qualquer entrega — por isso, na etapa `'to_yard'`, este cartão deixa de ser só um "fim de
+            * perna" e vira o PASSO atual (`· NEXT STEP`), com a virada da perna como única ação dourada.
+            */}
+          <Text style={styles.closingTag}>{closing.kind === 'yard' ? 'YARD' : 'VAN'}{etapa === 'to_yard' ? ' · NEXT STEP' : ''}</Text>
           <Text style={styles.closingTitle}>{closing.title}</Text>
           <Text style={styles.closingSub}>{closing.subtitle}</Text>
           {closing.address ? <Text style={styles.closingAddress}>{closing.address}</Text> : null}
@@ -397,6 +421,24 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
                 testID="navigate-closing"
               >
                 <Text style={styles.actionDarkText}>Navigate</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {/*
+            * A ÚNICA ação dourada da etapa de yard é a virada da perna, RE-ROTULADA para deixar a ordem
+            * clara ("I'm at the yard — start drop-offs"). O testID antigo (`start-dropoffs`) é mantido de
+            * propósito — não quebra os testes existentes.
+            */}
+          {viradaNoCartaoDoYard ? (
+            <View style={styles.actions}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Start drop-offs"
+                onPress={onStartDropoffs}
+                style={[styles.action, styles.actionGold]}
+                testID="start-dropoffs"
+              >
+                <Text style={styles.actionGoldText}>{"I'm at the yard — start drop-offs"}</Text>
               </Pressable>
             </View>
           ) : null}

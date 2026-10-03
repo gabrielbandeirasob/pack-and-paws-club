@@ -25,6 +25,56 @@ import { buscaTerminou, entregaTerminou } from '@/features/driver/routeClosing';
 export type DayPhase = 'pickup' | 'dropoff';
 
 /**
+ * A ETAPA corrente do dia, na ordem do dono (03/10/2026, verbatim): *"driver vai pra van, dá clock in,
+ * começa a etapa de pick up dos cachorros, depois de pegar todos os cachorros é pra ir pro yard, depois
+ * do yard começa o drop off, e após deixar todos os cachorros o driver volta pra onde pegou a van e dá
+ * clock off."* Ou seja: `pickups` → `to_yard` → `dropoffs` → `to_van`.
+ */
+export type EtapaDoDia = 'pickups' | 'to_yard' | 'dropoffs' | 'to_van';
+
+/**
+ * Qual fase o app deve REALMENTE usar, dada a fase GRAVADA no aparelho e a perna de BUSCA do dia.
+ *
+ * 🪤 BUG REAL (03/10/2026): a fase fica no aparelho por rota+usuário (`dayPhaseStore`) e era restaurada
+ * SEM conferir o dia. Com 'dropoff' guardado de um teste anterior, o motorista abriu o app JÁ na ENTREGA
+ * e os cães da BUSCA (todos `pending`) apareceram como entregáveis — ele marcou "Delivered" em 4 cães em
+ * 30 segundos e o banco ficou com `status='pending'` E `delivered_at` carimbado (estado incoerente).
+ *
+ * Regra: NUNCA se entrega antes de buscar. Se a fase guardada é 'dropoff' mas a perna de BUSCA ainda tem
+ * cão sem buscar (`buscaTerminou` falso), a fase efetiva volta para 'pickup'. A ÚNICA exceção é a perna
+ * de busca VAZIA (aí não há busca a fazer e a entrega pode ser a etapa certa — cão posto direto na
+ * entrega). 'pickup' nunca é promovido a 'dropoff' sozinho.
+ */
+export function faseEfetiva(
+  faseGuardada: DayPhase,
+  paradasDaBusca: { status: string }[],
+): DayPhase {
+  if (faseGuardada !== 'dropoff') return faseGuardada;
+  if (paradasDaBusca.length === 0) return 'dropoff';
+  return buscaTerminou(paradasDaBusca) ? 'dropoff' : 'pickup';
+}
+
+/**
+ * A ETAPA do dia, pura (testável sem tela). É o que a tela usa para apresentar o momento certo e para
+ * saber que, depois da última BUSCA, o dia VAI AO YARD antes de qualquer entrega:
+ *  - fase 'pickup' e ainda há cão para buscar → 'pickups';
+ *  - fase 'pickup' e as buscas terminaram → 'to_yard';
+ *  - fase 'dropoff' e ainda há cão para entregar → 'dropoffs';
+ *  - fase 'dropoff' e a entrega terminou → 'to_van' (volta para onde pegou a van; aí é o clock off).
+ */
+export function etapaDoDia(params: {
+  fase: DayPhase;
+  paradasDaBusca: { status: string }[];
+  paradasDaEntrega: { status: string; deliveredAt?: string | null }[];
+}): EtapaDoDia {
+  const { fase, paradasDaBusca, paradasDaEntrega } = params;
+  if (fase === 'dropoff') {
+    return entregaTerminou(paradasDaEntrega) ? 'to_van' : 'dropoffs';
+  }
+  return buscaTerminou(paradasDaBusca) ? 'to_yard' : 'pickups';
+}
+
+/**
  * O botão "Start drop-offs" só aparece quando a BUSCA acabou e ainda há ENTREGA a fazer.
  * Enquanto houver cão para buscar (`pending`/`arrived`), a virada não é oferecida.
  */

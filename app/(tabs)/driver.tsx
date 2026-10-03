@@ -14,7 +14,7 @@ import { NextStopCard, nextActionForStatus, nextStopFor } from '@/features/drive
 import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
 import { mudarFila, chaveDoPendente, enqueuePending, flushPendingWrites, semPendentesSaidos, RefusedWriteError, abrirFilaDoUsuario, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
 import { carregarFase, gravarFase } from '@/features/driver/dayPhaseStore';
-import { ordenarPelaFase, paradaDaFaseConcluida, podeIniciarDropoff, type DayPhase } from '@/features/driver/dayPhase';
+import { ordenarPelaFase, paradaDaFaseConcluida, podeIniciarDropoff, faseEfetiva, etapaDoDia, type DayPhase, type EtapaDoDia } from '@/features/driver/dayPhase';
 import { planClockOut } from '@/features/driver/clockOutPlan';
 import { pickDriverDisplayName, resolveDriverOrganizationId } from '@/features/driver/driverOrganization';
 import { ShiftCard } from '@/features/driver/ShiftCard';
@@ -440,7 +440,18 @@ export default function DriverTodayScreen() {
       const key = pickup?.id ?? `day:${todayLocalISO()}`;
       if (!usuarioId) return undefined;
       if (faseDoDia.current?.key !== key || faseDoDia.current?.userId !== usuarioId) {
-        faseDoDia.current = { key, userId: usuarioId, fase: await carregarFase(key, usuarioId) };
+        const guardada = await carregarFase(key, usuarioId);
+        /*
+         * 🪤 BUG REAL (03/10/2026): a fase guardada era confiada CEGAMENTE e o app ABRIA na ENTREGA com
+         * os cães da BUSCA ainda `pending` na lista — o motorista marcou "Delivered" na perna errada e o
+         * banco ficou com `status='pending'` E `delivered_at` carimbado. A fase do APARELHO não decide
+         * sozinha: `faseEfetiva` a derruba de 'dropoff' para 'pickup' enquanto a perna de BUSCA tiver cão
+         * sem buscar (nunca se entrega antes de buscar). Se a gravação estava errada, o próprio aparelho
+         * é corrigido — assim o dia não volta a abrir errado na próxima carga.
+         */
+        const atual = faseEfetiva(guardada, pickup?.route_stops ?? []);
+        if (atual !== guardada) await gravarFase(key, usuarioId, atual);
+        faseDoDia.current = { key, userId: usuarioId, fase: atual };
       }
       const atual = faseDoDia.current.fase;
       setFase(atual);
@@ -1205,6 +1216,45 @@ export default function DriverTodayScreen() {
     [stops, fase, dropoffStops, yardLocation, vanLocation, vanDeFechamento],
   );
 
+  /**
+   * A ETAPA do dia (dono, 03/10/2026): `pickups` → `to_yard` → `dropoffs` → `to_van`. É o que a tela usa
+   * para, depois da ÚLTIMA BUSCA, apresentar o YARD como o passo atual (navegável) antes de liberar o
+   * DROP-OFF — e, no fim, a volta à VAN (clock off). As paradas da BUSCA e da ENTREGA vêm das duas pernas
+   * quando existem (migração 053); no dia de rota única (`dropoffStops` null) as mesmas servem às duas. A
+   * `fase` já chega corrigida por `faseEfetiva` na carga.
+   */
+  const etapaAtual = useMemo<EtapaDoDia>(
+    () => etapaDoDia({
+      fase,
+      paradasDaBusca: fase === 'pickup' ? stops : [],
+      paradasDaEntrega: dropoffStops ?? stops,
+    }),
+    [fase, stops, dropoffStops],
+  );
+
+  /**
+   * A VIRADA DE PERNA (busca → entrega) é um ATO DO MOTORISTA (dono, 02/10/2026) e, desde 03/10/2026, ela
+   * vive DENTRO do cartão do YARD — que é a ETAPA do momento depois da última busca. O dono, verbatim:
+   * *"depois de pegar todos os cachorros é pra ir pro yard, depois do yard começa o drop off"*.
+   *
+   * O botão dourado da JORNADA saiu de lá de propósito: a virada é UMA só, e o rótulo dela diz a ORDEM
+   * (`I'm at the yard — start drop-offs`). Sem yard cadastrado o dia fecha na VAN e a virada continua
+   * sendo o botão avulso, com o rótulo de sempre — a mesma regra de `fechamentoDaRota`.
+   */
+  const podeIniciarEntregas = stops.length > 0 && fase === 'pickup'
+    && (dropoffStops ? buscaTerminou(stops) && !entregaTerminou(dropoffStops) : podeIniciarDropoff(stopsDaFase));
+  const iniciarEntregas = () => {
+    // Vira a perna e GRAVA no aparelho: o dia não volta a "busca" sozinho.
+    void (async () => {
+      await cargaEmAndamento.current;
+      const dia = faseDoDia.current;
+      if (!dia || !routeId || dia.userId !== driverId) return;
+      dia.fase = 'dropoff';
+      await gravarFase(dia.key, dia.userId, 'dropoff');
+      await load();
+    })();
+  };
+
   const start = useMemo<DriverStartPoint | null>(() => {
     const location = fase === 'pickup' ? vanLocation : yardLocation;
     if (!location) return null;
@@ -1371,22 +1421,21 @@ export default function DriverTodayScreen() {
                     } : undefined}
                     /**
                      * START PICK-UPS: só depois do PONTO BATIDO (`journey.kind === 'open'`), na perna de
-                     * busca e enquanto ainda houver cão para buscar. Quando a busca termina quem manda é o
-                     * "Start drop-offs" — os dois nunca aparecem juntos (o motorista não fica com dois
-                     * botões dourados empilhados sem saber qual é o próximo passo).
+                     * busca e enquanto ainda houver cão para buscar. Quando a busca termina quem manda é a
+                     * VIRADA DA PERNA (logo abaixo) — os dois nunca aparecem juntos: o motorista não fica
+                     * com dois botões dourados empilhados sem saber qual é o próximo passo.
                      */
                     onStartPickups={journey.kind === 'open' && stops.length > 0 && fase === 'pickup' && !buscaTerminou(stops) ? focarBusca : undefined}
-                    onStartDropoffs={stops.length > 0 && fase === 'pickup' && (dropoffStops ? buscaTerminou(stops) && !entregaTerminou(dropoffStops) : podeIniciarDropoff(stopsDaFase)) ? () => {
-                      // Vira a perna e GRAVA no aparelho: o dia não volta a "busca" sozinho.
-                      void (async () => {
-                        await cargaEmAndamento.current;
-                        const dia = faseDoDia.current;
-                        if (!dia || !routeId || dia.userId !== driverId) return;
-                        dia.fase = 'dropoff';
-                        await gravarFase(dia.key, dia.userId, 'dropoff');
-                        await load();
-                      })();
-                    } : undefined}
+                    /*
+                     * A VIRADA DA PERNA (busca → entrega) é um ATO DO MOTORISTA (dono, 02/10/2026) e segue
+                     * NESTE cartão, ao lado do "Navigate to yard": depois da última busca o app pede o YARD
+                     * (navegável) e a ação só libera o drop-off com a ORDEM explícita no rótulo visível
+                     * (`I'm at the yard — start drop-offs`) — dono, verbatim (03/10/2026): *"depois de pegar
+                     * todos os cachorros é pra ir pro yard, depois do yard começa o drop off"*.
+                     * A condição das DUAS pernas (migração 053) sai de `podeIniciarEntregas`.
+                     */
+                    onStartDropoffs={podeIniciarEntregas ? iniciarEntregas : undefined}
+                    dropoffsLabel={fechamento?.kind === 'yard' ? "I'm at the yard — start drop-offs" : undefined}
                     onClockIn={(motivo) => void clockIn(motivo)}
                     onClockInAnyway={(motivo) => void clockIn(motivo, true)}
                     onClockOut={(motivo) => void clockOut(motivo)}
@@ -1446,6 +1495,7 @@ export default function DriverTodayScreen() {
                     start={start}
                     closing={fechamento}
                     fase={fase}
+                    etapa={etapaAtual}
                   />
                 </>
               )}
