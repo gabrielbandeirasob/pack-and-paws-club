@@ -4,7 +4,7 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, Text
 
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
 import { DogPicker } from '@/features/calendar/DogPicker';
-import type { BlocoSugerido, SugestaoDeRotas } from '@/features/dispatch/routeSuggestion';
+import type { BlocoSugerido, SugestaoDeRotas, SugestoesDoDia } from '@/features/dispatch/routeSuggestion';
 import type { DogRef } from '@/features/calendar/dayMath';
 import { frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
@@ -14,6 +14,9 @@ import { StopProofChips } from '@/features/dispatch/ProofViewer';
 import { showAlert } from '@/features/ui/alert';
 import { ordemDaBusca, ordemDaEntrega, pinDaParada, type Perna, type Travas } from '@/features/dispatch/orderPins';
 import { plural } from '@/lib/plural';
+
+export type DispatchSuggestionBlock = BlocoSugerido & { phase?: Perna };
+export type DispatchSuggestion = Omit<SugestaoDeRotas, 'blocos'> & { blocos: DispatchSuggestionBlock[]; pernas?: SugestoesDoDia };
 
 export type DispatchConstraint = {
   windowStart: string | null;
@@ -77,6 +80,7 @@ export type DispatchRouteStop = DispatchStopItem & {
   dropoffProofPath?: string | null;
 } & DispatchConstraint & Travas & { dropoffSequence?: number | null };
 export type DispatchRoute = {
+  phase?: Perna;
   routeId: string;
   driverId: string;
   status: 'draft' | 'published' | 'completed' | 'cancelled';
@@ -105,7 +109,7 @@ export type DispatchVan = {
 type ConstraintKind = 'none' | 'window' | 'exact';
 
 type SheetState =
-  | { mode: 'assign'; item: DispatchStopItem }
+  | { mode: 'assign'; item: DispatchStopItem; phase?: Perna }
   | { mode: 'edit'; route: DispatchRoute; stop: DispatchRouteStop }
   | null;
 
@@ -113,9 +117,10 @@ type Props = {
   date: string;
   drivers: DispatchDriver[];
   dayItems: DispatchStopItem[];
+  dropoffItems?: DispatchStopItem[];
   routes: DispatchRoute[];
   driverLocations?: Record<string, { latitude: number; longitude: number; updatedAt: string }>;
-  onAssign: (dogId: string, driverId: string, constraint: DispatchConstraint) => Promise<void>;
+  onAssign: (dogId: string, driverId: string, constraint: DispatchConstraint, phase?: Perna) => Promise<void>;
   onSaveStop: (routeId: string, dogId: string, constraint: DispatchConstraint) => Promise<void>;
   onRemoveStop: (routeId: string, dogId: string) => Promise<void>;
   onMoveStop: (routeId: string, dogId: string, direction: -1 | 1) => Promise<void>;
@@ -136,8 +141,8 @@ type Props = {
    * (`features/dispatch/routeSuggestion.ts` é puro); aqui só entra o botão, a folha da proposta e o
    * "Apply". Sem as props o quadro fica exatamente como era.
    */
-  onSuggestRoutes?: (driverIds?: string[]) => Promise<SugestaoDeRotas | null>;
-  onApplySuggestion?: (blocos: BlocoSugerido[]) => Promise<void>;
+  onSuggestRoutes?: (driverIds?: string[]) => Promise<DispatchSuggestion | null>;
+  onApplySuggestion?: (blocos: DispatchSuggestionBlock[]) => Promise<void>;
   /**
    * VAN POR MOTORISTA (pergunta do dono, 01/10/2026: *"vamos supor que tenhas várias vans, o erro não
    * vai se repetir?"*). As VANS escolhíveis são o que aparece aqui: o cartão mostra a van de cada rota e
@@ -167,14 +172,15 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, vanDoMotorista, onOpenStopList }: Props) {
+export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, vanDoMotorista, onOpenStopList }: Props) {
+  const [assignmentPhase, setAssignmentPhase] = useState<Perna>('pickup');
   const [travas, setTravas] = useState<Travas>({});
   const [sheet, setSheet] = useState<SheetState>(null);
   /**
    * SUGESTÃO DE ROTA: a proposta mostrada na folha e o estado do pedido. Ela NÃO escreve nada — quem
    * escreve é o "Apply", que a tela executa (as mesmas escritas da atribuição à mão).
    */
-  const [sugestao, setSugestao] = useState<SugestaoDeRotas | null>(null);
+  const [sugestao, setSugestao] = useState<DispatchSuggestion | null>(null);
   const [sugestaoBusy, setSugestaoBusy] = useState(false);
   const [sugestaoErro, setSugestaoErro] = useState<string | null>(null);
   const [sugestaoInvalida, setSugestaoInvalida] = useState(false);
@@ -273,9 +279,9 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
     }
   }, [sheet]);
 
-  const assignedDogIds = useMemo(() => new Set(routes.flatMap((route) => route.stops.map((stop) => stop.dogId))), [routes]);
+  const assignedDogIds = useMemo(() => new Set(routes.filter(r => (r.phase ?? 'pickup') === assignmentPhase).flatMap((route) => route.stops.map((stop) => stop.dogId))), [routes, assignmentPhase]);
   /** Fila principal: precisa de transporte e não está já na van. */
-  const paraTransporte = useMemo(() => dayItems.filter((item) => !item.inVan), [dayItems]);
+  const paraTransporte = useMemo(() => (assignmentPhase === 'pickup' ? dayItems : dropoffItems ?? []).filter((item) => !item.inVan && (assignmentPhase === 'pickup' || item.reservationKind !== 'boarding')), [dayItems, dropoffItems, assignmentPhase]);
   const unassigned = useMemo(() => paraTransporte.filter((item) => !assignedDogIds.has(item.dogId)), [paraTransporte, assignedDogIds]);
   /** Seção separada: já estão na van (sem pickup), mas o gestor pode incluir na rota à mão. */
   const naVan = useMemo(() => dayItems.filter((item) => item.inVan && !assignedDogIds.has(item.dogId)), [dayItems, assignedDogIds]);
@@ -289,7 +295,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
    * na lista"*).
    */
   const [mostrarNaVan, setMostrarNaVan] = useState(false);
-  const routesByDriver = useMemo(() => new Map(routes.map((route) => [route.driverId, route])), [routes]);
+  const routesByDriver = useMemo(() => new Map(routes.map((route) => [`${route.driverId}:${route.phase ?? 'pickup'}`, route])), [routes]);
 
   const constraintFromFields = (): DispatchConstraint => {
     if (kind === 'window') return { windowStart, windowEnd, exactTime: null, priority };
@@ -319,10 +325,10 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
     try {
       const constraint = constraintFromFields();
       if (sheet.mode === 'assign') {
-        await onAssign(sheet.item.dogId, driverId as string, constraint);
+        await onAssign(sheet.item.dogId, driverId as string, constraint, ...(sheet.phase ? [sheet.phase] as const : []));
       } else if (driverId !== sheet.route.driverId) {
         await onSavePins?.(sheet.route.routeId, sheet.stop.dogId, travas);
-        await onAssign(sheet.stop.dogId, driverId as string, constraint);
+        await onAssign(sheet.stop.dogId, driverId as string, constraint, ...(sheet.route.phase ? [sheet.route.phase] as const : []));
       } else {
         await onSavePins?.(sheet.route.routeId, sheet.stop.dogId, travas);
         await onSaveStop(sheet.route.routeId, sheet.stop.dogId, constraint);
@@ -371,17 +377,31 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
       </View>
       <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {drivers.map((driver) => (
-          <CartaoMotorista key={driver.id} driver={driver} route={routesByDriver.get(driver.id)}
+          <View key={driver.id}>
+          <Text style={styles.unassignedTitle}>Pick-ups</Text>
+          <CartaoMotorista driver={driver} route={routesByDriver.get(`${driver.id}:pickup`)}
             location={driverLocations[driver.id]} working={working} setSheet={setSheet}
             onMoveStop={onMoveStop} onMoveDropoff={onMoveDropoff} onOptimize={onOptimize} onPublish={onPublish}
-            onSuggest={onSuggestRoutes && onApplySuggestion && unassigned.length > 0 && driver.id ===
+            onSuggest={onSuggestRoutes && onApplySuggestion && (unassigned.length > 0 || (dropoffItems?.length ?? 0) > 0) && driver.id ===
               (drivers.find(d => routes.some(r => r.driverId === d.id && r.stops.length >= 2)) ?? drivers[0])?.id
               ? pedirSugestao : undefined}
-            suggestionBusy={sugestaoBusy}
+            suggestionBusy={sugestaoBusy} separateDropoff={routesByDriver.has(`${driver.id}:dropoff`)}
             vans={vans} onChooseVan={onChooseVan} vanDoMotorista={vanDoMotorista} onOpenStopList={onOpenStopList}
             onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
+          <Text style={styles.unassignedTitle}>Drop-offs · {driver.name}</Text>
+          {routesByDriver.has(`${driver.id}:dropoff`) ? <CartaoMotorista
+            driver={driver} route={routesByDriver.get(`${driver.id}:dropoff`)} working={working} setSheet={setSheet}
+            onMoveStop={onMoveStop} onMoveDropoff={onMoveDropoff} onOptimize={onOptimize} onPublish={onPublish}
+            onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute}
+            onOpenStopList={onOpenStopList} /> : <Text style={styles.noStops}>No drop-off route.</Text>}
+          </View>
         ))}
         <View style={styles.unassigned}>
+          {dropoffItems ? <View style={styles.pinRow}>{(['pickup', 'dropoff'] as const).map(phase =>
+            <Pressable key={phase} accessibilityRole="button" accessibilityLabel={`Assign ${phase === 'pickup' ? 'pick-ups' : 'drop-offs'}`}
+              accessibilityState={{ selected: assignmentPhase === phase }} onPress={() => setAssignmentPhase(phase)} style={styles.driverOption}>
+              <Text>{phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'}</Text>
+            </Pressable>)}</View> : null}
           <Text style={styles.unassignedTitle}>{unassigned.length} unassigned</Text>
           {sugestaoErro && !sugestao ? <Text style={styles.sugestaoErro}>{sugestaoErro}</Text> : null}
           {paraTransporte.length === 0 ? (
@@ -390,11 +410,11 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
             <Text style={styles.muted}>Every transport dog is assigned. 🎉</Text>
           ) : null}
           {unassigned.map((item) => (
-            <Pressable key={item.dogId} accessibilityRole="button" accessibilityLabel={`Assign ${item.clientName} · ${item.dogName}`} onPress={() => setSheet({ mode: 'assign', item })} style={styles.chip}>
+            <Pressable key={item.dogId} accessibilityRole="button" accessibilityLabel={`Assign ${item.clientName} · ${item.dogName}`} onPress={() => setSheet({ mode: 'assign', item, phase: assignmentPhase === 'dropoff' ? 'dropoff' : undefined })} style={styles.chip}>
               <Text style={styles.chipText}>{item.clientName} · {item.dogName}{item.extra ? ' · manual' : ''}</Text>
             </Pressable>
           ))}
-          {onAddExtraDog ? (
+          {onAddExtraDog && assignmentPhase === 'pickup' ? (
             <Pressable accessibilityRole="button" accessibilityLabel="Add any dog" onPress={() => setBuscaCao(true)} style={styles.chipAdd}>
               <Text style={styles.chipAddText}>＋ Add any dog (not in the calendar)</Text>
             </Pressable>
@@ -507,14 +527,21 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
             </View>
             <Text style={styles.muted}>
               Geographic estimate, not road mileage or traffic. Same-house dogs stay together.
-              New dogs are appended in this pick-up order; existing stops stay unchanged.
+              New dogs are appended in the suggested order for each phase; existing stops stay unchanged.
               Only draft routes without order locks or started stops can receive dogs.
               Published and closed routes stay unchanged. Nothing is published by Apply.
             </Text>
+            {sugestao?.pernas ? (['pickup', 'dropoff'] as const).map(phase => <View key={phase}>
+              <Text style={styles.sugestaoMotorista}>{phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'} · {sugestao.pernas![phase].blocos.reduce((total, b) => total + b.caes.length, 0)} dogs</Text>
+              {sugestao.pernas![phase].blocos.length === 0 ? <Text style={styles.muted}>No eligible dogs or drivers for this phase.</Text> : null}
+              {sugestao.pernas![phase].semLugar.length > 0 ? <Text style={styles.sugestaoAviso}>
+                Not assigned: {sugestao.pernas![phase].semLugar.map(d => `${d.clientName} · ${d.dogName}`).join(', ')}
+              </Text> : null}
+            </View>) : null}
             {sugestao?.blocos.map((bloco) => (
-              <View key={bloco.driverId} testID={`sugestao-${bloco.driverId}`} style={styles.sugestaoBloco}>
+              <View key={`${bloco.driverId}:${bloco.phase ?? 'pickup'}`} testID={`sugestao-${bloco.driverId}${bloco.phase === 'dropoff' ? '-dropoff' : ''}`} style={styles.sugestaoBloco}>
                 <Text style={styles.sugestaoMotorista}>
-                  {bloco.driverName} · {plural(bloco.caes.length, 'dog', 'dogs')}
+                  {bloco.phase ? `${bloco.phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'} · ` : ''}{bloco.driverName} · {plural(bloco.caes.length, 'dog', 'dogs')}
                   {bloco.km > 0 ? ` · ${Math.round(bloco.km / KM_PER_MILE)} mi` : ''}
                 </Text>
                 {bloco.caes.map((cao, indice) => (
@@ -524,7 +551,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
                 ))}
               </View>
             ))}
-            {sugestao && sugestao.semLugar.length > 0 ? (
+            {sugestao && !sugestao.pernas && sugestao.semLugar.length > 0 ? (
               <Text style={styles.sugestaoAviso}>
                 Check coordinates, eligible drivers or an already assigned house (kept out of the suggestion): {sugestao.semLugar.map((cao) => `${cao.clientName} · ${cao.dogName}`).join(', ')}
               </Text>
@@ -557,6 +584,8 @@ export const DispatchBoard = memo(function DispatchBoard({ date, drivers, dayIte
               </Pressable>
             </View>
 
+            {sheet?.mode === 'edit' && sheet.route.phase || sheet?.mode === 'assign' && sheet.phase ?
+              <Text style={styles.fieldLabel}>{(sheet.mode === 'edit' ? sheet.route.phase : sheet.phase) === 'dropoff' ? 'Drop-offs' : 'Pick-ups'}</Text> : null}
             {casaAviso ? <Text style={styles.houseHint}>{casaAviso}</Text> : null}
 
             <Text style={styles.fieldLabel}>Driver</Text>
@@ -666,6 +695,7 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
   setSheet: (sheet: SheetState) => void;
   onSuggest?: () => Promise<void>;
   suggestionBusy?: boolean;
+  separateDropoff?: boolean;
   vans?: DispatchVan[];
   onChooseVan?: Props['onChooseVan'];
   vanDoMotorista?: Props['vanDoMotorista'];
@@ -674,10 +704,11 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
 
 const CartaoMotorista = memo(function CartaoMotorista({
   driver, route, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
-  onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy,
+  onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy, separateDropoff,
   vans, onChooseVan, vanDoMotorista, onOpenStopList,
 }: PropsCartao) {
-  const [perna, setPerna] = useState<Perna>('pickup');
+  const [pernaLegada, setPerna] = useState<Perna>('pickup');
+  const perna = route?.phase === 'dropoff' ? 'dropoff' : separateDropoff ? 'pickup' : pernaLegada;
   const [salvandoVan, setSalvandoVan] = useState(false);
   const avisoRota = avisoDeRotaInvisivel(route?.status);
   const mover = perna === 'pickup' ? onMoveStop : onMoveDropoff;
@@ -724,14 +755,14 @@ const CartaoMotorista = memo(function CartaoMotorista({
       )
     : null;
   return (
-    <View key={driver.id} style={styles.driverCard}>
+    <View key={driver.id} testID={`dispatch-route-${driver.id}-${route?.phase ?? 'pickup'}`} style={styles.driverCard}>
       <View style={styles.driverHeader}>
         <View style={styles.driverIdentity}>
           <View style={styles.avatar}><Text style={styles.avatarText}>{driver.name[0]}</Text></View>
           {/* Precisa de flex:1 (e minWidth:0): sem isso, numa tela estreita os QUATRO botoes
               de acao consomem a linha e sobram ~48pt para o texto - o nome do motorista
               quebra LETRA POR LETRA (relato do dono no iPhone, 12/09/2026). */}
-          <View style={styles.driverText} testID="driver-info">
+          <View style={styles.driverText} testID={route?.phase === 'dropoff' ? 'driver-info-dropoff' : 'driver-info'}>
             <Text style={styles.driverName}>{driver.name}</Text>
             <Text style={styles.muted}>{stops.length} stop{stops.length === 1 ? '' : 's'}{rotuloDeStatus(route?.status)}</Text>
             {/* Rascunho NÃO chega ao celular do motorista: o aviso fica na linha do status, que é
@@ -823,8 +854,8 @@ const CartaoMotorista = memo(function CartaoMotorista({
               <Text style={styles.optimizeText}>{suggestionBusy ? 'Thinking…' : 'Suggest routes'}</Text>
             </Pressable> : null}
             {route && stops.length > 0 ? <>
-            <Pressable accessibilityRole="button" accessibilityLabel={`Publish ${driver.name} route`} disabled={working} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
-              <Text style={styles.publishText}>{route.status === 'published' ? 'Republish' : 'Publish'}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Publish ${driver.name} route`} disabled={working || route.phase === 'dropoff'} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
+              <Text style={styles.publishText}>{route.phase === 'dropoff' ? 'Draft only' : route.status === 'published' ? 'Republish' : 'Publish'}</Text>
             </Pressable>
             {route.status === 'published' ? (
               <>
@@ -843,7 +874,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
           </View>
         ) : null}
       </View>
-      {route ? <View style={styles.pinRow}>
+      {route && route.phase !== 'dropoff' && !separateDropoff ? <View style={styles.pinRow}>
         {(['pickup', 'dropoff'] as const).map((opcao) => <Pressable key={opcao} accessibilityRole="button"
           accessibilityLabel={`${opcao === 'pickup' ? 'Pick-up' : 'Drop-off'} ${driver.name} route`}
           accessibilityState={{ selected: perna === opcao }} onPress={() => setPerna(opcao)}
@@ -885,7 +916,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
           </View>
         </View>
       ))}
-      {stops.length === 0 ? <Text style={styles.noStops}>No stops assigned yet.</Text> : null}
+      {stops.length === 0 ? <Text style={styles.noStops}>{route ? 'No stops assigned yet.' : 'No pick-up route.'}</Text> : null}
     </View>
   );
 

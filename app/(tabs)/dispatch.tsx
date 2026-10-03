@@ -3,9 +3,9 @@ import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 
-import { buildDay, transportPool, vanPool, type DogRef, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
+import { buildDay, transportPool, transportPoolForPhase, vanPool, type DogRef, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
-import { DispatchBoard, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem, type DispatchVan } from '@/features/dispatch/DispatchBoard';
+import { DispatchBoard, type DispatchSuggestion, type DispatchSuggestionBlock, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem, type DispatchVan } from '@/features/dispatch/DispatchBoard';
 import { juntarIrmaosDeCasa, vaoJunto } from '@/features/dispatch/houseMates';
 import { avisoDeFalhaParcial, type FalhaParcial } from '@/features/dispatch/partialWrite';
 import { criarFilaDeEscrita, trocarNaOrdem } from '@/features/dispatch/reorderQueue';
@@ -20,7 +20,7 @@ import { showAlert } from '@/features/ui/alert';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 import { loadOrganizationLocations, origemDaEntregaDaRota, vanDaRota, vanLocationForRoute, yardDaOrganizacao } from '@/features/organization/locations';
-import { sugerirRotas, type BlocoSugerido, type SugestaoDeRotas } from '@/features/dispatch/routeSuggestion';
+import { sugerirRotas, type CaoParaSugerir } from '@/features/dispatch/routeSuggestion';
 
 type DriverRow = { user_id: string; role: 'manager' | 'driver'; profiles: { full_name: string | null } | null };
 type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; goes_to_daycare: boolean | null; dog: { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } } };
@@ -43,7 +43,7 @@ type StopRow = {
   dropoff_proof_path: string | null;
   dog: { id: string; name: string; client: { id?: string; name: string; latitude: number | null; longitude: number | null } };
 };
-type RouteRow = { id: string; driver_id: string; status: DispatchRoute['status']; lock_version: number | null; start_location_id?: string | null; route_stops: StopRow[] | null };
+type RouteRow = { phase?: Perna; id: string; driver_id: string; status: DispatchRoute['status']; lock_version: number | null; start_location_id?: string | null; route_stops: StopRow[] | null };
 type DogRow = { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } };
 
 /** Coordenada do endereço do cliente por cão — é o que a sugestão de rota usa (geografia). */
@@ -79,6 +79,10 @@ export default function DispatchScreen() {
    * do toque, sem depender do estado capturado no `useCallback`. Áudio do dono, 29/09/2026.
    */
   const itensDoDia = useRef<DispatchStopItem[]>([]);
+  // The migration is deployed separately. Missing phase keeps the legacy pickup path usable.
+  const fasesDisponiveis = useRef(false);
+  const itensDropoff = useRef<DispatchStopItem[]>([]);
+  const [dropoffItems, setDropoffItems] = useState<DispatchStopItem[]>([]);
   /** Cães do cadastro (para o gestor adicionar um que não está no calendário do dia). */
   const [caesCadastro, setCaesCadastro] = useState<DogRef[]>([]);
   /**
@@ -117,7 +121,7 @@ export default function DispatchScreen() {
   // escrever antes, o banco recusa a escrita velha com 'stale_route' em vez de sobrescrever.
   const versoes = useRef<Record<string, number>>({});
   const routesRef = useRef<DispatchRoute[]>([]);
-  const propostaRef = useRef<{ dia: string; org: string; assinatura: string; blocos: BlocoSugerido[] } | null>(null);
+  const propostaRef = useRef<{ dia: string; org: string; assinatura: string; blocos: DispatchSuggestionBlock[] } | null>(null);
   const aplicandoSugestao = useRef(false);
   const membrosDoDia = useRef<DriverRow[]>([]);
   const revisoes = useRef<Record<string, number>>({});
@@ -297,6 +301,9 @@ export default function DispatchScreen() {
     coordenadasPorCao.current = coordenadas;
 
     const day = buildDay(dia, reservations, recurring, exceptions);
+    const entregas = juntarIrmaosDeCasa(transportPoolForPhase(day, 'dropoff').map(item => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, clientId: item.clientId, reservationKind: item.kind })));
+    itensDropoff.current = entregas;
+    setDropoffItems(entregas);
     const fila = transportPool(day);
     const naVan = vanPool(day);
     const jaNoDia = new Set([...fila, ...naVan].map((item) => item.dogId));
@@ -321,8 +328,12 @@ export default function DispatchScreen() {
     const consulta = ++leituraRotas.current;
     const leitura = { ...revisoes.current };
     const pendentes = new Set(routesRef.current.filter((rota) => (fila.pendente(rota.routeId) || gravandoOrdens.current.has(rota.routeId))).map((rota) => rota.routeId));
-    const routeResult = await supabase.from('routes').select('id, driver_id, status, lock_version, start_location_id, route_stops(dog_id, pickup_pin, pickup_pin_position, dropoff_pin, dropoff_pin_position, dropoff_sequence, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, client:clients(id, name, latitude, longitude)))').eq('organization_id', orgId).eq('route_date', date);
+    const campos = 'id, driver_id, status, lock_version, start_location_id, route_stops(dog_id, pickup_pin, pickup_pin_position, dropoff_pin, dropoff_pin_position, dropoff_sequence, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, client:clients(id, name, latitude, longitude)))';
+    let routeResult: { data: unknown; error: { code: string; message: string } | null } = await supabase.from('routes').select(`phase, ${campos}`).eq('organization_id', orgId).eq('route_date', date);
+    const semFase = routeResult.error && ['42703', 'PGRST204'].includes(routeResult.error.code) && /phase/.test(routeResult.error.message);
+    if (semFase) routeResult = await supabase.from('routes').select(campos).eq('organization_id', orgId).eq('route_date', date);
     if (date !== contexto.current.date || consulta !== leituraRotas.current) return;
+    fasesDisponiveis.current = !semFase && !routeResult.error;
     if (routeResult.error) { falhou('rotas', routeResult.error.message); return; }
     falhou('rotas', null);
     const routeRows = (routeResult.data as unknown as RouteRow[]) ?? [];
@@ -332,6 +343,7 @@ export default function DispatchScreen() {
     });
     const novas: DispatchRoute[] = routeRows.map((row) => ({
       routeId: row.id,
+      phase: row.phase,
       driverId: row.driver_id,
       status: row.status,
       // A van escolhida para ESTA rota (é o que o cartão mostra marcado).
@@ -564,33 +576,42 @@ export default function DispatchScreen() {
    * então a rota sumia do celular dele no meio do dia, sem aviso nenhum. Mesma família do incidente de
    * 30/09/2026 (rota publicada que virava `completed` com paradas pendentes).
    *
-   * Dois aparelhos criando ao mesmo tempo: o banco tem UNIQUE (organização, dia, motorista) — se o insert
+   * Dois aparelhos criando ao mesmo tempo: o banco tem UNIQUE (organização, dia, motorista, fase) — se o insert
    * perder a corrida (23505), relê a rota que o outro aparelho criou.
    */
-  const routeIdForDriver = useCallback(async (driverId: string) => {
+  const routeIdForDriver = useCallback(async (driverId: string, phase: Perna = 'pickup') => {
+    if (phase === 'dropoff' && !fasesDisponiveis.current) throw new Error('Drop-off planning is not available yet.');
     if (!organizationId) throw new Error('Organization not found.');
-    const existente = routesRef.current.find((item) => item.driverId === driverId);
+    const existente = routesRef.current.find((item) => item.driverId === driverId && (item.phase ?? 'pickup') === phase);
     if (existente) return existente.routeId;
 
     const { data, error } = await supabase.from('routes').insert({
       organization_id: organizationId, route_date: date, driver_id: driverId, status: 'draft',
-      start_location_id: vanParaRota(driverId),
-      // O FIM da rota: o yard (onde o pick-up termina). Sem yard cadastrado, fica sem fim — a tela do
-      // motorista cai na van. Nunca sobrescreve rota existente (a função só cria).
-      end_location_id: yardId.current,
-    }).select('id').single();
+      ...(fasesDisponiveis.current ? { phase } : {}),
+      start_location_id: phase === 'pickup' ? vanParaRota(driverId) : yardId.current,
+      // Pick-ups close at the yard; drop-offs start there and close at the van.
+      end_location_id: phase === 'pickup' ? yardId.current : vanParaRota(driverId),
+    }).select('id, lock_version').single();
     if (error) {
       if ((error as { code?: string }).code === '23505') {
-        const { data: outra } = await supabase
-          .from('routes').select('id')
-          .eq('organization_id', organizationId).eq('route_date', date).eq('driver_id', driverId)
-          .single();
+        let consulta = supabase
+          .from('routes').select('id, lock_version, status')
+          .eq('organization_id', organizationId).eq('route_date', date).eq('driver_id', driverId);
+        if (fasesDisponiveis.current) consulta = consulta.eq('phase', phase);
+        const { data: outra } = await consulta.single();
         const id = (outra as { id: string } | null)?.id;
-        if (id) return id;
+        if (id) {
+          if (aplicandoSugestao.current) throw new Error('The routes changed. Create a new suggestion.');
+          const lockVersion = (outra as { lock_version?: number | null }).lock_version;
+          if (lockVersion != null) versoes.current[id] = lockVersion;
+          return id;
+        }
       }
       throw new Error(error.message);
     }
-    return (data as { id: string }).id;
+    const criada = data as { id: string; lock_version?: number };
+    if (criada.lock_version != null) versoes.current[criada.id] = criada.lock_version;
+    return criada.id;
   }, [organizationId, date, vanParaRota]);
 
   /**
@@ -603,7 +624,7 @@ export default function DispatchScreen() {
   const escolherVan = useCallback(
     async (driverId: string, locationId: string) => {
       vanPorMotorista.current.set(driverId, locationId);
-      const rota = routesRef.current.find((item) => item.driverId === driverId);
+      const rota = routesRef.current.find((item) => item.driverId === driverId && (item.phase ?? 'pickup') === 'pickup');
       if (!rota) return;
       /**
        * 🪤 ACHADO DA VISTORIA (02/10/2026): aqui a van era gravada SEM trava de versão e sem conferir
@@ -644,10 +665,16 @@ export default function DispatchScreen() {
    * Quem já está em outro carro NÃO é roubado (decisão do gestor vale); a folha de atribuição mostra
    * quem vai junto antes de salvar.
    */
-  const assign = useCallback(async (dogId: string, driverId: string, constraint: DispatchConstraint) => {
-    const routeId = await routeIdForDriver(driverId);
-    const naRota = new Set(routesRef.current.flatMap((rota) => rota.stops.map((stop) => stop.dogId)));
-    const junto = [dogId, ...vaoJunto(itensDoDia.current, dogId, naRota).map((item) => item.dogId)];
+  const assign = useCallback(async (dogId: string, driverId: string, constraint: DispatchConstraint, phase: Perna = 'pickup') => {
+    if (phase === 'dropoff') {
+      const boarding = itensDoDia.current.some(item => item.dogId === dogId && (item.inVan || item.reservationKind === 'boarding'));
+      const eligible = itensDropoff.current.some(item => item.dogId === dogId)
+        || routesRef.current.some(r => r.phase === 'dropoff' && r.stops.some(s => s.dogId === dogId));
+      if (boarding || !eligible) throw new Error('This dog is not eligible for drop-offs.');
+    }
+    const routeId = await routeIdForDriver(driverId, phase);
+    const naRota = new Set(routesRef.current.filter(rota => (rota.phase ?? 'pickup') === phase).flatMap((rota) => rota.stops.map((stop) => stop.dogId)));
+    const junto = [dogId, ...vaoJunto(phase === 'pickup' ? itensDoDia.current : itensDropoff.current, dogId, naRota).map((item) => item.dogId)];
     /**
      * UM erro não cancela o lote (melhoria do dono, 01/10/2026): antes o `break` deixava os irmãos
      * seguintes sem nem serem tentados, e o gestor só via o primeiro motivo. Agora segue tentando os
@@ -694,82 +721,121 @@ export default function DispatchScreen() {
    * ponto de partida. NADA é gravado aqui — a folha mostra e o gestor confirma.
    */
   const assinaturaDaSugestao = useCallback(() => JSON.stringify({
-    itens: itensDoDia.current,
+    itens: itensDoDia.current, entregas: itensDropoff.current,
     coordenadas: [...coordenadasPorCao.current.entries()],
     membros: membrosDoDia.current,
     rotas: routesRef.current.map(r => ({ ...r, versao: versoes.current[r.routeId] })),
   }), []);
 
-  const sugerirRotasDoDia = useCallback(async (driverIds?: string[]): Promise<SugestaoDeRotas | null> => {
+  const sugerirRotasDoDia = useCallback(async (driverIds?: string[]): Promise<DispatchSuggestion | null> => {
     if (!organizationId || aplicandoSugestao.current) return null;
     const dia = contexto.current.date;
     propostaRef.current = null;
     if (!(await carregarDia()) || !(await carregarRotas())) throw new Error('Could not refresh the day. Try again.');
     const assinatura = assinaturaDaSugestao();
-    const atribuidos = new Set(routesRef.current.flatMap((rota) => rota.stops.map((stop) => stop.dogId)));
-    const caes = itensDoDia.current
-      .filter((item) => !item.inVan && !atribuidos.has(item.dogId))
-      .map((item) => {
-        const ponto = coordenadasPorCao.current.get(item.dogId);
-        return {
-          dogId: item.dogId,
-          clientId: item.clientId,
-          clientName: item.clientName,
-          dogName: item.dogName,
-          latitude: ponto?.latitude ?? null,
-          longitude: ponto?.longitude ?? null,
-        };
-      });
-    // Só rascunhos sem travas: anexar após um "last" invalidaria a condição do gestor.
-    // Não se muda o status de rota publicada/fechada para acomodar uma sugestão.
-    const disponiveis = membrosDoDia.current.filter(driver => {
-      if (driverIds && !driverIds.includes(driver.user_id)) return false;
-      const rota = routesRef.current.find(r => r.driverId === driver.user_id);
-      return !rota || (rota.status === 'draft' && rota.stops.every(s =>
-        s.status === 'pending' && !s.pickupPin && !s.dropoffPin));
-    });
+    const propostas: DispatchSuggestion = { blocos: [], semLugar: [], kmTotal: 0 };
+    if (fasesDisponiveis.current) propostas.pernas = {
+      pickup: { phase: 'pickup', blocos: [], semLugar: [], kmTotal: 0 },
+      dropoff: { phase: 'dropoff', blocos: [], semLugar: [], kmTotal: 0 },
+    };
     const sedes = await loadOrganizationLocations(supabase, organizationId);
-    if (dia !== contexto.current.date || assinatura !== assinaturaDaSugestao()) return null;
-    /*
-     * De onde a sugestão parte: a van do motorista escolhido (ou a padrão) — e, com MAIS DE UMA van
-     * cadastrada e nenhuma escolha, a MAIS PRÓXIMA dos cães do dia (pergunta do dono, 01/10/2026:
-     * organização com várias vans não pode ter todas as rotas saindo sempre da mesma).
-     */
-    const van = vanDaRota(sedes, disponiveis[0] ? vanPorMotorista.current.get(disponiveis[0].user_id) ?? null : null, caes);
-    const inicio = van ? { latitude: van.latitude, longitude: van.longitude } : null;
-    const motoristas = disponiveis.map(driver => ({ driverId: driver.user_id, driverName: driver.profiles?.full_name?.trim() || 'Driver' }));
-    const motoristaDaCasa = new Map<string, Set<string>>();
-    for (const rota of routesRef.current) for (const stop of rota.stops) {
-      if (!stop.clientId) continue;
-      const ids = motoristaDaCasa.get(stop.clientId) ?? new Set<string>();
-      ids.add(rota.driverId);
-      motoristaDaCasa.set(stop.clientId, ids);
-    }
-    const livres = caes.filter(c => !c.clientId || !motoristaDaCasa.has(c.clientId));
-    const proposta = sugerirRotas(
-      livres, motoristas, inicio,
-    );
-    // Casa parcialmente atribuída não é repartida para preencher outro carro. Respeitamos também
-    // separações manuais já existentes: se há dois motoristas na casa, o restante fica para revisão.
-    const fixos = caes.filter(c => c.clientId && motoristaDaCasa.has(c.clientId));
-    for (const cao of fixos) {
-      const ids = motoristaDaCasa.get(cao.clientId!)!;
-      const motorista = motoristas.find(m => ids.size === 1 && ids.has(m.driverId));
-      if (!motorista) { proposta.semLugar.push(cao); continue; }
-      let bloco = proposta.blocos.find(b => b.driverId === motorista.driverId);
-      if (!bloco) { bloco = { ...motorista, caes: [], km: 0 }; proposta.blocos.push(bloco); }
-      bloco.caes.push(cao);
-    }
-    if (fixos.length) {
-      proposta.blocos = proposta.blocos.flatMap(bloco => {
-        const ordenada = sugerirRotas(bloco.caes, [bloco], inicio);
-        proposta.semLugar.push(...ordenada.semLugar);
-        return ordenada.blocos;
+    for (const phase of (fasesDisponiveis.current ? ['pickup', 'dropoff'] : ['pickup']) as Perna[]) {
+      const atribuidos = new Set(routesRef.current.filter(rota => (rota.phase ?? 'pickup') === phase).flatMap((rota) => rota.stops.map((stop) => stop.dogId)));
+      const caes = (phase === 'pickup' ? itensDoDia.current : itensDropoff.current)
+        .filter((item) => !item.inVan && !atribuidos.has(item.dogId))
+        .map((item) => {
+          const ponto = coordenadasPorCao.current.get(item.dogId);
+          return {
+            dogId: item.dogId,
+            clientId: item.clientId,
+            clientName: item.clientName,
+            dogName: item.dogName,
+            latitude: ponto?.latitude ?? null,
+            longitude: ponto?.longitude ?? null,
+          };
+        });
+      // Só rascunhos sem travas: anexar após um "last" invalidaria a condição do gestor.
+      // Não se muda o status de rota publicada/fechada para acomodar uma sugestão.
+      const disponiveis = membrosDoDia.current.filter(driver => {
+        if (driverIds && !driverIds.includes(driver.user_id)) return false;
+        const rota = routesRef.current.find(r => r.driverId === driver.user_id && (r.phase ?? 'pickup') === phase);
+        return !rota || (rota.status === 'draft' && rota.stops.every(s =>
+          s.status === 'pending' && !s.pickupPin && !s.dropoffPin));
       });
-      proposta.kmTotal = proposta.blocos.reduce((soma, bloco) => soma + bloco.km, 0);
+      if (dia !== contexto.current.date || assinatura !== assinaturaDaSugestao()) return null;
+      /*
+       * De onde a sugestão parte: a van do motorista escolhido (ou a padrão) — e, com MAIS DE UMA van
+       * cadastrada e nenhuma escolha, a MAIS PRÓXIMA dos cães do dia (pergunta do dono, 01/10/2026:
+       * organização com várias vans não pode ter todas as rotas saindo sempre da mesma).
+       */
+      const van = vanDaRota(sedes, disponiveis[0] ? vanPorMotorista.current.get(disponiveis[0].user_id) ?? null : null, caes);
+      const inicio = phase === 'dropoff' ? yardCoords.current : van ? { latitude: van.latitude, longitude: van.longitude } : null;
+      const motoristas = disponiveis.map(driver => ({ driverId: driver.user_id, driverName: driver.profiles?.full_name?.trim() || 'Driver' }));
+      const motoristaDaCasa = new Map<string, Set<string>>();
+      for (const rota of routesRef.current.filter(r => (r.phase ?? 'pickup') === phase)) for (const stop of rota.stops) {
+        if (!stop.clientId) continue;
+        const ids = motoristaDaCasa.get(stop.clientId) ?? new Set<string>();
+        ids.add(rota.driverId);
+        motoristaDaCasa.set(stop.clientId, ids);
+      }
+      const livres = caes.filter(c => !c.clientId || !motoristaDaCasa.has(c.clientId));
+      const proposta = sugerirRotas(
+        livres, motoristas, inicio,
+      );
+      // Casa parcialmente atribuída não é repartida para preencher outro carro. Respeitamos também
+      // separações manuais já existentes: se há dois motoristas na casa, o restante fica para revisão.
+      const fixos = caes.filter(c => c.clientId && motoristaDaCasa.has(c.clientId));
+      for (const cao of fixos) {
+        const ids = motoristaDaCasa.get(cao.clientId!)!;
+        const motorista = motoristas.find(m => ids.size === 1 && ids.has(m.driverId));
+        if (!motorista) { proposta.semLugar.push(cao); continue; }
+        let bloco = proposta.blocos.find(b => b.driverId === motorista.driverId);
+        if (!bloco) { bloco = { ...motorista, caes: [], km: 0 }; proposta.blocos.push(bloco); }
+        bloco.caes.push(cao);
+      }
+      // Existing assignments and fixed housemates count toward the same dog workload.
+      // Keep the geographic/count-balanced proposal for a fresh phase; only distribute the
+      // remaining houses against current loads when some dogs already have a driver.
+      const rotasDaFase = routesRef.current.filter(r => (r.phase ?? 'pickup') === phase);
+      if (rotasDaFase.some(r => r.stops.length > 0)) {
+        const blocos = motoristas.map(m => ({ ...m, caes: [] as CaoParaSugerir[], km: 0 }));
+        const cargas = new Map(motoristas.map(m => [m.driverId,
+          rotasDaFase.find(r => r.driverId === m.driverId)?.stops.length ?? 0]));
+        const casas = new Map<string, { caes: CaoParaSugerir[]; preferido: string }>();
+        for (const bloco of proposta.blocos) for (const cao of bloco.caes) {
+          if (cao.clientId && motoristaDaCasa.has(cao.clientId)) {
+            blocos.find(b => b.driverId === bloco.driverId)!.caes.push(cao);
+            cargas.set(bloco.driverId, cargas.get(bloco.driverId)! + 1);
+          } else {
+            const key = cao.clientId ? `house:${cao.clientId}` : `dog:${cao.dogId}`;
+            const casa = casas.get(key) ?? { caes: [], preferido: bloco.driverId };
+            casa.caes.push(cao);
+            casas.set(key, casa);
+          }
+        }
+        for (const casa of [...casas.values()].sort((a, b) => b.caes.length - a.caes.length)) {
+          const destino = [...blocos].sort((a, b) => cargas.get(a.driverId)! - cargas.get(b.driverId)!
+            || Number(b.driverId === casa.preferido) - Number(a.driverId === casa.preferido))[0];
+          destino.caes.push(...casa.caes);
+          cargas.set(destino.driverId, cargas.get(destino.driverId)! + casa.caes.length);
+        }
+        proposta.blocos = blocos.filter(b => b.caes.length > 0);
+      }
+      if (fixos.length || rotasDaFase.some(r => r.stops.length > 0)) {
+        proposta.blocos = proposta.blocos.flatMap(bloco => {
+          const ordenada = sugerirRotas(bloco.caes, [bloco], inicio);
+          proposta.semLugar.push(...ordenada.semLugar);
+          return ordenada.blocos;
+        });
+        proposta.kmTotal = proposta.blocos.reduce((soma, bloco) => soma + bloco.km, 0);
+      }
+      if (propostas.pernas) propostas.pernas[phase] = { ...proposta, phase };
+      propostas.blocos.push(...proposta.blocos.map(bloco => ({ ...bloco, phase })));
+      propostas.semLugar.push(...proposta.semLugar);
+      propostas.kmTotal += proposta.kmTotal;
     }
-    propostaRef.current = { dia, org: organizationId, assinatura, blocos: proposta.blocos };
-    return proposta;
+    propostaRef.current = { dia, org: organizationId, assinatura, blocos: propostas.blocos };
+    return propostas;
   }, [organizationId, carregarDia, carregarRotas, assinaturaDaSugestao]);
 
   /**
@@ -777,7 +843,7 @@ export default function DispatchScreen() {
    * INSERT de rota nova, nunca UPSERT status=draft sobre rota existente. Falha parcial não é rollback:
    * recarregamos o que foi salvo e exigimos nova proposta, evitando replay de um plano velho.
    */
-  const aplicarSugestao = useCallback(async (blocos: BlocoSugerido[]) => {
+  const aplicarSugestao = useCallback(async (blocos: DispatchSuggestionBlock[]) => {
     if (aplicandoSugestao.current) return;
     const proposta = propostaRef.current;
     propostaRef.current = null;
@@ -795,21 +861,13 @@ export default function DispatchScreen() {
       conferirDia();
       if (assinaturaDaSugestao() !== proposta!.assinatura || routesRef.current.some(r => fila.pendente(r.routeId)))
         throw new Error('The routes or dogs changed.');
-      const atribuidos = new Set(routesRef.current.flatMap(r => r.stops.map(s => s.dogId)));
+      if (blocos.some(b => b.phase === 'dropoff') && !fasesDisponiveis.current)
+        throw new Error('Drop-off planning is not available yet.');
       for (const bloco of blocos) {
         conferirDia();
-        let routeId = routesRef.current.find(r => r.driverId === bloco.driverId)?.routeId;
-        if (!routeId) {
-          const { data, error } = await supabase.from('routes').insert({
-            organization_id: proposta!.org, route_date: proposta!.dia, driver_id: bloco.driverId, status: 'draft',
-            // Mesma regra da atribuição à mão: a van escolhida pelo gestor (ou nada, para o app decidir
-            // pela mais próxima). Sem isto a rota da sugestão nascia sem van e caía na PADRÃO.
-            start_location_id: vanParaRota(bloco.driverId),
-          }).select('id, lock_version').single();
-          if (error) throw new Error(error.message);
-          routeId = (data as { id: string }).id;
-          versoes.current[routeId] = (data as { lock_version: number | null }).lock_version ?? 1;
-        }
+        const phase = bloco.phase ?? 'pickup';
+        const atribuidos = new Set(routesRef.current.filter(r => (r.phase ?? 'pickup') === phase).flatMap(r => r.stops.map(s => s.dogId)));
+        const routeId = await routeIdForDriver(bloco.driverId, phase);
         for (const cao of bloco.caes) {
           conferirDia();
           if (atribuidos.has(cao.dogId)) throw new Error('A dog is already assigned.');
@@ -837,7 +895,7 @@ export default function DispatchScreen() {
     } finally {
       try { await carregarRotas(); } finally { aplicandoSugestao.current = false; }
     }
-  }, [carregarDia, carregarRotas, assinaturaDaSugestao, fila, versaoDe, falhaDeEscrita, vanParaRota]);
+  }, [carregarDia, carregarRotas, assinaturaDaSugestao, fila, versaoDe, falhaDeEscrita, routeIdForDriver]);
 
   const saveStopConstraint = useCallback(async (routeId: string, dogId: string, constraint: DispatchConstraint) => {
     const parada = routesRef.current.find((rota) => rota.routeId === routeId)?.stops.find((stop) => stop.dogId === dogId);
@@ -944,6 +1002,10 @@ export default function DispatchScreen() {
   const moveDropoff = useCallback((routeId: string, dogId: string, direction: -1 | 1) => moverNaPerna(routeId, dogId, direction, 'dropoff'), [moverNaPerna]);
 
   const publish = useCallback(async (routeId: string) => {
+    if (routesRef.current.find(r => r.routeId === routeId)?.phase === 'dropoff') {
+      showAlert('Drop-offs are draft only', 'Publishing drop-offs will be available with the driver update.');
+      return;
+    }
     const { error } = await supabase.rpc('publish_route', { p_route_id: routeId, p_esperado: versaoDe(routeId) });
     falhaDeEscrita(error);
     await carregarRotas();
@@ -1005,6 +1067,7 @@ export default function DispatchScreen() {
     ordemBusca: { dogId: string }[],
     ordemEntrega: { dogId: string }[],
     traffic: TravelTimes | null,
+    phase?: Perna,
   ) => {
     if (!traffic) return;
     const segundos = (ids: string[], posicao: number): number | null => {
@@ -1031,7 +1094,7 @@ export default function DispatchScreen() {
     for (const [dogId, pernas] of porCao) {
       const { data, error } = await supabase
         .from('route_stops')
-        .update(pernas)
+        .update(phase === 'dropoff' ? { dropoff_travel_seconds: pernas.dropoff_travel_seconds } : pernas)
         .eq('route_id', routeId)
         .eq('dog_id', dogId)
         .select('id');
@@ -1049,7 +1112,7 @@ export default function DispatchScreen() {
     const route = routesRef.current.find((candidate) => candidate.routeId === routeId);
     if (!route) return;
     const versao = versaoDe(routeId);
-    const sorted = ordemDaBusca(route.stops);
+    const sorted = (route.phase === 'dropoff' ? ordemDaEntrega : ordemDaBusca)(route.stops);
     const finished = sorted.filter((stop) => stop.status === 'completed' || stop.status === 'skipped');
     const remaining = sorted.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped');
     // "Não há o que otimizar" AVISA (auditoria 02/10/2026): antes a tela voltava muda e o gestor
@@ -1100,6 +1163,7 @@ export default function DispatchScreen() {
       // até aqui a tela NÃO passava nada e o otimizador usava o padrão de 8 min. O número é o MESMO
       // da tolerância de atraso do motorista (GRACE_MINUTES) — decisão do dono, um valor só.
       { travel: traffic.travel, serviceMinutes: GRACE_MINUTES },
+      route.phase === 'dropoff' ? yardCoords.current : null,
     );
     if (!result.feasible) {
       showAlert('Cannot optimize this route', result.reason ?? 'The schedule is infeasible.');
@@ -1121,7 +1185,7 @@ export default function DispatchScreen() {
      * falhar com "Cannot optimize this route". O otimizador da tarde agora recebe só as ELEGÍVEIS
      * (não `completed`/`skipped`); as concluídas ficam fixas no início, como na busca.
      */
-    const entrega = optimizeRoute(ordemDaEntrega(remaining).map((stop) => ({
+    const entrega = route.phase === 'dropoff' ? result : optimizeRoute(ordemDaEntrega(remaining).map((stop) => ({
       ...stop, windowStart: null, windowEnd: null, exactTime: null,
     })), { travel: traffic.travel, serviceMinutes: GRACE_MINUTES }, origemDaEntrega);
     if (!entrega.feasible) {
@@ -1165,7 +1229,10 @@ export default function DispatchScreen() {
       comparar('Pick-up', remaining.map((stop) => stop.dogId), busca.ordem.map((stop) => stop.dogId)),
       comparar('Drop-off', ordemDaEntrega(sorted).map((stop) => stop.dogId), volta.ordem.map((stop) => stop.dogId)),
     ].filter((linha): linha is string => Boolean(linha));
-    const mensagem = `Pick-up:\n${linhas(busca.ordem)}\n\nDrop-off:\n${linhas(volta.ordem)}\n\n${[...ganhos, ...conflitos(busca, 'Pick-up'), ...conflitos(volta, 'Drop-off')].join('\n')}`;
+    const mensagemLegada = `Pick-up:\n${linhas(busca.ordem)}\n\nDrop-off:\n${linhas(volta.ordem)}\n\n${[...ganhos, ...conflitos(busca, 'Pick-up'), ...conflitos(volta, 'Drop-off')].join('\n')}`;
+    const mensagem = route.phase === 'dropoff'
+      ? `Drop-off:\n${linhas(volta.ordem)}\n\n${[...ganhos.filter(g => g.startsWith('Drop-off')), ...conflitos(volta, 'Drop-off')].join('\n')}`
+      : mensagemLegada;
     const origem = traffic.source === 'live' ? 'live traffic' : 'estimated times';
     showAlert(`Optimized route (${origem})`, mensagem, [
       { text: 'Cancel', style: 'cancel' },
@@ -1177,7 +1244,7 @@ export default function DispatchScreen() {
           // pernas da tarde logo depois do ok.
           const entregaIds = ordemDaEntrega(volta.ordem.map((stop, i) => ({ ...stop, dropoffSequence: i + 1 }))).map((stop) => stop.dogId);
           void Promise.resolve(supabase.rpc('apply_route_order', {
-            p_route_id: routeId, p_pickup_ids: busca.ordem.map((stop) => stop.dogId),
+            p_route_id: routeId, p_pickup_ids: route.phase === 'dropoff' ? null : busca.ordem.map((stop) => stop.dogId),
             p_dropoff_ids: entregaIds,
             p_esperado: versao,
           })).then(({ error }) => {
@@ -1190,7 +1257,7 @@ export default function DispatchScreen() {
                * motorista lê para seguir a ROTA — a matriz do Google já foi paga aqui, nenhuma
                * chamada nova. Best-effort: falhar aqui não desfaz a ordem.
                */
-              void gravarPernasDaRota(routeId, busca.ordem, volta.ordem, traffic.travel);
+              void gravarPernasDaRota(routeId, busca.ordem, volta.ordem, traffic.travel, route.phase);
             }
             if (error) showAlert(isStaleRouteError(error) ? STALE_ROUTE_TITLE : 'Unable to apply the route', routeErrorMessage(error));
           }).catch((erro: { message: string }) => {
@@ -1214,6 +1281,7 @@ export default function DispatchScreen() {
           date={summary.date}
           drivers={summary.drivers}
           dayItems={summary.dayItems}
+          dropoffItems={dropoffItems}
           routes={summary.routes}
           driverLocations={driverLocations}
           onAssign={assign}

@@ -11,6 +11,9 @@ const mockReservas = ['sam', 'ollie', 'sammy', 'hotel'].map((id, i) => ({
 }));
 // Coordenadas são do cliente, portanto iguais para irmãos.
 mockReservas[1].dog.client.latitude = mockReservas[0].dog.client.latitude;
+let mockPhases = false;
+let mockCollision = false;
+let mockReads: any[] = [];
 let mockRotas: any[] = [];
 let mockWrites: any[] = [];
 let mockFailDog: string | null = null;
@@ -43,13 +46,19 @@ jest.mock('@/lib/supabase', () => ({ supabase: {
       };
     }
     const result = async () => {
+      if (table === 'routes' && !operation && select === 'id, lock_version, status') {
+        mockReads.push({ ...filters });
+        return { data: mockRotas.find(r => r.driver_id === filters.driver_id && r.phase === filters.phase), error: null };
+      }
+      if (table === 'routes' && !operation && select.startsWith('phase,') && !mockPhases) return { data: null, error: { code: '42703', message: 'column routes.phase does not exist' } };
       if (table === 'organization_locations' && mockLocationGate) await mockLocationGate;
       if (operation) {
         mockWrites.push({ table, operation, payload });
         if (table === 'routes' && ['insert', 'upsert'].includes(operation)) {
-          let route = mockRotas.find(r => r.driver_id === payload.driver_id);
-          if (!route) { route = { id: 'rota', driver_id: payload.driver_id, status: mockStatus, lock_version: 1, route_stops: [] }; mockRotas.push(route); }
+          let route = mockRotas.find(r => r.driver_id === payload.driver_id && (r.phase ?? 'pickup') === (payload.phase ?? 'pickup'));
+          if (!route) { route = { id: mockPhases ? `${payload.driver_id}-${payload.phase}` : 'rota', phase: payload.phase, driver_id: payload.driver_id, status: mockStatus, lock_version: 1, route_stops: [] }; mockRotas.push(route); }
           else if (operation === 'upsert') route.status = payload.status;
+          if (mockCollision) { mockCollision = false; route.lock_version = 5; return { data: null, error: { code: '23505', message: 'duplicate route' } }; }
           return { data: { id: route.id, lock_version: route.lock_version }, error: null };
         }
       }
@@ -79,7 +88,7 @@ jest.mock('@/lib/supabase', () => ({ supabase: {
   }, removeChannel: jest.fn(),
 } }));
 
-beforeEach(() => { jest.clearAllMocks(); mockRotas = []; mockWrites = []; mockFailDog = null; mockLocationGate = null; mockStatus = 'draft'; mockDrivers = [{ user_id: 'rafa', role: 'driver', profiles: { full_name: 'Rafael' } }]; mockLocations = vanUnica; mockCanais = []; });
+beforeEach(() => { mockCollision = false; mockReads = []; mockPhases = false; jest.clearAllMocks(); mockRotas = []; mockWrites = []; mockFailDog = null; mockLocationGate = null; mockStatus = 'draft'; mockDrivers = [{ user_id: 'rafa', role: 'driver', profiles: { full_name: 'Rafael' } }]; mockLocations = vanUnica; mockCanais = []; });
 
 it('gestor escolhe só ele: prévia e aplicação ficam no manager, não em todos os membros', async () => {
   mockDrivers.push({ user_id: 'gestor', role: 'manager', profiles: { full_name: 'Gabriel' } });
@@ -269,4 +278,86 @@ it('van cadastrada em outro aparelho aparece na hora, sem recarregar a tela', as
 
   await waitFor(() => expect(screen.getByTestId('driver-van-rafa')).toBeTruthy());
   expect(screen.getByLabelText('Use Van 2 for Rafael')).toBeTruthy();
+});
+
+
+it('sugere e grava duas pernas independentes, sem boarding e sem publicar drop-offs', async () => {
+  mockPhases = true;
+  mockLocations = [...vanUnica, { id: 'yard', name: 'Yard', kind: 'yard', is_default: false, latitude: 37.36, longitude: -121.95 }];
+  const screen = await open();
+  expect(screen.getByTestId('sugestao-rafa')).toBeTruthy();
+  expect(screen.getByTestId('sugestao-rafa-dropoff')).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText('Apply suggestion'));
+  await waitFor(() => expect(screen.queryByText('Suggested routes')).toBeNull());
+  expect(mockRotas).toHaveLength(2);
+  for (const phase of ['pickup', 'dropoff']) {
+    const route = mockRotas.find(r => r.phase === phase);
+    expect(route.status).toBe('draft');
+    expect(route.route_stops.map((s: any) => s.dog_id).sort()).toEqual(['ollie', 'sam', 'sammy']);
+  }
+  const inserts = mockWrites.filter(w => w.operation === 'insert');
+  expect(inserts.map(w => [w.payload.phase, w.payload.start_location_id, w.payload.end_location_id])).toEqual([
+    ['pickup', 'van', 'yard'], ['dropoff', 'yard', 'van'],
+  ]);
+  expect(screen.getByText('Draft only')).toBeTruthy();
+  expect((supabase.rpc as jest.Mock).mock.calls.every(c => c[0] === 'assign_stop_to_route')).toBe(true);
+});
+
+it('pick-up publicado não impede proposta independente de drop-off', async () => {
+  mockPhases = true;
+  mockRotas = [{ id: 'pickup', phase: 'pickup', driver_id: 'rafa', status: 'published', lock_version: 7,
+    route_stops: [{ dog_id: 'sam', dog: mockReservas[0].dog, sequence: 1, status: 'pending', priority: 'normal' }] }];
+  const screen = await open();
+  expect(screen.queryByTestId('sugestao-rafa')).toBeNull();
+  expect(within(screen.getByTestId('sugestao-rafa-dropoff')).getByText(/Jose · sam$/)).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText('Apply suggestion'));
+  await waitFor(() => expect(screen.queryByText('Suggested routes')).toBeNull());
+  expect(mockRotas[0].status).toBe('published');
+  expect(mockRotas[0].route_stops).toHaveLength(1);
+  expect(mockRotas.find(r => r.phase === 'dropoff').route_stops).toHaveLength(3);
+});
+
+it('atribuição manual de drop-off usa sua rota e não a rota publicada de pick-up', async () => {
+  mockPhases = true;
+  mockRotas = [{ id: 'pickup', phase: 'pickup', driver_id: 'rafa', status: 'published', lock_version: 7,
+    route_stops: [{ dog_id: 'sam', dog: mockReservas[0].dog, sequence: 1, status: 'pending', priority: 'normal' }] }];
+  const screen = await render(<DispatchScreen />);
+  await waitFor(() => expect(screen.getByLabelText('Assign drop-offs')).toBeTruthy());
+  await fireEvent.press(screen.getByLabelText('Assign drop-offs'));
+  await fireEvent.press(screen.getByLabelText('Assign Jose · sam'));
+  await fireEvent.press(screen.getByLabelText('Driver Rafael'));
+  await fireEvent.press(screen.getByLabelText('Save stop'));
+  await waitFor(() => expect(mockRotas.find(r => r.phase === 'dropoff')?.route_stops).toHaveLength(2));
+  expect(mockRotas[0].route_stops).toHaveLength(1);
+  expect(mockRotas[0].lock_version).toBe(7);
+  expect((supabase.rpc as jest.Mock).mock.calls.map(c => c[1].p_route_id)).toEqual(['rafa-dropoff', 'rafa-dropoff']);
+});
+
+it('equilibra por cães também contando atribuições existentes na mesma fase', async () => {
+  mockPhases = true;
+  mockDrivers.push({ user_id: 'gestor', role: 'manager', profiles: { full_name: 'Gabriel' } });
+  mockRotas = [{ id: 'pickup', phase: 'pickup', driver_id: 'rafa', status: 'draft', lock_version: 7,
+    route_stops: ['a', 'b', 'c'].map((id, i) => ({ dog_id: id, dog: { id, name: id, client: { id, name: id, latitude: 37.4, longitude: -122.14 } }, sequence: i + 1, status: 'pending', priority: 'normal' })) }];
+  const screen = await open();
+  expect(screen.queryByTestId('sugestao-rafa')).toBeNull();
+  expect(within(screen.getByTestId('sugestao-gestor')).getByText(/Gabriel · 3 dogs/)).toBeTruthy();
+  expect(screen.getByTestId('sugestao-rafa-dropoff')).toBeTruthy();
+  expect(screen.getByTestId('sugestao-gestor-dropoff')).toBeTruthy();
+});
+
+
+it('23505 relê por motorista e fase, usando a versão da rota concorrente', async () => {
+  mockPhases = true;
+  mockCollision = true;
+  mockRotas = [{ id: 'pickup', phase: 'pickup', driver_id: 'rafa', status: 'published', lock_version: 7, route_stops: [] }];
+  const screen = await render(<DispatchScreen />);
+  await waitFor(() => expect(screen.getByLabelText('Assign drop-offs')).toBeTruthy());
+  await fireEvent.press(screen.getByLabelText('Assign drop-offs'));
+  await fireEvent.press(screen.getByLabelText('Assign Jose · sam'));
+  await fireEvent.press(screen.getByLabelText('Driver Rafael'));
+  await fireEvent.press(screen.getByLabelText('Save stop'));
+  await waitFor(() => expect(mockRotas.find(r => r.phase === 'dropoff')?.route_stops).toHaveLength(2));
+  expect(mockReads).toEqual([{ organization_id: 'clube', route_date: mockHoje, driver_id: 'rafa', phase: 'dropoff' }]);
+  expect((supabase.rpc as jest.Mock).mock.calls.map(c => c[1].p_esperado)).toEqual([5, 6]);
+  expect(mockRotas[0].lock_version).toBe(7);
 });

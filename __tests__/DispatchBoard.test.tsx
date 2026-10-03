@@ -300,3 +300,30 @@ it('mostra selos por perna e rótulos acessíveis dos controles novos', async ()
   }
   expect(screen.getByLabelText('Drop-off position')).toBeTruthy();
 });
+
+it('mantém filas independentes mesmo quando o cão já tem rota na outra fase', async () => {
+  const max = dayItems[2];
+  const pickup = { ...routes[0], phase: 'pickup' as const, stops: [routes[0].stops[1]] };
+  const onAssign = jest.fn().mockResolvedValue(undefined);
+  const screen = await render(<DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[max]}
+    dropoffItems={[max]} routes={[pickup]} {...noops} onAssign={onAssign} />);
+  expect(screen.queryByLabelText('Assign Sarah · Max')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('Assign drop-offs'));
+  await fireEvent.press(screen.getByLabelText('Assign Sarah · Max'));
+  await fireEvent.press(screen.getByLabelText('Driver Jordan'));
+  await fireEvent.press(screen.getByLabelText('Save stop'));
+  expect(onAssign).toHaveBeenCalledWith('dog-max', 'driver-jordan',
+    { windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' }, 'dropoff');
+});
+
+it('trocar o motorista de um drop-off preserva sua fase', async () => {
+  const dropoff = { ...routes[0], phase: 'dropoff' as const, stops: [routes[0].stops[1]] };
+  const onAssign = jest.fn().mockResolvedValue(undefined);
+  const screen = await render(<DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[]}
+    routes={[dropoff]} {...noops} onAssign={onAssign} />);
+  await fireEvent.press(screen.getByLabelText('Options for Max'));
+  await fireEvent.press(screen.getByLabelText('Driver Jordan'));
+  await fireEvent.press(screen.getByLabelText('Save stop'));
+  expect(onAssign).toHaveBeenCalledWith('dog-max', 'driver-jordan',
+    { windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' }, 'dropoff');
+});
