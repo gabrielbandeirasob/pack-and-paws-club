@@ -72,6 +72,41 @@ const noops = {
   onDateChange: jest.fn(),
 };
 
+describe('M4b — cor do topo do Dispatch (dono, 04/10/2026: "parte da data cor ficou esquisita")', () => {
+  /**
+   * O corpo deste quadro e VERDE ESCURO (`screen`), mas a faixa da data havia ficado BRANCA: um bloco
+   * claro flutuando no verde, com moldura — e o "PLANNING"/resumo em `muted` (#5F6D63) sobre o verde,
+   * que da 2,42:1 (o texto sumia). Aqui os dois ficam travados: fundo verde, texto CLARO e contraste
+   * minimo de 4,5:1 medido de verdade.
+   */
+  const luminancia = (hex: string): number => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const [r, g, b] = c.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const contraste = (a: string, b: string): number => {
+    const [la, lb] = [luminancia(a), luminancia(b)];
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  };
+
+  it('a faixa da data e verde (emendada com o quadro) e os textos do topo sao claros', async () => {
+    const screen = await render(<DispatchBoard date="2026-10-04" drivers={drivers} dayItems={[]} routes={[]} {...noops} />);
+    expect(screen.getByTestId('dispatch-header')).toHaveStyle({ backgroundColor: colors.forest700 });
+    const planejando = screen.getByText('PLANNING');
+    expect(planejando).toHaveStyle({ color: '#B9C7B6' });
+    // e o contraste tem de passar do minimo WCAG nos textos que ficam sobre o verde
+    expect(contraste('#B9C7B6', colors.forest700)).toBeGreaterThanOrEqual(4.5);
+    expect(contraste('#D7E1D4', colors.forest700)).toBeGreaterThanOrEqual(4.5);
+    expect(contraste(colors.cream, colors.forest700)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('as faixas que nao podem cortar na borda quebram em linhas (motorista e Van/Yard)', async () => {
+    const screen = await render(<DispatchBoard date="2026-10-04" drivers={[{ id: 'a', name: 'Rafael' }, { id: 'b', name: 'Gabriel' }]} dayItems={[]} routes={[]} {...noops} />);
+    // o seletor de motorista deixou de ser uma faixa que rola de lado (o chip ficava cortado na borda)
+    expect(screen.getByTestId('dispatch-linha-motoristas')).toHaveStyle({ flexWrap: 'wrap' });
+  });
+});
+
 describe('M4 — gold como TEXTO vira forest700 (contraste)', () => {
   it('ClientsList: "Edit ›" usa forest700', async () => {
     const tela = await render(

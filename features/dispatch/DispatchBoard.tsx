@@ -442,7 +442,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
 
   return (
     <View style={styles.screen}>
-      <View style={styles.header}>
+      <View style={styles.header} testID="dispatch-header">
         <View style={styles.dateRow}>
           <Pressable accessibilityRole="button" accessibilityLabel="Previous day" onPress={() => onDateChange(addDaysISO(date, -1))} style={styles.arrow}>
             <Text style={styles.arrowText}>‹</Text>
@@ -498,7 +498,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
         </View>
         {/* LINHA DE MOTORISTAS (Proposta B, 03/10/2026): escolhe quem está na tela — um por vez. */}
         {drivers.length > 0 ? (
-          <ScrollView horizontal style={styles.driverSelectorScroll} contentContainerStyle={styles.motoristaSeletor}>
+          <View style={styles.motoristaWrap} testID="dispatch-linha-motoristas">
             {drivers.map((driver) => {
               const ativo = motoristaVisivelObj?.id === driver.id;
               const quantos = paradasDaPerna(driver.id, assignmentPhase);
@@ -517,7 +517,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
                 </Pressable>
               );
             })}
-          </ScrollView>
+          </View>
         ) : null}
         {motoristaVisivelObj ? (
           <View>
@@ -576,7 +576,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
               onPress={() => setMostrarNaVan((v) => !v)}
               style={styles.naVanCabecalho}
             >
-              <Text style={styles.unassignedTitle}>
+              <Text style={styles.naVanTitulo}>
                 Boarding — already in the van ({naVan.length}) {mostrarNaVan ? '▾' : '▸'}
               </Text>
               <Text style={styles.naVanToque}>{mostrarNaVan ? 'Hide' : 'Show'}</Text>
@@ -961,7 +961,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
           </View>
         </View>
         {onChooseVan && (vansIniciais.length > 1 || yards.length > 0) ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.resourcesRow} style={styles.horizontalRow}>
+        <View style={styles.recursosWrap}>
         {vansIniciais.length > 1 ? (
           <View style={styles.vanLinha} testID={`driver-van-${driver.id}`}>
             <Text accessibilityLabel="Van · where the day starts" style={styles.vanRotulo}>Van</Text>
@@ -1010,7 +1010,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
             </View>
           </View>
         ) : null}
-        </ScrollView>
+        </View>
         ) : null}
         {onSuggest || (route && (stops.length > 0 || onOpenStopList)) ? (
           /* NADA ESCONDIDO: era ScrollView horizontal e o "Publish"/"✓ Done" ficavam fora da tela num
@@ -1135,7 +1135,7 @@ function TimeTargetButton({ label, accessibilityLabel, value, active, onPress, h
 const styles = StyleSheet.create({
   pinRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 4 },
   /** Rótulo do seletor de perna — separa "PLANNING" dos chips de motorista logo abaixo. */
-  faseRotulo: { color: colors.muted, fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 10, marginLeft: 14, marginBottom: 4 },
+  faseRotulo: { color: '#B9C7B6', fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 10, marginLeft: 14, marginBottom: 4 },
   /**
    * SELETOR DE PERNA: uma linha só, com moldura própria (não é o chip de motorista). O ativo é verde
    * CLARO com texto escuro — discreto no celular, e distinto dos chips de motorista (verde escuro).
@@ -1150,14 +1150,21 @@ const styles = StyleSheet.create({
   pinInput: { width: 30, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, color: colors.ink, padding: 3 },
   screen: { flex: 1, backgroundColor: colors.forest700 },
   scroll: { flex: 1, backgroundColor: colors.cream },
-  header: { backgroundColor: colors.paper, paddingHorizontal: 14, paddingTop: 4, paddingBottom: 4, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
+  /**
+   * COR DO TOPO (dono, 04/10/2026: "parte da data cor ficou esquisita"). O corpo da tela deste quadro e
+   * VERDE ESCURO (`screen`), e a faixa da data tinha ficado BRANCA: um bloco branco flutuando no verde,
+   * com moldura, e o "PLANNING" cinza-esverdeado sumindo sobre o verde (contraste ~2:1).
+   * Aqui o topo volta ao padrao das outras telas: faixa VERDE, texto claro — o quadro fica emendado com
+   * o verde e o corpo claro comeca no ScrollView.
+   */
+  header: { backgroundColor: colors.forest700, paddingHorizontal: 14, paddingTop: 6, paddingBottom: 2 },
   dateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
-  title: { flexShrink: 1, color: colors.forest900, fontFamily: 'serif', fontSize: 24, fontWeight: '800', textTransform: 'capitalize' },
+  title: { flexShrink: 1, color: colors.cream, fontFamily: 'serif', fontSize: 24, fontWeight: '800', textTransform: 'capitalize' },
   // M5 da auditoria (02/10/2026): os setas de dia tinham 42×38 pt — abaixo do mínimo de 44 pt.
   arrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  arrowText: { color: colors.forest700, fontSize: 30, fontWeight: '700', lineHeight: 32 },
-  summary: { color: colors.muted, fontSize: 12, lineHeight: 16, textAlign: 'center' },
-  content: { padding: 8, paddingBottom: 30 },
+  arrowText: { color: colors.cream, fontSize: 30, fontWeight: '700', lineHeight: 32 },
+  summary: { color: '#D7E1D4', fontSize: 12, lineHeight: 16, textAlign: 'center' },
+  content: { padding: 12, paddingBottom: 30 },
   /**
    * SELETOR DE MOTORISTA e TROCA DE PERNA (Proposta B, dono 03/10/2026): o quadro desenhava 2N cartões;
    * agora é uma linha de chips (um motorista por vez) + um cartão único com a troca Pick-up | Drop-off.
@@ -1239,7 +1246,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     minHeight: 44, // alvo de toque (vistoria 02/10/2026)
     gap: 8,
+    paddingHorizontal: 6,
   },
+  /**
+   * O titulo do "Boarding" tinha empurrado o "Show" para FORA da borda (dono, 04/10/2026: o print
+   * mostrava "Show" cortado). Com `flex: 1` o titulo encolhe/quebra e o "Show" fica sempre dentro.
+   */
+  naVanTitulo: { flex: 1, flexShrink: 1, color: colors.muted, textTransform: 'uppercase', fontWeight: '900', fontSize: 12 },
+  /** Chips de motorista: quebram em linhas (nada de chip cortado na borda direita). */
+  motoristaWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4, rowGap: 4, marginBottom: 4 },
+  /** Van + Yard: quebram em linhas — o endereco do Yard nao fica cortado na borda. */
+  recursosWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 6, paddingHorizontal: 2, marginBottom: 4 },
   // 🪤 M4 DA AUDITORIA (02/10/2026): o "Show/Hide" era `colors.gold` sobre o cartão claro (~2,3:1).
   // Cor de TEXTO vira `forest700`; o gold continua nas bordas/fundos.
   naVanToque: { color: colors.forest700, fontSize: 12, fontWeight: '700' },
