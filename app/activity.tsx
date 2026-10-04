@@ -11,8 +11,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
 
+import { BackHeader } from '@/features/ui/BackHeader';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 import { describeAuditEntry, tempoRelativo, type AuditEntry } from '@/features/audit/describe';
@@ -79,11 +79,11 @@ export default function ActivityScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.eyebrow}>PACK & PAWS CLUB</Text>
-        <Text style={styles.title}>Activity</Text>
-        <Text style={styles.subtitle}>Who did what — clients, dogs, bookings, routes, shifts and the team.</Text>
-      </View>
+      <BackHeader
+        eyebrow="PACK & PAWS CLUB"
+        title="Activity"
+        subtitle="Who did what — clients, dogs, bookings, routes, shifts and the team."
+      />
 
       <ScrollView style={styles.corpo} contentContainerStyle={styles.corpoConteudo}>
         {/* As abas ficam no corpo CLARO: na faixa do cabeçalho o destaque (verde sobre verde) ficava
@@ -122,9 +122,6 @@ export default function ActivityScreen() {
             <Text style={styles.quando}>{linha.quando}</Text>
           </View>
         )) : null}
-        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={12} style={styles.voltar}>
-          <Text style={styles.voltarTexto}>Back</Text>
-        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );

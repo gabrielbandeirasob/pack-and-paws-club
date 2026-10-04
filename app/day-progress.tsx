@@ -8,6 +8,7 @@ import { dayPrefix } from '@/features/dashboard/dayNavigation';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { landingRouteForRole } from '@/features/navigation/roleTabs';
 import { packProgress, performanceSummary, progressRows, type PackRoute } from '@/features/dashboard/packProgress';
+import { BackHeader } from '@/features/ui/BackHeader';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -140,20 +141,16 @@ export default function DayProgressScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.topo}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={12}>
-          <Text style={styles.voltar}>‹ Back</Text>
-        </Pressable>
-        {/* 🪤 ACHADO DA VISTORIA (02/10/2026): estava escrito "Today" FIXO. O gestor arrastava a Home
-            para amanhã, tocava em "Tomorrow's progress" e a tela abria com os dados certos dizendo
-            "Today's progress" / "Nothing scheduled for today". Agora o título segue o dia escolhido. */}
-        <Text style={styles.titulo}>{dayPrefix(dia)}&apos;s progress</Text>
-        <Text style={styles.resumo}>
-          {resumo.total === 0
-            ? `Nothing scheduled for ${dayPrefix(dia).toLowerCase()}`
-            : `${resumo.done} of ${resumo.total} dogs done · ${resumo.left} left`}
-        </Text>
-      </View>
+      {/* 🪤 ACHADO DA VISTORIA (02/10/2026): estava escrito "Today" FIXO. O gestor arrastava a Home
+          para amanhã, tocava em "Tomorrow's progress" e a tela abria com os dados certos dizendo
+          "Today's progress" / "Nothing scheduled for today". Agora o título segue o dia escolhido. */}
+      <BackHeader
+        tone="light"
+        title={`${dayPrefix(dia)}'s progress`}
+        subtitle={resumo.total === 0
+          ? `Nothing scheduled for ${dayPrefix(dia).toLowerCase()}`
+          : `${resumo.done} of ${resumo.total} dogs done · ${resumo.left} left`}
+      />
 
       <ScrollView
         contentContainerStyle={styles.conteudo}

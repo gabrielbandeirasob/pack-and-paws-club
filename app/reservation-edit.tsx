@@ -6,6 +6,7 @@ import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
+import { BackHeader } from '@/features/ui/BackHeader';
 import { EditReservationForm } from '@/features/calendar/EditReservationForm';
 import { reservationUpdatePayload, type ReservationFormValues } from '@/features/calendar/reservationsService';
 import { colors } from '@/features/theme/tokens';
@@ -85,7 +86,7 @@ export default function ReservationEditScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <Text style={styles.title}>Edit reservation</Text>
+      <BackHeader title="Edit reservation" />
       {loading ? (
         <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
       ) : initial ? (

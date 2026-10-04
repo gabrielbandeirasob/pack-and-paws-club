@@ -8,8 +8,21 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
  *
  * O numero do dia vem dos marcos da ROTA (carimbados no servidor) e dos registros MANUAIS.
  */
+/**
+ * O botão de VOLTAR desta tela (pedido do cliente, 04/10/2026): "Driver hours" era uma das telas sem
+ * nenhum caminho de saída. O espião abaixo prova que o toque volta de verdade — e que, sem histórico
+ * (tela aberta por link direto), ele vai para as abas em vez de não fazer nada.
+ */
+let mockPodeVoltar = true;
+const mockBack = jest.fn();
+const mockReplace = jest.fn();
 jest.mock('expo-router', () => ({
-  useRouter: () => ({ replace: () => undefined, push: () => undefined, back: () => undefined }),
+  useRouter: () => ({
+    replace: mockReplace,
+    push: () => undefined,
+    back: mockBack,
+    canGoBack: () => mockPodeVoltar,
+  }),
 }));
 
 const ORG = 'c0af17d6-7b2a-49f2-b78e-3263ca346c33';
@@ -69,6 +82,33 @@ jest.mock('@/lib/supabase', () => {
 });
 
 describe('Driver hours (tela do gestor)', () => {
+  beforeEach(() => {
+    mockPodeVoltar = true;
+    mockBack.mockClear();
+    mockReplace.mockClear();
+  });
+
+  it('tem o botão de voltar e o toque volta para a tela anterior', async () => {
+    const Tela = require('../app/driver-hours').default;
+    const tela = await render(<Tela />);
+
+    await waitFor(() => expect(tela.getByText('Driver hours')).toBeTruthy());
+    await fireEvent.press(tela.getByLabelText('Go back'));
+
+    expect(mockBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('aberta sem histórico, o botão leva para as abas (era a tela sem saída)', async () => {
+    mockPodeVoltar = false;
+    const Tela = require('../app/driver-hours').default;
+    const tela = await render(<Tela />);
+
+    await waitFor(() => expect(tela.getByText('Driver hours')).toBeTruthy());
+    await fireEvent.press(tela.getByLabelText('Go back'));
+
+    expect(mockReplace).toHaveBeenCalledWith('/(tabs)');
+  });
+
   it('mostra entrada, saida e tempo total de quem fez rota', async () => {
     const Tela = require('../app/driver-hours').default;
     const tela = await render(<Tela />);

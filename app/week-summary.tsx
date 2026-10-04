@@ -18,6 +18,7 @@ import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, T
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 
+import { BackHeader } from '@/features/ui/BackHeader';
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { landingRouteForRole } from '@/features/navigation/roleTabs';
@@ -95,6 +96,11 @@ export default function WeekSummaryScreen() {
 
   return (
     <SafeAreaView style={styles.tela} edges={['top']}>
+      <BackHeader
+        tone="light"
+        title="Weekly summary"
+        subtitle="Monday to Saturday — who came, day by day."
+      />
       <ScrollView
         contentContainerStyle={styles.conteudo}
         refreshControl={
@@ -108,9 +114,6 @@ export default function WeekSummaryScreen() {
           />
         }
       >
-        <Text style={styles.titulo}>Weekly summary</Text>
-        <Text style={styles.sub}>Monday to Saturday — who came, day by day.</Text>
-
         <View style={styles.semanaLinha}>
           <Pressable
             accessibilityRole="button"

@@ -14,6 +14,8 @@ const mockVoltar = jest.fn();
 
 jest.mock('expo-router', () => ({
   router: { back: mockVoltar, push: jest.fn() },
+  // A tela usa o `BackHeader` (botão de voltar do cliente, 04/10/2026): ele navega por `useRouter`.
+  useRouter: () => ({ back: mockVoltar, replace: jest.fn(), push: jest.fn(), canGoBack: () => true }),
 }));
 
 let mockRotas: unknown[] = [];

@@ -13,7 +13,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+
+import { BackHeader } from '@/features/ui/BackHeader';
 
 import {
   buildDriverDayInputs,
@@ -36,7 +37,6 @@ function inicioDoDia(offsetDias = 0): string {
 }
 
 export default function DriverHoursScreen() {
-  const router = useRouter();
   const [janela, setJanela] = useState<Janela>('today');
   const [resumos, setResumos] = useState<DriverDaySummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -106,11 +106,11 @@ export default function DriverHoursScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.eyebrow}>PACK & PAWS CLUB</Text>
-        <Text style={styles.title}>Driver hours</Text>
-        <Text style={styles.subtitle}>First in, last out and total time — from the route itself, plus any manual records.</Text>
-      </View>
+      <BackHeader
+        eyebrow="PACK & PAWS CLUB"
+        title="Driver hours"
+        subtitle="First in, last out and total time — from the route itself, plus any manual records."
+      />
 
       <View style={styles.body}>
         <View style={styles.toggle}>
@@ -159,9 +159,6 @@ export default function DriverHoursScreen() {
                 <Text style={styles.exportarTexto}>Export spreadsheet (CSV)</Text>
               </Pressable>
             ) : null}
-            <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={12} style={styles.voltar}>
-              <Text style={styles.voltarTexto}>Back</Text>
-            </Pressable>
           </ScrollView>
         )}
       </View>

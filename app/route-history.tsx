@@ -5,9 +5,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
 
 import { routeStatusStyle, stopSummaryLabel, summarizeStops, type HistoryStop } from '@/features/dispatch/history';
+import { BackHeader } from '@/features/ui/BackHeader';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -67,12 +67,7 @@ export default function RouteHistoryScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.header}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} hitSlop={8} style={styles.back}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
-        <Text style={styles.title}>Route history</Text>
-      </View>
+      <BackHeader title="Route history" />
       {loading ? (
         <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
       ) : (

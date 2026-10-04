@@ -12,13 +12,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { carregarFimDaRota, carregarParadasDaRota, ordenarParaEntrega, type FimDaRota, type ParadaDaRota } from '@/features/dispatch/routeStops';
 import { loadRouteEndLocationForDriver } from '@/features/organization/locations';
 import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
 import { jaFeita, marcosDaParada, proximaEntrega, proximaPendente, resumoDaEntrega, resumoDaRota, situacaoDaEntrega } from '@/features/dashboard/stopProgress';
+import { BackHeader } from '@/features/ui/BackHeader';
 import { formatDayLabel } from '@/features/calendar/dates';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
@@ -52,7 +53,6 @@ async function carregarFimDaRotaComYard(client: SupabaseClient, routeId: string)
 }
 
 export default function RouteStopsScreen() {
-  const router = useRouter();
   const parametros = useLocalSearchParams<{ route?: string; driver?: string; day?: string }>();
   const routeId = typeof parametros.route === 'string' ? parametros.route : null;
   const motorista = typeof parametros.driver === 'string' && parametros.driver.trim() ? parametros.driver.trim() : 'Driver';
@@ -150,17 +150,10 @@ export default function RouteStopsScreen() {
 
   return (
     <SafeAreaView style={styles.tela} edges={['top']}>
-      <View style={styles.topo}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} hitSlop={12} style={styles.voltar}>
-          <Text style={styles.voltarTexto}>‹ Back</Text>
-        </Pressable>
-        <Text style={styles.titulo}>Route stops</Text>
-        <Text style={styles.sub}>
-          {motorista}
-          {dia ? ` · ${formatDayLabel(dia)}` : ''}
-          {paradas.length > 0 ? ` · ${resumo} · ${entrega}` : ''}
-        </Text>
-      </View>
+      <BackHeader
+        title="Route stops"
+        subtitle={`${motorista}${dia ? ` · ${formatDayLabel(dia)}` : ''}${paradas.length > 0 ? ` · ${resumo} · ${entrega}` : ''}`}
+      />
 
       {carregando ? (
         <ActivityIndicator style={styles.rodinha} color={colors.gold} size="large" />

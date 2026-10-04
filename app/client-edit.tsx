@@ -9,6 +9,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
+import { BackHeader } from '@/features/ui/BackHeader';
 import { EditClientForm, type ClientSavePayload, type EditableDog } from '@/features/clients/EditClientForm';
 import {
   canUndoClientDelete,
@@ -345,10 +346,7 @@ export default function ClientEditScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.eyebrow}>PACK & PAWS CLUB</Text>
-        <Text style={styles.title}>Edit client</Text>
-      </View>
+      <BackHeader eyebrow="PACK & PAWS CLUB" title="Edit client" />
       {loading ? (
         <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
       ) : loaded ? (

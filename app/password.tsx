@@ -10,6 +10,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
+import { BackHeader } from '@/features/ui/BackHeader';
 import { ChangePasswordForm } from '@/features/auth/ChangePasswordForm';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
@@ -24,10 +25,7 @@ export default function PasswordScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.eyebrow}>PACK & PAWS CLUB</Text>
-        <Text style={styles.title}>Change password</Text>
-      </View>
+      <BackHeader eyebrow="PACK & PAWS CLUB" title="Change password" />
       <ChangePasswordForm
         onChangePassword={change}
         eyebrow="YOUR ACCOUNT"

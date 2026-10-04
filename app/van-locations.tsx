@@ -17,8 +17,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 
+import { BackHeader } from '@/features/ui/BackHeader';
 import { fetchCoordinates } from '@/features/maps/geocodeService';
 import {
   EMPTY_LOCATION_DRAFT,
@@ -49,7 +49,6 @@ function kindHint(kind: LocationKind): string {
 }
 
 export default function VanLocationsScreen() {
-  const router = useRouter();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [locais, setLocais] = useState<OrganizationLocation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -206,14 +205,11 @@ export default function VanLocationsScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.eyebrow}>PACK & PAWS CLUB</Text>
-        <Text style={styles.title}>Van &amp; yard</Text>
-        <Text style={styles.subtitle}>
-          The VAN is where the day starts: the clock in only opens near it (leave it empty and drivers clock in
-          from anywhere). The YARD is where the pick-up run ends — register it so the route closes there.
-        </Text>
-      </View>
+      <BackHeader
+        eyebrow="PACK & PAWS CLUB"
+        title="Van & yard"
+        subtitle="The VAN is where the day starts: the clock in only opens near it (leave it empty and drivers clock in from anywhere). The YARD is where the pick-up run ends — register it so the route closes there."
+      />
 
       <View style={styles.body}>
         {loading ? (
@@ -410,9 +406,6 @@ export default function VanLocationsScreen() {
               </View>
             )}
 
-            <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={12} style={styles.voltar}>
-              <Text style={styles.voltarTexto}>Back</Text>
-            </Pressable>
           </ScrollView>
         )}
       </View>

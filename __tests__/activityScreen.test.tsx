@@ -46,8 +46,15 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
+/**
+ * O botão de voltar da tela (cliente, 04/10/2026): o `BackHeader` usa `useRouter` — o mock precisa
+ * dele. E o espião prova que o toque volta de verdade.
+ */
+const mockBack = jest.fn();
+const mockReplace = jest.fn();
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), push: jest.fn() },
+  useRouter: () => ({ back: mockBack, replace: mockReplace, push: jest.fn(), canGoBack: () => true }),
 }));
 
 import ActivityScreen from '@/app/activity';
@@ -176,5 +183,22 @@ describe('Tela Activity (auditoria do gestor)', () => {
         inicioDoDia(6).toISOString(),
       ),
     );
+  });
+
+  /**
+   * Pedido do cliente (04/10/2026): *"falta de botões pra voltar"*. A Activity era uma das telas SEM
+   * nenhum caminho de saída (só um "Back" de texto no FIM da lista, que ninguém encontrava). Agora o
+   * voltar está no topo, com o rótulo de leitor de tela, e volta de verdade.
+   */
+  it('tem o botão de voltar no topo e o toque volta para a tela anterior', async () => {
+    mockBack.mockClear();
+    const tela = await render(<ActivityScreen />);
+    await waitFor(() => expect(tela.getByText('Activity')).toBeTruthy());
+
+    const botao = tela.getByLabelText('Go back');
+    expect(tela.getByText('‹ Back')).toBeTruthy();
+    await fireEvent.press(botao);
+
+    expect(mockBack).toHaveBeenCalledTimes(1);
   });
 });

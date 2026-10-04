@@ -2,8 +2,9 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ModalScreen } from '@/features/ui/ModalScreen';
-import { router, useFocusEffect } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 
+import { BackHeader } from '@/features/ui/BackHeader';
 import { DriverInviteForm } from '@/features/drivers/DriverInviteForm';
 import { driverRemovalPlan, fullNameOrFallback, isActiveStatus, memberRoleLabel, memberStatusFromActive, memberStatusLabel, type MemberRole } from '@/features/drivers/driversService';
 import { normalizeForSearch } from '@/features/clients/clientsService';
@@ -211,15 +212,14 @@ export default function DriversScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      <View style={styles.header}>
-        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} hitSlop={8} style={styles.backButton}>
-          <Text style={styles.backText}>‹</Text>
-        </Pressable>
-        <Text style={styles.title}>Team</Text>
-        <Pressable accessibilityRole="button" accessibilityLabel="Invite driver" onPress={() => setInviting(true)} style={styles.plusButton}>
-          <Text style={styles.plusText}>＋</Text>
-        </Pressable>
-      </View>
+      <BackHeader
+        title="Team"
+        right={(
+          <Pressable accessibilityRole="button" accessibilityLabel="Invite driver" onPress={() => setInviting(true)} style={styles.plusButton}>
+            <Text style={styles.plusText}>＋</Text>
+          </Pressable>
+        )}
+      />
       {loading ? <ActivityIndicator style={styles.center} color={colors.gold} size="large" /> : (
         <ScrollView
           automaticallyAdjustContentInsets={false}

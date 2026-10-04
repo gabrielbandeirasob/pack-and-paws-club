@@ -20,6 +20,8 @@ let foco: (() => void) | null = null;
 
 jest.mock('expo-router', () => ({
   router: { back: jest.fn(), push: jest.fn(), replace: jest.fn() },
+  // A tela usa o `BackHeader` (botão de voltar do cliente, 04/10/2026): ele navega por `useRouter`.
+  useRouter: () => ({ back: jest.fn(), replace: jest.fn(), push: jest.fn(), canGoBack: () => true }),
   useFocusEffect: (cb: () => void) => {
     foco = cb;
     const { useEffect } = require('react');

@@ -10,19 +10,18 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 
 import { DateField } from '@/features/calendar/DateField';
 import { formatDayLabel, todayLocalISO } from '@/features/calendar/dates';
 import { dayIndicatorsFrom, formatCents, packRows, sortTodos, type DailyTodo, type DayDog, type PackEntry } from '@/features/dashboard/dayOperation';
 import { loadDayDogs, loadDayPlan, loadPackEntries, loadTodos, PLANO_VAZIO, type DayPlan } from '@/features/dashboard/dayService';
+import { BackHeader } from '@/features/ui/BackHeader';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
 type MembroRow = { user_id: string; profiles: { full_name: string | null } | null };
 
 export default function DaySummaryScreen() {
-  const router = useRouter();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [dia, setDia] = useState(todayLocalISO());
   const [dogs, setDogs] = useState<DayDog[]>([]);
@@ -91,13 +90,7 @@ export default function DaySummaryScreen() {
   return (
     <SafeAreaView style={styles.tela} edges={['top']}>
       <ScrollView contentContainerStyle={styles.conteudo} showsVerticalScrollIndicator={false}>
-        <View style={styles.topo}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} hitSlop={12} style={styles.voltar}>
-            <Text style={styles.voltarTexto}>‹ Back</Text>
-          </Pressable>
-          <Text style={styles.titulo}>Day summary</Text>
-          <Text style={styles.sub}>{formatDayLabel(dia)}</Text>
-        </View>
+        <BackHeader title="Day summary" subtitle={formatDayLabel(dia)} />
 
         <View style={styles.cartao}>
           <DateField label="Day" value={dia} onChange={setDia} />
