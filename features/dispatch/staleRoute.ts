@@ -11,6 +11,16 @@ export const STALE_ROUTE_MESSAGE = 'This route was changed on another device. Re
 
 export const STALE_ROUTE_TITLE = 'Route changed on another device';
 
+/**
+ * O banco recusou gravar numa rota CANCELADA (trigger da migração 202610040054).
+ *
+ * O caminho normal nunca passa por aqui: o app REATIVA a rota cancelada do dia antes de atribuir
+ * (`reativarRotaCancelada`, dono 04/10/2026 — *"tentei fazer o dispatch e não iam para o driver"*). Esta
+ * mensagem cobre a CORRIDA: o outro gestor cancela a rota entre a leitura e a escrita — e o gestor
+ * precisa saber que a rota está cancelada, não ler um `P0001` cru.
+ */
+export const ROUTE_CANCELLED_MESSAGE = 'This route was cancelled. Assign the dogs again to reactivate it.';
+
 function textoDoErro(erro: unknown): string {
   if (erro == null) return '';
   if (typeof erro === 'string') return erro;
@@ -27,9 +37,15 @@ export function isStaleRouteError(erro: unknown): boolean {
   return /stale_route/i.test(textoDoErro(erro));
 }
 
+/** A escrita bateu numa rota CANCELADA (recusa do banco)? */
+export function isRouteCancelledError(erro: unknown): boolean {
+  return /route cancelled/i.test(textoDoErro(erro));
+}
+
 /** Mensagem para mostrar ao gestor: a de concorrencia quando for o caso, senao a original. */
 export function routeErrorMessage(erro: unknown): string {
   if (isStaleRouteError(erro)) return STALE_ROUTE_MESSAGE;
+  if (isRouteCancelledError(erro)) return ROUTE_CANCELLED_MESSAGE;
   const texto = textoDoErro(erro).trim();
   return texto || 'Unable to save.';
 }

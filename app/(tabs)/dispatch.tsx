@@ -128,6 +128,15 @@ export default function DispatchScreen() {
   const contexto = useRef({ orgId: '', date });
   const diaDasRotas = useRef(date);
   const leituraRotas = useRef(0);
+  /**
+   * A última carga de rotas do dia DEU CERTO? (dono, 04/10/2026)
+   *
+   * A conferência da atribuição usava `routesRef.current.length === 0` como se fosse "sem dados" — mas
+   * ZERO ROTAS é um resultado VÁLIDO (dia sem rota viva: nenhuma publicada, ou todas canceladas). Com o
+   * quadro vazio a conferência era PULADA e a folha fechava como se tivesse atribuído, com o cão indo
+   * parar numa rota cancelada. Este sinal diz o que interessa: "a leitura online do dia funcionou".
+   */
+  const rotasCarregadasOk = useRef(false);
   const gravandoOrdens = useRef(new Set<string>());
   contexto.current.date = date;
   const atualizarRotas = useCallback((novas: DispatchRoute[]) => {
@@ -334,7 +343,7 @@ export default function DispatchScreen() {
     if (semFase) routeResult = await supabase.from('routes').select(campos).eq('organization_id', orgId).eq('route_date', date);
     if (date !== contexto.current.date || consulta !== leituraRotas.current) return;
     fasesDisponiveis.current = !semFase && !routeResult.error;
-    if (routeResult.error) { falhou('rotas', routeResult.error.message); return; }
+    if (routeResult.error) { rotasCarregadasOk.current = false; falhou('rotas', routeResult.error.message); return; }
     falhou('rotas', null);
     // Rota CANCELADA não ocupa mais a tela do dia (dono, 04/10/2026: os cães voltam para não-atribuídos e a
     // rota sai do quadro). O histórico do dia continua válido para as rotas fechadas (completed).
@@ -380,6 +389,7 @@ export default function DispatchScreen() {
       return anterior && (protegida(rota.routeId) || JSON.stringify(anterior) === JSON.stringify(rota)) ? anterior : rota;
     })
       .concat(atuais.filter((rota) => protegida(rota.routeId) && !novas.some((nova) => nova.routeId === rota.routeId))));
+    rotasCarregadasOk.current = true;
     return true;
   }, [fila, atualizarRotas]);
 
@@ -596,6 +606,50 @@ export default function DispatchScreen() {
   );
 
   /**
+   * REATIVA a rota do dia que estava CANCELADA (dono, 05/10/2026 — *"tentei fazer o dispatch e não iam
+   * para o driver"*, com prints do quadro em 0 stops e da folha de atribuição girando).
+   *
+   * 🪤 O BURACO: o X cancela a rota e ela sai do quadro (`carregarRotas` filtra `cancelled`). Ao atribuir
+   * de novo, o app não encontra rota viva, tenta CRIAR outra — e o banco recusa (UNIQUE
+   * `routes_organization_date_driver_phase_key`, erro 23505). O caminho do 23505 relia a rota do dia
+   * **sem olhar o status** e devolvia a CANCELADA: a RPC gravava as paradas lá dentro, o motorista nunca
+   * recebia (o app dele lê só `published`) e o cão continuava em UNASSIGNED, como se nada tivesse
+   * acontecido.
+   *
+   * Medido no banco de produção em 04/10/2026: a rota `d2347318…` (pickup, Gabriel) estava `cancelled`
+   * com **2 paradas criadas DEPOIS do cancelamento** (Ellie 11:25:16Z e Duke 11:26:42Z) — os dois toques
+   * do dono no print.
+   *
+   * A saída é a rota voltar a viver: `draft`, com a trava de versão do resto do quadro. Reativar mantém
+   * as paradas que já estavam nela (os cães que o gestor acabou de atribuir) e o fluxo segue normal — o
+   * gestor publica quando quiser.
+   */
+  const reativarRotaCancelada = useCallback(
+    async (routeId: string, versao: number | null) => {
+      let consulta = supabase
+        .from('routes')
+        .update({ status: 'draft', lock_version: (versao ?? 1) + 1 })
+        .eq('id', routeId)
+        .eq('status', 'cancelled');
+      if (versao !== null) consulta = consulta.eq('lock_version', versao);
+      const { data, error } = await consulta.select('id, lock_version');
+      falhaDeEscrita(error);
+      if ((data ?? []).length === 0) {
+        // Outro aparelho mexeu na rota (ou ela já não está cancelada): nada de seguir calado.
+        avisarRotaMudou();
+        throw new Error(routeErrorMessage('stale_route'));
+      }
+      showAlert(
+        'Route reactivated',
+        "This driver's route for the day had been cancelled and the stops were going nowhere. It is back as a draft — publish it so the driver receives the stops.",
+      );
+      const nova = (data as { lock_version?: number | null }[])[0]?.lock_version;
+      return nova ?? null;
+    },
+    [avisarRotaMudou, falhaDeEscrita],
+  );
+
+  /**
    * A rota do motorista naquele dia: **cria se não existir e NUNCA mexe no que já existe**.
    *
    * 🪤 ACHADO DA VISTORIA (02/10/2026) — era um `upsert` com `status: 'draft'` e o `assign` chama esta
@@ -627,10 +681,19 @@ export default function DispatchScreen() {
           .eq('organization_id', organizationId).eq('route_date', date).eq('driver_id', driverId);
         if (fasesDisponiveis.current) consulta = consulta.eq('phase', phase);
         const { data: outra } = await consulta.single();
-        const id = (outra as { id: string } | null)?.id;
+        const linha = outra as { id: string; lock_version?: number | null; status?: string | null } | null;
+        const id = linha?.id;
         if (id) {
           if (aplicandoSugestao.current) throw new Error('The routes changed. Create a new suggestion.');
-          const lockVersion = (outra as { lock_version?: number | null }).lock_version;
+          /**
+           * ⚠️ A RELEITURA NÃO PODE DEVOLVER A ROTA CANCELADA. A rota do dia já existe, mas pode estar
+           * `cancelled` (o X do quadro) — e aí gravar paradas nela é escrever num documento morto: o
+           * motorista não recebe nada (ele lê só `published`) e o cão continua em UNASSIGNED. Nesse caso
+           * a rota é REATIVADA como rascunho e o gestor publica.
+           */
+          const lockVersion = linha?.status === 'cancelled'
+            ? await reativarRotaCancelada(id, linha?.lock_version ?? null)
+            : linha?.lock_version ?? null;
           if (lockVersion != null) versoes.current[id] = lockVersion;
           return id;
         }
@@ -640,7 +703,7 @@ export default function DispatchScreen() {
     const criada = data as { id: string; lock_version?: number };
     if (criada.lock_version != null) versoes.current[criada.id] = criada.lock_version;
     return criada.id;
-  }, [organizationId, date, vanParaRota]);
+  }, [organizationId, date, vanParaRota, reativarRotaCancelada]);
 
   /**
    * TROCA A VAN DE UM MOTORISTA (dono, 01/10/2026).
@@ -702,7 +765,13 @@ export default function DispatchScreen() {
    * recarga trouxe dados — sem rede, "não achei" não prova nada, e alarme falso é pior que silêncio.
    */
   const conferirAtribuicao = useCallback((esperados: string[], phase: Perna, salvos: number) => {
-    if (routesRef.current.length === 0) return;
+    /*
+     * A conferência só vale com uma LEITURA BOA do dia. Antes o teste era `routesRef.current.length === 0`,
+     * e ZERO ROTA é justamente o quadro de quem cancelou a rota do dia: a conferência era pulada e a folha
+     * fechava em silêncio com o cão indo para a rota cancelada (medido no banco em 04/10/2026). Agora o
+     * sinal é "a carga de rotas deu certo" — sem rede, "não achei" não prova nada.
+     */
+    if (!rotasCarregadasOk.current) return;
     const naRota = new Set(routesRef.current
       .filter((rota) => (rota.phase ?? 'pickup') === phase)
       .flatMap((rota) => rota.stops.map((stop) => stop.dogId)));
