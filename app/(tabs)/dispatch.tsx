@@ -693,6 +693,27 @@ export default function DispatchScreen() {
    * Quem já está em outro carro NÃO é roubado (decisão do gestor vale); a folha de atribuição mostra
    * quem vai junto antes de salvar.
    */
+  /**
+   * 🪤 A RPC `assign_stop_to_route` é VOID: uma escrita recusada pelo banco pode voltar como SUCESSO sem
+   * gravar nada — e o quadro fechava a folha como se tivesse atribuído. Dono (04/10/2026, com vídeo:
+   * "Tentei fazer um dispatch"): spinner, a folha fecha, o cão continua em UNASSIGNED e NENHUMA mensagem.
+   *
+   * A conferência é depois da RECARGA: os cães do lote têm de estar nas paradas do dia. Só vale quando a
+   * recarga trouxe dados — sem rede, "não achei" não prova nada, e alarme falso é pior que silêncio.
+   */
+  const conferirAtribuicao = useCallback((esperados: string[], phase: Perna, salvos: number) => {
+    if (routesRef.current.length === 0) return;
+    const naRota = new Set(routesRef.current
+      .filter((rota) => (rota.phase ?? 'pickup') === phase)
+      .flatMap((rota) => rota.stops.map((stop) => stop.dogId)));
+    const faltando = esperados.filter((alvo) => !naRota.has(alvo));
+    if (faltando.length === 0) return;
+    throw new Error(avisoDeFalhaParcial(
+      faltando.map((alvo) => ({ dogId: alvo, dogName: nomeDoCao(alvo), motivo: routeErrorMessage('stale_route') })),
+      salvos,
+    ));
+  }, [nomeDoCao]);
+
   const assign = useCallback(async (dogId: string, driverId: string, constraint: DispatchConstraint, phase: Perna = 'pickup') => {
     if (phase === 'dropoff') {
       /**
@@ -754,7 +775,8 @@ export default function DispatchScreen() {
     }
     await carregarRotas();
     if (naoSalvos.length > 0) throw new Error(avisoDeFalhaParcial(naoSalvos, salvos));
-  }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas, nomeDoCao, motivoDaTrava]);
+    conferirAtribuicao(junto, phase, salvos);
+  }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas, nomeDoCao, motivoDaTrava, conferirAtribuicao]);
 
   /**
    * CRIAR A PERNA DE DROP-OFF que ainda não existe (Defeito B, dono, 03/10/2026).
@@ -804,7 +826,8 @@ export default function DispatchScreen() {
     }
     await carregarRotas();
     if (naoSalvos.length > 0) throw new Error(avisoDeFalhaParcial(naoSalvos, elegiveis.length - naoSalvos.length));
-  }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas, motoristaDoPickup]);
+    conferirAtribuicao(elegiveis.map((cao) => cao.dogId), 'dropoff', elegiveis.length - naoSalvos.length);
+  }, [routeIdForDriver, versaoDe, falhaDeEscrita, carregarRotas, motoristaDoPickup, conferirAtribuicao]);
 
   /**
    * SUGESTÃO DE ROTA (cliente, áudio de 01/10/2026): *"sugestão de rota automática… leva um tempinho aí

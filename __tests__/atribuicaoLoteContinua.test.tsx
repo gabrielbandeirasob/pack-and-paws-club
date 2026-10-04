@@ -64,6 +64,33 @@ beforeEach(() => {
   rpc.mockImplementation(() => new Promise((resolve) => confirmar.push(resolve)));
 });
 
+it('RPC que "dá certo" sem gravar nada NÃO fecha a folha em silêncio — a tela diz que não atribuiu', async () => {
+  /*
+   * Dono (04/10/2026, com vídeo: *"Tentei fazer um dispatch"*): o spinner girava, a folha FECHAVA como se
+   * tivesse atribuído, o cão continuava em UNASSIGNED e nenhuma mensagem aparecia. A RPC
+   * `assign_stop_to_route` é VOID — o silêncio dela não prova nada. Agora o lote é conferido depois da
+   * RECARGA: sem a parada na rota, a folha fala em vez de fechar.
+   */
+  mockParadasDaRota = [{
+    dogId: 'outro-cao', clientName: 'Outro', dogName: 'Outro cão', sequence: 1, status: 'pending',
+    latitude: null, longitude: null, windowStart: null, windowEnd: null, exactTime: null, priority: 'normal',
+  }] as never;
+
+  const tela = await render(<DispatchScreen />);
+  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Jose · Sam' })).toBeTruthy());
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Jose · Sam' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Driver Rafael' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
+  await waitFor(() => expect(rpc).toHaveBeenCalledTimes(1));
+
+  // O banco responde "ok" — e a recarga continua mostrando a rota SEM o Sam.
+  await act(async () => confirmar[0]({ data: null, error: null }));
+
+  // A folha NÃO pode fechar: o único caminho que a mantém aberta é a mensagem de falha.
+  await waitFor(() => expect(tela.getByRole('button', { name: 'Save stop' })).toBeTruthy());
+  tela.unmount();
+});
+
 it('o cão seguinte é tentado depois de uma recusa no meio do lote, e a tela diz quem falhou', async () => {
   const tela = await render(<DispatchScreen />);
   await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Jose · Sam' })).toBeTruthy());
