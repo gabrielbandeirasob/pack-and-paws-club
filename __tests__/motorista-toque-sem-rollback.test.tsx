@@ -90,6 +90,9 @@ const turnoEncerrado = () => ({
   end_reason: 'Journey finished', route_id: 'r1',
 });
 
+/** A PRÓXIMA consulta segurada responde com ERRO DE REDE (o caminho offline, que aplica o snapshot velho). */
+let mockFalharConsulta = false;
+
 jest.mock('@/lib/supabase', () => {
   const dados = (tabela: string) => (
     tabela === 'routes' ? mockRotasDoDia()
@@ -110,7 +113,13 @@ jest.mock('@/lib/supabase', () => {
         // CONGELA o que o banco responderia AGORA e segura a resposta (é a carga que nasceu antes do toque).
         mockEstado.segurarConsulta = false;
         const congelado = { data: dados('routes'), error: null };
-        return new Promise((resolve) => { mockConsultaEmVoo = { liberar: () => resolve(congelado) }; }).then(res);
+        return new Promise((resolve) => {
+          mockConsultaEmVoo = {
+            liberar: () => resolve(mockFalharConsulta
+              ? { data: null, error: { message: 'Network request failed' } }
+              : congelado),
+          };
+        }).then(res);
       }
       if (payloadDoUpdate) {
         if (tabela === 'route_stops' && typeof payloadDoUpdate.status === 'string') {
@@ -192,6 +201,7 @@ beforeEach(async () => {
   mockEstado.segurarConsulta = false;
   mockTurnoAberto = false;
   mockTurnoFechado = false;
+  mockFalharConsulta = false;
 });
 
 describe('o toque do motorista sobrevive à carga em voo', () => {
@@ -215,6 +225,29 @@ describe('o toque do motorista sobrevive à carga em voo', () => {
     await waitFor(() => expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy());
     expect(tela.queryByLabelText('Next stop: I arrived for Bob')).toBeNull();
     // E sem "carregando" por cima: quem tocou não fica olhando rodinha.
+    expect(tela.queryByTestId('driver-loading')).toBeNull();
+  });
+
+  it('a carga que CAI POR REDE também não desfaz o toque (o snapshot velho não pode voltar)', async () => {
+    /*
+     * O dono descreveu exatamente isto, com vídeo: *"eu aperto o botão, ele confirma a ação e logo em seguida
+     * volta pra ação passada"*. Era a carga que caía por REDE e aplicava o SNAPSHOT local — mais velho que o
+     * toque — por cima do estado da tela (o caminho offline não tinha a mesma proteção do online).
+     */
+    const tela = await abrirTela();
+
+    mockEstado.segurarConsulta = true;
+    mockFalharConsulta = true; // a carga desta vez cai por rede e vai aplicar o cache
+    const rolagem = tela.getByTestId('driver-scroll');
+    void rolagem.props.refreshControl.props.onRefresh();
+    await waitFor(() => expect(mockConsultaEmVoo).not.toBeNull());
+
+    await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+    await waitFor(() => expect(mockEstado.statusDaParada).toBe('arrived'));
+
+    // A resposta de rede chega agora: o cache é mais VELHO que o toque, então ele não é aplicado.
+    await act(async () => { liberarConsulta(); });
+    await waitFor(() => expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy());
     expect(tela.queryByTestId('driver-loading')).toBeNull();
   });
 
@@ -274,6 +307,30 @@ describe('o toque do motorista sobrevive à carga em voo', () => {
     await waitFor(() => expect(tela.getByTestId('cartao-jornada')).toBeTruthy());
     expect(tela.queryByLabelText('Next stop: I arrived for Bob')).toBeNull();
     expect(tela.getByText("Clock in and tap Start pick-ups to see today's stops.")).toBeTruthy();
+  });
+
+  it('a fase gravada do DIA não abre a entrega antes do yard NESTA sessão (dono, 04/10/2026)', async () => {
+    /*
+     * *"os cachorros do drop off aparecem antes de apertar no botão que chegou no yard"*.
+     *
+     * O caso dele: a busca já acabou (as paradas todas `completed`) e a fase do dia ficou gravada em `dropoff`
+     * — então a tela reabria DIRETO na entrega. Quem abre a entrega é o toque no botão do yard: a carga nova
+     * volta para a BUSCA e o botão do yard fica esperando.
+     */
+    mockDuasPernas = true;
+    mockEstado.statusDaParada = 'completed'; // a busca terminou (é o estado real do dia dele)
+    mockTurnoAberto = true; // a jornada está aberta (a lista pode aparecer)
+    const store = require('@/features/driver/dayPhaseStore') as typeof import('@/features/driver/dayPhaseStore');
+    await store.gravarBuscaIniciada('r1', 'driver-1'); // o dia já começou: "Start pick-ups" já foi apertado
+    await store.gravarFase('r1', 'driver-1', 'dropoff'); // e a fase do dia ficou na ENTREGA
+
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+
+    await waitFor(() => expect(tela.getByText('PICK-UPS')).toBeTruthy());
+    expect(tela.queryByText('DROP-OFFS')).toBeNull();
+    // E o caminho para a entrega continua na mão dele: o botão do yard está lá.
+    expect(tela.getByLabelText('Start drop-offs')).toBeTruthy();
   });
 
   it('com a marca gravada e a jornada ABERTA o dia abre com a lista (a recarga não volta a esconder)', async () => {

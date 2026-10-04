@@ -126,6 +126,17 @@ export default function DriverTodayScreen() {
    * "depois do clock in" já vem dele. Gravada no aparelho pela rota de busca × usuário.
    */
   const [buscaIniciada, setBuscaIniciada] = useState(false);
+  /**
+   * A ENTREGA foi liberada NESTA sessão? (dono, 04/10/2026 — *"os cachorros do drop off aparecem antes de
+   * apertar no botão que chegou no yard"*).
+   *
+   * A FASE gravada é do DIA (serve para o app reabrir no meio da operação) — mas ela não pode ABRIR a perna de
+   * entrega sozinha: quem abre é o toque do motorista no botão do yard (`iniciarEntregas`). Numa carga nova
+   * (abrir o app, trocar de conta, começar outra jornada) a tela volta para a BUSCA, e o botão do yard está
+   * lá esperando — é a sequência do dia que o dono definiu.
+   */
+  const [entregasLiberadas, setEntregasLiberadas] = useState(false);
+  const entregasLiberadasRef = useRef(false);
   // A busca ancora as duas pernas, mantendo inclusive a fase gravada por versões anteriores.
   const faseDoDia = useRef<{ key: string; userId: string; fase: DayPhase } | null>(null);
   /**
@@ -475,8 +486,19 @@ export default function DriverTodayScreen() {
         setBuscaIniciada(await carregouABusca(key, usuarioId));
       }
       const atual = faseDoDia.current.fase;
-      setFase(atual);
-      return atual === 'dropoff' ? dropoff ?? pickup : pickup;
+      /**
+       * A FASE DO DIA não abre a ENTREGA sozinha (dono, 04/10/2026): numa carga nova a tela volta para a BUSCA
+       * — quem abre a entrega é o toque no botão do yard. Sem perna de busca no dia (rota só de entrega) não
+       * existe yard para esperar: a fase vale como está.
+       */
+      const daTela: DayPhase = atual === 'dropoff' && Boolean(pickup) && !entregasLiberadasRef.current
+        // ...e só enquanto houver entrega para liberar: com a entrega JÁ terminada não há o que esperar (o dia
+        // está fechando — é a VAN), então a fase gravada vale como está.
+        && !entregaTerminou(((dropoff ?? pickup)?.route_stops ?? []).map(rowToStop))
+        ? 'pickup'
+        : atual;
+      setFase(daTela);
+      return daTela === 'dropoff' ? dropoff ?? pickup : pickup;
     };
 
     const events = await loadOutbox();
@@ -595,6 +617,18 @@ export default function DriverTodayScreen() {
       setOffline(true);
       semRede = true;
       snapshot = await loadRouteSnapshot();
+      /*
+       * 🪤 "CONFIRMA E VOLTA" (dono, 04/10/2026 — *"eu aperto o botão, ele confirma a ação e logo em seguida
+       * volta pra ação passada"*, com vídeo): esta carga caiu por REDE e ia aplicar o SNAPSHOT local — que é
+       * mais VELHO que um toque dado enquanto ela estava em voo. É exatamente o que ele viu: a parada confirma
+       * e volta. Mesma regra do caminho ONLINE: se o motorista gravou no meio desta carga, o estado da TELA é
+       * mais novo que o cache, então o cache NÃO é aplicado — e a carga é refeita por baixo.
+       */
+      if (geracaoDaCarga !== geracaoDaEscrita.current) {
+        setLoading(false);
+        setTimeout(() => void load(true), 0);
+        return;
+      }
       if (snapshot?.routes && snapshot.routeDate !== todayLocalISO()) snapshot = null;
       if (snapshot?.routes) {
         const route = await selecionarPerna(snapshot.routes);
@@ -1094,6 +1128,9 @@ export default function DriverTodayScreen() {
    * O `planClockOut` decide qual jornada fechar, olhando banco E fila.
    */
   const clockOut = async (motivo: string) => {
+    // Jornada nova começa na BUSCA: a entrega liberada na jornada anterior não vale mais.
+    setEntregasLiberadas(false);
+    entregasLiberadasRef.current = false;
     setShiftBusy(true);
     setShiftError(null);
     /** Escrita do motorista: carga em voo nasceu velha (ver `geracaoDaEscrita`). */
@@ -1288,6 +1325,8 @@ export default function DriverTodayScreen() {
       await cargaEmAndamento.current;
       const dia = faseDoDia.current;
       if (!dia || !routeId || dia.userId !== driverId) return;
+      setEntregasLiberadas(true);
+      entregasLiberadasRef.current = true;
       dia.fase = 'dropoff';
       geracaoDaEscrita.current += 1;
       await gravarFase(dia.key, dia.userId, 'dropoff');

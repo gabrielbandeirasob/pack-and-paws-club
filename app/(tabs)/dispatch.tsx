@@ -336,7 +336,9 @@ export default function DispatchScreen() {
     fasesDisponiveis.current = !semFase && !routeResult.error;
     if (routeResult.error) { falhou('rotas', routeResult.error.message); return; }
     falhou('rotas', null);
-    const routeRows = (routeResult.data as unknown as RouteRow[]) ?? [];
+    // Rota CANCELADA não ocupa mais a tela do dia (dono, 04/10/2026: os cães voltam para não-atribuídos e a
+    // rota sai do quadro). O histórico do dia continua válido para as rotas fechadas (completed).
+    const routeRows = ((routeResult.data as unknown as RouteRow[]) ?? []).filter((row) => row.status !== 'cancelled');
     const protegida = (id: string) => gravandoOrdens.current.has(id) || fila.pendente(id) || pendentes.has(id) || leitura[id] !== revisoes.current[id];
     routeRows.forEach((row) => {
       if (!protegida(row.id)) versoes.current[row.id] = row.lock_version ?? 1;
@@ -1171,9 +1173,43 @@ export default function DispatchScreen() {
 
   // Cancela a rota (status cancelado): sai da operacao e sai da tela do motorista — mesma protecao
   // dos outros dois botoes (com parada pendente, o gestor le quais caes ficam sem a rota e confirma).
+  /**
+   * CANCELAR DEVOLVE OS CÃES (dono, 04/10/2026): *"no primeiro print do dispatch o x não cancela a rota e
+   * nem manda os cachorros para a unassigned de volta"*.
+   *
+   * A ATRIBUIÇÃO É A PARADA (`route_stops`): a lista de não-atribuídos é o que sobra do dia. Então cancelar
+   * tem de APAGAR as paradas da rota — é isso, e só isso, que devolve os cães para a lista.
+   *
+   * Mesma armadilha da remoção avulsa: DELETE sem conferir linha devolve SUCESSO com 0 linhas quando a
+   * policy bloqueia. Aqui a rota tem paradas (o aviso de fechamento contou as pendentes), então 0 linhas é
+   * falha de verdade e o gestor precisa saber — nada de fingir que soltou os cães.
+   */
+  const soltarOsCaes = useCallback(async (routeId: string) => {
+    const quantasNaTela = routesRef.current.find((item) => item.routeId === routeId)?.stops.length ?? 0;
+    const { data: removidas, error } = await supabase
+      .from('route_stops')
+      .delete()
+      .eq('route_id', routeId)
+      .select('id');
+    falhaDeEscrita(error);
+    const quantas = removidas?.length ?? 0;
+    if (quantasNaTela > 0 && quantas < quantasNaTela) {
+      showAlert(
+        'Unable to free the dogs',
+        'The route was cancelled, but the dogs are still assigned. Ask the manager to check the access.',
+      );
+    }
+    return quantas;
+  }, [falhaDeEscrita]);
+
+  // Cancela a rota: SOLTA OS CÃES (as paradas são a atribuição) e fecha a rota — ela sai da operação e sai
+  // da tela do motorista.
   const cancelRoute = useCallback(async (routeId: string) => {
-    await fecharComAviso(routeId, 'cancel', () => trocarStatus(routeId, { status: 'cancelled' }));
-  }, [fecharComAviso, trocarStatus]);
+    await fecharComAviso(routeId, 'cancel', async () => {
+      await soltarOsCaes(routeId);
+      await trocarStatus(routeId, { status: 'cancelled' });
+    });
+  }, [fecharComAviso, soltarOsCaes, trocarStatus]);
 
   // Fecha a rota: ela sai da operacao (motorista deixa de ver) e entra no historico.
   const completeRoute = useCallback(async (routeId: string) => {

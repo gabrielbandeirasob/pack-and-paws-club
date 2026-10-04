@@ -27,30 +27,37 @@ const paradasDe = (statuses: string[]) => statuses.map((status, indice) => ({
 let mockParadas = paradasDe(['pending', 'pending', 'pending']);
 let mockStatus = 'published';
 let mockAtualizacoes: Record<string, unknown>[] = [];
+/** DELETEs registrados: cancelar a rota tem de APAGAR as paradas (é o que devolve os cães). */
+let mockDelecoes: { tabela: string }[] = [];
 
 jest.mock('@/lib/supabase', () => ({
   supabase: {
     auth: { getUser: jest.fn(async () => ({ data: { user: { id: 'gestor' } } })) },
     from: jest.fn((tabela: string) => {
       let selecao = '';
+      let apagou = false;
       const consulta: Record<string, any> = {};
       consulta.update = (valores: Record<string, unknown>) => {
         if (tabela === 'routes') mockAtualizacoes.push(valores);
         return consulta;
       };
-      for (const metodo of ['select', 'eq', 'in', 'gte', 'lte', 'limit', 'order', 'delete', 'single']) {
+      for (const metodo of ['select', 'eq', 'in', 'gte', 'lte', 'limit', 'order', 'single']) {
         consulta[metodo] = (...args: unknown[]) => {
           if (metodo === 'select') selecao = args[0] as string;
           return consulta;
         };
       }
+      consulta.delete = () => { apagou = true; mockDelecoes.push({ tabela }); return consulta; };
       consulta.then = (resolver: (valor: unknown) => unknown) => Promise.resolve({
         data: tabela === 'organization_members'
           ? selecao === 'organization_id' ? [{ organization_id: 'clube' }]
             : [{ user_id: 'motorista', role: 'driver', profiles: { full_name: 'Rafael' } }]
           : tabela === 'routes' ? [{
             id: 'rota', driver_id: 'motorista', status: mockStatus, lock_version: 4, route_stops: mockParadas,
-          }] : [], error: null,
+          }] : tabela === 'route_stops' && apagou
+            // O DELETE das paradas devolve as linhas apagadas (é o que o app confere).
+            ? mockParadas.map((_parada, indice) => ({ id: `apagada-${indice}` }))
+            : [], error: null,
       }).then(resolver);
       return consulta;
     }),
@@ -69,6 +76,7 @@ beforeEach(() => {
   mockParadas = paradasDe(['pending', 'pending', 'pending']);
   mockStatus = 'published';
   mockAtualizacoes = [];
+  mockDelecoes = [];
   alerta = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
 });
 afterEach(() => alerta.mockRestore());
@@ -188,5 +196,22 @@ describe('cancelar rota com paradas pendentes', () => {
     await act(async () => { botoes[1].onPress?.(); });
     await waitFor(() => expect(mockAtualizacoes).toHaveLength(1));
     expect(mockAtualizacoes[0]).toMatchObject({ status: 'cancelled' });
+  });
+
+  /**
+   * CANCELAR DEVOLVE OS CÃES (dono, 04/10/2026): *"o x não cancela a rota e nem manda os cachorros para a
+   * unassigned de volta"*. A atribuição É a parada — cancelar tem de APAGAR as paradas da rota.
+   */
+  it('cancelar SOLTA OS CÃES: apaga as paradas da rota (é o que devolve para não-atribuídos)', async () => {
+    const tela = await montar();
+    await fireEvent.press(tela.getByLabelText('Cancel Rafael route'));
+    const botoes = alerta.mock.calls[0][2] as AlertButton[];
+    await act(async () => { botoes[1].onPress?.(); });
+
+    await waitFor(() => expect(mockDelecoes).toHaveLength(1));
+    expect(mockDelecoes[0].tabela).toBe('route_stops');
+    expect(mockAtualizacoes[0]).toMatchObject({ status: 'cancelled' });
+    // As paradas da tela foram apagadas de verdade: nada de aviso de falha.
+    expect((alerta.mock.calls as unknown as [string][]).map((chamada) => chamada[0])).not.toContain('Unable to free the dogs');
   });
 });

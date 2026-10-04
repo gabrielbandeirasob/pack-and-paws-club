@@ -571,6 +571,13 @@ describe('duas pernas publicadas do motorista', () => {
     await tela.unmount();
     const Tela = require('../app/(tabs)/driver').default;
     const reaberta = await render(<Tela />);
+    /*
+     * ETAPA DO DIA (dono, 04/10/2026): *"os cachorros do drop off aparecem antes de apertar no botão que
+     * chegou no yard"*. A fase gravada é do DIA, mas quem ABRE a entrega é o toque no botão do yard: reabrir
+     * o app no meio da entrega volta para a BUSCA, com o botão do yard esperando.
+     */
+    await waitFor(() => expect(reaberta.getByText('PICK-UPS')).toBeTruthy());
+    await fireEvent.press(reaberta.getByTestId('start-dropoffs'));
     await waitFor(() => expect(reaberta.getByLabelText('Next stop: Delivered for Luna')).toBeTruthy());
     mockDriverId = 'driver-2';
     await act(async () => { await reaberta.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });

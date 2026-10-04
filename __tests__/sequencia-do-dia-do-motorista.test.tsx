@@ -207,11 +207,19 @@ describe('tela do motorista — sequência pickup → yard → drop-off → van'
     await tela.unmount();
   });
 
-  it('com dropoff gravado e a busca JÁ feita, a tela abre em DROP-OFFS', async () => {
+  it('com dropoff gravado e a busca JÁ feita, a tela abre na BUSCA — a entrega só depois do toque no yard', async () => {
+    /*
+     * Dono (04/10/2026): *"os cachorros do drop off aparecem antes de apertar no botão que chegou no yard"*.
+     * A fase gravada é do DIA (o app reabre no meio da operação), mas quem ABRE a entrega é o toque no botão
+     * do yard — a carga nova volta para a BUSCA e a virada continua na mão do motorista.
+     */
     await gravarFase('r1', 'driver-1', 'dropoff');
     mockRota.route_stops[0].status = 'completed';
     const tela = await montarTela();
-    await waitFor(() => expect(tela.getByText('DROP-OFFS')).toBeTruthy());
+    await waitFor(() => expect(tela.getByText('PICK-UPS')).toBeTruthy());
+    expect(tela.queryByText('DROP-OFFS')).toBeNull();
+    // A virada continua na mão dele (a tela não abre a entrega sozinha): o botão do yard está lá.
+    expect(tela.getByLabelText('Start drop-offs')).toBeTruthy();
     await tela.unmount();
   });
 
