@@ -98,9 +98,9 @@ describe('M5 — legendas ≥12 pt e alvos ≥44 pt no quadro do gestor', () => 
     { dogId: 'dog-filo', clientName: 'Amor', dogName: 'Filó', reservationKind: 'boarding', inVan: true },
   ];
 
-  it('DispatchBoard: eyebrow, título da fila e "Show" têm ≥12 pt; chip tem 44 pt', async () => {
+  it('DispatchBoard: resumo, título da fila e "Show" têm ≥12 pt; chip tem 44 pt', async () => {
     const tela = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} />);
-    expect(tela.getByText('PACK & PAWS CLUB · DISPATCH')).toHaveStyle({ fontSize: 12 });
+    expect(tela.getByText(/transport dogs? · .*drivers?/)).toHaveStyle({ fontSize: 12 });
     expect(tela.getByText(/unassigned/)).toHaveStyle({ fontSize: 12 });
     expect(tela.getByText('Show')).toHaveStyle({ fontSize: 12 });
     expect(tela.getByRole('button', { name: 'Assign Bob' })).toHaveStyle({ minHeight: 44 });

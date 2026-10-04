@@ -12,8 +12,8 @@ jest.mock('@/lib/supabase', () => ({ supabase: { storage: { from: jest.fn() } } 
  *
  * O que estes vetores travam:
  *  - o yard NÃO vira chip de van (não é escolhível, não existe "Use Yard for ...");
- *  - ele ganha uma linha PRÓPRIA, rotulada "where the pick-up ends", com o endereço, e sem toque;
- *  - a linha das vans é rotulada "where the day starts" e lista SÓ vans;
+ *  - ele compartilha a faixa de recursos, com papel/endereço acessíveis e sem seleção;
+ *  - as vans mantêm o papel acessível "where the day starts" e listam SÓ vans;
  *  - organização SEM yard fica idêntica ao de antes (zero ruído).
  *
  * E o controle de sempre continua valendo: com UMA van só, nada aparece.
@@ -54,19 +54,22 @@ describe('yard não é van no seletor do Dispatch', () => {
     expect(tela.queryByLabelText('Use Yard for Rafael')).toBeNull();
   });
 
-  it('o yard ganha linha PRÓPRIA com o endereço ("where the pick-up ends") e não responde a toque', async () => {
+  it('o yard mantém papel e endereço acessíveis na faixa compacta e não seleciona van', async () => {
     const onChooseVan = jest.fn().mockResolvedValue(undefined);
     const tela = await render(<DispatchBoard {...props({ onChooseVan })} />);
 
     // A linha da van diz o PAPEL dela; o yard tem a dele, separada.
-    expect(tela.getByText('Van · where the day starts')).toBeTruthy();
+    expect(tela.getByLabelText('Van · where the day starts')).toBeTruthy();
     expect(tela.getByTestId('driver-yard-motorista-1')).toBeTruthy();
-    expect(tela.getByText('Yard · where the pick-up ends')).toBeTruthy();
+    expect(tela.getByLabelText('Yard · where the pick-up ends')).toBeTruthy();
     // O dono pediu o ENDEREÇO: "ele tem que ter o endereço que ele vai finalizar".
-    expect(tela.getByText('Yard — 1089 Memorex Drive · Santa Clara')).toBeTruthy();
+    expect(tela.getByLabelText('Yard Yard at 1089 Memorex Drive · Santa Clara — where the pick-up ends')).toBeTruthy();
+    // E ele fica VISÍVEL, não só no leitor de tela (dono, 04/10/2026: compactar não pode esconder dado
+    // operacional — o gestor lê o endereço na própria tela para orientar o motorista).
+    expect(tela.getByText('Yard · 1089 Memorex Drive · Santa Clara')).toBeTruthy();
 
     // Tocar no yard não escolhe nada (não é um radio) — o seletor de van não é acionado.
-    fireEvent.press(tela.getByText('Yard — 1089 Memorex Drive · Santa Clara'));
+    fireEvent.press(tela.getByLabelText('Yard Yard at 1089 Memorex Drive · Santa Clara — where the pick-up ends'));
     expect(onChooseVan).not.toHaveBeenCalled();
 
     // E o toque numa VAN continua funcionando (o controle de antes segue vivo).

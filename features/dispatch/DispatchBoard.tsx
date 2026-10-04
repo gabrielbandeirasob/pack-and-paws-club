@@ -443,17 +443,16 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>PACK & PAWS CLUB · DISPATCH</Text>
         <View style={styles.dateRow}>
           <Pressable accessibilityRole="button" accessibilityLabel="Previous day" onPress={() => onDateChange(addDaysISO(date, -1))} style={styles.arrow}>
             <Text style={styles.arrowText}>‹</Text>
           </Pressable>
-          <Text style={styles.title}>{formatDayLabel(date)}</Text>
+          <Text numberOfLines={1} style={styles.title}>{formatDayLabel(date)}</Text>
           <Pressable accessibilityRole="button" accessibilityLabel="Next day" onPress={() => onDateChange(addDaysISO(date, 1))} style={styles.arrow}>
             <Text style={styles.arrowText}>›</Text>
           </Pressable>
         </View>
-        <Text style={styles.summary}>
+        <Text numberOfLines={1} style={styles.summary}>
           {plural((assignmentPhase === 'pickup' ? dayItems : dropoffItems ?? []).length, 'transport dog', 'transport dogs')} · {plural(drivers.length, 'driver', 'drivers')}
         </Text>
       </View>
@@ -470,9 +469,36 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
           <Text style={[styles.faseOpcaoTexto, assignmentPhase === phase && styles.faseOpcaoTextoAtivo]}>{phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'}</Text>
         </Pressable>)}</View>
       <ScrollView testID="dispatch-scroll" scrollEnabled={!arrastando} automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.unassigned}>
+          {/*
+            * UNASSIGNED NO TOPO (dono, 04/10/2026): "quero o unassigned fique na parte de cima para
+            * sabermos quais dogs estão sem motorista e facilitar o serviço". O título fica FORA da
+            * faixa dos chips (não rola junto) e os chips QUEBRAM EM LINHAS em vez de rolar de lado:
+            * esconder cão atrás de rolagem horizontal contraria o pedido (medido: o dia dele teve 6).
+            */}
+          {unassigned.length > 0 ? <Text style={styles.unassignedTitle}>{unassigned.length} unassigned</Text> : null}
+          <View testID="unassigned-pool" style={styles.resourcesWrap}>
+            {sugestaoErro && !sugestao ? <Text style={styles.sugestaoErro}>{sugestaoErro}</Text> : null}
+            {paraTransporte.length === 0 ? (
+              <Text style={styles.muted}>No transport dogs need a ride today.</Text>
+            ) : unassigned.length === 0 ? (
+              <Text numberOfLines={1} style={styles.muted}>Every transport dog is assigned. 🎉</Text>
+            ) : null}
+            {unassigned.map((item) => (
+              <Pressable key={item.dogId} accessibilityRole="button" accessibilityLabel={`Assign ${item.dogName}`} onPress={() => setSheet({ mode: 'assign', item, phase: assignmentPhase === 'dropoff' ? 'dropoff' : undefined })} style={[styles.chip, styles.poolChip]}>
+                <Text numberOfLines={1} style={styles.chipText}>{item.dogName}{item.extra ? ' · manual' : ''}</Text>
+              </Pressable>
+            ))}
+            {onAddExtraDog ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="Add any dog" onPress={() => setBuscaCao(true)} style={styles.chipAdd}>
+                <Text numberOfLines={1} style={styles.chipAddText}>＋ Add any dog</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
         {/* LINHA DE MOTORISTAS (Proposta B, 03/10/2026): escolhe quem está na tela — um por vez. */}
         {drivers.length > 0 ? (
-          <View style={styles.motoristaSeletor}>
+          <ScrollView horizontal style={styles.driverSelectorScroll} contentContainerStyle={styles.motoristaSeletor}>
             {drivers.map((driver) => {
               const ativo = motoristaVisivelObj?.id === driver.id;
               const quantos = paradasDaPerna(driver.id, assignmentPhase);
@@ -491,7 +517,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
                 </Pressable>
               );
             })}
-          </View>
+          </ScrollView>
         ) : null}
         {motoristaVisivelObj ? (
           <View>
@@ -530,25 +556,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
             ) : null}
           </View>
         ) : null}
-        <View style={styles.unassigned}>
-          <Text style={styles.unassignedTitle}>{unassigned.length} unassigned</Text>
-          {sugestaoErro && !sugestao ? <Text style={styles.sugestaoErro}>{sugestaoErro}</Text> : null}
-          {paraTransporte.length === 0 ? (
-            <Text style={styles.muted}>No transport dogs need a ride today.</Text>
-          ) : unassigned.length === 0 ? (
-            <Text style={styles.muted}>Every transport dog is assigned. 🎉</Text>
-          ) : null}
-          {unassigned.map((item) => (
-            <Pressable key={item.dogId} accessibilityRole="button" accessibilityLabel={`Assign ${item.dogName}`} onPress={() => setSheet({ mode: 'assign', item, phase: assignmentPhase === 'dropoff' ? 'dropoff' : undefined })} style={styles.chip}>
-              <Text style={styles.chipText}>{item.dogName}{item.extra ? ' · manual' : ''}</Text>
-            </Pressable>
-          ))}
-          {onAddExtraDog ? (
-            <Pressable accessibilityRole="button" accessibilityLabel="Add any dog" onPress={() => setBuscaCao(true)} style={styles.chipAdd}>
-              <Text style={styles.chipAddText}>＋ Add any dog (not in the calendar)</Text>
-            </Pressable>
-          ) : null}
-        </View>
+
 
         {/*
           Cão em boarding que também faz daycare no dia: já acorda dentro da van e TERMINA o dia nela —
@@ -586,7 +594,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
                     accessibilityLabel={`Boarding ${item.dogName} — already in the van`}
                     style={[styles.chip, styles.chipVan]}
                   >
-                    <Text style={styles.chipText}>{item.dogName}</Text>
+                    <Text numberOfLines={1} style={styles.chipText}>{item.dogName}</Text>
                   </View>
                 ))}
               </>
@@ -920,7 +928,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
               de acao consomem a linha e sobram ~48pt para o texto - o nome do motorista
               quebra LETRA POR LETRA (relato do dono no iPhone, 12/09/2026). */}
           <View style={styles.driverText} testID={route?.phase === 'dropoff' ? 'driver-info-dropoff' : 'driver-info'}>
-            <Text style={styles.driverName}>{driver.name}</Text>
+            <Text numberOfLines={1} style={styles.driverName}>{driver.name}</Text>
             <Text style={styles.muted}>{totalParadas} stop{totalParadas === 1 ? '' : 's'}{rotuloDeStatus(route?.status)}</Text>
             {/* Rascunho NÃO chega ao celular do motorista: o aviso fica na linha do status, que é
                 onde o gestor olha (melhoria do dono, 01/10/2026). */}
@@ -952,9 +960,11 @@ const CartaoMotorista = memo(function CartaoMotorista({
             ) : null}
           </View>
         </View>
-        {vansIniciais.length > 1 && onChooseVan ? (
+        {onChooseVan && (vansIniciais.length > 1 || yards.length > 0) ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.resourcesRow} style={styles.horizontalRow}>
+        {vansIniciais.length > 1 ? (
           <View style={styles.vanLinha} testID={`driver-van-${driver.id}`}>
-            <Text style={styles.vanRotulo}>Van · where the day starts</Text>
+            <Text accessibilityLabel="Van · where the day starts" style={styles.vanRotulo}>Van</Text>
             <View style={styles.vanChips}>
               {vansIniciais.map((van) => {
                 const ativa = vanAtiva === van.id;
@@ -981,10 +991,10 @@ const CartaoMotorista = memo(function CartaoMotorista({
         ) : null}
         {/* O YARD NÃO é van escolhível (dono, 02/10/2026: "não é uma van o yard, ele tem que ter o
             endereço que ele vai finalizar"). Ele aparece aqui como o ponto onde a BUSCA termina — a
-            origem da 1ª perna da entrega — com o endereço, e sem toque nenhum. */}
-        {yards.length > 0 && onChooseVan ? (
+            origem da 1ª perna da entrega — com endereço no rótulo acessível, sem seleção. */}
+        {yards.length > 0 ? (
           <View style={styles.vanLinha} testID={`driver-yard-${driver.id}`}>
-            <Text style={styles.vanRotulo}>Yard · where the pick-up ends</Text>
+            <Text accessibilityLabel="Yard · where the pick-up ends" style={styles.vanRotulo}>Yard</Text>
             <View style={styles.vanChips}>
               {yards.map((yard) => (
                 <View
@@ -993,13 +1003,21 @@ const CartaoMotorista = memo(function CartaoMotorista({
                   accessibilityLabel={`Yard ${yard.name}${yard.address ? ` at ${yard.address}` : ''} — where the pick-up ends`}
                 >
                   <Text numberOfLines={1} style={styles.yardChipTexto}>
-                    {yard.name}{yard.address ? ` — ${yard.address}` : ''}
+                    {yard.address ? `${yard.name} · ${yard.address}` : yard.name}
                   </Text>
                 </View>
               ))}
             </View>
           </View>
         ) : null}
+        </ScrollView>
+        ) : null}
+        {onSuggest || (route && (stops.length > 0 || onOpenStopList)) ? (
+          /* NADA ESCONDIDO: era ScrollView horizontal e o "Publish"/"✓ Done" ficavam fora da tela num
+             iPhone estreito (dono, 04/10/2026: o gestor não pode ter de descobrir gesto para achar
+             ação). Aqui as ações quebram em duas linhas quando não couberem. */
+          <View testID="dispatch-actions-scroll" style={styles.actionsWrap}>
+          <View style={styles.driverActions} testID="driver-actions">
         {route && onOpenStopList ? (
           <Pressable
             accessibilityRole="button"
@@ -1007,38 +1025,38 @@ const CartaoMotorista = memo(function CartaoMotorista({
             onPress={() => onOpenStopList(route.routeId, driver.name)}
             style={styles.stopListLink}
           >
-            <Text style={styles.stopListText}>Stop list with times ›</Text>
+            <Text numberOfLines={1} style={styles.stopListText}>Times ›</Text>
           </Pressable>
         ) : null}
-        {onSuggest || (route && stops.length > 0) ? (
-          <View style={styles.driverActions} testID="driver-actions">
+
             {route && stops.length >= 2 ? (
               <Pressable accessibilityRole="button" accessibilityLabel={`Optimize ${driver.name} route`} disabled={working} onPress={() => void onOptimize(route.routeId)} style={styles.optimizeButton}>
-                <Text style={styles.optimizeText}>Optimize</Text>
+                <Text numberOfLines={1} style={styles.optimizeText}>Optimize</Text>
               </Pressable>
             ) : null}
             {onSuggest ? <Pressable accessibilityRole="button" accessibilityLabel="Suggest routes"
               disabled={working || suggestionBusy} onPress={() => void onSuggest()} style={styles.optimizeButton}>
-              <Text style={styles.optimizeText}>{suggestionBusy ? 'Thinking…' : 'Suggest routes'}</Text>
+              <Text numberOfLines={1} style={styles.optimizeText}>{suggestionBusy ? 'Thinking…' : 'Suggest'}</Text>
             </Pressable> : null}
             {route && stops.length > 0 ? <>
             <Pressable accessibilityRole="button" accessibilityLabel={`Publish ${driver.name} route`} disabled={working || leg === 'dropoff'} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
-              <Text style={styles.publishText}>{leg === 'dropoff' ? 'Draft only' : route.status === 'published' ? 'Republish' : 'Publish'}</Text>
+              <Text numberOfLines={1} style={styles.publishText}>{leg === 'dropoff' ? 'Draft only' : route.status === 'published' ? 'Republish' : 'Publish'}</Text>
             </Pressable>
             {route.status === 'published' ? (
               <>
                 <Pressable accessibilityRole="button" accessibilityLabel={`Unpublish ${driver.name} route`} disabled={working} onPress={() => void onUnpublish(route.routeId)} style={styles.unpublishButton}>
-                  <Text style={styles.unpublishText}>Unpublish</Text>
+                  <Text numberOfLines={1} style={styles.unpublishText}>Unpublish</Text>
                 </Pressable>
                 <Pressable accessibilityRole="button" accessibilityLabel={`Complete ${driver.name} route`} disabled={working} onPress={() => void onCompleteRoute(route.routeId)} style={styles.completeButton}>
-                  <Text style={styles.completeText}>✓ Done</Text>
+                  <Text numberOfLines={1} style={styles.completeText}>✓ Done</Text>
                 </Pressable>
               </>
             ) : null}
             <Pressable accessibilityRole="button" accessibilityLabel={`Cancel ${driver.name} route`} disabled={working} onPress={() => void onCancelRoute(route.routeId)} style={styles.cancelRouteButton}>
-              <Text style={styles.cancelRouteText}>✕</Text>
+              <Text numberOfLines={1} style={styles.cancelRouteText}>✕</Text>
             </Pressable>
             </> : null}
+          </View>
           </View>
         ) : null}
       </View>
@@ -1051,35 +1069,42 @@ const CartaoMotorista = memo(function CartaoMotorista({
           <ReorderableStops stops={paradas} leg={leg} enabled={rotaDaPerna.status === 'draft' && paradas.length > 1 && !working && !!moverPerna}
             onDraggingChange={onDraggingChange}
             onMove={(dogId, direction) => { void moverPerna?.(rotaDaPerna.routeId, dogId, direction); }}>
-          {(stop, index, handle, accessibility) => (
+          {(stop, index, handle, accessibility) => {
+            const offDay = foraDoDiaDaPerna.some((parada) => parada.dogId === stop.dogId);
+            const problem = stop.status === 'skipped';
+            const late = stop.status === 'pending' && isPastDeadline(stop.windowEnd, stop.exactTime);
+            const high = stop.priority === 'priority';
+            const alert = offDay ? SELO_PARADA_FORA_DO_DIA : problem ? '⚠ Problem' : late ? 'Late' : high ? '⚡ High' : null;
+            const details = [offDay && SELO_PARADA_FORA_DO_DIA, problem && 'Problem', late && 'Late', high && 'High priority'].filter(Boolean).join(' · ');
+            return (
         <View key={`${driver.id}-${leg}-${stop.dogId}`} style={styles.stop}>
           <View style={styles.position}><Text style={styles.positionText}>{index + 1}</Text></View>
-          <View style={styles.stopMain} {...accessibility}>
-            <Text style={styles.stopName}>{stop.dogName}</Text>
-            <View style={styles.badgeRow}>
-              {/* Selo da parada que saiu do dia (Defeito A, 03/10/2026) — só sinaliza. */}
-              {foraDoDiaDaPerna.some((parada) => parada.dogId === stop.dogId) ? (
-                <Text style={styles.foraDoDiaSelo} testID={`stop-off-day-${stop.dogId}`}>{SELO_PARADA_FORA_DO_DIA}</Text>
-              ) : null}
+          <View style={styles.stopMain} {...accessibility} accessibilityHint={[accessibility.accessibilityHint, details].filter(Boolean).join(' ')}>
+            <Text numberOfLines={1} style={styles.stopName}>{stop.dogName}</Text>
+            <View style={styles.badgeRow} testID={`stop-badges-${leg}-${stop.dogId}`}>
+              {alert ? <View style={[styles.badge, { backgroundColor: `${colors.urgency}18` }]}>
+                <Text style={[styles.badgeText, styles.foraDoDiaSelo]} testID={offDay ? `stop-off-day-${stop.dogId}` : undefined}>{alert}</Text>
+              </View> : null}
               {pinDaParada(stop, leg) ? <Badge text={`🔒 ${stop[`${leg}Pin`] === 'first' ? '1st' : stop[`${leg}Pin`] === 'last' ? 'last' : `#${stop[`${leg}PinPosition`]}`}`} color={colors.forest700} /> : null}
-              {stop.status === 'skipped' ? <Badge text="⚠ Problem" color={colors.urgency} /> : null}
-              {stop.status === 'pending' && isPastDeadline(stop.windowEnd, stop.exactTime) ? <Badge text="Late" color={colors.urgency} /> : null}
-              {stop.priority === 'priority' ? <Badge text="⚡ High" color={colors.urgency} /> : null}
-              {stop.windowStart && stop.windowEnd ? <Badge text={`⏰ ${formatTimeOfDay(stop.windowStart)}–${formatTimeOfDay(stop.windowEnd)}`} color={colors.forest500} /> : null}
-              {/* M4 da auditoria (02/10/2026): a hora exata era `colors.gold` como TEXTO do badge
-                  (~2,27:1 sobre o papel) — vira `forest700`; o gold segue no fundo translúcido. */}
-              {stop.exactTime ? <Badge text={`@ ${formatTimeOfDay(stop.exactTime)}`} color={colors.forest700} /> : null}
             </View>
+            {stop.windowStart && stop.windowEnd || stop.exactTime ? (
+              <Text style={styles.stopTime}>
+                {stop.windowStart && stop.windowEnd ? `⏰ ${formatTimeOfDay(stop.windowStart)}–${formatTimeOfDay(stop.windowEnd)}` : ''}
+                {stop.windowStart && stop.windowEnd && stop.exactTime ? ' · ' : ''}
+                {stop.exactTime ? `@ ${formatTimeOfDay(stop.exactTime)}` : ''}
+              </Text>
+            ) : null}
             <StopProofChips pickupPath={stop.pickupProofPath} dropoffPath={stop.dropoffProofPath} />
           </View>
           <View style={styles.stopActions}>
             {handle}
-            <Pressable accessibilityRole="button" accessibilityLabel={`Options for ${stop.dogName}`} onPress={() => setSheet({ mode: 'edit', route: rotaDaPerna, stop })} hitSlop={12}>
+            <Pressable accessibilityRole="button" accessibilityLabel={`Options for ${stop.dogName}`} onPress={() => setSheet({ mode: 'edit', route: rotaDaPerna, stop })} style={styles.stopOptions}>
               <Text style={styles.optionsText}>⋯</Text>
             </Pressable>
           </View>
         </View>
-          )}
+          );
+          }}
           </ReorderableStops>
           {paradas.length === 0 ? <Text style={styles.noStops}>{leg === 'pickup' ? 'No pick-up stops yet.' : 'No drop-off stops yet.'}</Text> : null}
         </View>
@@ -1125,22 +1150,22 @@ const styles = StyleSheet.create({
   pinInput: { width: 30, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, color: colors.ink, padding: 3 },
   screen: { flex: 1, backgroundColor: colors.forest700 },
   scroll: { flex: 1, backgroundColor: colors.cream },
-  header: { backgroundColor: colors.forest700, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 18, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
-  eyebrow: { color: colors.gold, fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
+  header: { backgroundColor: colors.paper, paddingHorizontal: 14, paddingTop: 4, paddingBottom: 4, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
   dateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
-  title: { color: 'white', fontFamily: 'serif', fontSize: 24, fontWeight: '800', textTransform: 'capitalize' },
+  title: { flexShrink: 1, color: colors.forest900, fontFamily: 'serif', fontSize: 24, fontWeight: '800', textTransform: 'capitalize' },
   // M5 da auditoria (02/10/2026): os setas de dia tinham 42×38 pt — abaixo do mínimo de 44 pt.
   arrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  arrowText: { color: colors.gold, fontSize: 30, fontWeight: '700', lineHeight: 32 },
-  summary: { color: '#D7E1D4', fontSize: 12, marginTop: 2 },
-  content: { padding: 14, paddingBottom: 30 },
+  arrowText: { color: colors.forest700, fontSize: 30, fontWeight: '700', lineHeight: 32 },
+  summary: { color: colors.muted, fontSize: 12, lineHeight: 16, textAlign: 'center' },
+  content: { padding: 8, paddingBottom: 30 },
   /**
    * SELETOR DE MOTORISTA e TROCA DE PERNA (Proposta B, dono 03/10/2026): o quadro desenhava 2N cartões;
    * agora é uma linha de chips (um motorista por vez) + um cartão único com a troca Pick-up | Drop-off.
    * Controles de UMA LINHA FINA, alvo de 44 pt, cores discretas (o dono não quer cor forte em área grande).
    */
-  motoristaSeletor: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
-  motoristaChip: { borderWidth: 1, borderColor: colors.line, borderRadius: 9, paddingHorizontal: 11, paddingVertical: 8, minHeight: 44, justifyContent: 'center', backgroundColor: '#F4F2EA' },
+  driverSelectorScroll: { flexGrow: 0, marginBottom: 4 },
+  motoristaSeletor: { flexDirection: 'row', gap: 4 },
+  motoristaChip: { maxWidth: 180, minWidth: 44, borderWidth: 1, borderColor: colors.line, borderRadius: 9, paddingHorizontal: 11, paddingVertical: 8, minHeight: 44, justifyContent: 'center', backgroundColor: '#F4F2EA' },
   motoristaChipAtivo: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
   motoristaChipTexto: { color: colors.ink, fontSize: 12, fontWeight: '800' },
   motoristaChipTextoAtivo: { color: 'white' },
@@ -1153,52 +1178,61 @@ const styles = StyleSheet.create({
   pernaSugerirTexto: { color: 'white', fontSize: 12, fontWeight: '900' },
   /** Perna sem rota (ex.: drop-off que ainda não nasceu): caixa discreta com a ação de criar. */
   pernaVazia: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, marginBottom: 12 },
-  driverCard: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, overflow: 'hidden', marginBottom: 12 },
-  driverHeader: { padding: 12, flexDirection: 'row', flexWrap: 'wrap', rowGap: 10, alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#FAFBF8', borderBottomWidth: 1, borderBottomColor: colors.line },
-  driverIdentity: { flexDirection: 'row', alignItems: 'center', gap: 9, flex: 1, minWidth: 200 },
+  driverCard: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, overflow: 'hidden', marginBottom: 4 },
+  driverHeader: { padding: 6, gap: 4, backgroundColor: '#FAFBF8', borderBottomWidth: 1, borderBottomColor: colors.line },
+  driverIdentity: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   driverText: { flex: 1, minWidth: 0 },
   avatar: { width: 36, height: 36, borderRadius: 11, backgroundColor: colors.forest700, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: 'white', fontWeight: '900' },
-  driverName: { fontWeight: '900', color: colors.ink },
-  muted: { color: colors.muted, fontSize: 12 },
+  driverName: { fontSize: 14, lineHeight: 18, fontWeight: '900', color: colors.ink },
+  muted: { color: colors.muted, fontSize: 12, lineHeight: 16 },
   lateText: { color: colors.urgency, fontWeight: '800' },
   /**
    * BOTOES DE ACAO DA ROTA — altura minima de 44 pt (medido em 29/09/2026: estavam com 32 px, abaixo
    * do minimo do iOS; sao os botoes que o gestor mais toca no Dispatch). O `justifyContent: center`
    * mantem o texto centrado agora que a altura e fixa.
    */
-  publishButton: { backgroundColor: colors.gold, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
+  publishButton: { backgroundColor: colors.gold, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 4, minWidth: 44, minHeight: 44, justifyContent: 'center' },
   publishText: { color: colors.forest900, fontWeight: '900', fontSize: 12 },
-  unpublishButton: { borderWidth: 1, borderColor: colors.line, backgroundColor: colors.paper, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
+  unpublishButton: { borderWidth: 1, borderColor: colors.line, backgroundColor: colors.paper, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 4, minWidth: 44, minHeight: 44, justifyContent: 'center' },
   unpublishText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
-  completeButton: { backgroundColor: '#4E8D5C', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
-  completeText: { color: 'white', fontWeight: '900', fontSize: 12 },
+  completeButton: { backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 4, minWidth: 44, minHeight: 44, justifyContent: 'center' },
+  completeText: { color: colors.forest900, fontWeight: '900', fontSize: 12 },
   cancelRouteButton: { borderWidth: 1, borderColor: '#E8BFBF', backgroundColor: '#FBEDED', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 8, minHeight: 44, minWidth: 44, justifyContent: 'center' },
   cancelRouteText: { color: colors.urgency, fontWeight: '900', fontSize: 12 },
-  // flexWrap: numa tela estreita os botoes descem para a propria linha em vez de espremer o nome.
-  // `flexShrink` + `maxWidth` entram por causa de um defeito visto no print de 29/09/2026: com
-  // `marginLeft: 'auto'` o bloco de acoes era dimensionado pelo conteudo e, quando nao cabia, o
-  // ULTIMO botao (o ✕ de cancelar rota) saia do cartao e era cortado pelo `overflow: 'hidden'`.
-  driverActions: { flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto', flexShrink: 1, maxWidth: '100%' },
-  optimizeButton: { backgroundColor: colors.forest500, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
-  optimizeText: { color: 'white', fontWeight: '900', fontSize: 12 },
-  stop: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 11, borderBottomWidth: 1, borderBottomColor: '#F0F1ED' },
+  // A rolagem horizontal mantém todas as ações alcançáveis em uma faixa de 44 pt.
+  horizontalRow: { width: '100%', flexGrow: 0 },
+  resourcesRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  /**
+   * UNASSIGNED (dono, 04/10/2026): os cães soltos QUEBRAM EM LINHAS em vez de rolar de lado — o
+   * pedido é "sabermos quais dogs estão sem motorista e facilitar o serviço", e rolagem horizontal
+   * esconderia justamente os cães (o dia dele teve 6 de uma vez).
+   */
+  resourcesWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 6 },
+  /** Ações do cartão: uma linha quando couber, duas quando não couber — NADA escondido atrás de rolagem. */
+  actionsWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 6, marginBottom: 4 },
+  driverActions: { flexDirection: 'row', gap: 4, alignItems: 'center', flexWrap: 'nowrap' },
+  optimizeButton: { backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 4, minWidth: 44, minHeight: 44, justifyContent: 'center' },
+  optimizeText: { color: colors.forest900, fontWeight: '900', fontSize: 12 },
+  stop: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#F0F1ED' },
   /** Rótulo da lista da perna escolhida. */
-  grupoRotulo: { color: colors.muted, fontSize: 12, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 11, paddingTop: 10, paddingBottom: 4 },
+  grupoRotulo: { color: colors.muted, fontSize: 12, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase', paddingHorizontal: 11, paddingTop: 4, paddingBottom: 4 },
   position: { width: 24, height: 24, borderRadius: 8, backgroundColor: '#EDF3EB', alignItems: 'center', justifyContent: 'center' },
   positionText: { color: colors.forest700, fontSize: 12, fontWeight: '900' },
-  stopMain: { flex: 1 },
+  stopMain: { flex: 1, minWidth: 0 },
+  stopTime: { color: colors.forest700, fontSize: 12, lineHeight: 16 },
   stopName: { color: colors.ink, fontWeight: '800', fontSize: 14 },
-  badgeRow: { flexDirection: 'row', gap: 6, marginTop: 4, flexWrap: 'wrap' },
+  badgeRow: { flexDirection: 'row', gap: 4, flexWrap: 'wrap' },
   badge: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
   badgeText: { fontSize: 12, fontWeight: '900' },
   stopActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  stopOptions: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   optionsText: { color: colors.forest700, fontSize: 18, fontWeight: '900', lineHeight: 20 },
   noStops: { color: colors.muted, fontSize: 12, padding: 12 },
   /** Ação "Create drop-off route" (Defeito B, 03/10/2026): discreta, com alvo de 44 pt. */
-  createDropoffButton: { alignSelf: 'flex-start', marginTop: 8, marginHorizontal: 12, borderWidth: 1, borderColor: colors.forest500, backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, minHeight: 44, justifyContent: 'center' },
+  createDropoffButton: { alignSelf: 'flex-start', marginTop: 8, marginHorizontal: 12, borderWidth: 1, borderColor: colors.forest500, backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 4, minWidth: 44, minHeight: 44, justifyContent: 'center' },
   createDropoffText: { color: colors.forest700, fontWeight: '900', fontSize: 12 },
-  unassigned: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#B9C4B9', borderRadius: radii.medium, padding: 13, backgroundColor: '#FAFBF7', marginTop: 4 },
+  unassigned: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#B9C4B9', borderRadius: radii.medium, padding: 4, backgroundColor: '#FAFBF7', marginBottom: 4 },
   naVanCabecalho: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1209,7 +1243,7 @@ const styles = StyleSheet.create({
   // 🪤 M4 DA AUDITORIA (02/10/2026): o "Show/Hide" era `colors.gold` sobre o cartão claro (~2,3:1).
   // Cor de TEXTO vira `forest700`; o gold continua nas bordas/fundos.
   naVanToque: { color: colors.forest700, fontSize: 12, fontWeight: '700' },
-  unassignedTitle: { color: colors.muted, textTransform: 'uppercase', fontWeight: '900', fontSize: 12, marginBottom: 10 },
+  unassignedTitle: { color: colors.muted, textTransform: 'uppercase', fontWeight: '900', fontSize: 12, marginBottom: 2 },
   sugestaoLista: { maxHeight: 400, flexShrink: 1 },
   sugestaoParticipantes: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
   /** Rota em rascunho: uma linha fina, âmbar, dizendo que o motorista ainda não vê (não é erro). */
@@ -1218,36 +1252,35 @@ const styles = StyleSheet.create({
   foraDoDiaAviso: { alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: colors.urgency, backgroundColor: '#FBEDED', color: colors.urgency, fontSize: 12, fontWeight: '800', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden' },
   foraDoDiaSelo: { color: colors.urgency, fontSize: 12, fontWeight: '900' },
   sugestaoErro: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginBottom: 8 },
-  // VAN POR MOTORISTA (dono, 01/10/2026): uma linha fina, discreta — só aparece com 2+ vans cadastradas.
-  // Em BLOCO (rótulo em cima, chips/valores embaixo) porque o rótulo agora diz o PAPEL da sede:
-  // "van = onde o dia começa", "yard = onde o pick-up termina" (dono, 02/10/2026).
-  vanLinha: { marginTop: 8 },
+  // Van e Yard compartilham a faixa; os papéis e o endereço continuam acessíveis.
+  vanLinha: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   vanRotulo: { color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
-  vanChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6, flexShrink: 1 },
-  vanChip: { borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, minHeight: 44, justifyContent: 'center', backgroundColor: 'white' },
+  vanChips: { flexDirection: 'row', gap: 4 },
+  vanChip: { maxWidth: 160, minWidth: 44, borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, minHeight: 44, justifyContent: 'center', backgroundColor: 'white' },
   vanChipAtiva: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
   vanChipTexto: { color: colors.forest700, fontSize: 12, fontWeight: '800' },
   vanChipTextoAtivo: { color: 'white' },
   vanAuto: { color: colors.muted, fontSize: 12, fontStyle: 'italic' },
   /**
    * O YARD NÃO é van escolhível (dono, 02/10/2026: *"não é uma van o yard, ele tem que ter o endereço
-   * que ele vai finalizar"*). Ele fica numa linha própria, SEM toque, com o endereço — é o ponto onde a
+   * que ele vai finalizar"*). Ele fica na faixa de recursos, SEM seleção, com endereço acessível — é o ponto onde a
    * busca termina (e a entrega começa), não uma opção. Alvo de 44 pt por consistência com os chips.
    */
-  yardChip: { alignSelf: 'flex-start', maxWidth: '100%', borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, minHeight: 44, justifyContent: 'center', backgroundColor: '#F4F1E7' },
+  yardChip: { alignSelf: 'flex-start', maxWidth: 180, borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, minHeight: 44, justifyContent: 'center', backgroundColor: '#F4F1E7' },
   yardChipTexto: { color: colors.forest700, fontSize: 12, fontWeight: '800' },
   // Atalho para a lista de paradas com hora (o dono procurou aqui, 01/10/2026). Alvo de 44 pt.
-  stopListLink: { alignSelf: 'flex-start', marginTop: 8, paddingVertical: 10, minHeight: 44, justifyContent: 'center' },
+  stopListLink: { paddingHorizontal: 6, minWidth: 44, minHeight: 44, justifyContent: 'center' },
   stopListText: { color: colors.forest700, fontSize: 12, fontWeight: '800', textDecorationLine: 'underline' },
   sugestaoBloco: { borderWidth: 1, borderColor: colors.line, borderRadius: 12, padding: 11, marginBottom: 9, backgroundColor: '#FAFBF7' },
   sugestaoMotorista: { color: colors.ink, fontWeight: '800', fontSize: 13, marginBottom: 4 },
   sugestaoCao: { color: colors.muted, fontSize: 12, lineHeight: 17 },
   sugestaoAviso: { color: colors.forest900, backgroundColor: colors.sage, borderRadius: 10, padding: 9, fontSize: 12, marginBottom: 10 },
   // M5 da auditoria (02/10/2026): o chip de cão não listado tinha ~31 pt de alvo; sobe para 44 pt.
+  poolChip: { marginBottom: 0, maxWidth: 180 },
   chip: { backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 7, borderWidth: 1, borderColor: colors.line, minHeight: 44, justifyContent: 'center' },
   chipText: { color: colors.ink, fontWeight: '800', fontSize: 13 },
   /** Botão "Add any dog": pontilhado como a moldura da fila, para não parecer um cão já listado. */
-  chipAdd: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#B9C4B9', borderRadius: radii.medium, paddingVertical: 9, paddingHorizontal: 12, marginTop: 6, alignSelf: 'flex-start', backgroundColor: '#FFFFFF' },
+  chipAdd: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#B9C4B9', borderRadius: radii.medium, paddingVertical: 9, paddingHorizontal: 8, minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start', backgroundColor: '#FFFFFF' },
   chipAddText: { color: colors.muted, fontWeight: '800', fontSize: 12 },
   /** Chip dos cães que já estão na van: fundo mais claro para não confundir com a fila principal. */
   chipVan: { backgroundColor: colors.sage, borderColor: colors.sage },

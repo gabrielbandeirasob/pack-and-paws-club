@@ -135,7 +135,11 @@ describe('DispatchBoard', () => {
   it('nao deixa o nome do motorista ser espremido pelos botoes (relato no iPhone, 12/09/2026)', async () => {
     // O print do dono mostrou "R / af / a / el" numa coluna de ~48pt: a coluna de texto nao tinha
     // `flex`, entao os quatro botoes de acao (Republish/Unpublish/Done/x) comiam a linha inteira.
-    // Este teste trava a correcao: o texto tem de poder crescer e os botoes tem de poder descer.
+    // Este teste trava a correcao: o texto tem de poder crescer.
+    // AJUSTE (dono, 04/10/2026): a faixa de acoes deixou de ter rolagem horizontal — o "Publish" e o
+    // "✓ Done" ficavam FORA da tela num iPhone estreito e o gestor tinha de descobrir um gesto para
+    // achar a acao. Agora as acoes QUEBRAM em duas linhas quando nao couberem (nada escondido) e o
+    // ultimo botao continua alcancavel. O nome do motorista continua sem ser espremido: `flex: 1`.
     const publicada: DispatchRoute[] = [{
       routeId: 'route-pub',
       driverId: 'driver-rafael',
@@ -145,7 +149,7 @@ describe('DispatchBoard', () => {
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={publicada} {...noops} />);
     // dois motoristas na tela (Rafael com rota, Jordan sem): o cartao do Rafael e' o primeiro
     expect(screen.getAllByTestId('driver-info')[0]).toHaveStyle({ flex: 1 });
-    expect(screen.getByTestId('driver-actions')).toHaveStyle({ flexWrap: 'wrap' });
+    expect(screen.getByTestId('dispatch-actions-scroll')).toHaveStyle({ flexWrap: 'wrap' });
     expect(screen.getByRole('button', { name: 'Complete Rafael route' })).toBeTruthy();
   });
 
