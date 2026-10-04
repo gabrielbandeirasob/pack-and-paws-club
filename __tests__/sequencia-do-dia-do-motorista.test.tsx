@@ -133,6 +133,11 @@ jest.mock('@/lib/supabase', () => {
   const dados = (tabela: string) => {
     if (tabela === 'routes') return [mockRota];
     if (tabela === 'organization_locations') return mockEstado.erroSedes ? null : mockEstado.sedes;
+    // Turno manual aberto: a lista de cães só vive com a jornada ABERTA (etapa do dia, dono 03/10/2026).
+    if (tabela === 'driver_shifts') return [{
+      id: 'sh-turno', started_at: new Date().toISOString(), ended_at: null,
+      start_reason: 'Journey started', end_reason: null, route_id: 'r1',
+    }];
     return [];
   };
   const cadeia = (tabela: string) => {

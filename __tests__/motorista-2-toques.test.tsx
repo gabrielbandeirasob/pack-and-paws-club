@@ -119,7 +119,11 @@ jest.mock('@/lib/supabase', () => {
   const dados = (tabela: string) => (
     tabela === 'routes' ? mockRotasDoDia()
       : tabela === 'organization_locations' ? mockLocais
-        : []
+        : tabela === 'driver_shifts' ? [{
+          id: 'sh-turno', started_at: new Date().toISOString(), ended_at: null,
+          start_reason: 'Journey started', end_reason: null, route_id: 'r1',
+        }]
+          : []
   );
   const cadeia = (tabela: string) => {
     const chain: Record<string, unknown> = { __tabela: tabela };

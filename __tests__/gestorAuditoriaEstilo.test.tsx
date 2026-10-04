@@ -55,7 +55,7 @@ import { colors } from '@/features/theme/tokens';
 import DaySummaryScreen from '@/app/day-summary';
 import WeekSummaryScreen from '@/app/week-summary';
 import { todayLocalISO } from '@/features/calendar/dates';
-import { dayChipLabel } from '@/features/dashboard/weeklySummary';
+import { dayChipLabel, weekDays, weekStart } from '@/features/dashboard/weeklySummary';
 
 const drivers: DispatchDriver[] = [{ id: 'driver-rafael', name: 'Rafael' }];
 const noops = {
@@ -134,7 +134,12 @@ describe('M5 — legendas ≥12 pt e alvos ≥44 pt no quadro do gestor', () => 
 
   it('Week summary: o rótulo do dia no chip tem ≥12 pt', async () => {
     const tela = await render(<WeekSummaryScreen />);
-    const rotulo = dayChipLabel(todayLocalISO());
+    /*
+     * O rótulo vem do PRIMEIRO dia da semana que a TELA desenha (`weekDays(weekStart(...))`), e não do
+     * "hoje" do relógio: calcular por `todayLocalISO()` quebrava na virada do dia (rodado 00:24 UTC o
+     * teste procurava o chip de um dia que a semana exibida não tinha mais).
+     */
+    const rotulo = dayChipLabel(weekDays(weekStart(todayLocalISO()))[0]);
     await waitFor(() => expect(tela.getAllByText(rotulo).length).toBeGreaterThan(0));
     expect(tela.getAllByText(rotulo)[0]).toHaveStyle({ fontSize: 12 });
   });

@@ -72,8 +72,31 @@ const mockRotasDoDia = () => {
   }, pickup];
 };
 
+/**
+ * A JORNADA está ABERTA? A lista de cães só vive com a jornada aberta + "Start pick-ups" (etapa do dia,
+ * dono 03/10/2026, print do app: com "Journey closed." a lista do Billy NÃO pode estar na tela). Sem
+ * turno aberto, a tela é só o cartão da jornada.
+ */
+let mockTurnoAberto = false;
+/** O REGISTRO MANUAL ENCERRADO do print do dono ("7:56 PM → 9:13 PM"): o ponto foi batido e o dia acabou. */
+let mockTurnoFechado = false;
+const turnoDaJornada = () => ({
+  id: 'sh-turno', started_at: new Date().toISOString(), ended_at: null,
+  start_reason: 'Journey started', end_reason: null, route_id: 'r1',
+});
+const turnoEncerrado = () => ({
+  id: 'sh-encerrado', started_at: new Date(Date.now() - 3600e3).toISOString(),
+  ended_at: new Date().toISOString(), start_reason: 'Journey started',
+  end_reason: 'Journey finished', route_id: 'r1',
+});
+
 jest.mock('@/lib/supabase', () => {
-  const dados = (tabela: string) => (tabela === 'routes' ? mockRotasDoDia() : tabela === 'organization_locations' ? mockLocais : []);
+  const dados = (tabela: string) => (
+    tabela === 'routes' ? mockRotasDoDia()
+      : tabela === 'organization_locations' ? mockLocais
+        : tabela === 'driver_shifts' ? (mockTurnoAberto ? [turnoDaJornada()] : mockTurnoFechado ? [turnoEncerrado()] : [])
+          : []
+  );
   const cadeia = (tabela: string) => {
     const chain: Record<string, unknown> = {};
     let payloadDoUpdate: Record<string, unknown> | null = null;
@@ -139,6 +162,7 @@ jest.mock('expo-router', () => ({
 const AsyncStorage = require('@react-native-async-storage/async-storage') as typeof import('@react-native-async-storage/async-storage').default;
 
 async function abrirTela() {
+  mockTurnoAberto = true; // jornada aberta: a lista vive depois do "Start pick-ups"
   // Este arquivo olha a lista: entra com o dia COMEÇADO (rota `r1` × `driver-1`).
   await (require('@/features/driver/dayPhaseStore') as typeof import('@/features/driver/dayPhaseStore')).gravarBuscaIniciada('r1', mockDriverId);
   const Tela = require('../app/(tabs)/driver').default;
@@ -166,6 +190,8 @@ beforeEach(async () => {
   mockEstado.statusDaParada = 'pending';
   mockEstado.deliveredAtDaParada = null;
   mockEstado.segurarConsulta = false;
+  mockTurnoAberto = false;
+  mockTurnoFechado = false;
 });
 
 describe('o toque do motorista sobrevive à carga em voo', () => {
@@ -231,16 +257,32 @@ describe('o toque do motorista sobrevive à carga em voo', () => {
 
     // Nada de lista: nem o cartão da próxima parada, nem a parada do dia.
     expect(tela.queryByLabelText('Next stop: I arrived for Bob')).toBeNull();
-    expect(tela.getByText('Your stop list opens when you tap Start pick-ups.')).toBeTruthy();
+    expect(tela.getByText("Clock in and tap Start pick-ups to see today's stops.")).toBeTruthy();
   });
 
-  it('com a marca gravada o dia ABRE com a lista (a recarga não volta a esconder)', async () => {
-    const { gravarBuscaIniciada } = require('@/features/driver/dayPhaseStore') as typeof import('@/features/driver/dayPhaseStore');
-    await gravarBuscaIniciada('r1', 'driver-1');
+  it('com a JORNADA FECHADA a lista não aparece — mesmo com o dia já começado antes (print do dono)', async () => {
+    /*
+     * O dono viu exatamente isto no app: "Journey closed." e a lista do Billy na tela. A marca do "Start
+     * pick-ups" continua gravada (ele já tinha começado o dia antes), mas o registro manual está ENCERRADO:
+     * o ponto de saída foi batido, o dia acabou para a tela e a lista tem de sair.
+     */
+    mockTurnoFechado = true;
+    await (require('@/features/driver/dayPhaseStore') as typeof import('@/features/driver/dayPhaseStore')).gravarBuscaIniciada('r1', 'driver-1');
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+
+    await waitFor(() => expect(tela.getByTestId('cartao-jornada')).toBeTruthy());
+    expect(tela.queryByLabelText('Next stop: I arrived for Bob')).toBeNull();
+    expect(tela.getByText("Clock in and tap Start pick-ups to see today's stops.")).toBeTruthy();
+  });
+
+  it('com a marca gravada e a jornada ABERTA o dia abre com a lista (a recarga não volta a esconder)', async () => {
+    mockTurnoAberto = true;
+    await (require('@/features/driver/dayPhaseStore') as typeof import('@/features/driver/dayPhaseStore')).gravarBuscaIniciada('r1', 'driver-1');
     const Tela = require('../app/(tabs)/driver').default;
     const tela = await render(<Tela />);
 
     await waitFor(() => expect(tela.getByLabelText('Next stop: I arrived for Bob')).toBeTruthy());
-    expect(tela.queryByText('Your stop list opens when you tap Start pick-ups.')).toBeNull();
+    expect(tela.queryByText("Clock in and tap Start pick-ups to see today's stops.")).toBeNull();
   });
 });

@@ -301,10 +301,25 @@ const mockEstado: {
   erroSedes: boolean;
 } = { insercoes: [], atualizacoes: [], rpcs: [], sedes: [], erroSedes: false };
 
+/** A jornada está aberta? A lista de cães só vive com a jornada ABERTA (etapa do dia, dono 03/10/2026). */
+let mockTurnoAberto = false;
+
 jest.mock('@/lib/supabase', () => {
+  /** A jornada está aberta? A lista de cães só vive com a jornada ABERTA (etapa do dia, dono 03/10/2026). */
   const dados = (tabela: string) => {
     if (tabela === 'routes') return [mockRota];
     if (tabela === 'organization_locations') return mockEstado.erroSedes ? null : mockEstado.sedes;
+    if (tabela === 'driver_shifts') return [
+      // O turno que a PRÓPRIA tela acabou de gravar (o clock in do caso) e o turno semeado, se houver.
+      // `started_at`/`ended_at` entram como o BANCO preencheria (o insert do app vai sem eles).
+      ...mockEstado.insercoes.filter((i) => i.tabela === 'driver_shifts').map((i) => ({
+        id: 'sh-gravado', started_at: new Date().toISOString(), ended_at: null, ...i.payload,
+      })),
+      ...(mockTurnoAberto ? [{
+        id: 'sh-turno', started_at: new Date().toISOString(), ended_at: null,
+        start_reason: 'Journey started', end_reason: null, route_id: 'r1',
+      }] : []),
+    ];
     return [];
   };
   const cadeia = (tabela: string) => {
@@ -535,12 +550,14 @@ async function apertarClockIn() {
 describe('van navigation in JOURNEY', () => {
   beforeEach(async () => {
     await AsyncStorage.clear();
+    mockTurnoAberto = false; // o caso começa FECHADA: quem abre a jornada é o clock in do próprio caso
     // A lista de cães só aparece depois de "Start pick-ups" (etapa do dia, dono 03/10/2026).
     await (require('@/features/driver/dayPhaseStore') as typeof import('@/features/driver/dayPhaseStore')).gravarBuscaIniciada('r1', 'driver-1');
     mockEstado.insercoes.length = 0;
     mockEstado.erroSedes = false;
     mockEstado.sedes = [SEDE_ROW, { ...SEDE_ROW, id: 'v2', name: 'Bay van', latitude: 38, longitude: -121, is_default: false }];
     mockRota.start_location_id = 'v2';
+    mockTurnoAberto = true; // o dia está EM ANDAMENTO: estes casos olham a rota em uso, não o "Clock in"
     mockPosicao.compartilhada = LONGE;
     mockPosicao.fresca = LONGE;
   });
@@ -578,7 +595,7 @@ describe('van navigation in JOURNEY', () => {
     mockEstado.sedes = sedes;
     const Tela = require('../app/(tabs)/driver').default;
     const tela = await render(<Tela />);
-    await waitFor(() => expect(tela.getByLabelText('Clock in')).toBeTruthy());
+    await waitFor(() => expect(tela.getByTestId('cartao-jornada')).toBeTruthy());
     const card = within(tela.getByTestId('cartao-jornada'));
     expect(card.queryByRole('button', { name: /Navigate to/ })).toBeNull();
     expect(tela.getByLabelText('Next stop: navigate to Bob')).toBeTruthy();
@@ -589,7 +606,7 @@ describe('van navigation in JOURNEY', () => {
     mockEstado.sedes.push({ ...SEDE_ROW, id: 'yard', name: 'Day yard', kind: 'yard', latitude: 36, longitude: -120, is_default: false });
     const Tela = require('../app/(tabs)/driver').default;
     const tela = await render(<Tela />);
-    await waitFor(() => expect(tela.getByLabelText('Clock in')).toBeTruthy());
+    await waitFor(() => expect(tela.getByTestId('cartao-jornada')).toBeTruthy());
     expect(tela.queryByTestId('start-dropoffs')).toBeNull();
     mockRota.route_stops[0].status = 'completed';
     await act(async () => { tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
@@ -643,6 +660,7 @@ describe('van navigation in JOURNEY', () => {
   });
 
   it('opens an English chooser without GPS and navigates to the assigned van', async () => {
+    mockTurnoAberto = false; // a jornada ainda não começou: é o "Navigate to van" do cartão do Clock in
     mockPosicao.compartilhada = null;
     mockPosicao.fresca = null;
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
@@ -658,6 +676,7 @@ describe('van navigation in JOURNEY', () => {
   });
 
   it('navigates to the assigned second van from Clock in, not the default or closest van', async () => {
+    mockTurnoAberto = false; // o caso é o alvo de navegação a partir do cartão do Clock in
     const openURL = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
     await savePreferredNavApp('google');
     const Tela = require('../app/(tabs)/driver').default;
@@ -669,14 +688,17 @@ describe('van navigation in JOURNEY', () => {
     await waitFor(() => expect(openURL).toHaveBeenCalledWith(expect.stringContaining('destination=38,-121')));
     expect(insercoesDe('driver_shifts')).toHaveLength(0);
     expect(tela.queryByTestId('navigate-start')).toBeNull();
-    expect(tela.getByText('PICK-UPS')).toBeTruthy();
-    expect(tela.getByLabelText('Next stop: navigate to Bob')).toBeTruthy();
+    // ETAPA DO DIA (dono, 03/10/2026): com a jornada ainda fechada, a lista de cães NÃO fica na tela —
+    // a tela é o cartão da jornada (foi o print do dono que apontou isso).
+    expect(tela.queryByText('PICK-UPS')).toBeNull();
+    expect(tela.queryByLabelText('Next stop: navigate to Bob')).toBeNull();
     await tela.unmount();
   });
 });
 
 describe('clock in na tela do motorista (trava por distância)', () => {
   beforeEach(() => {
+    mockTurnoAberto = false; // começa fechada: estes casos olham o "Clock in"
     mockEstado.insercoes.length = 0;
     mockEstado.rpcs.length = 0;
     mockEstado.sedes = [];

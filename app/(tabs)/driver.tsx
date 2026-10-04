@@ -1345,7 +1345,17 @@ export default function DriverTodayScreen() {
    * A ROTA na tela (próxima parada, mapa e lista de cães) segue a ETAPA do dia: antes de começar, a tela é só
    * o cartão da jornada. Na ENTREGA a lista é a consequência do yard — a virada é que a revela.
    */
-  const mostrarRota = fase === 'dropoff' || buscaIniciada;
+  /**
+   * O DIA está EM ANDAMENTO? (etapa do dia, dono 03/10/2026 — print do app: com "Journey closed." e o
+   * registro manual encerrado, a lista do Billy NÃO pode continuar na tela.)
+   *
+   * Vale como dia em andamento: jornada ABERTA (turno manual aberto ou deduzida sem fim) e também a
+   * jornada DEDUZIDA PELA ROTA — esta é a dedução pelos cães (van/primeiro evento), então o dia segue
+   * valendo nas etapas do yard e da entrega mesmo sem turno manual. O que NÃO vale é o turno manual
+   * ENCERRADO: ali o motorista bateu o ponto de saída, e o dia acabou para a tela.
+   */
+  const diaEmAndamento = journey.kind === 'open' || journey.source === 'route';
+  const mostrarRota = diaEmAndamento && (fase === 'dropoff' || buscaIniciada);
 
   /** Início e fechamento usam o app preferido, com fallback para a folha de escolha. */
   const navegarPara = useCallback(async (location: NavTarget | null, stopId: 'start' | 'closing') => {
@@ -1563,7 +1573,7 @@ export default function DriverTodayScreen() {
                 /* ETAPA DO DIA (dono, 03/10/2026): antes de começar, a tela é SÓ o cartão da jornada —
                  * a lista de cães é o trabalho dele e aparece quando ele aperta "Start pick-ups". */
                 <View style={styles.empty}>
-                  <Text style={styles.emptyText}>Your stop list opens when you tap Start pick-ups.</Text>
+                  <Text style={styles.emptyText}>Clock in and tap Start pick-ups to see today&apos;s stops.</Text>
                 </View>
               )}
             </>
