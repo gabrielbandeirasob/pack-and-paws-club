@@ -316,7 +316,7 @@ describe('2 toques: I arrived e Next', () => {
     mockEstado.falhaDeRede = false;
   });
 
-  it('depois do 2º toque o dia continua: o painel passa a oferecer a ENTREGA', async () => {
+  it('depois do 2º toque o dia continua: o yard libera a ENTREGA', async () => {
     const tela = await abrirTelaDoMotorista();
     await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
     await waitFor(() => expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy());
@@ -327,6 +327,9 @@ describe('2 toques: I arrived e Next', () => {
      * o cão NA VAN. Antes o app escrevia "Route finished" aqui, às 9 da manhã, e a tarde inteira ficava
      * sem próximo cão, sem ETA e sem aviso ao tutor. Agora o painel oferece o toque da entrega.
      */
+    await waitFor(() => expect(tela.getByTestId('start-dropoffs')).toBeTruthy());
+    expect(tela.queryByLabelText('Next stop: Delivered for Bob')).toBeNull();
+    await fireEvent.press(tela.getByTestId('start-dropoffs'));
     await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Bob')).toBeTruthy());
     expect(tela.queryByText('Route finished')).toBeNull();
     expect(tela.queryByLabelText('Next stop: Next for Bob')).toBeNull();
@@ -349,6 +352,9 @@ it('depois do toque a tela NÃO volta para o "carregando"', async () => {
   expect(tela.queryByTestId('driver-loading')).toBeNull();
 
   await fireEvent.press(tela.getByLabelText('Next stop: Next for Bob'));
+  await waitFor(() => expect(tela.getByTestId('start-dropoffs')).toBeTruthy());
+  expect(tela.queryByTestId('driver-loading')).toBeNull();
+  await fireEvent.press(tela.getByTestId('start-dropoffs'));
   await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Bob')).toBeTruthy());
   expect(tela.queryByTestId('driver-loading')).toBeNull();
 });
@@ -455,8 +461,10 @@ it('depois do toque a tela NÃO volta para o "carregando"', async () => {
       expect(tela.getByText('1089 Memorex Drive · Santa Clara')).toBeTruthy();
       expect(tela.getByText('All dogs on board — drop them at the yard.')).toBeTruthy();
 
-      // Entrega confirmada: o dia fecha voltando para a VAN.
-      mockEstado.statusDaParada = 'picked_up';
+      // O yard libera a entrega; confirmada, o dia fecha voltando para a VAN.
+      expect(tela.queryByLabelText('Delivered Bob')).toBeNull();
+      await fireEvent.press(tela.getByTestId('start-dropoffs'));
+      await waitFor(() => expect(tela.getByLabelText('Delivered Bob')).toBeTruthy());
       await fireEvent.press(tela.getByLabelText('Delivered Bob'));
       await waitFor(() => expect(tela.getByText('Back to the van')).toBeTruthy());
       expect(tela.getByText('All dogs delivered — the day ends here.')).toBeTruthy();
@@ -561,7 +569,8 @@ describe('duas pernas publicadas do motorista', () => {
     mockDuasPernas = true;
     const tela = await abrirBuscaConcluida();
     expect(tela.queryByLabelText('Delivered Luna')).toBeNull();
-    expect(tela.getByLabelText('Delivered Bob')).toBeTruthy();
+    expect(tela.queryByLabelText('Delivered Bob')).toBeNull();
+    expect(tela.getByText('PICK-UPS')).toBeTruthy();
     expect(mockConsultas[0].filtros).toMatchObject({ driver_id: 'driver-1', status: 'published' });
     expect(mockConsultas[0].limite).toBeUndefined();
     await fireEvent.press(tela.getByTestId('start-dropoffs'));

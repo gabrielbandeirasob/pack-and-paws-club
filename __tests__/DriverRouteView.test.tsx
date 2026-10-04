@@ -100,7 +100,9 @@ describe('DriverRouteView', () => {
   it('o toque da ENTREGA aparece para o cão que já está na van', async () => {
     const naVan: DriverStop[] = [{ ...stops[0], status: 'completed' }];
     const onAction = jest.fn().mockResolvedValue(undefined);
-    const tela = await render(<DriverRouteView stops={naVan} onAction={onAction} />);
+    const tela = await render(<DriverRouteView fase="pickup" stops={naVan} onAction={onAction} />);
+    expect(tela.queryByRole('button', { name: 'Delivered Bob' })).toBeNull();
+    await tela.rerender(<DriverRouteView fase="dropoff" stops={naVan} onAction={onAction} />);
 
     await fireEvent.press(tela.getByRole('button', { name: 'Delivered Bob' }));
     expect(onAction).toHaveBeenCalledWith('stop-1', 'deliver');
@@ -221,7 +223,9 @@ describe('DriverRouteView', () => {
   it('na ENTREGA (cão na van, sem deliveredAt) há DUAS saídas: Delivered e Problem', async () => {
     const naVan: DriverStop[] = [{ ...stops[0], status: 'completed' }];
     const onAction = jest.fn().mockResolvedValue(undefined);
-    const tela = await render(<DriverRouteView stops={naVan} onAction={onAction} />);
+    const tela = await render(<DriverRouteView fase="pickup" stops={naVan} onAction={onAction} />);
+    expect(tela.queryByRole('button', { name: 'Delivered Bob' })).toBeNull();
+    await tela.rerender(<DriverRouteView fase="dropoff" stops={naVan} onAction={onAction} />);
 
     await fireEvent.press(tela.getByRole('button', { name: 'Delivered Bob' }));
     expect(onAction).toHaveBeenCalledWith('stop-1', 'deliver');

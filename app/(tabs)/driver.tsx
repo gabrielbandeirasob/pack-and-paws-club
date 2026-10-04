@@ -10,7 +10,7 @@ import { clockInGate, distanceText, estaNaVan, loadOrganizationLocations, loadRo
 import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutosAteParada, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
 import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/features/driver/etaMessage';
 
-import { NextStopCard, nextActionForStatus, nextStopFor } from '@/features/driver/NextStopCard';
+import { NextStopCard, nextActionForStatus } from '@/features/driver/NextStopCard';
 import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
 import { mudarFila, chaveDoPendente, enqueuePending, flushPendingWrites, semPendentesSaidos, RefusedWriteError, abrirFilaDoUsuario, type PendingShift, type PendingWrite } from '@/features/driver/pendingWrites';
 import { carregarFase, carregouABusca, gravarBuscaIniciada, gravarFase } from '@/features/driver/dayPhaseStore';
@@ -41,6 +41,7 @@ import {
   saveRouteSnapshot,
   abrirOutboxDoUsuario,
   type DriverEventStatus,
+  type DriverEvent,
 } from '@/features/driver/offlineStore';
 import { colors, radii } from '@/features/theme/tokens';
 import { showAlert } from '@/features/ui/alert';
@@ -126,6 +127,7 @@ export default function DriverTodayScreen() {
    * "depois do clock in" já vem dele. Gravada no aparelho pela rota de busca × usuário.
    */
   const [buscaIniciada, setBuscaIniciada] = useState(false);
+  const buscaIniciadaRef = useRef(false);
   /**
    * A ENTREGA foi liberada NESTA sessão? (dono, 04/10/2026 — *"os cachorros do drop off aparecem antes de
    * apertar no botão que chegou no yard"*).
@@ -137,6 +139,7 @@ export default function DriverTodayScreen() {
    */
   const [entregasLiberadas, setEntregasLiberadas] = useState(false);
   const entregasLiberadasRef = useRef(false);
+  const entregasPorDia = useRef(new Set<string>());
   // A busca ancora as duas pernas, mantendo inclusive a fase gravada por versões anteriores.
   const faseDoDia = useRef<{ key: string; userId: string; fase: DayPhase } | null>(null);
   /**
@@ -149,6 +152,40 @@ export default function DriverTodayScreen() {
    * sabe que o estado da TELA é mais novo que a resposta e a descarta.
    */
   const geracaoDaEscrita = useRef(0);
+  // Uma única ordem de envio para botões e replay: um arrived antigo não pode
+  // terminar DEPOIS do Next e sobrescrever completed no servidor.
+  const vezDaEscrita = useRef<Promise<unknown>>(Promise.resolve());
+  const escritasPendentes = useRef(0);
+  const serializarEscrita = useCallback(<T,>(operacao: () => Promise<T>): Promise<T> => {
+    const proxima = vezDaEscrita.current.then(operacao);
+    vezDaEscrita.current = proxima.catch(() => undefined);
+    return proxima;
+  }, []);
+  const escrever = async (operacao: () => Promise<void>) => {
+    // Reserva antes de qualquer await, inclusive GPS, diálogo ou espera da fila.
+    const verificarConta = cargaEmAndamento.current !== null || escritasPendentes.current > 0;
+    geracaoDaEscrita.current += 1;
+    escritasPendentes.current += 1;
+    const dono = envioRef.current.driverId;
+    try {
+      await serializarEscrita(async () => {
+        if (verificarConta) {
+          try {
+            const { data: { user }, error } = await supabase.auth.getUser();
+            if (user && dono && user.id !== dono) { void load(true); return; }
+            if (!user && !isNetworkError(error)) { setSessaoExpirada(true); return; }
+          } catch (reason) {
+            if (!isNetworkError(reason)) { setSessaoExpirada(true); return; }
+            // A escrita offline ainda precisa chegar à fila do dono conhecido.
+          }
+        }
+        await operacao();
+      });
+    } finally {
+      escritasPendentes.current -= 1;
+      geracaoDaEscrita.current += 1;
+    }
+  };
   const [position, setPosition] = useState<LocationUpdate | null>(null);
   /**
    * Preenchido quando a trava da van RECUSOU o clock in por distância: é o que faz o cartão oferecer
@@ -279,7 +316,29 @@ export default function DriverTodayScreen() {
     return () => { ativo = false; };
   }, []);
 
-  const syncOutbox = useCallback(async (): Promise<boolean> => {
+  // A confirmação precisa sobreviver à remoção da fila, inclusive se a próxima
+  // leitura da rota cair por rede. Nunca grava eventos recusados neste retrato.
+  const confirmarNoCache = useCallback(async (eventos: Array<{ stopId: string; status?: DriverStop['status']; deliveredAt?: string | null }>) => {
+    if (!eventos.length) return;
+    const snapshot = await loadRouteSnapshot();
+    if (!snapshot) return;
+    const aplicar = (paradas: DriverStop[]) => {
+      for (const evento of eventos) paradas = paradas.map(parada => parada.id !== evento.stopId ? parada : {
+        ...parada, status: evento.status ?? parada.status, deliveredAt: evento.deliveredAt ?? parada.deliveredAt,
+      });
+      return paradas;
+    };
+    await saveRouteSnapshot({ ...snapshot, stops: aplicar(snapshot.stops),
+      routes: snapshot.routes?.map(rota => ({ ...rota, route_stops: (rota.route_stops ?? []).map(stop => {
+        const confirmado = aplicar([rowToStop(stop)])[0];
+        return { ...stop, status: confirmado.status, delivered_at: confirmado.deliveredAt ?? null };
+      }) })),
+    });
+  }, []);
+
+  const enviarOutbox = useCallback(async (confirmar: (event: DriverEvent) => void = () => undefined): Promise<boolean> => {
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (user ? user.id !== envioRef.current.driverId : !isNetworkError(authError)) return false;
     // Escritas da jornada/aviso que ficaram na fila local (sem sinal) sobem antes do resto: são
     // registros do dia de trabalho e não podem ficar esquecidos no aparelho.
     // Retrato da fila local (leitura serializada) — a trava NÃO fica presa durante a rede.
@@ -319,8 +378,9 @@ export default function DriverTodayScreen() {
       // Remove da fila VIVA só o que realmente saiu (subiu ou foi recusado), casando chave +
       // `queuedAt` do retrato. O que foi enfileirado DURANTE o envio fica — nada de gravar
       // "remaining" por cima da fila viva (era o defeito que sumia com o passo recém-salvo).
-      const filaAtual = await mudarFila((fila) => semPendentesSaidos(fila, filaLocal, resultado.remaining));
-      setPendingWrites(filaAtual);
+      await mudarFila((fila) => semPendentesSaidos(fila, filaLocal, resultado.remaining));
+      // A carga publica a fila junto das jornadas lidas após o envio; retirar
+      // a jornada local antes disso faria o cartão fechar por um instante.
       /**
        * 🪤 ACHADO DA VISTORIA (02/10/2026): o `dropped` era IGNORADO — o registro sumia da fila sem
        * nenhuma mensagem. Agora o motorista é avisado de que o escritório recusou aquele registro.
@@ -341,6 +401,7 @@ export default function DriverTodayScreen() {
     const remaining: typeof events = [];
     /** Passos que o SERVIDOR recusou (nome do cão + passo) — vão para a tela, não para o lixo. */
     const recusados: string[] = [];
+    const confirmados: DriverEvent[] = [];
     for (let indice = 0; indice < events.length; indice += 1) {
       const event = events[indice];
       /*
@@ -376,19 +437,26 @@ export default function DriverTodayScreen() {
           }
           break;
         }
+        const confirmado = { ...event, status: passo, deliveredAt: atualizacao.delivered_at as string | undefined };
+        confirmados.push(confirmado);
+        confirmar(confirmado);
       }
       if (parouPorRede) break;
     }
     // Remove do outbox VIVO só os passos que realmente saíram (subiram ou foram recusados),
     // casando parada + `createdAt` do retrato. O passo enfileirado DURANTE o envio fica — era o
     // `saveOutbox(remaining)` gravando por cima que APAGAVA o toque recém-enfileirado.
+    await confirmarNoCache(confirmados);
     const outboxAtual = await mudarOutbox((fila) => semRegistrosSaidos(fila, events, remaining));
     setPendingSync(outboxAtual.length);
     if (recusados.length > 0) {
       setMessage(`Could not save ${recusados.join(', ')} — the office did not accept ${recusados.length === 1 ? 'this step' : 'these steps'}, so ${recusados.length === 1 ? 'it was' : 'they were'} removed from the queue. Tell the office.`);
     }
     return outboxAtual.length === 0;
-  }, []);
+  }, [confirmarNoCache]);
+
+  const syncOutbox = useCallback((confirmar?: (event: DriverEvent) => void) =>
+    serializarEscrita(() => enviarOutbox(confirmar)), [serializarEscrita, enviarOutbox]);
 
   /**
    * Carrega a rota do dia.
@@ -403,288 +471,157 @@ export default function DriverTodayScreen() {
   const load = useCallback(async (silencioso = false): Promise<void> => {
     if (cargaEmAndamento.current) return cargaEmAndamento.current;
     const execucao = (async () => {
-    try {
-    if (!silencioso) {
-      setLoading(true);
-      setMessage(null);
-    }
-    /** Geração desta carga: se o motorista GRAVAR no meio dela, a resposta dela já nasceu velha. */
-    const geracaoDaCarga = geracaoDaEscrita.current;
-    /**
-     * 🪤 ACHADO DA VISTORIA (02/10/2026): IDENTIDADE ANTES DAS FILAS. As filas locais (jornada e
-     * passos da rota) são POR USUÁRIO (`scopedStorage.ts`): ler/subir a fila de OUTRA conta é o que
-     * fazia a jornada "sumir" ao alternar motorista ↔ administrador no mesmo aparelho. A sessão é
-     * resolvida AQUI — a MESMA chamada `getUser()` que a carga já fazia (uma requisição, não duas) — e
-     * o escopo + a migração da fila antiga sem dono acontecem ANTES de qualquer leitura.
-     */
-    let usuarioId: string | null = null;
-    /** Identidade da CARGA (para a subida da fila usar a MESMA conta que a dona da fila). */
-    let orgDaCarga: string | null = null;
-    let rotaDaCarga: string | null = null;
-    try {
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
-      /*
-       * Erro/sessão ausente NÃO era conferido — a consulta seguia com `driver_id = ''`, voltava vazia e
-       * a tela afirmava "No published route today". O motorista concluía que não tinha rota quando o
-       * problema era o login. Falha de REDE continua caindo no caminho de "offline"; aqui só a sessão
-       * inválida tem tratamento próprio.
-       */
-      if (authError || !user) {
-        const falha = authError?.message ?? 'Session expired.';
-        if (!isNetworkError(falha)) {
-          setSessaoExpirada(true);
-          setLoading(false);
+      if (!silencioso) { setLoading(true); setMessage(null); }
+      try {
+        // Uma carga invalidada é refeita pela MESMA promessa. Chamadas concorrentes
+        // continuam coalescidas e o refresh espera a reconciliação, não a leitura velha.
+        for (;;) {
+          await vezDaEscrita.current;
+          if (escritasPendentes.current > 0) continue;
+          const geracao = geracaoDaEscrita.current;
+          const valida = () => geracao === geracaoDaEscrita.current && escritasPendentes.current === 0;
+          let usuarioId = envioRef.current.driverId;
+          let semRede = false;
+          try {
+            const { data: { user }, error } = await supabase.auth.getUser();
+            if (error || !user) {
+              if (error && isNetworkError(error)) throw error;
+              setSessaoExpirada(true);
+              return;
+            }
+            if (!valida()) continue;
+            usuarioId = user.id;
+            await abrirFilaDoUsuario(usuarioId);
+            await abrirOutboxDoUsuario(usuarioId);
+          } catch (reason) {
+            if (!isNetworkError(reason)) throw reason;
+            semRede = true;
+          }
+          if (!valida()) continue;
+          // Sem identidade conhecida não se lê/submete cache de outra conta.
+          if (!usuarioId) { setOffline(true); return; }
+          const mudouUsuario = envioRef.current.driverId !== usuarioId;
+          if (mudouUsuario) {
+            setStops([]); setShifts([]); setPendingWrites([]); setRouteId(null);
+            setDropoffStops(null); setFase('pickup'); setBuscaIniciada(false);
+            setVanLocation(null); setYardLocation(null); setVanDeFechamento(null);
+          }
+          let snapshot = await loadRouteSnapshot();
+          let rotas: RouteResult[] | null = null;
+          let online = false;
+      const campos = 'id, organization_id, lock_version, published_at, start_location_id, end_location_id, route_stops(id, sequence, dropoff_sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, delivered_at, travel_seconds, dropoff_travel_seconds, status_updated_at, eta_notice_at, eta_notice_kind, handed_from_name, handed_at, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))';
+          try {
+            const consultar = (comFase: boolean) => supabase.from('routes')
+              .select(comFase ? `phase, ${campos}` : campos)
+              .eq('driver_id', usuarioId).eq('route_date', todayLocalISO())
+              .eq('status', 'published').order('published_at', { ascending: false });
+            let resultado = await consultar(true);
+            if (resultado.error && ['42703', 'PGRST204'].includes(resultado.error.code) && /phase/.test(resultado.error.message)) resultado = await consultar(false);
+            if (resultado.error) throw resultado.error;
+            rotas = (resultado.data as unknown as RouteResult[] | null) ?? [];
+            online = true;
+            semRede = false;
+          } catch (reason) {
+            if (!isNetworkError(reason)) throw reason;
+            semRede = true;
+            if (snapshot?.routes && snapshot.routeDate !== todayLocalISO()) snapshot = null;
+            rotas = snapshot?.routes ?? null;
+          }
+          if (!valida()) continue;
+          const pickup = rotas?.find(r => (r.phase ?? 'pickup') === 'pickup');
+          const dropoff = rotas?.find(r => r.phase === 'dropoff');
+          const key = pickup?.id ?? `day:${todayLocalISO()}`;
+          let dia = faseDoDia.current;
+          let busca = buscaIniciadaRef.current;
+          if (dia?.key !== key || dia?.userId !== usuarioId) {
+            const guardada = await carregarFase(key, usuarioId);
+            const atual = faseEfetiva(guardada, pickup?.route_stops ?? []);
+            if (atual !== guardada) await gravarFase(key, usuarioId, atual);
+            dia = { key, userId: usuarioId, fase: atual };
+            busca = await carregouABusca(key, usuarioId);
+          }
+          const daTela: DayPhase = dia.fase === 'dropoff' && Boolean(pickup) && !entregasPorDia.current.has(`${usuarioId}:${key}`)
+            && !entregaTerminou(((dropoff ?? pickup)?.route_stops ?? []).map(rowToStop)) ? 'pickup' : dia.fase;
+          const route = daTela === 'dropoff' ? dropoff ?? pickup : pickup;
+          const org = route?.organization_id ?? (online ? await resolveDriverOrganizationId(supabase, usuarioId) : null);
+          let locais = snapshot?.locations ?? [];
+          let van: OrganizationLocation | null = null;
+          let yard: OrganizationLocation | null = null;
+          if (online && route) {
+            van = await loadVanLocationForDriver(supabase, { organizationId: route.organization_id, startLocationId: route.start_location_id ?? null, paradas: paradasDaLinha(route.route_stops) });
+            locais = await loadOrganizationLocations(supabase, route.organization_id);
+            yard = await loadRouteEndLocationForDriver(supabase, { organizationId: route.organization_id, endLocationId: route.end_location_id ?? null });
+          } else if (route) {
+            van = vanLocationForRoute(locais, route.start_location_id);
+            yard = locais.find(l => l.id === route.end_location_id) ?? locais.find(l => l.kind === 'yard') ?? null;
+          }
+          if (!valida()) continue;
+          envioRef.current = { organizationId: org, driverId: usuarioId, routeId: route?.id ?? null };
+          // A resposta da rota é anterior ao sync. Reconciliamos somente os passos
+          // CONFIRMADOS, mais a fila restante; uma recusa nunca vira confirmação.
+          const confirmados: DriverEvent[] = [];
+          const synced = await syncOutbox(event => confirmados.push(event));
+          let jornadas: ManualShift[] | null = null;
+          try { jornadas = await loadDriverShifts(supabase, { driverId: usuarioId, dayStart: startOfToday(), dayEnd: startOfTomorrow() }); } catch { /* Mantém a jornada local sem rede. */ }
+          const fila = await mudarFila(f => f);
+          const events = await loadOutbox();
+          if (!valida()) continue;
+          const reconciliar = (paradas: DriverStop[]) => {
+            // Pode haver vários passos confirmados para a mesma parada, em ordem.
+            for (const event of confirmados) paradas = applyPendingEvents(paradas, [event]);
+            return paradas;
+          };
+          if (rotas) {
+            rotas = rotas.map(r => ({ ...r, route_stops: (r.route_stops ?? []).map(stop => {
+              const confirmado = reconciliar([rowToStop(stop)])[0];
+              return { ...stop, status: confirmado.status, delivered_at: confirmado.deliveredAt ?? null };
+            }) }));
+          }
+          const base = route ? (route.route_stops ?? []).map(rowToStop) : online ? [] : snapshot?.stops ?? [];
+          const confirmadas = reconciliar(base);
+          await serializarEscrita(async () => {
+            if (!valida()) return;
+            if (online && !route) {
+              await clearRouteSnapshot();
+            } else if (route || snapshot) {
+              await saveRouteSnapshot({ savedAt: new Date().toISOString(), publishedAt: route?.published_at ?? snapshot?.publishedAt ?? null,
+                stops: confirmadas, routes: rotas ?? undefined, locations: locais, routeDate: todayLocalISO() });
+            }
+          });
+          const identidade = await supabase.auth.getUser();
+          if (identidade.data.user && identidade.data.user.id !== usuarioId) continue;
+          if (!valida()) continue;
+          // Publicação sem await: fase, rota, paradas e jornada pertencem ao mesmo
+          // retrato. Nenhuma consulta lenta publica metade de uma tela antiga.
+          faseDoDia.current = dia;
+          buscaIniciadaRef.current = busca;
+          const liberadas = entregasPorDia.current.has(`${usuarioId}:${key}`);
+          entregasLiberadasRef.current = liberadas;
+          setEntregasLiberadas(liberadas);
+          setBuscaIniciada(busca); setFase(daTela);
+          setDriverId(usuarioId); setSessaoExpirada(false);
+          setRouteId(route?.id ?? null); setRouteVersion(route?.lock_version ?? null); setOrganizationId(org);
+          setVanLocation(van); setYardLocation(yard);
+          setVanDeFechamento(route ? vanLocationForRoute(locais, route.end_location_id ?? null) : null);
+          setDropoffStops(dropoff ? applyPendingEvents(reconciliar((dropoff.route_stops ?? []).map(rowToStop)), events) : null);
+          if (jornadas) setShifts(jornadas);
+          setPendingWrites(fila); setPendingSync(events.length);
+          setPublishedAt(route?.published_at ?? (online ? null : snapshot?.publishedAt ?? null));
+          setStops(applyPendingEvents(confirmadas, events));
+          setOffline(semRede || !synced);
+          if (online) void supabase.rpc('cleanup_driver_locations');
           return;
         }
-        throw new Error(falha);
-      }
-      usuarioId = user.id;
-      if (faseDoDia.current && faseDoDia.current.userId !== usuarioId) {
-        setLoading(true);
-        setStops([]);
-        setFase('pickup');
-        setRouteId(null);
-        setDropoffStops(null);
-        setVanLocation(null);
-        setYardLocation(null);
-        setVanDeFechamento(null);
-      }
-      setSessaoExpirada(false);
-      // Escopo das filas locais + migração de leitura do que ficou sem dono (uma vez por usuário).
-      await abrirFilaDoUsuario(usuarioId);
-      await abrirOutboxDoUsuario(usuarioId);
-    } catch (reason) {
-      if (!isNetworkError(reason)) {
+      } catch (reason) {
         setMessage(reason instanceof Error ? reason.message : 'Unable to load your route.');
+      } finally {
         setLoading(false);
-        return;
+        cargaEmAndamento.current = null;
       }
-      // Sem rede: segue com o que está no aparelho (a fila pode ainda não ter sido escopada).
-      setOffline(true);
-    }
-
-    const selecionarPerna = async (rotas: RouteResult[]) => {
-      const pickup = rotas.find((rota) => (rota.phase ?? 'pickup') === 'pickup');
-      const dropoff = rotas.find((rota) => rota.phase === 'dropoff');
-      setDropoffStops(dropoff ? (dropoff.route_stops ?? []).map(rowToStop) : null);
-      const key = pickup?.id ?? `day:${todayLocalISO()}`;
-      if (!usuarioId) return undefined;
-      if (faseDoDia.current?.key !== key || faseDoDia.current?.userId !== usuarioId) {
-        const guardada = await carregarFase(key, usuarioId);
-        /*
-         * 🪤 BUG REAL (03/10/2026): a fase guardada era confiada CEGAMENTE e o app ABRIA na ENTREGA com
-         * os cães da BUSCA ainda `pending` na lista — o motorista marcou "Delivered" na perna errada e o
-         * banco ficou com `status='pending'` E `delivered_at` carimbado. A fase do APARELHO não decide
-         * sozinha: `faseEfetiva` a derruba de 'dropoff' para 'pickup' enquanto a perna de BUSCA tiver cão
-         * sem buscar (nunca se entrega antes de buscar). Se a gravação estava errada, o próprio aparelho
-         * é corrigido — assim o dia não volta a abrir errado na próxima carga.
-         */
-        const atual = faseEfetiva(guardada, pickup?.route_stops ?? []);
-        if (atual !== guardada) await gravarFase(key, usuarioId, atual);
-        faseDoDia.current = { key, userId: usuarioId, fase: atual };
-        /** A tela já foi revelada neste dia/aparelho? (a lista não pode voltar a se esconder) */
-        setBuscaIniciada(await carregouABusca(key, usuarioId));
-      }
-      const atual = faseDoDia.current.fase;
-      /**
-       * A FASE DO DIA não abre a ENTREGA sozinha (dono, 04/10/2026): numa carga nova a tela volta para a BUSCA
-       * — quem abre a entrega é o toque no botão do yard. Sem perna de busca no dia (rota só de entrega) não
-       * existe yard para esperar: a fase vale como está.
-       */
-      const daTela: DayPhase = atual === 'dropoff' && Boolean(pickup) && !entregasLiberadasRef.current
-        // ...e só enquanto houver entrega para liberar: com a entrega JÁ terminada não há o que esperar (o dia
-        // está fechando — é a VAN), então a fase gravada vale como está.
-        && !entregaTerminou(((dropoff ?? pickup)?.route_stops ?? []).map(rowToStop))
-        ? 'pickup'
-        : atual;
-      setFase(daTela);
-      return daTela === 'dropoff' ? dropoff ?? pickup : pickup;
-    };
-
-    const events = await loadOutbox();
-    setPendingSync(events.length);
-
-    let snapshot = await loadRouteSnapshot();
-    /** A carga caiu por REDE? (se sim, o vazio não pode afirmar que não existe rota) */
-    let semRede = false;
-    try {
-      const campos = 'id, organization_id, lock_version, published_at, start_location_id, end_location_id, route_stops(id, sequence, dropoff_sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, delivered_at, travel_seconds, dropoff_travel_seconds, status_updated_at, eta_notice_at, eta_notice_kind, handed_from_name, handed_at, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))';
-      const consultar = (comFase: boolean) => supabase.from('routes')
-        .select(comFase ? `phase, ${campos}` : campos)
-        .eq('driver_id', usuarioId ?? '')
-        .eq('route_date', todayLocalISO())
-        .eq('status', 'published')
-        .order('published_at', { ascending: false });
-      let resultado = await consultar(true);
-      // A migração 053 é aplicada separadamente: mantém a rota única no banco antigo.
-      if (resultado.error && ['42703', 'PGRST204'].includes(resultado.error.code) && /phase/.test(resultado.error.message)) {
-        resultado = await consultar(false);
-      }
-      if (resultado.error) throw resultado.error;
-      /*
-       * 🪤 "DÁ ROLL BACK, PRECISA APERTAR DUAS VEZES" (dono, 03/10/2026): esta carga pode ter começado
-       * ANTES do toque dele. A resposta que acabou de chegar é do estado ANTERIOR à escrita: aplicá-la
-       * apagaria da tela o passo que ele já deu (a parada voltava a `pending`, a jornada voltava a
-       * "Clock in") e ele tocava de novo achando que nada tinha acontecido. O estado da TELA é mais novo
-       * que esta resposta — descarta a carga e recarrega por baixo, com o banco já atualizado.
-       */
-      if (geracaoDaCarga !== geracaoDaEscrita.current) {
-        setLoading(false);
-        setTimeout(() => void load(true), 0);
-        return;
-      }
-      setDriverId(usuarioId);
-      const rotas = (resultado.data as unknown as RouteResult[] | null) ?? [];
-      const route = await selecionarPerna(rotas);
-      /*
-       * 🪤 ACHADO DA VISTORIA (02/10/2026): a organização só existia DENTRO do `if (route)`. Num dia
-       * SEM rota publicada ela ficava nula e o clock in manual ("esqueci de bater o ponto") era
-       * impossível — o app respondia "Organization not found for this account." e o dia de trabalho
-       * não tinha como ser registrado. A organização é propriedade do VÍNCULO (`organization_members`
-       * com status `active`), não da rota: resolve-se pelo vínculo e vale com ou sem rota publicada.
-       */
-      const orgDoVinculo = route?.organization_id ?? (await resolveDriverOrganizationId(supabase, usuarioId));
-      if (route) {
-        orgDaCarga = route.organization_id;
-        rotaDaCarga = route.id;
-        const mapped = ((route.route_stops ?? []) as StopRow[]).map(rowToStop);
-        snapshot = { savedAt: new Date().toISOString(), publishedAt: route.published_at, stops: mapped, routes: rotas, routeDate: todayLocalISO() };
-        setRouteId(route.id);
-        setRouteVersion(route.lock_version);
-        setOrganizationId(route.organization_id);
-        // Sede/van da organização (migration 034). Best-effort: sem resposta, fica null — e null
-        // significa "sem trava" (o motorista nunca fica preso por causa de uma consulta que falhou).
-        // A sede escolhida NA ROTA tem prioridade; sem ela, com MAIS DE UMA van cadastrada, vale a mais
-        // próxima das paradas do dia — a padrão só decide depois disso (pergunta do dono, 01/10/2026).
-        setVanLocation(
-          await loadVanLocationForDriver(supabase, {
-            organizationId: route.organization_id,
-            startLocationId: route.start_location_id ?? null,
-            paradas: paradasDaLinha(route.route_stops),
-          }),
-        );
-        // O FIM do dia aponta para a VAN: escolha do gestor na rota (`end_location_id`) ou a van
-        // PADRÃO da organização — nunca o chute da mais próxima (cliente, 02/10/2026).
-        const locaisDaOrg = await loadOrganizationLocations(supabase, route.organization_id);
-        setVanDeFechamento(vanLocationForRoute(locaisDaOrg, route.end_location_id ?? null));
-        /**
-         * ONDE A ROTA FECHA (pedido do cliente, 02/10/2026 — *"as rota de pick up não tão acabando no
-         * yard"*): a sede que a ROTA aponta como fim (`end_location_id`) e, sem ela, o yard cadastrado
-         * pelo gestor em "Van & yard". Best-effort igual à van: sem resposta, a tela não mostra o
-         * fechamento (o motorista nunca fica sem a rota por causa disso).
-         */
-        setYardLocation(
-          await loadRouteEndLocationForDriver(supabase, {
-            organizationId: route.organization_id,
-            endLocationId: route.end_location_id ?? null,
-          }),
-        );
-        snapshot.locations = locaisDaOrg;
-        await saveRouteSnapshot(snapshot);
-        setOffline(false);
-      } else {
-        // Route finished/not published: drop the cached copy (sensitive instructions must not linger).
-        await clearRouteSnapshot();
-        snapshot = null;
-        orgDaCarga = orgDoVinculo;
-        rotaDaCarga = null;
-        setRouteId(null);
-        setRouteVersion(null);
-        // A organização do VÍNCULO (não da rota): o clock in manual funciona mesmo sem rota publicada.
-        setOrganizationId(orgDoVinculo);
-        setVanLocation(null);
-        setYardLocation(null);
-        setVanDeFechamento(null);
-      }
-      // Retention: prune stale positions opportunistically.
-      void supabase.rpc('cleanup_driver_locations');
-
-      // Jornada: registros manuais de hoje + o que está na fila local (sem sinal).
-      if (usuarioId) {
-        try {
-          setShifts(await loadDriverShifts(supabase, { driverId: usuarioId, dayStart: startOfToday(), dayEnd: startOfTomorrow() }));
-        } catch {
-          // Sem jornada carregada a tela ainda mostra a dedução dos eventos da rota.
-        }
-      }
-      setPendingWrites(await mudarFila((fila) => fila));
-    } catch (reason) {
-      if (!isNetworkError(reason)) {
-        setMessage(reason instanceof Error ? reason.message : 'Unable to load your route.');
-        setLoading(false);
-        return;
-      }
-      setOffline(true);
-      semRede = true;
-      snapshot = await loadRouteSnapshot();
-      /*
-       * 🪤 "CONFIRMA E VOLTA" (dono, 04/10/2026 — *"eu aperto o botão, ele confirma a ação e logo em seguida
-       * volta pra ação passada"*, com vídeo): esta carga caiu por REDE e ia aplicar o SNAPSHOT local — que é
-       * mais VELHO que um toque dado enquanto ela estava em voo. É exatamente o que ele viu: a parada confirma
-       * e volta. Mesma regra do caminho ONLINE: se o motorista gravou no meio desta carga, o estado da TELA é
-       * mais novo que o cache, então o cache NÃO é aplicado — e a carga é refeita por baixo.
-       */
-      if (geracaoDaCarga !== geracaoDaEscrita.current) {
-        setLoading(false);
-        setTimeout(() => void load(true), 0);
-        return;
-      }
-      if (snapshot?.routes && snapshot.routeDate !== todayLocalISO()) snapshot = null;
-      if (snapshot?.routes) {
-        const route = await selecionarPerna(snapshot.routes);
-        snapshot = route ? { ...snapshot, publishedAt: route.published_at, stops: (route.route_stops ?? []).map(rowToStop) } : null;
-        orgDaCarga = route?.organization_id ?? null;
-        rotaDaCarga = route?.id ?? null;
-        const locais = snapshot?.locations ?? [];
-        setVanLocation(vanLocationForRoute(locais, route?.start_location_id));
-        setVanDeFechamento(vanLocationForRoute(locais, route?.end_location_id));
-        setYardLocation(locais.find(local => local.id === route?.end_location_id) ?? locais.find(local => local.kind === 'yard') ?? null);
-        setRouteId(route?.id ?? null);
-        setRouteVersion(route?.lock_version ?? null);
-        setOrganizationId(route?.organization_id ?? null);
-        setDriverId(usuarioId);
-      }
-    }
-
-    /**
-     * A SUBIDA da fila usa a MESMA identidade da dona da fila (escopo por usuário). Sem isto, o
-     * `envioRef` — que é atualizado por effect, DEPOIS do render — ainda teria a conta ANTERIOR no
-     * instante do `syncOutbox`, e a jornada do motorista subiria atribuída a quem estava logado antes
-     * (o teste da troca de conta pegou exatamente isso: fila certa, `driver_id` errado).
-     */
-    if (usuarioId) envioRef.current = { organizationId: orgDaCarga, driverId: usuarioId, routeId: rotaDaCarga };
-
-    const synced = await syncOutbox();
-    if (!synced) setOffline(true);
-
-    if (!snapshot) {
-      setStops([]);
-      setPublishedAt(null);
-      // 🪤 ACHADO DA VISTORIA (02/10/2026): aqui era `setOffline(false)` FIXO, e isso apagava o aviso de
-      // offline que o próprio `catch` tinha acabado de ligar. Resultado: o motorista sem sinal via a
-      // tela dizer "No published route today" como se fosse fato — e ia embora achando que o gestor não
-      // publicou. Sem rede e sem cache o app não sabe se existe rota; então mantém o aviso.
-      setOffline(semRede || !synced);
-      setLoading(false);
-      return;
-    }
-    setPublishedAt(snapshot.publishedAt);
-    /*
-     * 🪤 ACHADO DA VISTORIA (02/10/2026): `events` era lido ANTES do `syncOutbox`. Quando o servidor
-     * RECUSAVA um passo, o sync o removia da fila e avisava "…removed from the queue" — mas a tela
-     * usava a lista ANTIGA (com o evento recusado) e APLICAVA o passo no cartão. O motorista lia "não
-     * foi aceito" e, ao mesmo tempo, via a parada concluída. A fila é relida DEPOIS do sync.
-     */
-    setStops(applyPendingEvents(snapshot.stops, await loadOutbox()));
-    setLoading(false);
-    } finally {
-      // Libera a guarda SEMPRE (inclusive nas saídas antecipadas) para a próxima carga rodar.
-      cargaEmAndamento.current = null;
-    }
     })();
     cargaEmAndamento.current = execucao;
     return execucao;
-  }, [syncOutbox]);
+  }, [syncOutbox, serializarEscrita]);
 
   /**
    * 🪤 ACHADO DA VISTORIA (02/10/2026): a fila de escritas offline só subia no foco da aba, no tempo real
@@ -809,7 +746,7 @@ export default function DriverTodayScreen() {
     return () => clearInterval(timer);
   }, [stops, position]);
 
-  const act = async (stopId: string, action: DriverAction) => {
+  const act = (stopId: string, action: DriverAction) => escrever(async () => {
     setMessage(null);
     /** Ação do motorista: qualquer carga que já estava em voo nasceu velha (ver `geracaoDaEscrita`). */
     geracaoDaEscrita.current += 1;
@@ -821,10 +758,12 @@ export default function DriverTodayScreen() {
      * offline como referência.
      */
     if (action === 'deliver') {
+      if (fase !== 'dropoff') return;
       const entregueEm = new Date().toISOString();
       const anterior = stops.find((stop) => stop.id === stopId)?.deliveredAt ?? null;
       setStops((current) => current.map((stop) => (stop.id === stopId ? { ...stop, deliveredAt: entregueEm } : stop)));
       try {
+        await enviarOutbox();
         // 🪤 ACHADO DA VISTORIA (02/10/2026): escrita sem conferir linhas. Se a policy/parada recusa, o
         // PostgREST responde SUCESSO com 0 linhas — o cartão ficava "entregue" sem o banco ter gravado.
         const { data: entregue, error } = await supabase
@@ -834,6 +773,7 @@ export default function DriverTodayScreen() {
           .select('id');
         if (error) throw new Error(`The office did not accept this delivery (${error.message}). Check your signal and try again.`);
         if (!entregue || entregue.length === 0) throw new Error('The office did not accept this delivery. Check your signal and try again.');
+        await confirmarNoCache([{ stopId, deliveredAt: entregueEm }]);
         const events = await mudarOutbox((fila) => fila.filter((event) => event.stopId !== stopId));
         setPendingSync(events.length);
         if (events.length === 0) setOffline(false);
@@ -904,6 +844,7 @@ export default function DriverTodayScreen() {
     }
 
     const statusAnterior = stops.find((stop) => stop.id === stopId)?.status ?? status;
+    let statusConfirmado = statusAnterior;
     setStops((current) => current.map((stop) => (stop.id === stopId ? { ...stop, status } : stop)));
 
     /** Grava os passos no banco, NA ORDEM. Lança em QUALQUER falha (quem chama decide o que fazer). */
@@ -920,14 +861,17 @@ export default function DriverTodayScreen() {
           .select('id');
         if (error) throw new Error(`The office did not accept this step (${error.message}). Check your signal and try again.`);
         if (!gravado || gravado.length === 0) throw new Error('The office did not accept this step. Check your signal and try again.');
+        statusConfirmado = passo;
+        await confirmarNoCache([{ stopId, status: passo }]);
       }
     };
 
     /** O cartao volta para o estado do BANCO (a escrita nao aconteceu). */
     const desfazerStatus = () =>
-      setStops((current) => current.map((stop) => (stop.id === stopId ? { ...stop, status: statusAnterior } : stop)));
+      setStops((current) => current.map((stop) => (stop.id === stopId ? { ...stop, status: statusConfirmado } : stop)));
 
     try {
+      await enviarOutbox();
       await gravarPasso();
       const events = await mudarOutbox((fila) => fila.filter((event) => event.stopId !== stopId));
       setPendingSync(events.length);
@@ -955,7 +899,7 @@ export default function DriverTodayScreen() {
       desfazerStatus();
       setMessage(reason instanceof Error ? reason.message : 'Could not save this step. Try again.');
     }
-  };
+  });
 
   /* ------------------------------------------------------------------ *
    * JORNADA (clock in / clock out) — pedido do cliente em áudio (16/09/2026)
@@ -1033,7 +977,7 @@ export default function DriverTodayScreen() {
 
   /** Clock in MANUAL: exceção (esqueceu), por isso o motivo é obrigatório no banco.
    *  `excecao` = o motorista escolheu registrar mesmo FORA do raio da van (botão "Clock in anyway"). */
-  const clockIn = async (motivo: string, excecao = false) => {
+  const clockIn = (motivo: string, excecao = false) => escrever(async () => {
     setShiftBusy(true);
     setShiftError(null);
     /** Escrita do motorista: carga em voo nasceu velha (ver `geracaoDaEscrita`). */
@@ -1114,7 +1058,7 @@ export default function DriverTodayScreen() {
     } finally {
       setShiftBusy(false);
     }
-  };
+  });
 
   /**
    * Clock out. Três casos: fecha a jornada manual aberta; fecha uma jornada que estava só na fila
@@ -1127,7 +1071,9 @@ export default function DriverTodayScreen() {
    * subia como jornada ABERTA e ficava órfã para sempre (o dia nunca fechava no relatório de horas).
    * O `planClockOut` decide qual jornada fechar, olhando banco E fila.
    */
-  const clockOut = async (motivo: string) => {
+  const clockOut = (motivo: string) => escrever(async () => {
+    const dia = faseDoDia.current;
+    if (dia) entregasPorDia.current.delete(`${dia.userId}:${dia.key}`);
     // Jornada nova começa na BUSCA: a entrega liberada na jornada anterior não vale mais.
     setEntregasLiberadas(false);
     entregasLiberadasRef.current = false;
@@ -1152,7 +1098,7 @@ export default function DriverTodayScreen() {
     // entrada da fila (entrada + saída numa linha só) — nada de criar uma jornada nova e órfã.
     if (plano.fechaNaFila) {
       setMessage('Journey closed.');
-      void syncOutbox();
+      void load(true);
       setShiftBusy(false);
       return;
     }
@@ -1184,7 +1130,7 @@ export default function DriverTodayScreen() {
     } finally {
       setShiftBusy(false);
     }
-  };
+  });
 
   /* ------------------------------------------------------------------ *
    * AVISO DE ETA AO TUTOR — mensagem pronta no mensageiro do motorista
@@ -1273,9 +1219,8 @@ export default function DriverTodayScreen() {
   /** A lista na ORDEM DA PERNA (busca × entrega): é a que o motorista vê e a que alimenta o cartão
    *  "próxima parada" — sem isto o cartão de cima discordaria da lista depois da virada. */
   const stopsDaFase = useMemo(() => ordenarPelaFase(stopsComEta, fase), [stopsComEta, fase]);
-  const proximaParada = useMemo(() => fase === 'dropoff'
-    ? stopsDaFase.find((stop) => !paradaDaFaseConcluida(stop, fase)) ?? null
-    : nextStopFor(stopsDaFase), [stopsDaFase, fase]);
+  const proximaParada = useMemo(() =>
+    stopsDaFase.find((stop) => !paradaDaFaseConcluida(stop, fase)) ?? null, [stopsDaFase, fase]);
 
   /**
    * ONDE A ROTA FECHA (pedido do cliente, 02/10/2026): depois da última BUSCA o dia vai para o YARD;
@@ -1327,6 +1272,7 @@ export default function DriverTodayScreen() {
       if (!dia || !routeId || dia.userId !== driverId) return;
       setEntregasLiberadas(true);
       entregasLiberadasRef.current = true;
+      entregasPorDia.current.add(`${dia.userId}:${dia.key}`);
       dia.fase = 'dropoff';
       geracaoDaEscrita.current += 1;
       await gravarFase(dia.key, dia.userId, 'dropoff');
@@ -1375,6 +1321,8 @@ export default function DriverTodayScreen() {
    * volta a esconder) e traz o próximo cão para a tela. Não grava nada no banco: é revelação de tela.
    */
   const iniciarBusca = useCallback(() => {
+    geracaoDaEscrita.current += 1;
+    buscaIniciadaRef.current = true;
     setBuscaIniciada(true);
     const dia = faseDoDia.current;
     if (dia && dia.userId === driverId) void gravarBuscaIniciada(dia.key, dia.userId);

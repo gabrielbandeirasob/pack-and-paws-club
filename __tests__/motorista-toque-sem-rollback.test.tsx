@@ -30,6 +30,15 @@ const mockEstado: {
 /** Consulta em voo: guarda o que o banco responderia AGORA e libera quando o teste mandar. */
 let mockConsultaEmVoo: { liberar: () => void } | null = null;
 
+let mockPausaTabela: string | null = null;
+let mockEscritaPendente: (() => void) | null = null;
+let mockSegurarEscrita = false;
+let mockOffline = false;
+let mockLeituraOffline = false;
+let mockRotaCancelada = false;
+let mockRecusarStatus: string | null = null;
+let mockRealtime: (() => void) | null = null;
+let mockPausaLeitura: (() => void) | null = null;
 let mockLocais: unknown[] = [];
 let mockDuasPernas = false;
 let mockDriverId = 'driver-1';
@@ -64,6 +73,7 @@ const mockRota = () => ({
 });
 
 const mockRotasDoDia = () => {
+  if (mockRotaCancelada) return [];
   const pickup = mockRota();
   if (!mockDuasPernas) return [pickup];
   return [{
@@ -109,6 +119,7 @@ jest.mock('@/lib/supabase', () => {
     chain.maybeSingle = mesmo; chain.insert = mesmo; chain.delete = mesmo; chain.upsert = () => Promise.resolve({ error: null });
     chain.update = (payload: Record<string, unknown>) => { payloadDoUpdate = payload; mockEstado.atualizacoes.push({ tabela, payload }); return chain; };
     chain.then = (res: (v: unknown) => unknown) => {
+      if (tabela === 'routes' && mockLeituraOffline) return Promise.resolve({ data: null, error: { message: 'Network request failed' } }).then(res);
       if (tabela === 'routes' && mockEstado.segurarConsulta && !mockConsultaEmVoo) {
         // CONGELA o que o banco responderia AGORA e segura a resposta (é a carga que nasceu antes do toque).
         mockEstado.segurarConsulta = false;
@@ -121,7 +132,21 @@ jest.mock('@/lib/supabase', () => {
           };
         }).then(res);
       }
+      if (!payloadDoUpdate && tabela === mockPausaTabela) {
+        mockPausaTabela = null;
+        const congelado = { data: dados(tabela), error: null };
+        return new Promise(resolve => { mockPausaLeitura = () => resolve(congelado); }).then(res);
+      }
       if (payloadDoUpdate) {
+        if (mockRecusarStatus && payloadDoUpdate.status === mockRecusarStatus) return Promise.resolve({ data: null, error: { message: 'row-level security policy' } }).then(res);
+        if (mockOffline) return Promise.resolve({ data: null, error: { message: 'Network request failed' } }).then(res);
+        if (mockSegurarEscrita) {
+          mockSegurarEscrita = false;
+          return new Promise(resolve => { mockEscritaPendente = () => {
+            mockEstado.statusDaParada = payloadDoUpdate!.status as typeof mockEstado.statusDaParada;
+            resolve({ data: [{ id: 's1' }], error: null });
+          }; }).then(res);
+        }
         if (tabela === 'route_stops' && typeof payloadDoUpdate.status === 'string') {
           mockEstado.statusDaParada = payloadDoUpdate.status as typeof mockEstado.statusDaParada;
         }
@@ -139,7 +164,10 @@ jest.mock('@/lib/supabase', () => {
       auth: { getUser: async () => ({ data: { user: { id: mockDriverId } } }) },
       from: (tabela: string) => cadeia(tabela),
       rpc: async () => ({ data: null, error: null }),
-      channel: () => ({ on: () => ({ on: () => ({ subscribe: () => undefined }), subscribe: () => undefined }) }),
+      channel: () => {
+        const channel = { on: (_event: unknown, _filter: unknown, callback: () => void) => { mockRealtime = callback; return channel; }, subscribe: () => undefined };
+        return channel;
+      },
       removeChannel: () => undefined,
     },
   };
@@ -192,6 +220,15 @@ const statusGravados = () => mockEstado.atualizacoes.map((linha) => linha.payloa
 beforeEach(async () => {
   await AsyncStorage.clear();
   mockConsultaEmVoo = null;
+  mockPausaTabela = null;
+  mockPausaLeitura = null;
+  mockEscritaPendente = null;
+  mockSegurarEscrita = false;
+  mockOffline = false;
+  mockLeituraOffline = false;
+  mockRotaCancelada = false;
+  mockRecusarStatus = null;
+  mockRealtime = null;
   mockDuasPernas = false;
   mockLocais = [];
   mockDriverId = 'driver-1';
@@ -239,7 +276,7 @@ describe('o toque do motorista sobrevive à carga em voo', () => {
     mockEstado.segurarConsulta = true;
     mockFalharConsulta = true; // a carga desta vez cai por rede e vai aplicar o cache
     const rolagem = tela.getByTestId('driver-scroll');
-    void rolagem.props.refreshControl.props.onRefresh();
+    await act(async () => { void rolagem.props.refreshControl.props.onRefresh(); });
     await waitFor(() => expect(mockConsultaEmVoo).not.toBeNull());
 
     await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
@@ -342,4 +379,202 @@ describe('o toque do motorista sobrevive à carga em voo', () => {
     await waitFor(() => expect(tela.getByLabelText('Next stop: I arrived for Bob')).toBeTruthy());
     expect(tela.queryByText("Clock in and tap Start pick-ups to see today's stops.")).toBeNull();
   });
+});
+
+
+describe('reconciliação da tela após as consultas de rota', () => {
+  it.each(['organization_locations', 'driver_shifts'])('não desfaz botão quando %s termina depois do toque', async tabela => {
+    const tela = await abrirTela();
+    mockPausaTabela = tabela;
+    let refresh: Promise<void>;
+    await act(async () => { refresh = tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+    await waitFor(() => expect(mockPausaLeitura).not.toBeNull());
+    await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+    await waitFor(() => expect(mockEstado.statusDaParada).toBe('arrived'));
+    await act(async () => { mockPausaLeitura!(); await refresh!; });
+    expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy();
+  });
+
+  it('refresh iniciado durante UPDATE pendente não apaga o estado otimista', async () => {
+    const tela = await abrirTela();
+    mockSegurarEscrita = true;
+    await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+    await waitFor(() => expect(mockEscritaPendente).not.toBeNull());
+    let refresh: Promise<void>;
+    await act(async () => { refresh = tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+    expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy();
+    await act(async () => { mockEscritaPendente!(); await refresh!; });
+    expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy();
+  });
+
+  it('o botão offline confirmado pelo sync não volta ao snapshot anterior ao sync', async () => {
+    const tela = await abrirTela();
+    mockOffline = true;
+    await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+    await waitFor(() => expect(tela.getByText(/This change is saved on your device/)).toBeTruthy());
+    mockOffline = false;
+    await act(async () => { await tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+    expect(mockEstado.statusDaParada).toBe('arrived');
+    expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy();
+    const { loadOutbox } = require('@/features/driver/offlineStore');
+    expect(await loadOutbox()).toEqual([]);
+  });
+});
+
+
+it('realtime durante UPDATE mantém o botão otimista e reconcilia depois da confirmação', async () => {
+  const tela = await abrirTela();
+  mockSegurarEscrita = true;
+  await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+  await waitFor(() => expect(mockEscritaPendente).not.toBeNull());
+  jest.useFakeTimers();
+  try {
+    await act(async () => { mockRealtime!(); jest.advanceTimersByTime(800); });
+    expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy();
+    await act(async () => { mockEscritaPendente!(); });
+    expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy();
+  } finally { jest.useRealTimers(); }
+});
+
+it('replay atrasado de arrived não sobrescreve o Next enviado enquanto sincroniza', async () => {
+  const tela = await abrirTela();
+  mockOffline = true;
+  await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+  await waitFor(() => expect(tela.getByText(/This change is saved on your device/)).toBeTruthy());
+  mockOffline = false;
+  mockSegurarEscrita = true;
+  let refresh: Promise<void>;
+  await act(async () => { refresh = tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+  await waitFor(() => expect(mockEscritaPendente).not.toBeNull());
+  await fireEvent.press(tela.getByLabelText('Next stop: Next for Bob'));
+  // A escrita nova não ultrapassa o replay antigo no servidor.
+  expect(statusGravados()).not.toContain('picked_up');
+  await act(async () => { mockEscritaPendente!(); await refresh!; });
+  expect(mockEstado.statusDaParada).toBe('completed');
+  expect(tela.queryByLabelText('Next stop: Next for Bob')).toBeNull();
+  expect(statusGravados().slice(-2)).toEqual(['picked_up', 'completed']);
+});
+
+it('confirmação removida da fila sobrevive à próxima consulta offline em ambas as pernas do cache', async () => {
+  const tela = await abrirTela();
+  mockOffline = true;
+  await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+  await waitFor(() => expect(tela.getByText(/This change is saved on your device/)).toBeTruthy());
+  mockOffline = false;
+  await act(async () => { await tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+  mockLeituraOffline = true;
+  await act(async () => { await tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+  expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy();
+  const { loadRouteSnapshot, loadOutbox } = require('@/features/driver/offlineStore');
+  const cache = await loadRouteSnapshot();
+  expect(cache.stops[0].status).toBe('arrived');
+  expect(cache.routes[0].route_stops[0].status).toBe('arrived');
+  expect(await loadOutbox()).toEqual([]);
+});
+
+it('yard liberado para uma conta não libera a entrega da outra conta', async () => {
+  mockDuasPernas = true;
+  mockEstado.statusDaParada = 'completed';
+  mockTurnoAberto = true;
+  const store = require('@/features/driver/dayPhaseStore');
+  for (const id of ['driver-1', 'driver-2']) {
+    await store.gravarBuscaIniciada('r1', id);
+    await store.gravarFase('r1', id, 'dropoff');
+  }
+  const Tela = require('../app/(tabs)/driver').default;
+  const tela = await render(<Tela />);
+  await waitFor(() => expect(tela.getByTestId('start-dropoffs')).toBeTruthy());
+  await fireEvent.press(tela.getByTestId('start-dropoffs'));
+  await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Luna')).toBeTruthy());
+  mockDriverId = 'driver-2';
+  await act(async () => { await tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+  expect(tela.getByText('PICK-UPS')).toBeTruthy();
+  expect(tela.queryByLabelText('Next stop: Delivered for Luna')).toBeNull();
+});
+
+
+it('troca de fase solicitada durante locations termina com rota e jornada da entrega', async () => {
+  mockDuasPernas = true;
+  mockEstado.statusDaParada = 'completed';
+  mockTurnoAberto = true;
+  await (require('@/features/driver/dayPhaseStore')).gravarBuscaIniciada('r1', mockDriverId);
+  const Tela = require('../app/(tabs)/driver').default;
+  const tela = await render(<Tela />);
+  await waitFor(() => expect(tela.getByTestId('start-dropoffs')).toBeTruthy());
+  mockPausaTabela = 'organization_locations';
+  let refresh: Promise<void>;
+  await act(async () => { refresh = tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+  await waitFor(() => expect(mockPausaLeitura).not.toBeNull());
+  await fireEvent.press(tela.getByTestId('start-dropoffs'));
+  await act(async () => { mockPausaLeitura!(); await refresh!; });
+  await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Luna')).toBeTruthy());
+  expect(tela.getByText('DROP-OFFS')).toBeTruthy();
+  expect(tela.queryByTestId('start-dropoffs')).toBeNull();
+  expect(tela.queryByTestId('driver-loading')).toBeNull();
+});
+
+it('uma ação aguardando replay não é enviada usando a conta que entrou depois', async () => {
+  const tela = await abrirTela();
+  mockOffline = true;
+  await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+  await waitFor(() => expect(tela.getByText(/This change is saved on your device/)).toBeTruthy());
+  mockOffline = false;
+  mockSegurarEscrita = true;
+  let refresh: Promise<void>;
+  await act(async () => { refresh = tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+  await waitFor(() => expect(mockEscritaPendente).not.toBeNull());
+  await fireEvent.press(tela.getByLabelText('Next stop: Next for Bob'));
+  mockDriverId = 'driver-2';
+  await act(async () => { mockEscritaPendente!(); await refresh!; });
+  expect(statusGravados()).not.toContain('picked_up');
+  expect(statusGravados()).not.toContain('completed');
+  expect(tela.queryByLabelText('Next stop: Next for Bob')).toBeNull();
+  expect(tela.getByText("Clock in and tap Start pick-ups to see today's stops.")).toBeTruthy();
+  const outro = await AsyncStorage.getItem('pnp:driver:outbox:driver-2');
+  expect(JSON.parse(outro ?? '[]')).toEqual([]);
+});
+
+
+it('recusa do segundo passo do Next preserva só picked_up confirmado e mostra o aviso', async () => {
+  const tela = await abrirTela();
+  await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+  await waitFor(() => expect(mockEstado.statusDaParada).toBe('arrived'));
+  mockRecusarStatus = 'completed';
+  await fireEvent.press(tela.getByLabelText('Next stop: Next for Bob'));
+  await waitFor(() => expect(tela.getByText(/The office did not accept this step/)).toBeTruthy());
+  expect(mockEstado.statusDaParada).toBe('picked_up');
+  expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy();
+  const cache = await (require('@/features/driver/offlineStore')).loadRouteSnapshot();
+  expect(cache.stops[0].status).toBe('picked_up');
+  expect(cache.routes[0].route_stops[0].status).toBe('picked_up');
+});
+
+it('rota cancelada descarta o cache mesmo depois de um botão confirmado', async () => {
+  const tela = await abrirTela();
+  await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+  await waitFor(() => expect(mockEstado.statusDaParada).toBe('arrived'));
+  mockRotaCancelada = true;
+  await act(async () => { await tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+  expect(await (require('@/features/driver/offlineStore')).loadRouteSnapshot()).toBeNull();
+  expect(tela.queryByLabelText('Next stop: Next for Bob')).toBeNull();
+  mockLeituraOffline = true;
+  await act(async () => { await tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+  expect(tela.queryByLabelText('Next stop: Next for Bob')).toBeNull();
+});
+
+it('concluir a busca não oferece Delivered antes do botão do yard, inclusive durante refresh lento', async () => {
+  const tela = await abrirTela();
+  await fireEvent.press(tela.getByLabelText('Next stop: I arrived for Bob'));
+  await waitFor(() => expect(tela.getByLabelText('Next stop: Next for Bob')).toBeTruthy());
+  await fireEvent.press(tela.getByLabelText('Next stop: Next for Bob'));
+  await waitFor(() => expect(tela.getByTestId('start-dropoffs')).toBeTruthy());
+  expect(tela.queryByLabelText('Next stop: Delivered for Bob')).toBeNull();
+  expect(tela.queryByLabelText('Delivered Bob')).toBeNull();
+  mockPausaTabela = 'organization_locations';
+  let refresh: Promise<void>;
+  await act(async () => { refresh = tela.getByTestId('driver-scroll').props.refreshControl.props.onRefresh(); });
+  await waitFor(() => expect(mockPausaLeitura).not.toBeNull());
+  await fireEvent.press(tela.getByTestId('start-dropoffs'));
+  await act(async () => { mockPausaLeitura!(); await refresh!; });
+  await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Bob')).toBeTruthy());
 });

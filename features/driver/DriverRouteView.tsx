@@ -240,7 +240,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
          * pick-up e o motorista ficava sem mandar o aviso da ENTREGA (defeito relatado).
          */
         const finalizada = stop.status === 'skipped' || Boolean(stop.deliveredAt);
-        const paraEntregar = paradaEntregavel(stop, fase);
+        const paraEntregar = fase === 'dropoff' && paradaEntregavel(stop, fase);
         const address = addressLine(stop);
         const posicao = posicoes.get(stop.id);
         // Cabeçalho da PARADA: só quando ela tem mais de um cão (mesmo cliente, mesmo endereço).
