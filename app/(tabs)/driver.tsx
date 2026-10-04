@@ -1621,13 +1621,18 @@ export default function DriverTodayScreen() {
 }
 
 const styles = StyleSheet.create({
+  /**
+   * SELETOR DE PERNA DO MOTORISTA — MESMO desenho do quadro do gestor (dono, 04/10/2026: *"a caixa
+   * seletora do pick-up e drop off tem uma coloração confusa"*): o ativo é verde CLARO com texto escuro,
+   * discreto, e não o bloco verde cheio que ocupava metade da tela.
+   */
   phaseSection: { marginBottom: 12, gap: 8 },
   phaseRow: { flexDirection: 'row', gap: 8 },
   phaseOption: { flex: 1, minHeight: 44, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, padding: 12, alignItems: 'center', backgroundColor: colors.paper },
-  phaseActive: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
+  phaseActive: { backgroundColor: colors.sage, borderColor: colors.forest700 },
   phaseDisabled: { opacity: 0.5 },
-  phaseText: { color: colors.forest700, fontWeight: '800' },
-  phaseTextActive: { color: colors.paper },
+  phaseText: { color: colors.muted, fontWeight: '800' },
+  phaseTextActive: { color: colors.forest900 },
   phaseHint: { color: colors.muted, fontSize: 12 },
   screen: { flex: 1, backgroundColor: colors.forest700 },
   /** ScrollView externo = o ÚNICO scroller vertical da tela do motorista. */

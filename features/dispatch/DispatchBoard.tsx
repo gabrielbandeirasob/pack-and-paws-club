@@ -195,6 +195,13 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
   const [localPhase, setAssignmentPhase] = useState<Perna>('pickup');
   const assignmentPhase = phase ?? localPhase;
   const escolherPerna = (phase: Perna) => { setAssignmentPhase(phase); onPhaseChange?.(phase); };
+  /**
+   * ARRASTO EM CURSO (dono, 04/10/2026 — *"quando eu arrasto o cachorro a tela desce ou sobe junto"*).
+   * Enquanto o gestor arrasta um cão, o `ScrollView` deste quadro DESLIGA o scroll: sem isso o pan nativo
+   * da lista rouba o gesto e a tela rola junto. Volta a ligar assim que o dedo solta (ou o gesto é
+   * cancelado) — quem avisa é o `ReorderableStops`.
+   */
+  const [arrastando, setArrastando] = useState(false);
   const [travas, setTravas] = useState<Travas>({});
   const [sheet, setSheet] = useState<SheetState>(null);
   /**
@@ -450,13 +457,19 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
           {plural((assignmentPhase === 'pickup' ? dayItems : dropoffItems ?? []).length, 'transport dog', 'transport dogs')} · {plural(drivers.length, 'driver', 'drivers')}
         </Text>
       </View>
-      <View style={styles.pinRow} testID="dispatch-phase-selector">{(['pickup', 'dropoff'] as const).map(phase =>
+      {/*
+        * SELETOR DE PERNA (dono, 04/10/2026): desenho PRÓPRIO, de uma linha, separado dos chips de
+        * motorista logo abaixo — antes ele vestia o MESMO estilo deles e o dono leu "coloração confusa".
+        * O ativo é verde CLARO (`sage`) com texto escuro: discreto, sem bloco verde cheio na tela.
+        */}
+      <Text style={styles.faseRotulo}>PLANNING</Text>
+      <View style={styles.faseSeletor} testID="dispatch-phase-selector">{(['pickup', 'dropoff'] as const).map(phase =>
         <Pressable key={phase} accessibilityRole="button" accessibilityLabel={phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'}
           accessibilityState={{ selected: assignmentPhase === phase }} onPress={() => escolherPerna(phase)}
-          style={[styles.driverOption, assignmentPhase === phase && styles.driverOptionActive]}>
-          <Text style={[styles.driverOptionText, assignmentPhase === phase && styles.driverOptionTextActive]}>{phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'}</Text>
+          style={[styles.faseOpcao, assignmentPhase === phase && styles.faseOpcaoAtiva]}>
+          <Text style={[styles.faseOpcaoTexto, assignmentPhase === phase && styles.faseOpcaoTextoAtivo]}>{phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'}</Text>
         </Pressable>)}</View>
-      <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView testID="dispatch-scroll" scrollEnabled={!arrastando} automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* LINHA DE MOTORISTAS (Proposta B, 03/10/2026): escolhe quem está na tela — um por vez. */}
         {drivers.length > 0 ? (
           <View style={styles.motoristaSeletor}>
@@ -490,6 +503,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
               onSuggest={podeSugerir ? pedirSugestao : undefined} suggestionBusy={sugestaoBusy}
               vans={vans} onChooseVan={assignmentPhase === 'pickup' ? onChooseVan : undefined} vanDoMotorista={vanDoMotorista} onOpenStopList={onOpenStopList}
               diaDogIds={diaDogIds}
+              onDraggingChange={setArrastando}
               onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
             {/* DEFEITO B (03/10/2026): cria a perna que nunca nasceu — draft, sem publicar. Fica FORA do
                 cartão (o cartão não conhece a ação) e aparece quando o motorista visível tem cão para
@@ -812,6 +826,11 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
   driver: DispatchDriver;
   route?: DispatchRoute;
   leg: Perna;
+  /**
+   * O cartão avisa o QUADRO quando um arrasto começa/termina (dono, 04/10/2026) — quem desliga o scroll é
+   * o `ScrollView` do quadro, que vive fora deste cartão.
+   */
+  onDraggingChange?: (dragging: boolean) => void;
   location?: { latitude: number; longitude: number; updatedAt: string };
   working: boolean;
   setSheet: (sheet: SheetState) => void;
@@ -828,7 +847,7 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
 const CartaoMotorista = memo(function CartaoMotorista({
   driver, route, leg, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
   onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy,
-  vans, onChooseVan, vanDoMotorista, onOpenStopList, diaDogIds,
+  vans, onChooseVan, vanDoMotorista, onOpenStopList, diaDogIds, onDraggingChange,
 }: PropsCartao) {
   // A rota e as ações pertencem somente à perna selecionada.
   const grupos = useMemo(() => route ? [{ leg, route,
@@ -1030,6 +1049,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
         <View key={`${driver.id}-${leg}`} testID={`dispatch-leg-${leg}-${driver.id}`}>
           <Text style={styles.grupoRotulo}>{leg === 'pickup' ? 'Pick-ups' : 'Drop-offs'} · {plural(paradas.length, 'stop', 'stops')}</Text>
           <ReorderableStops stops={paradas} leg={leg} enabled={rotaDaPerna.status === 'draft' && paradas.length > 1 && !working && !!moverPerna}
+            onDraggingChange={onDraggingChange}
             onMove={(dogId, direction) => { void moverPerna?.(rotaDaPerna.routeId, dogId, direction); }}>
           {(stop, index, handle, accessibility) => (
         <View key={`${driver.id}-${leg}-${stop.dogId}`} style={styles.stop}>
@@ -1089,6 +1109,17 @@ function TimeTargetButton({ label, accessibilityLabel, value, active, onPress, h
 
 const styles = StyleSheet.create({
   pinRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 4 },
+  /** Rótulo do seletor de perna — separa "PLANNING" dos chips de motorista logo abaixo. */
+  faseRotulo: { color: colors.muted, fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 10, marginLeft: 14, marginBottom: 4 },
+  /**
+   * SELETOR DE PERNA: uma linha só, com moldura própria (não é o chip de motorista). O ativo é verde
+   * CLARO com texto escuro — discreto no celular, e distinto dos chips de motorista (verde escuro).
+   */
+  faseSeletor: { flexDirection: 'row', alignSelf: 'flex-start', marginLeft: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, backgroundColor: colors.paper, overflow: 'hidden' },
+  faseOpcao: { minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18, borderRightWidth: 1, borderRightColor: colors.line },
+  faseOpcaoAtiva: { backgroundColor: colors.sage },
+  faseOpcaoTexto: { color: colors.muted, fontSize: 13, fontWeight: '800' },
+  faseOpcaoTextoAtivo: { color: colors.forest900 },
   pinLabel: { width: 50, fontSize: 12, color: colors.ink },
   pinChip: { paddingHorizontal: 6, paddingVertical: 7 },
   pinInput: { width: 30, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, color: colors.ink, padding: 3 },

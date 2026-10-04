@@ -7,20 +7,33 @@ type Stop = { dogId: string; dogName: string };
 type Drag = { dogId: string; from: number; to: number; dy: number };
 
 /** Presentation only: every crossed position uses the existing serialized reorder callback. */
-export function ReorderableStops<T extends Stop>({ stops, leg, enabled, onMove, children }: {
+export function ReorderableStops<T extends Stop>({ stops, leg, enabled, onMove, onDraggingChange, children }: {
   stops: T[];
   leg: Perna;
   enabled: boolean;
   onMove: (dogId: string, direction: -1 | 1) => void;
+  /**
+   * AVISA O QUADRO QUE O ARRASTO COMEÇOU/TERMINOU (dono, 04/10/2026 — *"quando eu arrasto o cachorro a
+   * tela desce ou sobe junto"*). Sem isso o `ScrollView` do quadro continua com o scroll LIGADO durante o
+   * gesto e, no iOS, o pan nativo da lista rouba o movimento: a tela rola junto com o cão. O quadro usa
+   * este aviso para DESLIGAR o scroll enquanto o arrasto está em andamento.
+   */
+  onDraggingChange?: (dragging: boolean) => void;
   children: (stop: T, index: number, handle: ReactNode, accessibility: ViewProps) => ReactNode;
 }) {
   const [drag, setDrag] = useState<Drag | null>(null);
   const active = useRef<Drag | null>(null);
   const heights = useRef(new Map<string, number>());
-  const latest = useRef({ stops, enabled, onMove });
-  latest.current = { stops, enabled, onMove };
+  const latest = useRef({ stops, enabled, onMove, onDraggingChange });
+  latest.current = { stops, enabled, onMove, onDraggingChange };
   const height = (id: string) => heights.current.get(id) ?? 80;
-  const cancel = () => { active.current = null; setDrag(null); };
+  const cancel = () => {
+    const estavaArrastando = active.current !== null;
+    active.current = null;
+    setDrag(null);
+    // Só avisa quando havia mesmo um arrasto em curso (o `cancel` também roda ao desabilitar).
+    if (estavaArrastando) latest.current.onDraggingChange?.(false);
+  };
   useEffect(() => { if (!enabled) cancel(); }, [enabled]);
   const start = (dogId: string) => {
     if (!latest.current.enabled) return;
@@ -28,6 +41,7 @@ export function ReorderableStops<T extends Stop>({ stops, leg, enabled, onMove, 
     if (from < 0) return;
     active.current = { dogId, from, to: from, dy: 0 };
     setDrag(active.current);
+    latest.current.onDraggingChange?.(true);
   };
   const move = (dy: number) => {
     const current = active.current;
@@ -92,7 +106,14 @@ function DraggableRow({ stop, leg, enabled, offset, lifted, onHeight, onStart, o
   }, [offset, lifted, translate]);
   const responder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => latest.current.enabled,
+    /*
+     * CAPTURA o gesto na ALÇA antes do conteúdo (dono, 04/10/2026: *"quando eu arrasto o cachorro a tela
+     * desce ou sobe junto"*). A alça é o único alvo do arrasto — quem toca nela quer arrastar, não rolar.
+     * Isto cobre o Android; no iOS o que garante é o quadro desligar o scroll (`onDraggingChange`).
+     */
+    onStartShouldSetPanResponderCapture: () => latest.current.enabled,
     onMoveShouldSetPanResponder: () => latest.current.enabled,
+    onMoveShouldSetPanResponderCapture: () => latest.current.enabled,
     onPanResponderGrant: () => latest.current.onStart(),
     onPanResponderMove: (_, gesture) => latest.current.onMove(gesture.dy),
     onPanResponderRelease: () => latest.current.onFinish(),
