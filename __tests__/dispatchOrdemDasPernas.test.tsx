@@ -1,3 +1,4 @@
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 // A tela do Dispatch usa `useFocusEffect` (as vans são relidas ao voltar para ela): sem
 // NavigationContainer o hook do expo-router quebra — mesmo mock das outras telas de teste do projeto.
 jest.mock('expo-router', () => {
@@ -90,30 +91,29 @@ async function montar() {
   return tela;
 }
 /**
- * O BLOCO de uma perna. O cartão mostra as DUAS pernas juntas (a troca de perna saiu, dono 03/10/2026),
- * então toda interação é lida dentro do bloco da perna — e os controles da ENTREGA levam o sufixo
- * " · drop-off" para não colidirem com os da busca.
+ * Pedido de 04/10: o bloco existe apenas quando sua perna está selecionada.
  */
 function perna(tela: Awaited<ReturnType<typeof montar>>, leg: 'pickup' | 'dropoff' = 'pickup') {
   return within(tela.getByTestId(`dispatch-leg-${leg}-motorista`));
 }
 function ordem(tela: Awaited<ReturnType<typeof montar>>, leg: 'pickup' | 'dropoff' = 'pickup') {
-  return perna(tela, leg).getAllByText(/^Sarah · /).map((item) => item.props.children.join(''));
+  return perna(tela, leg).getAllByText(/^(Luna|Max|Filó)$/).map((item) => item.props.children);
 }
 async function concluir(indice: number) {
   await act(async () => confirmar[indice]({ data: null, error: null }));
 }
 
-it('as duas pernas ficam na tela, cada uma com a sua ordem e o seu selo', async () => {
+it('o seletor mostra cada perna com sua ordem e seu selo', async () => {
   mockOrdem = mockParadas.map((stop) => ({ ...stop, dropoff_pin: stop.dog_id === 'Filó' ? 'first' : null }));
   const tela = await montar();
   // BUSCA: ordem por `sequence`, e sem selo de entrega no bloco de busca.
-  expect(ordem(tela, 'pickup')).toEqual(['Sarah · Luna', 'Sarah · Max', 'Sarah · Filó']);
+  expect(ordem(tela, 'pickup')).toEqual(['Luna', 'Max', 'Filó']);
   expect(perna(tela, 'pickup').queryByText('🔒 1st')).toBeNull();
   // ENTREGA: a ordem é a da TARDE (`dropoff_sequence`) e o selo fica SÓ neste bloco.
-  expect(ordem(tela, 'dropoff')).toEqual(['Sarah · Filó', 'Sarah · Max', 'Sarah · Luna']);
+  await fireEvent.press(tela.getByLabelText('Drop-offs'));
+  expect(ordem(tela, 'dropoff')).toEqual(['Filó', 'Max', 'Luna']);
   expect(perna(tela, 'dropoff').getByText('🔒 1st')).toBeTruthy();
-  // Sem clique nenhum (a troca de perna saiu) e sem recarregar a tela do banco.
+  // Alternar a perna não recarrega a tela do banco.
   expect(tela.queryByTestId('dispatch-loading')).toBeNull();
   const consultas = (supabase.from as jest.Mock).mock.calls.length;
   await act(async () => {});
@@ -122,13 +122,14 @@ it('as duas pernas ficam na tela, cada uma com a sua ordem e o seu selo', async 
 
 it('agrupa toques da entrega, incrementa versão e mantém busca independente', async () => {
   const tela = await montar();
-  await fireEvent.press(perna(tela, 'dropoff').getByRole('button', { name: 'Move Max up · drop-off' }));
-  expect(ordem(tela, 'dropoff')).toEqual(['Sarah · Max', 'Sarah · Filó', 'Sarah · Luna']);
+  await fireEvent.press(tela.getByLabelText('Drop-offs'));
+  await fireEvent(perna(tela, 'dropoff').getByTestId('reorder-dropoff-Max'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
+  expect(ordem(tela, 'dropoff')).toEqual(['Max', 'Filó', 'Luna']);
   expect(rpc).toHaveBeenLastCalledWith('apply_route_order', {
     p_route_id: 'rota', p_pickup_ids: null, p_dropoff_ids: ['Max', 'Filó', 'Luna'], p_esperado: 4,
   });
-  await fireEvent.press(perna(tela, 'dropoff').getByRole('button', { name: 'Move Luna up · drop-off' }));
-  await fireEvent.press(perna(tela, 'dropoff').getByRole('button', { name: 'Move Luna up · drop-off' }));
+  await fireEvent(perna(tela, 'dropoff').getByTestId('reorder-dropoff-Luna'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
+  await fireEvent(perna(tela, 'dropoff').getByTestId('reorder-dropoff-Luna'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
   expect(rpc).toHaveBeenCalledTimes(1);
   await concluir(0);
   expect(rpc).toHaveBeenLastCalledWith('apply_route_order', {
@@ -136,8 +137,9 @@ it('agrupa toques da entrega, incrementa versão e mantém busca independente', 
   });
   await concluir(1);
   // A BUSCA segue independente: a ordem da manhã não foi tocada pelas mexidas da tarde.
-  expect(ordem(tela, 'pickup')).toEqual(['Sarah · Luna', 'Sarah · Max', 'Sarah · Filó']);
-  await fireEvent.press(perna(tela, 'pickup').getByRole('button', { name: 'Move Max up' }));
+  await fireEvent.press(tela.getByLabelText('Pick-ups'));
+  expect(ordem(tela, 'pickup')).toEqual(['Luna', 'Max', 'Filó']);
+  await fireEvent(perna(tela, 'pickup').getByTestId('reorder-pickup-Max'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
   expect(rpc).toHaveBeenLastCalledWith('reorder_route_stops', {
     p_route_id: 'rota', p_dog_ids: ['Max', 'Luna', 'Filó'], p_esperado: 6,
   });
@@ -166,7 +168,7 @@ it('salva somente pernas alteradas e incrementa versão a cada trava confirmada'
   await fireEvent.press(tela.getByRole('button', { name: 'Options for Luna' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
   expect(rpc).toHaveBeenCalledTimes(2);
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Max up' }));
+  await fireEvent(tela.getByTestId('reorder-pickup-Max'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
   expect(rpc).toHaveBeenLastCalledWith('reorder_route_stops', expect.objectContaining({ p_esperado: 6 }));
   await concluir(2);
 });
@@ -186,7 +188,7 @@ it('trava recusada por stale_route recarrega silenciosamente sem selo inventado'
   } finally { alerta.mockRestore(); }
 });
 
-it('Optimize mostra duas listas e conflitos, usa uma matriz e aplica numa única escrita', async () => {
+it('Optimize mostra e grava só a perna escolhida, mantendo conflitos e tempos de cada uma', async () => {
   mockOrdem = mockParadas.map((stop) => ({
     ...stop, pickup_pin: stop.dog_id === 'Filó' ? 'first' : null,
     dropoff_pin: stop.dog_id !== 'Filó' ? 'first' : null,
@@ -196,29 +198,41 @@ it('Optimize mostra duas listas e conflitos, usa uma matriz e aplica numa única
     const tela = await montar();
     await fireEvent.press(tela.getByRole('button', { name: 'Optimize Rafael route' }));
     expect(fetchTravelTimes).toHaveBeenCalledTimes(1);
-    // 3 min por pick-up nas DUAS pernas (busca e entrega) — o pedido do cliente, 30/09/2026.
-    expect(optimizeRouteEspiao).toHaveBeenCalledTimes(2);
+    // 3 min por parada; cada Optimize trabalha somente na perna escolhida.
+    expect(optimizeRouteEspiao).toHaveBeenCalledTimes(1);
     for (const [, opcoesDaChamada] of optimizeRouteEspiao.mock.calls) {
       expect(opcoesDaChamada).toMatchObject({ serviceMinutes: 3 });
     }
     const [, mensagem, botoes] = alerta.mock.calls[0];
     expect(mensagem).toContain('Pick-up:\n• 1. Filó');
-    expect(mensagem).toContain('Drop-off:\n• 1. Luna');
-    expect(mensagem).toContain('Conflicting locks #1: Luna, Max');
+    expect(mensagem).not.toContain('Drop-off:');
     // ANTES -> DEPOIS (dúvida do dono, 01/10/2026: "não consigo confirmar se está realmente fazendo a
     // melhor rota"): o alerta passa a mostrar o número das duas ordens, com a MESMA conta de
     // deslocamento + serviço. Aqui as três paradas têm a mesma coordenada, então o ganho é zero —
     // o que se prova é que a linha sai com os números e o rótulo certo.
     expect(mensagem).toMatch(/Pick-up: \d+ min -> \d+ min \(no change\)/);
-    expect(mensagem).toMatch(/Drop-off: \d+ min -> \d+ min/);
+
     await act(async () => botoes?.find((botao) => botao.text === 'Apply')?.onPress?.());
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith('apply_route_order', {
       p_route_id: 'rota', p_pickup_ids: ['Filó', 'Luna', 'Max'],
-      p_dropoff_ids: ['Luna', 'Filó', 'Max'], p_esperado: 4,
+      p_dropoff_ids: null, p_esperado: 4,
     });
     mockVersao = 5;
     await concluir(0);
+    await fireEvent.press(tela.getByLabelText('Drop-offs'));
+    await fireEvent.press(tela.getByLabelText('Optimize Rafael route'));
+    expect(optimizeRouteEspiao).toHaveBeenCalledTimes(2);
+    const [, entrega, botoesEntrega] = alerta.mock.calls[1];
+    expect(entrega).toContain('Drop-off:\n• 1. Max');
+    expect(entrega).toContain('Conflicting locks #1: Max, Luna');
+    expect(entrega).toMatch(/Drop-off: \d+ min -> \d+ min/);
+    expect(entrega).not.toContain('Pick-up:');
+    await act(async () => botoesEntrega?.find(b => b.text === 'Apply')?.onPress?.());
+    expect(rpc).toHaveBeenLastCalledWith('apply_route_order', {
+      p_route_id: 'rota', p_pickup_ids: null, p_dropoff_ids: ['Max', 'Filó', 'Luna'], p_esperado: 5,
+    });
+    await concluir(1);
     expect(tela.queryByTestId('dispatch-loading')).toBeNull();
   } finally { alerta.mockRestore(); }
 });
@@ -245,9 +259,11 @@ it('Optimize mantém concluídas na frente e relata trava incompatível', async 
 
 it('não perde intenções ao mexer nas duas pernas durante uma escrita pendente', async () => {
   const tela = await montar();
-  await fireEvent.press(perna(tela, 'pickup').getByRole('button', { name: 'Move Max up' }));
-  await fireEvent.press(perna(tela, 'dropoff').getByRole('button', { name: 'Move Luna up · drop-off' }));
-  await fireEvent.press(perna(tela, 'pickup').getByRole('button', { name: 'Move Filó up' }));
+  await fireEvent(perna(tela, 'pickup').getByTestId('reorder-pickup-Max'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
+  await fireEvent.press(tela.getByLabelText('Drop-offs'));
+  await fireEvent(perna(tela, 'dropoff').getByTestId('reorder-dropoff-Luna'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
+  await fireEvent.press(tela.getByLabelText('Pick-ups'));
+  await fireEvent(perna(tela, 'pickup').getByTestId('reorder-pickup-Filó'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
   await concluir(0);
   expect(rpc).toHaveBeenLastCalledWith('reorder_route_stops', {
     p_route_id: 'rota', p_dog_ids: ['Max', 'Filó', 'Luna'], p_esperado: 5,

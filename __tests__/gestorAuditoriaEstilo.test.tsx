@@ -1,3 +1,4 @@
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 /**
  * AUDITORIA DO GESTOR (02/10/2026) — M4 (contraste) e M5 (legendas/alvos de toque).
  *
@@ -102,7 +103,7 @@ describe('M5 — legendas ≥12 pt e alvos ≥44 pt no quadro do gestor', () => 
     expect(tela.getByText('PACK & PAWS CLUB · DISPATCH')).toHaveStyle({ fontSize: 12 });
     expect(tela.getByText(/unassigned/)).toHaveStyle({ fontSize: 12 });
     expect(tela.getByText('Show')).toHaveStyle({ fontSize: 12 });
-    expect(tela.getByRole('button', { name: 'Assign Maria · Bob' })).toHaveStyle({ minHeight: 44 });
+    expect(tela.getByRole('button', { name: 'Assign Bob' })).toHaveStyle({ minHeight: 44 });
   });
 
   it('DayPlanCard: o rótulo do campo tem ≥12 pt', async () => {

@@ -341,12 +341,12 @@ export default function CalendarScreen() {
       { text: 'Remove series', style: 'destructive' as const, onPress: () => void removeSeries(schedule.id) },
       { text: 'Cancel', style: 'cancel' as const },
     ];
-    showAlert(`${item.clientName} · ${item.dogName}`, `Repeats ${schedule.weekdays.map((day) => WEEKDAY_NAMES[day]).join(' · ')}`, buttons);
+    showAlert(`${item.dogName}`, `Repeats ${schedule.weekdays.map((day) => WEEKDAY_NAMES[day]).join(' · ')}`, buttons);
   };
 
   const openReservationActions = (item: DayItem) => {
     if (!item.reservationId) { confirmRemoveReservation(item); return; }
-    const label = `${item.clientName} · ${item.dogName}`;
+    const label = `${item.dogName}`;
     showAlert(label, 'What do you want to do with this reservation?', [
       { text: 'Edit reservation', onPress: () => router.push({ pathname: '/reservation-edit', params: { id: item.reservationId as string } }) },
       { text: 'Remove', style: 'destructive', onPress: () => void removeReservation(item) },
@@ -355,7 +355,7 @@ export default function CalendarScreen() {
   };
 
   const confirmRemoveReservation = (item: DayItem) => {
-    const label = `${item.clientName} · ${item.dogName}`;
+    const label = `${item.dogName}`;
     showAlert('Remove reservation', `Remove ${label} from the calendar?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => void removeReservation(item) },
@@ -363,7 +363,7 @@ export default function CalendarScreen() {
   };
 
   const restorePaused = (schedule: RecurringScheduleRecord) => {
-    const label = `${schedule.dog.clientName} · ${schedule.dog.dogName}`;
+    const label = `${schedule.dog.dogName}`;
     showAlert('Restore this date', `Add ${label} back to ${formatDayLabel(selectedDay)}?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Restore', onPress: () => void removeSkipOnDate(schedule.id) },
@@ -434,7 +434,7 @@ export default function CalendarScreen() {
                 {pausedToday.map((schedule) => (
                   <View key={`paused-${schedule.id}`} style={styles.itemRow}>
                     <View style={styles.itemTextBlock}>
-                      <Text style={styles.itemName}>{schedule.dog.clientName} · {schedule.dog.dogName}</Text>
+                      <Text style={styles.itemName}>{schedule.dog.dogName}</Text>
                       <Text style={styles.itemHint}>Repeats {schedule.weekdays.map((day) => WEEKDAY_NAMES[day]).join(' · ')} · paused</Text>
                     </View>
                     <Pressable accessibilityRole="button" accessibilityLabel={`Restore ${schedule.dog.dogName}`} onPress={() => restorePaused(schedule)} hitSlop={8}>
@@ -491,7 +491,7 @@ function Section({ title, color, items, empty, onPressItem, onRemoveLabel }: { t
       {items.length === 0 ? <Text style={styles.emptyText}>{empty}</Text> : items.map((item) => (
         <View key={`${item.kind}-${item.dogId}-${item.recurringScheduleId ?? item.reservationId}`} style={styles.itemRow}>
           <View style={styles.itemTextBlock}>
-            <Text style={styles.itemName}>{item.clientName} · {item.dogName}</Text>
+            <Text style={styles.itemName}>{item.dogName}</Text>
             <View style={styles.itemBadges}>
               {item.kind === 'recurring-daycare' ? <Text style={styles.itemHint}>Repeats weekly</Text> : null}
               {item.transportRequired ? <View style={styles.transportBadge}><Text style={styles.transportBadgeText}>Transport</Text></View> : null}

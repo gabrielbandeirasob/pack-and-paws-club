@@ -1,3 +1,4 @@
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 // A tela do Dispatch usa `useFocusEffect` (as vans são relidas ao voltar para ela): sem
 // NavigationContainer o hook do expo-router quebra — mesmo mock das outras telas de teste do projeto.
 jest.mock('expo-router', () => {
@@ -95,22 +96,22 @@ beforeEach(() => {
 
 async function montar() {
   const tela = await render(<DispatchScreen />);
-  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Jose · Sam' })).toBeTruthy());
+  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Sam' })).toBeTruthy());
   return tela;
 }
 
 it('a folha avisa que o irmão de casa vai junto, e o cão de outra casa não é citado', async () => {
   const tela = await montar();
-  await fireEvent.press(tela.getByRole('button', { name: 'Assign Jose · Sam' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Sam' }));
   expect(tela.getByText('Same house: Ollie goes to the same driver.')).toBeTruthy();
   await fireEvent.press(tela.getByRole('button', { name: 'Close' }));
-  await fireEvent.press(tela.getByRole('button', { name: 'Assign Chuck · Sammy' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Sammy' }));
   expect(tela.queryByText(/Same house/)).toBeNull();
 });
 
 it('um clique manda as duas paradas, com a versão da rota andando a cada escrita', async () => {
   const tela = await montar();
-  await fireEvent.press(tela.getByRole('button', { name: 'Assign Jose · Sam' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Sam' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Driver Rafael' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
 
@@ -139,11 +140,11 @@ it('um clique manda as duas paradas, com a versão da rota andando a cada escrit
   await waitFor(() => {
     // O cartão mostra as DUAS pernas do mesmo motorista (busca e entrega, dono 03/10/2026): o cão
     // aparece uma vez em cada bloco — por isso a contagem, e não um único nó.
-    expect(tela.getAllByText('Jose · Sam').length).toBeGreaterThan(0);
-    expect(tela.getAllByText('Jose · Ollie').length).toBeGreaterThan(0);
+    expect(tela.getAllByText('Sam').length).toBeGreaterThan(0);
+    expect(tela.getAllByText('Ollie').length).toBeGreaterThan(0);
   });
   // O cão da outra casa continua na fila de quem não tem motorista.
-  expect(tela.getByRole('button', { name: 'Assign Chuck · Sammy' })).toBeTruthy();
+  expect(tela.getByRole('button', { name: 'Assign Sammy' })).toBeTruthy();
 });
 
 /**
@@ -161,7 +162,7 @@ it('atribuir cão a um motorista que já está na rua NÃO mexe na rota publicad
   mockEscritas.length = 0;
   const tela = await montar();
 
-  await fireEvent.press(tela.getByRole('button', { name: 'Assign Chuck · Sammy' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Sammy' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Driver Rafael' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
   await waitFor(() => expect(rpc).toHaveBeenCalledTimes(1));
@@ -186,7 +187,7 @@ it('atribuir cão a um motorista que já está na rua NÃO mexe na rota publicad
     ];
     const tela = await montar();
 
-    await fireEvent.press(tela.getByRole('button', { name: 'Assign Chuck · Sammy' }));
+    await fireEvent.press(tela.getByRole('button', { name: 'Assign Sammy' }));
     await fireEvent.press(tela.getByRole('button', { name: 'Driver Rafael' }));
     await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
     await waitFor(() => expect(mockEscritas.some((e) => e.tabela === 'routes')).toBe(true));

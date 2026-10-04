@@ -1,7 +1,8 @@
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 /**
  * DEFEITO A (03/10/2026) — a lista do Dispatch tem de CONFERIR as reservas CONFIRMADAS do dia.
  *
- * Caso real: o dono cancelou a reserva de Akmal · Enso e criou Amy · Billy. A rota publicada de manhã
+ * Caso real: o dono cancelou a reserva de Enso e criou Billy. A rota publicada de manhã
  * continuou com a PARADA do Enso e nunca recebeu o Billy. O Dispatch desenhava as linhas a partir de
  * `route_stops` sem conferir o dia — mostrava o cão cancelado e escondia o novo.
  *
@@ -21,7 +22,7 @@ import { DispatchBoard, type DispatchDriver, type DispatchRoute } from '@/featur
 
 const drivers: DispatchDriver[] = [{ id: 'driver-maui', name: 'Maui' }];
 
-// Dia CONFIRMADO (buildDay → transportPool): só Amy · Billy. A reserva de Akmal · Enso foi cancelada.
+// Dia CONFIRMADO (buildDay → transportPool): só Billy. A reserva de Enso foi cancelada.
 const dayItems = [{ dogId: 'dog-billy', clientName: 'Amy', dogName: 'Billy' }];
 
 // Rota PUBLICADA de manhã: ficou com a parada do cão cancelado e nunca recebeu o cão novo.
@@ -63,7 +64,7 @@ describe('Dispatch — parada que saiu do dia (Defeito A)', () => {
 
   it('avisa no topo do cartão quantas e quais paradas estão fora do dia', async () => {
     const tela = await render(<DispatchBoard date="2026-10-03" drivers={drivers} dayItems={dayItems} routes={rotaComOCancelado} {...noops} />);
-    expect(tela.getByText("1 stop is no longer in today's day: Akmal · Enso")).toBeTruthy();
+    expect(tela.getByText("1 stop is no longer in today's day: Enso")).toBeTruthy();
   });
 
   it('mantém a saída da parada cancelada acessível (o app não remove sozinho)', async () => {
@@ -75,7 +76,7 @@ describe('Dispatch — parada que saiu do dia (Defeito A)', () => {
   it('o cão que ESTÁ no dia e não está na rota continua na fila de não-atribuídos', async () => {
     const tela = await render(<DispatchBoard date="2026-10-03" drivers={drivers} dayItems={dayItems} routes={rotaComOCancelado} {...noops} />);
     expect(tela.getByText('1 unassigned')).toBeTruthy();
-    expect(tela.getByText('Amy · Billy')).toBeTruthy();
+    expect(tela.getByText('Billy')).toBeTruthy();
   });
 
   it('não marca nada quando todas as paradas estão no dia', async () => {

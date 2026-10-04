@@ -134,6 +134,8 @@ describe('B4 — Optimize não quebra por cão já resolvido sem endereço', () 
     try {
       const tela = await montar();
       await fireEvent.press(tela.getByRole('button', { name: 'Optimize Rafael route' }));
+      await fireEvent.press(tela.getByLabelText('Drop-offs'));
+      await fireEvent.press(tela.getByLabelText('Optimize Rafael route'));
       expect(optimizeRouteEspiao).toHaveBeenCalledTimes(2);
       const caesBusca = optimizeRouteEspiao.mock.calls[0][0].map((s: { dogId: string }) => s.dogId);
       const caesEntrega = optimizeRouteEspiao.mock.calls[1][0].map((s: { dogId: string }) => s.dogId);

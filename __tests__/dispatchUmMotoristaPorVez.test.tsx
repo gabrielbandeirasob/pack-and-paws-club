@@ -1,3 +1,5 @@
+// Pedido do dono (04/10): escolher a perna antes de agir nela; mesmas asserções de negócio.
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 /**
  * PROPOSTA B (dono, 03/10/2026) — o Dispatch mostra UM MOTORISTA POR VEZ.
  *
@@ -67,15 +69,17 @@ describe('Dispatch — um motorista por vez (Proposta B)', () => {
     expect(tela.queryByTestId('dispatch-route-driver-rafael-pickup')).toBeNull();
   });
 
-  it('mostra as DUAS pernas do mesmo motorista de uma vez — a troca de perna saiu', async () => {
+  it('mostra uma perna do mesmo motorista por vez, conforme o seletor', async () => {
     const tela = await montar();
-    // Rafael tem a busca (Billy, Maui) e a perna de ENTREGA (Billy): os dois blocos aparecem JUNTOS,
-    // sem clique nenhum — o dono (03/10/2026) tirou o par de botões porque quem busca é quem entrega.
+    // Pedido de 04/10: o seletor alterna as listas de Rafael, sem trocar o motorista.
     const busca = within(tela.getByTestId('dispatch-leg-pickup-driver-rafael'));
-    expect(busca.getByText('Amy · Billy')).toBeTruthy();
-    expect(busca.getByText('Adi · Maui')).toBeTruthy();
-    expect(within(tela.getByTestId('dispatch-leg-dropoff-driver-rafael')).getByText('Amy · Billy')).toBeTruthy();
-    // E não existe mais botão para alternar a perna.
+    expect(busca.getByText('Billy')).toBeTruthy();
+    expect(busca.getByText('Maui')).toBeTruthy();
+    expect(tela.queryByTestId('dispatch-leg-dropoff-driver-rafael')).toBeNull();
+    await fireEvent.press(tela.getByLabelText('Drop-offs'));
+    expect(tela.queryByTestId('dispatch-leg-pickup-driver-rafael')).toBeNull();
+    expect(within(tela.getByTestId('dispatch-leg-dropoff-driver-rafael')).getByText('Billy')).toBeTruthy();
+    // Não existe seletor duplicado dentro do cartão.
     expect(tela.queryByRole('button', { name: /Show (pick-up|drop-off) for / })).toBeNull();
   });
 
@@ -86,6 +90,7 @@ describe('Dispatch — um motorista por vez (Proposta B)', () => {
       onCreateDropoffRoute,
     });
     await fireEvent.press(tela.getByRole('button', { name: 'Show Jordan' }));
+    await fireEvent.press(tela.getByLabelText('Drop-offs'));
     await fireEvent.press(tela.getByRole('button', { name: 'Create drop-off route for Jordan' }));
     expect(onCreateDropoffRoute).toHaveBeenCalledWith('driver-jordan');
   });

@@ -1,3 +1,4 @@
+// Pedido do dono (04/10): escolher a perna antes de agir nela; mesmas asserções de negócio.
 /**
  * DEFEITO B (03/10/2026) — criar a PERNA de drop-off que nunca existiu.
  *
@@ -102,8 +103,8 @@ describe('Dispatch — ação "Create drop-off route" (tela do quadro)', () => {
     const tela = await render(
       <DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[]} dropoffItems={[Billy]} routes={[]} {...noops} onCreateDropoffRoute={onCreateDropoffRoute} />,
     );
-    // A TROCA DE PERNA SAIU (dono, 03/10/2026): o cartão já mostra as duas pernas — a ação aparece
-    // direto para o motorista visível, sem passar por aba nenhuma.
+    // Pedido de 04/10: selecionar Drop-offs revela a criação da perna.
+    await fireEvent.press(tela.getByLabelText('Drop-offs'));
     await fireEvent.press(tela.getByRole('button', { name: 'Create drop-off route for Maui' }));
     expect(onCreateDropoffRoute).toHaveBeenCalledWith('driver-maui');
   });
@@ -140,7 +141,8 @@ describe('Dispatch — a ação cria a perna de verdade (tela com Supabase falsi
 
   it('cria a perna como `draft`/drop-off e põe os cães elegíveis do dia como paradas pendentes — sem publicar', async () => {
     const tela = await render(<DispatchScreen />);
-    // A troca de perna saiu (dono, 03/10/2026): a ação mora no cartão do motorista visível.
+    // Pedido de 04/10: a criação pertence à visão de Drop-offs.
+    await fireEvent.press(await tela.findByLabelText('Drop-offs'));
     const botao = await tela.findByRole('button', { name: 'Create drop-off route for Rafael' });
     await fireEvent.press(botao);
 

@@ -115,7 +115,8 @@ export default function DispatchScreen() {
    * recarregamento: o carregamento reconstrói a fila a partir do calendário, e sem isso o cão manual
    * sumiria da tela a cada atualização. Pedido do dono (23/09/2026).
    */
-  const extrasRef = useRef<DogRef[]>([]);
+  const [planningPhase, setPlanningPhase] = useState<Perna>('pickup');
+  const extrasRef = useRef<Record<Perna, DogRef[]>>({ pickup: [], dropoff: [] });
   const [routes, setRoutes] = useState<DispatchRoute[]>([]);
   // Versao de cada rota (lock otimista): o aparelho guarda o que leu; se outro gestor
   // escrever antes, o banco recusa a escrita velha com 'stale_route' em vez de sobrescrever.
@@ -187,15 +188,21 @@ export default function DispatchScreen() {
    * (chegou de última hora, ou o transporte não foi marcado). Pedido do dono, 23/09/2026.
    */
   const adicionarCaoForaDoCalendario = useCallback((dog: DogRef) => {
-    if (!extrasRef.current.some((item) => item.id === dog.id)) extrasRef.current = [...extrasRef.current, dog];
-    setDayItems((prev) => {
+    if (planningPhase === 'dropoff' && itensDoDia.current.some(item => item.dogId === dog.id && (item.inVan || item.reservationKind === 'boarding'))) {
+      showAlert('No drop-off for boarding', 'Boarding dogs finish the day in the van.');
+      return;
+    }
+    if (!extrasRef.current[planningPhase].some((item) => item.id === dog.id)) extrasRef.current[planningPhase] = [...extrasRef.current[planningPhase], dog];
+    const setItems = planningPhase === 'pickup' ? setDayItems : setDropoffItems;
+    setItems((prev) => {
       if (prev.some((item) => item.dogId === dog.id)) return prev;
       const novo = { dogId: dog.id, clientName: dog.clientName, dogName: dog.dogName, inVan: false, extra: true, clientId: dog.clientId ?? null };
       const novos = juntarIrmaosDeCasa([...prev, novo]);
-      itensDoDia.current = novos;
+      if (planningPhase === 'pickup') itensDoDia.current = novos;
+      else itensDropoff.current = novos;
       return novos;
     });
-  }, []);
+  }, [planningPhase]);
 
   /**
    * AS VANS DA ORGANIZAÇÃO (id, rótulo e qual é a padrão).
@@ -310,7 +317,13 @@ export default function DispatchScreen() {
     coordenadasPorCao.current = coordenadas;
 
     const day = buildDay(dia, reservations, recurring, exceptions);
-    const entregas = juntarIrmaosDeCasa(transportPoolForPhase(day, 'dropoff').map(item => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, clientId: item.clientId, reservationKind: item.kind })));
+    const poolEntrega = transportPoolForPhase(day, 'dropoff');
+    const boardingIds = new Set(day.boarding.map(item => item.dogId));
+    const entregas = juntarIrmaosDeCasa([
+      ...poolEntrega.map(item => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, clientId: item.clientId, reservationKind: item.kind })),
+      ...extrasRef.current.dropoff.filter(dog => !boardingIds.has(dog.id) && !poolEntrega.some(item => item.dogId === dog.id))
+        .map(dog => ({ dogId: dog.id, dogName: dog.dogName, clientName: dog.clientName, clientId: dog.clientId, extra: true })),
+    ]);
     itensDropoff.current = entregas;
     setDropoffItems(entregas);
     const fila = transportPool(day);
@@ -324,7 +337,7 @@ export default function DispatchScreen() {
       ...fila.map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind, inVan: false, clientId: item.clientId ?? null })),
       ...naVan.map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind, inVan: true, clientId: item.clientId ?? null })),
       // Cães que o gestor adicionou à mão (fora do calendário do dia) — pedido do dono, 23/09/2026.
-      ...extrasRef.current.filter((extra) => !jaNoDia.has(extra.id)).map((extra) => ({ dogId: extra.id, clientName: extra.clientName, dogName: extra.dogName, inVan: false, extra: true, clientId: extra.clientId ?? null })),
+      ...extrasRef.current.pickup.filter((extra) => !jaNoDia.has(extra.id)).map((extra) => ({ dogId: extra.id, clientName: extra.clientName, dogName: extra.dogName, inVan: false, extra: true, clientId: extra.clientId ?? null })),
     ]);
     itensDoDia.current = itens;
     setDayItems(itens);
@@ -925,7 +938,7 @@ export default function DispatchScreen() {
       dropoff: { phase: 'dropoff', blocos: [], semLugar: [], kmTotal: 0 },
     };
     const sedes = await loadOrganizationLocations(supabase, organizationId);
-    for (const phase of (fasesDisponiveis.current ? ['pickup', 'dropoff'] : ['pickup']) as Perna[]) {
+    for (const phase of [planningPhase]) {
       const atribuidos = new Set(routesRef.current.filter(rota => (rota.phase ?? 'pickup') === phase).flatMap((rota) => rota.stops.map((stop) => stop.dogId)));
       const caes = (phase === 'pickup' ? itensDoDia.current : itensDropoff.current)
         .filter((item) => !item.inVan && !atribuidos.has(item.dogId))
@@ -1058,7 +1071,7 @@ export default function DispatchScreen() {
     }
     propostaRef.current = { dia, org: organizationId, assinatura, blocos: propostas.blocos };
     return propostas;
-  }, [organizationId, carregarDia, carregarRotas, assinaturaDaSugestao]);
+  }, [planningPhase, organizationId, carregarDia, carregarRotas, assinaturaDaSugestao]);
 
   /**
    * A proposta já contém os irmãos: uma RPC por cão, sem chamar assign (que os expandiria de novo).
@@ -1350,7 +1363,7 @@ export default function DispatchScreen() {
     for (const [dogId, pernas] of porCao) {
       const { data, error } = await supabase
         .from('route_stops')
-        .update(phase === 'dropoff' ? { dropoff_travel_seconds: pernas.dropoff_travel_seconds } : pernas)
+        .update(phase === 'dropoff' ? { dropoff_travel_seconds: pernas.dropoff_travel_seconds } : { travel_seconds: pernas.travel_seconds })
         .eq('route_id', routeId)
         .eq('dog_id', dogId)
         .select('id');
@@ -1367,8 +1380,9 @@ export default function DispatchScreen() {
   const optimize = useCallback(async (routeId: string) => {
     const route = routesRef.current.find((candidate) => candidate.routeId === routeId);
     if (!route) return;
+    const phase = route.phase ?? planningPhase;
     const versao = versaoDe(routeId);
-    const sorted = (route.phase === 'dropoff' ? ordemDaEntrega : ordemDaBusca)(route.stops);
+    const sorted = (phase === 'dropoff' ? ordemDaEntrega : ordemDaBusca)(route.stops);
     const finished = sorted.filter((stop) => stop.status === 'completed' || stop.status === 'skipped');
     const remaining = sorted.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped');
     // "Não há o que otimizar" AVISA (auditoria 02/10/2026): antes a tela voltava muda e o gestor
@@ -1419,7 +1433,7 @@ export default function DispatchScreen() {
       // até aqui a tela NÃO passava nada e o otimizador usava o padrão de 8 min. O número é o MESMO
       // da tolerância de atraso do motorista (GRACE_MINUTES) — decisão do dono, um valor só.
       { travel: traffic.travel, serviceMinutes: GRACE_MINUTES },
-      route.phase === 'dropoff' ? yardCoords.current : null,
+      phase === 'dropoff' ? yardCoords.current : null,
     );
     if (!result.feasible) {
       showAlert('Cannot optimize this route', result.reason ?? 'The schedule is infeasible.');
@@ -1441,12 +1455,7 @@ export default function DispatchScreen() {
      * falhar com "Cannot optimize this route". O otimizador da tarde agora recebe só as ELEGÍVEIS
      * (não `completed`/`skipped`); as concluídas ficam fixas no início, como na busca.
      */
-    const entrega = route.phase === 'dropoff' ? result : optimizeRoute(ordemDaEntrega(remaining).map((stop) => ({
-      ...stop, windowStart: null, windowEnd: null, exactTime: null,
-    })), { travel: traffic.travel, serviceMinutes: GRACE_MINUTES }, origemDaEntrega);
-    if (!entrega.feasible) {
-      showAlert('Cannot optimize this route', entrega.reason ?? 'The schedule is infeasible.'); return;
-    }
+    const entrega = result;
     const travasBusca = sorted.map((stop) => ({ dogId: stop.dogId, pin: pinDaParada(stop, 'pickup') }));
     const travasEntrega = sorted.map((stop) => ({ dogId: stop.dogId, pin: pinDaParada(stop, 'dropoff') }));
     // Concluídas ocupam o início; qualquer trava incompatível aparece como conflito.
@@ -1485,10 +1494,9 @@ export default function DispatchScreen() {
       comparar('Pick-up', remaining.map((stop) => stop.dogId), busca.ordem.map((stop) => stop.dogId)),
       comparar('Drop-off', ordemDaEntrega(sorted).map((stop) => stop.dogId), volta.ordem.map((stop) => stop.dogId)),
     ].filter((linha): linha is string => Boolean(linha));
-    const mensagemLegada = `Pick-up:\n${linhas(busca.ordem)}\n\nDrop-off:\n${linhas(volta.ordem)}\n\n${[...ganhos, ...conflitos(busca, 'Pick-up'), ...conflitos(volta, 'Drop-off')].join('\n')}`;
-    const mensagem = route.phase === 'dropoff'
+    const mensagem = phase === 'dropoff'
       ? `Drop-off:\n${linhas(volta.ordem)}\n\n${[...ganhos.filter(g => g.startsWith('Drop-off')), ...conflitos(volta, 'Drop-off')].join('\n')}`
-      : mensagemLegada;
+      : `Pick-up:\n${linhas(busca.ordem)}\n\n${[...ganhos.filter(g => g.startsWith('Pick-up')), ...conflitos(busca, 'Pick-up')].join('\n')}`;
     const origem = traffic.source === 'live' ? 'live traffic' : 'estimated times';
     showAlert(`Optimized route (${origem})`, mensagem, [
       { text: 'Cancel', style: 'cancel' },
@@ -1500,8 +1508,8 @@ export default function DispatchScreen() {
           // pernas da tarde logo depois do ok.
           const entregaIds = ordemDaEntrega(volta.ordem.map((stop, i) => ({ ...stop, dropoffSequence: i + 1 }))).map((stop) => stop.dogId);
           void Promise.resolve(supabase.rpc('apply_route_order', {
-            p_route_id: routeId, p_pickup_ids: route.phase === 'dropoff' ? null : busca.ordem.map((stop) => stop.dogId),
-            p_dropoff_ids: entregaIds,
+            p_route_id: routeId, p_pickup_ids: phase === 'dropoff' ? null : busca.ordem.map((stop) => stop.dogId),
+            p_dropoff_ids: phase === 'dropoff' ? entregaIds : null,
             p_esperado: versao,
           })).then(({ error }) => {
             if (!error) {
@@ -1513,7 +1521,7 @@ export default function DispatchScreen() {
                * motorista lê para seguir a ROTA — a matriz do Google já foi paga aqui, nenhuma
                * chamada nova. Best-effort: falhar aqui não desfaz a ordem.
                */
-              void gravarPernasDaRota(routeId, busca.ordem, volta.ordem, traffic.travel, route.phase);
+              void gravarPernasDaRota(routeId, busca.ordem, volta.ordem, traffic.travel, phase);
             }
             if (error) showAlert(isStaleRouteError(error) ? STALE_ROUTE_TITLE : 'Unable to apply the route', routeErrorMessage(error));
           }).catch((erro: { message: string }) => {
@@ -1525,7 +1533,7 @@ export default function DispatchScreen() {
         },
       },
     ]);
-  }, [versaoDe, carregarRotas, gravarPernasDaRota]);
+  }, [planningPhase, versaoDe, carregarRotas, gravarPernasDaRota]);
 
   const summary = useMemo(() => ({ date, drivers, dayItems, routes, dogs: caesCadastro, onAddExtraDog: adicionarCaoForaDoCalendario }), [date, drivers, dayItems, routes, caesCadastro, adicionarCaoForaDoCalendario]);
 
@@ -1540,6 +1548,7 @@ export default function DispatchScreen() {
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
       {loading ? <ActivityIndicator testID="dispatch-loading" style={styles.center} color={colors.gold} size="large" /> : (
         <DispatchBoard
+          phase={planningPhase} onPhaseChange={setPlanningPhase}
           date={summary.date}
           drivers={summary.drivers}
           dayItems={summary.dayItems}

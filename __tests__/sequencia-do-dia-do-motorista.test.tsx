@@ -253,3 +253,49 @@ describe('tela do motorista — sequência pickup → yard → drop-off → van'
     await tela.unmount();
   });
 });
+
+// Pedido do dono (04/10): seletor muda só a visão, nunca libera a entrega.
+it('seletor mantém entrega bloqueada até o yard e preserva a liberação ao voltar à busca', async () => {
+  await AsyncStorage.clear();
+  mockEstado.sedes = [VAN_ROW, YARD_ROW];
+  mockEstado.erroSedes = false;
+  mockRota.route_stops[0].status = 'completed';
+  mockRota.route_stops[0].delivered_at = null;
+  const tela = await montarTela();
+  const entrega = tela.getByRole('button', { name: 'Drop-offs' });
+  expect(entrega).toBeDisabled();
+  await fireEvent.press(entrega);
+  expect(tela.queryByText('DROP-OFFS')).toBeNull();
+  expect(tela.getByText('Use the yard button to start drop-offs.')).toBeTruthy();
+  await fireEvent.press(tela.getByTestId('start-dropoffs'));
+  await waitFor(() => expect(tela.getByText('DROP-OFFS')).toBeTruthy());
+  expect(tela.getByRole('button', { name: 'Drop-offs' })).toBeEnabled();
+  await fireEvent.press(tela.getByRole('button', { name: 'Pick-ups' }));
+  await waitFor(() => expect(tela.getByText('PICK-UPS')).toBeTruthy());
+  expect(await AsyncStorage.getItem('pnp:driver:phase:r1:driver-1')).toBe('dropoff');
+  await fireEvent.press(tela.getByRole('button', { name: 'Drop-offs' }));
+  await waitFor(() => expect(tela.getByText('DROP-OFFS')).toBeTruthy());
+  expect(tela.queryByTestId('start-dropoffs')).toBeNull();
+  await tela.unmount();
+});
+
+
+it('seletor não abre busca antes de Start pick-ups', async () => {
+  await AsyncStorage.clear();
+  mockEstado.sedes = [VAN_ROW, YARD_ROW];
+  mockEstado.erroSedes = false;
+  mockRota.route_stops[0].status = 'pending';
+  mockRota.route_stops[0].delivered_at = null;
+  const Tela = require('../app/(tabs)/driver').default;
+  const tela = await render(<Tela />);
+  const busca = await tela.findByRole('button', { name: 'Pick-ups' });
+  expect(busca).toBeDisabled();
+  await fireEvent.press(busca);
+  expect(tela.queryByText('PICK-UPS')).toBeNull();
+  expect(tela.getByRole('button', { name: 'Drop-offs' })).toBeDisabled();
+  await fireEvent.press(tela.getByLabelText('Start pick-ups'));
+  await waitFor(() => expect(tela.getByText('PICK-UPS')).toBeTruthy());
+  expect(tela.getByRole('button', { name: 'Pick-ups' })).toBeEnabled();
+  expect(tela.getByRole('button', { name: 'Drop-offs' })).toBeDisabled();
+  await tela.unmount();
+});

@@ -1,3 +1,4 @@
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import DispatchScreen from '@/app/(tabs)/dispatch';
 import { todayLocalISO, addDaysISO } from '@/features/calendar/dates';
@@ -146,10 +147,10 @@ it('irmão de cão já atribuído fica com o mesmo motorista, mesmo havendo outr
   const screen = await open();
   expect(screen.getByTestId('sugestao-rafa')).toBeTruthy();
   const propostaRafa = screen.getByTestId('sugestao-rafa');
-  expect(within(propostaRafa).getByText(/Jose · ollie/)).toBeTruthy();
+  expect(within(propostaRafa).getByText(/ollie/)).toBeTruthy();
   await fireEvent.press(screen.getByLabelText('Include Rafael in suggestion'));
   await waitFor(() => expect(screen.queryByTestId('sugestao-rafa')).toBeNull());
-  expect(within(screen.getByTestId('sugestao-gestor')).queryByText(/Jose · ollie/)).toBeNull();
+  expect(within(screen.getByTestId('sugestao-gestor')).queryByText(/ollie/)).toBeNull();
   expect(mockWrites).toHaveLength(0);
 });
 
@@ -162,9 +163,10 @@ it('não altera rota com trava last para encaixar novos cães', async () => {
   expect(mockWrites).toHaveLength(0);
   expect(JSON.stringify(mockRotas)).toBe(antes);
 });
-async function open() {
+async function open(phase: 'pickup' | 'dropoff' = 'pickup') {
   const screen = await render(<DispatchScreen />);
   await waitFor(() => expect(screen.getByLabelText('Suggest routes')).toBeTruthy());
+  if (phase === 'dropoff') await fireEvent.press(screen.getByLabelText('Drop-offs'));
   await fireEvent.press(screen.getByLabelText('Suggest routes'));
   await waitFor(() => expect(screen.getByText('Suggested routes')).toBeTruthy());
   return screen;
@@ -286,7 +288,14 @@ it('sugere e grava duas pernas independentes, sem boarding e sem publicar drop-o
   mockLocations = [...vanUnica, { id: 'yard', name: 'Yard', kind: 'yard', is_default: false, latitude: 37.36, longitude: -121.95 }];
   const screen = await open();
   expect(screen.getByTestId('sugestao-rafa')).toBeTruthy();
-  expect(screen.getByTestId('sugestao-rafa-dropoff')).toBeTruthy();
+  expect(screen.queryByTestId('sugestao-rafa-dropoff')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('Apply suggestion'));
+  await waitFor(() => expect(screen.queryByText('Suggested routes')).toBeNull());
+  expect(mockRotas).toHaveLength(1);
+  await fireEvent.press(screen.getByLabelText('Drop-offs'));
+  await fireEvent.press(screen.getByLabelText('Suggest routes'));
+  await waitFor(() => expect(screen.getByTestId('sugestao-rafa-dropoff')).toBeTruthy());
+  expect(screen.queryByTestId('sugestao-rafa')).toBeNull();
   await fireEvent.press(screen.getByLabelText('Apply suggestion'));
   await waitFor(() => expect(screen.queryByText('Suggested routes')).toBeNull());
   expect(mockRotas).toHaveLength(2);
@@ -299,10 +308,10 @@ it('sugere e grava duas pernas independentes, sem boarding e sem publicar drop-o
   expect(inserts.map(w => [w.payload.phase, w.payload.start_location_id, w.payload.end_location_id])).toEqual([
     ['pickup', 'van', 'yard'], ['dropoff', 'yard', 'van'],
   ]);
-  // A troca de perna saiu (dono, 03/10/2026): as DUAS pernas ficam na tela ao mesmo tempo. A de ENTREGA
-  // nunca publica (drop-off é só rascunho) — o botão de publicar é o da rota de BUSCA.
-  expect(screen.getAllByText(/^Jose · sam$/)).toHaveLength(2);   // na busca E na entrega
-  expect(screen.queryByText('Draft only')).toBeNull();
+  // Pedido de 04/10: só a entrega está visível; ela continua draft only.
+  expect(screen.getAllByText(/^sam$/)).toHaveLength(1);   // somente na entrega selecionada
+  expect(screen.getByText('Draft only')).toBeTruthy();
+  expect(screen.getByLabelText('Publish Rafael route')).toBeDisabled();
   expect((supabase.rpc as jest.Mock).mock.calls.every(c => c[0] === 'assign_stop_to_route')).toBe(true);
 });
 
@@ -310,9 +319,9 @@ it('pick-up publicado não impede proposta independente de drop-off', async () =
   mockPhases = true;
   mockRotas = [{ id: 'pickup', phase: 'pickup', driver_id: 'rafa', status: 'published', lock_version: 7,
     route_stops: [{ dog_id: 'sam', dog: mockReservas[0].dog, sequence: 1, status: 'pending', priority: 'normal' }] }];
-  const screen = await open();
+  const screen = await open('dropoff');
   expect(screen.queryByTestId('sugestao-rafa')).toBeNull();
-  expect(within(screen.getByTestId('sugestao-rafa-dropoff')).getByText(/Jose · sam$/)).toBeTruthy();
+  expect(within(screen.getByTestId('sugestao-rafa-dropoff')).getByText(/sam$/)).toBeTruthy();
   await fireEvent.press(screen.getByLabelText('Apply suggestion'));
   await waitFor(() => expect(screen.queryByText('Suggested routes')).toBeNull());
   expect(mockRotas[0].status).toBe('published');
@@ -325,9 +334,9 @@ it('atribuição manual de drop-off usa sua rota e não a rota publicada de pick
   mockRotas = [{ id: 'pickup', phase: 'pickup', driver_id: 'rafa', status: 'published', lock_version: 7,
     route_stops: [{ dog_id: 'sam', dog: mockReservas[0].dog, sequence: 1, status: 'pending', priority: 'normal' }] }];
   const screen = await render(<DispatchScreen />);
-  await waitFor(() => expect(screen.getByLabelText('Assign drop-offs')).toBeTruthy());
-  await fireEvent.press(screen.getByLabelText('Assign drop-offs'));
-  await fireEvent.press(screen.getByLabelText('Assign Jose · sam'));
+  await waitFor(() => expect(screen.getByLabelText('Drop-offs')).toBeTruthy());
+  await fireEvent.press(screen.getByLabelText('Drop-offs'));
+  await fireEvent.press(screen.getByLabelText('Assign sam'));
   await fireEvent.press(screen.getByLabelText('Driver Rafael'));
   await fireEvent.press(screen.getByLabelText('Save stop'));
   await waitFor(() => expect(mockRotas.find(r => r.phase === 'dropoff')?.route_stops).toHaveLength(2));
@@ -344,7 +353,10 @@ it('equilibra por cães também contando atribuições existentes na mesma fase'
   const screen = await open();
   expect(screen.queryByTestId('sugestao-rafa')).toBeNull();
   expect(within(screen.getByTestId('sugestao-gestor')).getByText(/Gabriel · 3 dogs/)).toBeTruthy();
-  expect(screen.getByTestId('sugestao-rafa-dropoff')).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText('Close suggestion'));
+  await fireEvent.press(screen.getByLabelText('Drop-offs'));
+  await fireEvent.press(screen.getByLabelText('Suggest routes'));
+  await waitFor(() => expect(screen.getByTestId('sugestao-rafa-dropoff')).toBeTruthy());
   expect(screen.getByTestId('sugestao-gestor-dropoff')).toBeTruthy();
 });
 
@@ -354,9 +366,9 @@ it('23505 relê por motorista e fase, usando a versão da rota concorrente', asy
   mockCollision = true;
   mockRotas = [{ id: 'pickup', phase: 'pickup', driver_id: 'rafa', status: 'published', lock_version: 7, route_stops: [] }];
   const screen = await render(<DispatchScreen />);
-  await waitFor(() => expect(screen.getByLabelText('Assign drop-offs')).toBeTruthy());
-  await fireEvent.press(screen.getByLabelText('Assign drop-offs'));
-  await fireEvent.press(screen.getByLabelText('Assign Jose · sam'));
+  await waitFor(() => expect(screen.getByLabelText('Drop-offs')).toBeTruthy());
+  await fireEvent.press(screen.getByLabelText('Drop-offs'));
+  await fireEvent.press(screen.getByLabelText('Assign sam'));
   await fireEvent.press(screen.getByLabelText('Driver Rafael'));
   await fireEvent.press(screen.getByLabelText('Save stop'));
   await waitFor(() => expect(mockRotas.find(r => r.phase === 'dropoff')?.route_stops).toHaveLength(2));

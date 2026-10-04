@@ -1,3 +1,4 @@
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 import { act, fireEvent, waitFor, render, within } from '@testing-library/react-native';
 
 import { DispatchBoard } from '@/features/dispatch/DispatchBoard';
@@ -100,8 +101,8 @@ describe('sugestão de rota no Dispatch', () => {
 
     // lista por motorista, na ordem que será gravada, e o aviso do cão sem endereço
     expect(tela.getByText('Rafael · 2 dogs · 3 mi')).toBeTruthy();
-    expect(tela.getByText('1. Cristina · Lucky')).toBeTruthy();
-    expect(tela.getByText('2. Andrea · Fergie')).toBeTruthy();
+    expect(tela.getByText('1. Lucky')).toBeTruthy();
+    expect(tela.getByText('2. Fergie')).toBeTruthy();
     expect(tela.getByText('Jordan · 1 dog · 3 mi')).toBeTruthy();
     expect(tela.getByText(/kept out of the suggestion/)).toBeTruthy();
     expect(onApplySuggestion).not.toHaveBeenCalled();

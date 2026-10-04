@@ -1,3 +1,4 @@
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 // A tela do Dispatch usa `useFocusEffect` (as vans são relidas ao voltar para ela): sem
 // NavigationContainer o hook do expo-router quebra — mesmo mock das outras telas de teste do projeto.
 jest.mock('expo-router', () => {
@@ -77,8 +78,8 @@ it('RPC que "dá certo" sem gravar nada NÃO fecha a folha em silêncio — a te
   }] as never;
 
   const tela = await render(<DispatchScreen />);
-  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Jose · Sam' })).toBeTruthy());
-  await fireEvent.press(tela.getByRole('button', { name: 'Assign Jose · Sam' }));
+  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Sam' })).toBeTruthy());
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Sam' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Driver Rafael' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
   await waitFor(() => expect(rpc).toHaveBeenCalledTimes(1));
@@ -93,9 +94,9 @@ it('RPC que "dá certo" sem gravar nada NÃO fecha a folha em silêncio — a te
 
 it('o cão seguinte é tentado depois de uma recusa no meio do lote, e a tela diz quem falhou', async () => {
   const tela = await render(<DispatchScreen />);
-  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Jose · Sam' })).toBeTruthy());
+  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Sam' })).toBeTruthy());
 
-  await fireEvent.press(tela.getByRole('button', { name: 'Assign Jose · Sam' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Sam' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Driver Rafael' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
 
@@ -118,14 +119,14 @@ it('o cão seguinte é tentado depois de uma recusa no meio do lote, e a tela di
   // A frase nomeia o que falhou e o que entrou — não é mais um erro cru do banco.
   await waitFor(() => expect(tela.getByText(/1 dog could not be saved: Sam — permission denied\. 1 dog was saved/)).toBeTruthy());
   // O cartão lista as DUAS pernas (busca e entrega, dono 03/10/2026): o mesmo cão aparece nos dois blocos.
-  await waitFor(() => expect(tela.getAllByText('Jose · Ollie').length).toBeGreaterThan(0));
+  await waitFor(() => expect(tela.getAllByText('Ollie').length).toBeGreaterThan(0));
 });
 
 it('a versão do banco recusando (stale_route) continua parando o lote, como antes', async () => {
   const tela = await render(<DispatchScreen />);
-  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Jose · Sam' })).toBeTruthy());
+  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Sam' })).toBeTruthy());
 
-  await fireEvent.press(tela.getByRole('button', { name: 'Assign Jose · Sam' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Sam' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Driver Rafael' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
 

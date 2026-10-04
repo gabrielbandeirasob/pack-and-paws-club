@@ -120,6 +120,8 @@ export default function DriverTodayScreen() {
    */
   const [dropoffStops, setDropoffStops] = useState<DriverStop[] | null>(null);
   const [fase, setFase] = useState<DayPhase>('pickup');
+  // View preference only: never overwrites the yard's persisted day phase.
+  const pernaVisivel = useRef<DayPhase | null>(null);
   /**
    * A LISTA DE CÃES já foi REVELADA? (dono, 03/10/2026 — *"quero que tudo siga pelas etapas: os cachorros do
    * pick up só apareçam depois de dar clock in e apertar pick up"*). Antes de apertar, a tela mostra SÓ o
@@ -534,14 +536,16 @@ export default function DriverTodayScreen() {
           let dia = faseDoDia.current;
           let busca = buscaIniciadaRef.current;
           if (dia?.key !== key || dia?.userId !== usuarioId) {
+            pernaVisivel.current = null;
             const guardada = await carregarFase(key, usuarioId);
             const atual = faseEfetiva(guardada, pickup?.route_stops ?? []);
             if (atual !== guardada) await gravarFase(key, usuarioId, atual);
             dia = { key, userId: usuarioId, fase: atual };
             busca = await carregouABusca(key, usuarioId);
           }
-          const daTela: DayPhase = dia.fase === 'dropoff' && Boolean(pickup) && !entregasPorDia.current.has(`${usuarioId}:${key}`)
-            && !entregaTerminou(((dropoff ?? pickup)?.route_stops ?? []).map(rowToStop)) ? 'pickup' : dia.fase;
+          const fasePreferida = pernaVisivel.current ?? dia.fase;
+          const daTela: DayPhase = fasePreferida === 'dropoff' && Boolean(pickup) && !entregasPorDia.current.has(`${usuarioId}:${key}`)
+            && !entregaTerminou(((dropoff ?? pickup)?.route_stops ?? []).map(rowToStop)) ? 'pickup' : fasePreferida;
           const route = daTela === 'dropoff' ? dropoff ?? pickup : pickup;
           const org = route?.organization_id ?? (online ? await resolveDriverOrganizationId(supabase, usuarioId) : null);
           let locais = snapshot?.locations ?? [];
@@ -1076,6 +1080,7 @@ export default function DriverTodayScreen() {
     if (dia) entregasPorDia.current.delete(`${dia.userId}:${dia.key}`);
     // Jornada nova começa na BUSCA: a entrega liberada na jornada anterior não vale mais.
     setEntregasLiberadas(false);
+    pernaVisivel.current = null;
     entregasLiberadasRef.current = false;
     setShiftBusy(true);
     setShiftError(null);
@@ -1262,7 +1267,7 @@ export default function DriverTodayScreen() {
    * (`I'm at the yard — start drop-offs`). Sem yard cadastrado o dia fecha na VAN e a virada continua
    * sendo o botão avulso, com o rótulo de sempre — a mesma regra de `fechamentoDaRota`.
    */
-  const podeIniciarEntregas = stops.length > 0 && fase === 'pickup'
+  const podeIniciarEntregas = !entregasLiberadas && stops.length > 0 && fase === 'pickup'
     && (dropoffStops ? buscaTerminou(stops) && !entregaTerminou(dropoffStops) : podeIniciarDropoff(stopsDaFase));
   const iniciarEntregas = () => {
     // Vira a perna e GRAVA no aparelho: o dia não volta a "busca" sozinho.
@@ -1274,6 +1279,7 @@ export default function DriverTodayScreen() {
       entregasLiberadasRef.current = true;
       entregasPorDia.current.add(`${dia.userId}:${dia.key}`);
       dia.fase = 'dropoff';
+      pernaVisivel.current = 'dropoff';
       geracaoDaEscrita.current += 1;
       await gravarFase(dia.key, dia.userId, 'dropoff');
       /*
@@ -1283,6 +1289,14 @@ export default function DriverTodayScreen() {
        */
       void load(true);
     })();
+  };
+
+  const escolherPerna = (phase: DayPhase) => {
+    if (phase === fase || (phase === 'dropoff' ? !entregasLiberadasRef.current : !buscaIniciadaRef.current)) return;
+    pernaVisivel.current = phase;
+    // Invalidate an older load; its existing reconciliation loop reads the latest choice.
+    geracaoDaEscrita.current += 1;
+    void load(true);
   };
 
   const start = useMemo<DriverStartPoint | null>(() => {
@@ -1500,6 +1514,19 @@ export default function DriverTodayScreen() {
                   />
                 </View>
               ) : null}
+              {stops.length > 0 ? <View style={styles.phaseSection}>
+                <View style={styles.phaseRow}>{(['pickup', 'dropoff'] as const).map(phase => {
+                  const disabled = phase === 'pickup' ? !buscaIniciada : !entregasLiberadas;
+                  return <Pressable key={phase} accessibilityRole="button"
+                    accessibilityLabel={phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'}
+                    accessibilityState={{ selected: fase === phase, disabled }} disabled={disabled}
+                    onPress={() => escolherPerna(phase)} style={[styles.phaseOption, fase === phase && styles.phaseActive, disabled && styles.phaseDisabled]}>
+                    <Text style={[styles.phaseText, fase === phase && styles.phaseTextActive]}>{phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'}</Text>
+                  </Pressable>;
+                })}</View>
+                {!entregasLiberadas ? <Text style={styles.phaseHint}>Use the yard button to start drop-offs.</Text> : null}
+                {!buscaIniciada ? <Text style={styles.phaseHint}>Tap Start pick-ups to open the pick-up list.</Text> : null}
+              </View> : null}
               {stops.length === 0 ? (
                 /*
                  * O VAZIO tem TRÊS motivos diferentes e não pode dizer a mesma frase para todos
@@ -1594,6 +1621,14 @@ export default function DriverTodayScreen() {
 }
 
 const styles = StyleSheet.create({
+  phaseSection: { marginBottom: 12, gap: 8 },
+  phaseRow: { flexDirection: 'row', gap: 8 },
+  phaseOption: { flex: 1, minHeight: 44, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, padding: 12, alignItems: 'center', backgroundColor: colors.paper },
+  phaseActive: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
+  phaseDisabled: { opacity: 0.5 },
+  phaseText: { color: colors.forest700, fontWeight: '800' },
+  phaseTextActive: { color: colors.paper },
+  phaseHint: { color: colors.muted, fontSize: 12 },
   screen: { flex: 1, backgroundColor: colors.forest700 },
   /** ScrollView externo = o ÚNICO scroller vertical da tela do motorista. */
   scroll: { flex: 1 },

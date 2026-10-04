@@ -1,3 +1,4 @@
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 import { fireEvent, render } from '@testing-library/react-native';
 
 import { DispatchBoard, type DispatchDriver } from '@/features/dispatch/DispatchBoard';
@@ -62,7 +63,7 @@ describe('Dispatch — Add any dog (pedido do dono, 23/09/2026)', () => {
       />,
     );
 
-    expect(screen.getByText('Leigh Ann · Melanie · manual')).toBeTruthy();
+    expect(screen.getByText('Melanie · manual')).toBeTruthy();
     expect(screen.getByText('1 unassigned')).toBeTruthy();
   });
 
@@ -79,7 +80,7 @@ describe('Dispatch — Add any dog (pedido do dono, 23/09/2026)', () => {
       />,
     );
 
-    await fireEvent.press(screen.getByRole('button', { name: 'Assign Leigh Ann · Melanie' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Assign Melanie' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Driver Rafael' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
 

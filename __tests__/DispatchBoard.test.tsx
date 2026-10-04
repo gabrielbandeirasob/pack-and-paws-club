@@ -1,3 +1,4 @@
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 import { fireEvent, render, within } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { DispatchBoard, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
@@ -50,7 +51,7 @@ describe('DispatchBoard', () => {
   it('shows the selected date with unassigned transport dogs', async () => {
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} />);
     expect(screen.getByText('Wed, Sep 09')).toBeTruthy();
-    expect(screen.getByText('Maria · Bob')).toBeTruthy();
+    expect(screen.getByText('Bob')).toBeTruthy();
     expect(screen.getByText('3 unassigned')).toBeTruthy();
   });
 
@@ -87,7 +88,7 @@ describe('DispatchBoard', () => {
   it('assigns a dog to a driver through the sheet', async () => {
     const onAssign = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Assign Bob' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Driver Rafael' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
     expect(onAssign).toHaveBeenCalledWith('dog-bob', 'driver-rafael', { windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' });
@@ -110,22 +111,22 @@ describe('DispatchBoard', () => {
     expect(screen.getByText('3 unassigned')).toBeTruthy();
     expect(screen.getByTestId('dispatch-ja-na-van')).toBeTruthy();
     expect(screen.getByText('Boarding — already in the van (1) ▸')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Assign Amor · Filó' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Assign Filó' })).toBeNull();
 
     // 🪤 CLIENTE (02/10/2026): o boarding é só informação — abre no toque, mostra o chip, e NÃO existe
     // nenhum botão para jogá-lo na rota (era por aí que ele aparecia na rota de volta/drop-off).
     await fireEvent.press(screen.getByRole('button', { name: 'Show boarding dogs already in the van' }));
     expect(screen.getByText('Boarding — already in the van (1) ▾')).toBeTruthy();
     expect(screen.getByTestId('boarding-na-van-dog-filo')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Add boarding Amor · Filó' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Assign Amor · Filó' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add boarding Filó' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Assign Filó' })).toBeNull();
     expect(onAssign).not.toHaveBeenCalled();
   });
 
   it('requires a driver before assigning', async () => {
     const onAssign = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Assign Bob' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
     expect(screen.getByText('Choose a driver first.')).toBeTruthy();
     expect(onAssign).not.toHaveBeenCalled();
@@ -151,7 +152,7 @@ describe('DispatchBoard', () => {
   it('sends a time window and high priority when chosen', async () => {
     const onAssign = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Assign Bob' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Driver Rafael' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Time window' }));
     await pickTime(screen, 'Window start', 'time-picker-from', 7, 30);
@@ -164,7 +165,7 @@ describe('DispatchBoard', () => {
   it('rejects an inverted time window', async () => {
     const onAssign = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Assign Bob' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Driver Rafael' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Time window' }));
     await pickTime(screen, 'Window start', 'time-picker-from', 9, 0);
@@ -177,8 +178,8 @@ describe('DispatchBoard', () => {
   it('lists assigned stops under each driver and publishes a route', async () => {
     const onPublish = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={routes} {...noops} onPublish={onPublish} />);
-    // O cão aparece nas DUAS pernas do mesmo cartão (busca + entrega) — a troca de perna saiu.
-    expect(screen.getAllByText('John · Luna').length).toBeGreaterThan(0);
+    // Pedido de 04/10: o cão aparece na perna selecionada do cartão.
+    expect(screen.getAllByText('Luna').length).toBeGreaterThan(0);
     await fireEvent.press(screen.getByRole('button', { name: 'Publish Rafael route' }));
     expect(onPublish).toHaveBeenCalledWith('route-1');
   });
@@ -193,9 +194,9 @@ describe('DispatchBoard', () => {
   it('moves a stop up and reorders through the route callback', async () => {
     const onMoveStop = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={routes} {...noops} onMoveStop={onMoveStop} />);
-    // As duas pernas ficam na tela: a seta da BUSCA mora no bloco de busca.
+    // Pedido de 04/10: a ação acessível da linha substitui a seta da busca.
     const busca = within(screen.getByTestId('dispatch-leg-pickup-driver-rafael'));
-    await fireEvent.press(busca.getByRole('button', { name: 'Move Max up' }));
+    await fireEvent(busca.getByTestId('reorder-pickup-dog-max'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
     expect(onMoveStop).toHaveBeenCalledWith('route-1', 'dog-max', -1);
   });
 
@@ -220,7 +221,7 @@ describe('DispatchBoard', () => {
     const busca = within(screen.getByTestId('dispatch-leg-pickup-driver-rafael'));
     await fireEvent.press(busca.getByRole('button', { name: 'Options for Luna' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Remove from route' }));
-    expect(alertSpy).toHaveBeenCalledWith('Remove stop', expect.stringContaining('John · Luna'), expect.any(Array));
+    expect(alertSpy).toHaveBeenCalledWith('Remove stop', expect.stringContaining('Luna'), expect.any(Array));
     expect(onRemoveStop).toHaveBeenCalledWith('route-1', 'dog-luna');
     alertSpy.mockRestore();
   });
@@ -228,7 +229,7 @@ describe('DispatchBoard', () => {
   it('keeps From and Until pickers separate but only one open at a time', async () => {
     const onAssign = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Assign Bob' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Driver Rafael' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Time window' }));
     expect(screen.queryAllByTestId('time-picker-from')).toHaveLength(0);
@@ -252,15 +253,15 @@ describe('DispatchBoard', () => {
   it('closes the panel only through the close or cancel buttons', async () => {
     const onAssign = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
-    await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Assign Bob' }));
     // Panel content stays after pressing the backdrop area (no dismiss-on-tap-outside).
-    expect(screen.getByText('Assign Maria · Bob')).toBeTruthy();
+    expect(screen.getByText('Assign Bob')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Driver Rafael' })).toBeTruthy();
     // The explicit close button closes it.
     await fireEvent.press(screen.getByRole('button', { name: 'Close' }));
     expect(screen.queryByRole('button', { name: 'Driver Rafael' })).toBeNull();
     // Cancel closes too.
-    await fireEvent.press(screen.getByRole('button', { name: 'Assign Maria · Bob' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Assign Bob' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
     expect(screen.queryByRole('button', { name: 'Driver Rafael' })).toBeNull();
   });
@@ -278,11 +279,13 @@ jest.mock('@/lib/supabase', () => ({
 }));
 
 
-it('mantém os rótulos e alvos de toque de pelo menos 44 pontos para mover Luna', async () => {
+it('mantém ações de VoiceOver e alça de pelo menos 44 pontos para mover Luna', async () => {
   const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={routes} {...noops} />);
-  for (const nome of ['Move Luna up', 'Move Luna down']) {
-    expect(screen.getByRole('button', { name: nome })).toHaveStyle({ minWidth: 44, minHeight: 44 });
-  }
+  // Pedido do dono: só arrastar; VoiceOver mantém as duas ações na linha.
+  expect(screen.getByTestId('drag-pickup-dog-luna')).toHaveStyle({ minWidth: 44, minHeight: 44 });
+  expect(screen.getByTestId('reorder-pickup-dog-luna').props.accessibilityActions).toEqual([
+    { name: 'moveUp', label: 'Move up' }, { name: 'moveDown', label: 'Move down' },
+  ]);
 });
 
 it('mostra selos por perna e rótulos acessíveis dos controles novos', async () => {
@@ -292,15 +295,16 @@ it('mostra selos por perna e rótulos acessíveis dos controles novos', async ()
     })),
   }];
   const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={comTravas} {...noops} />);
-  // A TROCA DE PERNA SAIU (dono, 03/10/2026): os dois blocos ficam na tela ao MESMO tempo, cada um com os
-  // selos da SUA perna — o "1st" da busca e o "#3" da entrega convivem (antes só um aparecia por vez).
+  // Pedido de 04/10: alternar a perna preserva os selos próprios de cada lista.
   const busca = within(screen.getByTestId('dispatch-leg-pickup-driver-rafael'));
-  const entrega = within(screen.getByTestId('dispatch-leg-dropoff-driver-rafael'));
   expect(busca.getAllByText('🔒 1st')).toHaveLength(2);
+  await fireEvent.press(screen.getByLabelText('Drop-offs'));
+  const entrega = within(screen.getByTestId('dispatch-leg-dropoff-driver-rafael'));
   expect(entrega.getAllByText('🔒 #3')).toHaveLength(2);
-  // E não existe mais botão para alternar a perna.
+  // O seletor é do quadro; não há seletor duplicado dentro do cartão.
   expect(screen.queryByRole('button', { name: /(Pick-up|Drop-off) Rafael route/ })).toBeNull();
-  await fireEvent.press(busca.getByRole('button', { name: 'Options for Luna' }));
+  await fireEvent.press(screen.getByLabelText('Pick-ups'));
+  await fireEvent.press(screen.getByRole('button', { name: 'Options for Luna' }));
   for (const perna of ['Pick-up', 'Drop-off']) {
     for (const regra of ['Free', '1st', 'Last', 'Position #']) {
       expect(screen.getByRole('button', { name: `${perna} rule ${regra}` })).toBeTruthy();
@@ -315,9 +319,9 @@ it('mantém filas independentes mesmo quando o cão já tem rota na outra fase',
   const onAssign = jest.fn().mockResolvedValue(undefined);
   const screen = await render(<DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[max]}
     dropoffItems={[max]} routes={[pickup]} {...noops} onAssign={onAssign} />);
-  expect(screen.queryByLabelText('Assign Sarah · Max')).toBeNull();
-  await fireEvent.press(screen.getByLabelText('Assign drop-offs'));
-  await fireEvent.press(screen.getByLabelText('Assign Sarah · Max'));
+  expect(screen.queryByLabelText('Assign Max')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('Drop-offs'));
+  await fireEvent.press(screen.getByLabelText('Assign Max'));
   await fireEvent.press(screen.getByLabelText('Driver Jordan'));
   await fireEvent.press(screen.getByLabelText('Save stop'));
   expect(onAssign).toHaveBeenCalledWith('dog-max', 'driver-jordan',
@@ -329,9 +333,25 @@ it('trocar o motorista de um drop-off preserva sua fase', async () => {
   const onAssign = jest.fn().mockResolvedValue(undefined);
   const screen = await render(<DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[]}
     routes={[dropoff]} {...noops} onAssign={onAssign} />);
+  await fireEvent.press(screen.getByLabelText('Drop-offs'));
   await fireEvent.press(screen.getByLabelText('Options for Max'));
   await fireEvent.press(screen.getByLabelText('Driver Jordan'));
   await fireEvent.press(screen.getByLabelText('Save stop'));
   expect(onAssign).toHaveBeenCalledWith('dog-max', 'driver-jordan',
     { windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' }, 'dropoff');
+});
+
+
+// Pedido do dono (04/10): despublicar também deve usar a perna visível.
+it('Unpublish recebe a rota da perna escolhida', async () => {
+  const onUnpublish = jest.fn().mockResolvedValue(undefined);
+  const pickup = { ...routes[0], phase: 'pickup' as const, status: 'published' as const };
+  const dropoff = { ...routes[0], routeId: 'delivery-route', phase: 'dropoff' as const, status: 'published' as const };
+  const screen = await render(<DispatchBoard date="2026-10-04" drivers={drivers} dayItems={dayItems}
+    routes={[pickup, dropoff]} {...noops} onUnpublish={onUnpublish} />);
+  await fireEvent.press(screen.getByLabelText('Unpublish Rafael route'));
+  expect(onUnpublish).toHaveBeenLastCalledWith('route-1');
+  await fireEvent.press(screen.getByLabelText('Drop-offs'));
+  await fireEvent.press(screen.getByLabelText('Unpublish Rafael route'));
+  expect(onUnpublish).toHaveBeenLastCalledWith('delivery-route');
 });

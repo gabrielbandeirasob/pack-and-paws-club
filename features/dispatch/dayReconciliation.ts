@@ -28,7 +28,7 @@ export function paradasForaDoDia<T extends ParadaComCao>(stops: readonly T[], di
  */
 export function avisoDeParadasForaDoDia(fora: readonly ParadaComCao[]): string | null {
   if (fora.length === 0) return null;
-  const nomes = fora.map((p) => `${p.clientName} · ${p.dogName}`).join(', ');
+  const nomes = fora.map((p) => `${p.dogName}`).join(', ');
   const singular = fora.length === 1;
   return `${fora.length} stop${singular ? '' : 's'} ${singular ? 'is' : 'are'} no longer in today's day: ${nomes}`;
 }

@@ -1,3 +1,5 @@
+// Pedido do dono (04/10): escolher a perna antes de agir nela; mesmas asserções de negócio.
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 /**
  * TRAVA DO DONO (03/10/2026) — *"não faz sentido eu colocar o pick-up de um cachorro com um motorista e
  * depois o drop-off com outro"*: o cão desce com quem o buscou, SEM exceção.
@@ -151,7 +153,8 @@ describe('Dispatch — a trava do motorista na tela', () => {
       <DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[]} dropoffItems={[Billy, Ruby]}
         routes={routes} pickupDriverByDog={mapa} {...noops} onCreateDropoffRoute={onCreateDropoffRoute} />,
     );
-    // Jordan buscou a Ruby: pode criar a perna dele (a TROCA DE PERNA saiu — o cartão já mostra as duas).
+    // Jordan buscou Ruby: selecionar a entrega mantém a criação com ele.
+    await fireEvent.press(tela.getByLabelText('Drop-offs'));
     await fireEvent.press(tela.getByRole('button', { name: 'Show Jordan' }));
     expect(tela.getByRole('button', { name: 'Create drop-off route for Jordan' })).toBeTruthy();
     // Sam não buscou ninguém e não há cão órfão: não tem o que entregar.
@@ -164,6 +167,7 @@ describe('Dispatch — a trava do motorista na tela', () => {
       <DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[]} dropoffItems={[Billy]}
         routes={routes} {...noops} onCreateDropoffRoute={jest.fn()} />,
     );
+    await fireEvent.press(tela.getByLabelText('Drop-offs'));
     await fireEvent.press(tela.getByRole('button', { name: 'Show Jordan' }));
     expect(tela.getByRole('button', { name: 'Create drop-off route for Jordan' })).toBeTruthy();
   });
@@ -173,8 +177,8 @@ describe('Dispatch — a trava do motorista na tela', () => {
       <DispatchBoard date="2026-10-03" drivers={drivers} dayItems={[]} dropoffItems={[Billy]}
         routes={routes} pickupDriverByDog={mapa} {...noops} />,
     );
-    await fireEvent.press(tela.getByLabelText('Assign drop-offs'));
-    await fireEvent.press(tela.getByLabelText('Assign Amy · Billy'));
+    await fireEvent.press(tela.getByLabelText('Drop-offs'));
+    await fireEvent.press(tela.getByLabelText('Assign Billy'));
     expect(tela.getByText('Billy was picked up by Rafael — the drop-off stays with them.')).toBeTruthy();
     expect(tela.getByLabelText('Driver Rafael')).toBeTruthy();
     expect(tela.queryByLabelText('Driver Jordan')).toBeNull();

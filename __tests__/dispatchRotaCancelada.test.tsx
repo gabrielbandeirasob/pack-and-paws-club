@@ -1,3 +1,4 @@
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 // A tela do Dispatch usa `useFocusEffect` — mesmo mock das outras telas de teste do projeto.
 jest.mock('expo-router', () => {
   const { useEffect } = require('react');
@@ -114,7 +115,7 @@ beforeEach(() => {
 
 /** Abre a folha de atribuição do Sam e confirma. */
 async function atribuirSam(tela: ReturnType<typeof render> extends Promise<infer T> ? T : never) {
-  await fireEvent.press(tela.getByRole('button', { name: 'Assign Jose · Sam' }));
+  await fireEvent.press(tela.getByRole('button', { name: 'Assign Sam' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Driver Rafael' }));
   await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
 }
@@ -124,7 +125,7 @@ it('rota do dia CANCELADA: atribuir REATIVA a rota em rascunho e o cão vai para
   mockRota = { id: 'rota-cancelada', lock_version: 16, status: 'cancelled', driver_id: 'motorista' };
 
   const tela = await render(<DispatchScreen />);
-  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Jose · Sam' })).toBeTruthy());
+  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Sam' })).toBeTruthy());
 
   await atribuirSam(tela);
 
@@ -153,7 +154,7 @@ it('a escrita que não vira parada em quadro VAZIO não fecha a folha em silênc
   mockInsertColide = true;
 
   const tela = await render(<DispatchScreen />);
-  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Jose · Sam' })).toBeTruthy());
+  await waitFor(() => expect(tela.getByRole('button', { name: 'Assign Sam' })).toBeTruthy());
 
   // A RPC "dá certo" mas o banco não fica com a parada do cão (nenhuma parada volta na recarga).
   rpc.mockResolvedValueOnce({ data: null, error: null });

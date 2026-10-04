@@ -1,3 +1,4 @@
+// Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
 // A tela do Dispatch usa `useFocusEffect` (as vans são relidas ao voltar para ela): sem
 // NavigationContainer o hook do expo-router quebra — mesmo mock das outras telas de teste do projeto.
 jest.mock('expo-router', () => {
@@ -66,15 +67,14 @@ beforeEach(() => {
 });
 async function montar() {
   const tela = await render(<DispatchScreen />);
-  await waitFor(() => expect(tela.getByRole('button', { name: 'Move Max up' })).toBeTruthy());
+  await waitFor(() => expect(tela.getByTestId('reorder-pickup-Max')).toBeTruthy());
   return tela;
 }
 /**
- * A ordem da perna de BUSCA. O cartão mostra as DUAS pernas juntas (a troca de perna saiu, dono
- * 03/10/2026), então a leitura é por BLOCO — sem isso o mesmo cão aparece duas vezes na lista.
+ * Pedido de 04/10: a ordem é lida na perna de busca selecionada.
  */
 function ordem(tela: Awaited<ReturnType<typeof montar>>) {
-  return within(tela.getByTestId('dispatch-leg-pickup-motorista')).getAllByText(/^Sarah · /).map((item) => item.props.children.join(''));
+  return within(tela.getByTestId('dispatch-leg-pickup-motorista')).getAllByText(/^(Luna|Max|Filó)$/).map((item) => item.props.children);
 }
 async function concluir(indice: number) {
   await act(async () => confirmar[indice]({ data: null, error: null }));
@@ -83,8 +83,8 @@ async function concluir(indice: number) {
 it('mostra a troca antes da RPC confirmar, sem desmontar o quadro nem consultar novamente', async () => {
   const tela = await montar();
   const consultas = (supabase.from as jest.Mock).mock.calls.length;
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Max up' }));
-  expect(ordem(tela)).toEqual(['Sarah · Max', 'Sarah · Luna', 'Sarah · Filó']);
+  await fireEvent(tela.getByTestId('reorder-pickup-Max'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
+  expect(ordem(tela)).toEqual(['Max', 'Luna', 'Filó']);
   expect(tela.getByTestId('driver-info')).toBeTruthy();
   expect(tela.queryAllByTestId("dispatch-loading")).toHaveLength(0);
   expect(rpc).toHaveBeenCalledTimes(1);
@@ -97,10 +97,10 @@ it('mostra a troca antes da RPC confirmar, sem desmontar o quadro nem consultar 
 
 it('três toques respondem imediatamente e enviam apenas a última ordem após a confirmação', async () => {
   const tela = await montar();
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Max up' }));
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Filó up' }));
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Filó up' }));
-  expect(ordem(tela)).toEqual(['Sarah · Filó', 'Sarah · Max', 'Sarah · Luna']);
+  await fireEvent(tela.getByTestId('reorder-pickup-Max'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
+  await fireEvent(tela.getByTestId('reorder-pickup-Filó'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
+  await fireEvent(tela.getByTestId('reorder-pickup-Filó'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
+  expect(ordem(tela)).toEqual(['Filó', 'Max', 'Luna']);
   expect(rpc).toHaveBeenCalledTimes(1);
   expect(tela.queryAllByTestId("dispatch-loading")).toHaveLength(0);
   await concluir(0);
@@ -113,7 +113,7 @@ it('três toques respondem imediatamente e enviam apenas a última ordem após a
 
 it('realtime preserva a ordem pendente e GPS consulta somente posições', async () => {
   const tela = await montar();
-  await fireEvent.press(tela.getByRole('button', { name: 'Move Max up' }));
+  await fireEvent(tela.getByTestId('reorder-pickup-Max'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
   jest.useFakeTimers();
   try {
     (supabase.from as jest.Mock).mockClear();
@@ -122,7 +122,7 @@ it('realtime preserva a ordem pendente e GPS consulta somente posições', async
       mockEventos.route_stops();
       jest.advanceTimersByTime(700);
     });
-    expect(ordem(tela)[0]).toBe('Sarah · Max');
+    expect(ordem(tela)[0]).toBe('Max');
     expect((supabase.from as jest.Mock).mock.calls).toEqual([['routes']]);
     (supabase.from as jest.Mock).mockClear();
     await act(async () => {
@@ -132,7 +132,7 @@ it('realtime preserva a ordem pendente e GPS consulta somente posições', async
     expect((supabase.from as jest.Mock).mock.calls).toEqual([['driver_locations']]);
     expect(tela.queryAllByTestId("dispatch-loading")).toHaveLength(0);
     await concluir(0);
-    await fireEvent.press(tela.getByRole('button', { name: 'Move Filó up' }));
+    await fireEvent(tela.getByTestId('reorder-pickup-Filó'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
     expect(rpc).toHaveBeenLastCalledWith('reorder_route_stops', {
       p_route_id: 'rota', p_dog_ids: ['Max', 'Filó', 'Luna'], p_esperado: 5,
     });
@@ -146,10 +146,10 @@ it('stale_route avisa e recupera a ordem do servidor silenciosamente', async () 
   const alerta = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   try {
     const tela = await montar();
-    await fireEvent.press(tela.getByRole('button', { name: 'Move Max up' }));
+    await fireEvent(tela.getByTestId('reorder-pickup-Max'), 'accessibilityAction', { nativeEvent: { actionName: 'moveUp' } });
     await act(async () => confirmar[0]({ data: null, error: { message: 'stale_route' } }));
     expect(alerta).toHaveBeenCalled();
-    expect(ordem(tela)).toEqual(['Sarah · Luna', 'Sarah · Max', 'Sarah · Filó']);
+    expect(ordem(tela)).toEqual(['Luna', 'Max', 'Filó']);
     expect(tela.queryAllByTestId("dispatch-loading")).toHaveLength(0);
   } finally {
     alerta.mockRestore();
