@@ -8,7 +8,8 @@ import { avisoDeRotaInvisivel, rotuloDeStatus } from '@/features/dispatch/routeS
 
 describe('avisoDeRotaInvisivel', () => {
   it('rascunho avisa que o motorista ainda não vê', () => {
-    expect(avisoDeRotaInvisivel('draft')).toBe("Draft — the driver can't see it yet");
+    // Redesenho (item 14): a frase longa virou a linha discreta embaixo do badge `Draft`.
+    expect(avisoDeRotaInvisivel('draft')).toBe('Not visible to driver yet');
   });
 
   it('publicada não avisa nada (o motorista está vendo)', () => {

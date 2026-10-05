@@ -9,7 +9,7 @@ import type { DogRef } from '@/features/calendar/dayMath';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
 import { ReorderableStops } from '@/features/dispatch/ReorderableStops';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
-import { avisoDeRotaInvisivel, rotuloDeStatus } from '@/features/dispatch/routeStatusLabel';
+import { avisoDeRotaInvisivel, avisoDeRepublicacao, precisaRepublicar, rotuloDoBadge } from '@/features/dispatch/routeStatusLabel';
 import { SELO_PARADA_FORA_DO_DIA, avisoDeParadasForaDoDia, paradasForaDoDia } from '@/features/dispatch/dayReconciliation';
 import { colors, radii } from '@/features/theme/tokens';
 import { StopProofChips } from '@/features/dispatch/ProofViewer';
@@ -77,6 +77,10 @@ export type DispatchRouteStop = DispatchStopItem & {
   status: 'pending' | 'arrived' | 'picked_up' | 'completed' | 'skipped';
   latitude: number | null;
   longitude: number | null;
+  /** Perna gravada pelo Optimize (migração 041): ordem da BUSCA. */
+  travelSeconds?: number | null;
+  /** Perna gravada pelo Optimize (migração 042): ordem da ENTREGA. */
+  dropoffTravelSeconds?: number | null;
   /** Caminhos das fotos de comprovante no bucket privado (migration 020). */
   pickupProofPath?: string | null;
   dropoffProofPath?: string | null;
@@ -88,6 +92,8 @@ export type DispatchRoute = {
   status: 'draft' | 'published' | 'completed' | 'cancelled';
   /** Van escolhida para ESTA rota (`routes.start_location_id`). Sem ela, o app decide pela mais próxima. */
   startLocationId?: string | null;
+  /** Yard onde ESTA rota termina a busca (`routes.end_location_id`). Sem ele, vale o yard padrão. */
+  endLocationId?: string | null;
   stops: DispatchRouteStop[];
 };
 /**
@@ -170,6 +176,13 @@ type Props = {
    */
   vans?: DispatchVan[];
   onChooseVan?: (driverId: string, locationId: string) => Promise<void>;
+  /**
+   * YARD ESCOLHÍVEL (dono, 05/10/2026 — item 7 do redesenho; ÚNICA escrita nova): o yard também passa
+   * a ser tocável e grava `routes.end_location_id` — a MESMA coluna que o fim do dia do motorista já
+   * lê. Espelha o caminho da van (`onChooseVan`); com 0 ou 1 yard o chip é informativo e nada é
+   * oferecido. Sem a prop, o yard fica como era.
+   */
+  onChooseYard?: (driverId: string, locationId: string) => Promise<void>;
   /** Van já escolhida para o motorista quando a rota dele ainda não existe. */
   vanDoMotorista?: (driverId: string) => string | null;
   /**
@@ -191,7 +204,7 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseChange, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onCreateDropoffRoute, pickupDriverByDog, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, vanDoMotorista, onOpenStopList }: Props) {
+export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseChange, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onCreateDropoffRoute, pickupDriverByDog, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList }: Props) {
   const [localPhase, setAssignmentPhase] = useState<Perna>('pickup');
   const assignmentPhase = phase ?? localPhase;
   const escolherPerna = (phase: Perna) => { setAssignmentPhase(phase); onPhaseChange?.(phase); };
@@ -271,6 +284,19 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
   };
 
   const [buscaCao, setBuscaCao] = useState(false);
+  /**
+   * OVERFLOW do cartão (dono, 05/10/2026 — item 8). As ações menos frequentes (Edit times,
+   * Publish/Republish quando NÃO precisa subir, Unpublish, ✓ Done, Cancel route) vivem num menu
+   * próprio, para o cartão não competir com o primário (`Optimize route`).
+   *
+   * 🪤 SÓ UM `Modal` NATIVO POR VEZ (foi o que travou o app no "Add any dog", 05/10/2026): abrir o
+   * overflow FECHA a folha de atribuição e a busca de cão, e vice-versa — nunca empilha.
+   */
+  type MenuState = { driverName: string; route: DispatchRoute; leg: Perna };
+  const [menuRota, setMenuRota] = useState<MenuState | null>(null);
+  const abrirOverflow = (estado: MenuState) => { setSheet(null); setBuscaCao(false); setSugestao(null); setMenuRota(estado); };
+  const abrirSheet = (estado: SheetState) => { setBuscaCao(false); setSugestao(null); setMenuRota(null); setSheet(estado); };
+  const abrirBuscaCao = () => { setSheet(null); setSugestao(null); setMenuRota(null); setBuscaCao(true); };
   const [driverId, setDriverId] = useState<string | null>(null);
   const [kind, setKind] = useState<ConstraintKind>('none');
   const [windowStart, setWindowStart] = useState('');
@@ -469,36 +495,40 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
           <Text style={[styles.faseOpcaoTexto, assignmentPhase === phase && styles.faseOpcaoTextoAtivo]}>{phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'}</Text>
         </Pressable>)}</View>
       <ScrollView testID="dispatch-scroll" scrollEnabled={!arrastando} automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.unassigned}>
-          {/*
-            * UNASSIGNED NO TOPO (dono, 04/10/2026): "quero o unassigned fique na parte de cima para
-            * sabermos quais dogs estão sem motorista e facilitar o serviço". O título fica FORA da
-            * faixa dos chips (não rola junto) e os chips QUEBRAM EM LINHAS em vez de rolar de lado:
-            * esconder cão atrás de rolagem horizontal contraria o pedido (medido: o dia dele teve 6).
-            */}
+        {/*
+          * LINHA DE ATRIBUIÇÃO (dono, 05/10/2026 — item 3 do redesenho): a antiga faixa com BORDA
+          * TRACEJADA e a frase `Every transport dog is assigned. 🎉` viraram UMA LINHA de status.
+          * Tudo atribuído: `✓ All dogs assigned` + `+ Add dog`. Com pendência: o título
+          * `N unassigned` (que já existia) + os chips dos cães + `+ Add dog`. Sem borda tracejada,
+          * sem cartão grande. O `testID="unassigned-pool"` continua e a contagem fica FORA dele.
+          */}
+        <View style={styles.assignmentLine}>
           {unassigned.length > 0 ? <Text style={styles.unassignedTitle}>{unassigned.length} unassigned</Text> : null}
           <View testID="unassigned-pool" style={styles.resourcesWrap}>
             {sugestaoErro && !sugestao ? <Text style={styles.sugestaoErro}>{sugestaoErro}</Text> : null}
             {paraTransporte.length === 0 ? (
               <Text style={styles.muted}>No transport dogs need a ride today.</Text>
             ) : unassigned.length === 0 ? (
-              <Text numberOfLines={1} style={styles.muted}>Every transport dog is assigned. 🎉</Text>
+              <Text numberOfLines={1} style={styles.assignedOk}>✓ All dogs assigned</Text>
             ) : null}
             {unassigned.map((item) => (
-              <Pressable key={item.dogId} accessibilityRole="button" accessibilityLabel={`Assign ${item.dogName}`} onPress={() => setSheet({ mode: 'assign', item, phase: assignmentPhase === 'dropoff' ? 'dropoff' : undefined })} style={[styles.chip, styles.poolChip]}>
+              <Pressable key={item.dogId} accessibilityRole="button" accessibilityLabel={`Assign ${item.dogName}`} onPress={() => abrirSheet({ mode: 'assign', item, phase: assignmentPhase === 'dropoff' ? 'dropoff' : undefined })} style={[styles.chip, styles.poolChip]}>
                 <Text numberOfLines={1} style={styles.chipText}>{item.dogName}{item.extra ? ' · manual' : ''}</Text>
               </Pressable>
             ))}
             {onAddExtraDog ? (
-              <Pressable accessibilityRole="button" accessibilityLabel="Add any dog" onPress={() => setBuscaCao(true)} style={styles.chipAdd}>
-                <Text numberOfLines={1} style={styles.chipAddText}>＋ Add any dog</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Add any dog" onPress={() => abrirBuscaCao()} style={styles.addDog}>
+                <Text numberOfLines={1} style={styles.addDogText}>+ Add dog</Text>
               </Pressable>
             ) : null}
           </View>
         </View>
-        {/* LINHA DE MOTORISTAS (Proposta B, 03/10/2026): escolhe quem está na tela — um por vez. */}
+        {/* CHIPS DE MOTORISTA (dono, 05/10/2026 — item 4): compactos (`Raphael 3` / `Gabriel 0`), SEM
+            "manager" no chip (o papel continua DENTRO do cartão), selecionado em verde cheio e
+            ROLAGEM HORIZONTAL quando houver muitos (`showsHorizontalScrollIndicator={false}`). */}
         {drivers.length > 0 ? (
-          <View style={styles.motoristaWrap} testID="dispatch-linha-motoristas">
+          <ScrollView testID="dispatch-linha-motoristas" horizontal showsHorizontalScrollIndicator={false}
+            style={styles.motoristaScroll} contentContainerStyle={styles.motoristaSeletor}>
             {drivers.map((driver) => {
               const ativo = motoristaVisivelObj?.id === driver.id;
               const quantos = paradasDaPerna(driver.id, assignmentPhase);
@@ -512,23 +542,26 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
                   style={[styles.motoristaChip, ativo && styles.motoristaChipAtivo]}
                 >
                   <Text numberOfLines={1} style={[styles.motoristaChipTexto, ativo && styles.motoristaChipTextoAtivo]}>
-                    {driver.name}{driver.alsoManager ? ' · manager' : ''}{quantos > 0 ? ` · ${quantos}` : ''}
+                    {driver.name} {quantos}
                   </Text>
                 </Pressable>
               );
             })}
-          </View>
+          </ScrollView>
         ) : null}
         {motoristaVisivelObj ? (
           <View>
             <CartaoMotorista
               driver={motoristaVisivelObj} leg={assignmentPhase}
               route={assignmentPhase === 'pickup' ? rotaDoDia?.busca : rotaDoDia?.entrega ?? (rotaDoDia?.busca?.phase === undefined ? rotaDoDia?.busca : undefined)}
-              location={driverLocations[motoristaVisivelObj.id]} working={working} setSheet={setSheet}
+              location={driverLocations[motoristaVisivelObj.id]} working={working} setSheet={abrirSheet}
               onMoveStop={onMoveStop} onMoveDropoff={onMoveDropoff} onOptimize={onOptimize} onPublish={onPublish}
               onSuggest={podeSugerir ? pedirSugestao : undefined} suggestionBusy={sugestaoBusy}
-              vans={vans} onChooseVan={assignmentPhase === 'pickup' ? onChooseVan : undefined} vanDoMotorista={vanDoMotorista} onOpenStopList={onOpenStopList}
-              diaDogIds={diaDogIds}
+              vans={vans} onChooseVan={assignmentPhase === 'pickup' ? onChooseVan : undefined}
+              onChooseYard={assignmentPhase === 'pickup' ? onChooseYard : undefined}
+              vanDoMotorista={vanDoMotorista} onOpenStopList={onOpenStopList}
+              diaDogIds={diaDogIds} unassignedCount={unassigned.length}
+              onOpenMenu={abrirOverflow} onOpenAddDog={onAddExtraDog ? abrirBuscaCao : undefined}
               onDraggingChange={setArrastando}
               onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
             {/* DEFEITO B (03/10/2026): cria a perna que nunca nasceu — draft, sem publicar. Fica FORA do
@@ -566,7 +599,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
           que um boarding entrava na rota de volta — o que o cliente apontou no áudio de 02/10/2026.
         */}
         {assignmentPhase === 'pickup' && naVan.length > 0 ? (
-          <View style={styles.unassigned} testID="dispatch-ja-na-van">
+          <View style={styles.jaNaVan} testID="dispatch-ja-na-van">
             <Pressable
               accessibilityRole="button"
               accessibilityState={{ expanded: mostrarNaVan }}
@@ -576,10 +609,11 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
               onPress={() => setMostrarNaVan((v) => !v)}
               style={styles.naVanCabecalho}
             >
-              <Text style={styles.naVanTitulo}>
-                Boarding — already in the van ({naVan.length}) {mostrarNaVan ? '▾' : '▸'}
-              </Text>
-              <Text style={styles.naVanToque}>{mostrarNaVan ? 'Hide' : 'Show'}</Text>
+              {/* Item 12: linha discreta `Already in van  N  ⌄` — o bloco tracejado com
+                  "Boarding — already in the van (N) ▸ Show" saiu. */}
+              <Text style={styles.naVanTitulo}>Already in van</Text>
+              <Text style={styles.naVanCount}>{naVan.length}</Text>
+              <Text style={styles.naVanChevron}>{mostrarNaVan ? '⌃' : '⌄'}</Text>
             </Pressable>
             {mostrarNaVan ? (
               <>
@@ -824,6 +858,60 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
           </View>
         </View>
       </Modal>
+
+      {/* OVERFLOW DO CARTÃO (dono, 05/10/2026 — item 8): as ações menos frequentes vivem AQUI, para o
+          cartão não competir com o primário (`Optimize route`). Menu com UMA instância de `Modal`
+          nativo; abrir o overflow já fechou a folha/ busca (ver `abrirOverflow`), nunca empilha. */}
+      <Modal visible={menuRota !== null} transparent animationType="fade" onRequestClose={() => setMenuRota(null)}>
+        <View style={styles.backdrop}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>{menuRota ? `Route — ${menuRota.driverName}` : ''}</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setMenuRota(null)} hitSlop={10}>
+                <Text style={styles.sheetClose}>✕</Text>
+              </Pressable>
+            </View>
+            {menuRota ? <>
+              {onOpenStopList ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={`Stop list for ${menuRota.driverName}`}
+                  onPress={() => { const alvo = menuRota; setMenuRota(null); onOpenStopList(alvo.route.routeId, alvo.driverName); }}
+                  style={styles.menuItem}>
+                  <Text style={styles.menuItemText}>Edit times</Text>
+                </Pressable>
+              ) : null}
+              {menuRota.leg === 'pickup' && menuRota.route.status === 'published' && !precisaRepublicar(menuRota.route.status, { foraDoDia: paradasForaDoDia(menuRota.route.stops ?? [], diaDogIds).length, unassigned: unassigned.length }) ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={`Republish ${menuRota.driverName} route`} disabled={working}
+                  onPress={() => { const alvo = menuRota; setMenuRota(null); void onPublish(alvo.route.routeId); }}
+                  style={styles.menuItem}>
+                  <Text style={styles.menuItemText}>Republish</Text>
+                </Pressable>
+              ) : null}
+              {menuRota.route.status === 'published' ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={`Unpublish ${menuRota.driverName} route`} disabled={working}
+                  onPress={() => { const alvo = menuRota; setMenuRota(null); void onUnpublish(alvo.route.routeId); }}
+                  style={styles.menuItem}>
+                  <Text style={styles.menuItemText}>Unpublish</Text>
+                </Pressable>
+              ) : null}
+              {menuRota.route.status === 'published' ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={`Complete ${menuRota.driverName} route`} disabled={working}
+                  onPress={() => { const alvo = menuRota; setMenuRota(null); void onCompleteRoute(alvo.route.routeId); }}
+                  style={styles.menuItem}>
+                  <Text style={styles.menuItemText}>✓ Done</Text>
+                </Pressable>
+              ) : null}
+              <Pressable accessibilityRole="button" accessibilityLabel={`Cancel ${menuRota.driverName} route`} disabled={working}
+                onPress={() => { const alvo = menuRota; setMenuRota(null); void onCancelRoute(alvo.route.routeId); }}
+                style={[styles.menuItem, styles.menuDanger]}>
+                <Text style={[styles.menuItemText, styles.menuDangerText]}>Cancel route</Text>
+              </Pressable>
+            </> : null}
+            <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={() => setMenuRota(null)} style={styles.sheetCancel}>
+              <Text style={styles.sheetCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 });
@@ -884,16 +972,24 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
   suggestionBusy?: boolean;
   vans?: DispatchVan[];
   onChooseVan?: Props['onChooseVan'];
+  onChooseYard?: Props['onChooseYard'];
   vanDoMotorista?: Props['vanDoMotorista'];
   onOpenStopList?: Props['onOpenStopList'];
   /** Cães do dia confirmado — a linha confere as paradas contra este conjunto (Defeito A, 03/10/2026). */
   diaDogIds?: ReadonlySet<string>;
+  /** Cães do dia ainda SEM motorista nesta perna — a regra de republicação (item 15) usa este número. */
+  unassignedCount?: number;
+  /** Abre o menu de overflow do cartão (item 8). */
+  onOpenMenu?: (estado: { driverName: string; route: DispatchRoute; leg: Perna }) => void;
+  /** Abre a busca "Add any dog" do quadro (estado vazio do motorista, item 13). */
+  onOpenAddDog?: () => void;
 };
 
 const CartaoMotorista = memo(function CartaoMotorista({
   driver, route, leg, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
   onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy,
-  vans, onChooseVan, vanDoMotorista, onOpenStopList, diaDogIds, onDraggingChange,
+  vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList, diaDogIds, unassignedCount = 0,
+  onOpenMenu, onOpenAddDog, onDraggingChange,
 }: PropsCartao) {
   // A rota e as ações pertencem somente à perna selecionada.
   const grupos = useMemo(() => route ? [{ leg, route,
@@ -901,7 +997,9 @@ const CartaoMotorista = memo(function CartaoMotorista({
   }] : [], [route, leg]);
   const stops = grupos[0]?.stops ?? [];
   const totalParadas = stops.length;
+  const semParadas = totalParadas === 0;
   const [salvandoVan, setSalvandoVan] = useState(false);
+  const [salvandoYard, setSalvandoYard] = useState(false);
   const avisoRota = avisoDeRotaInvisivel(route?.status);
   /**
    * DEFEITO A (dono, 03/10/2026): as paradas vêm de `route_stops` — congeladas na PUBLICAÇÃO. A linha
@@ -916,19 +1014,30 @@ const CartaoMotorista = memo(function CartaoMotorista({
     return paradasForaDoDia(todas, diaDogIds ?? new Set<string>());
   }, [route, diaDogIds]);
   const avisoForaDoDia = avisoDeParadasForaDoDia(foraDoDia);
+  /**
+   * PUBLICAÇÃO VENCIDA (dono, 05/10/2026 — item 15). Antes o `Republish` aparecia SEMPRE; agora só
+   * quando o dia realmente mudou desde a publicação (parada fora do dia OU cão ainda sem motorista).
+   * A regra é PURA (`precisaRepublicar`) e usa só o que a tela já tem.
+   */
+  const mudanca = { foraDoDia: foraDoDia.length, unassigned: unassignedCount };
+  const republicar = precisaRepublicar(route?.status, mudanca);
+  const avisoRepublicacao = avisoDeRepublicacao(route?.status, mudanca);
+  const badgeStatus = route ? (republicar ? 'Needs update' : rotuloDoBadge(route.status)) : '';
   /*
    * VAN DA ROTA (pergunta do dono, 01/10/2026). A van da rota manda; quando ela ainda não existe, vale a
    * escolha que o gestor fez no cartão (fica guardada na tela e vai gravada na rota que nascer). Sem
    * escolha nenhuma o app decide sozinho pela van mais próxima das paradas — o cartão diz isso em letras.
+   * VAN ≠ YARD (dono, 02/10/2026): só as VANS são escolhíveis como onde o dia começa; o YARD (onde a
+   * busca termina) tem linha própria. Redesenho (05/10/2026, itens 6/7): uma linha compacta de chips e
+   * o YARD também TOCÁVEL quando há mais de um (grava `routes.end_location_id`).
    */
   const vanAtiva = route?.startLocationId ?? vanDoMotorista?.(driver.id) ?? null;
-  /**
-   * VAN ≠ YARD (dono, 02/10/2026). Só as VANS são escolhíveis — "onde o dia começa". O YARD ("onde a
-   * busca termina") sai da lista de escolha e vira uma linha informativa com o endereço, logo abaixo.
-   * Sem `kind`, a sede conta como van: organizações que nunca usaram yard ficam idênticas ao de antes.
-   */
   const vansIniciais = (vans ?? []).filter((van) => van.kind !== 'yard');
   const yards = (vans ?? []).filter((van) => van.kind === 'yard');
+  const yardPadrao = yards.find((yard) => yard.isDefault) ?? yards[0] ?? null;
+  const yardAtivo = route?.endLocationId ?? yardPadrao?.id ?? null;
+  const yardAtivoObj = yards.find((yard) => yard.id === yardAtivo) ?? yardPadrao;
+  const mostrarRecursos = Boolean(onChooseVan && (vansIniciais.length > 1 || yards.length > 0));
   const escolherVan = async (locationId: string) => {
     if (!onChooseVan || salvandoVan || vanAtiva === locationId) return;
     setSalvandoVan(true);
@@ -936,6 +1045,15 @@ const CartaoMotorista = memo(function CartaoMotorista({
       await onChooseVan(driver.id, locationId);
     } finally {
       setSalvandoVan(false);
+    }
+  };
+  const escolherYard = async (locationId: string) => {
+    if (!onChooseYard || salvandoYard || yardAtivo === locationId) return;
+    setSalvandoYard(true);
+    try {
+      await onChooseYard(driver.id, locationId);
+    } finally {
+      setSalvandoYard(false);
     }
   };
   // Idade da última posição: a tela avisa quando fica velha e ESCONDE o ETA quando é antiga
@@ -957,25 +1075,41 @@ const CartaoMotorista = memo(function CartaoMotorista({
         location ? { latitude: location.latitude, longitude: location.longitude } : null,
       )
     : null;
+  // HIERARQUIA DE AÇÕES (item 8): primário = Optimize route; secundário = Suggest; overflow = ⋯.
+  const publicarNaLinha = Boolean(route && stops.length > 0 && leg === 'pickup' && (route.status === 'draft' || republicar));
+  const mostrarPublicar = Boolean(route && stops.length > 0 && (leg === 'dropoff' || publicarNaLinha));
   return (
     <View key={driver.id} testID={`dispatch-route-${driver.id}-${route?.phase ?? 'pickup'}`} style={styles.driverCard}>
       <View style={styles.driverHeader}>
         <View style={styles.driverIdentity}>
           <View style={styles.avatar}><Text style={styles.avatarText}>{driver.name[0]}</Text></View>
-          {/* Precisa de flex:1 (e minWidth:0): sem isso, numa tela estreita os QUATRO botoes
-              de acao consomem a linha e sobram ~48pt para o texto - o nome do motorista
-              quebra LETRA POR LETRA (relato do dono no iPhone, 12/09/2026). */}
+          {/* Precisa de flex:1 (e minWidth:0): sem isso, numa tela estreita os botões de ação
+              consomem a linha e sobram ~48pt para o texto - o nome do motorista quebra LETRA POR
+              LETRA (relato do dono no iPhone, 12/09/2026). */}
           <View style={styles.driverText} testID={route?.phase === 'dropoff' ? 'driver-info-dropoff' : 'driver-info'}>
-            <Text numberOfLines={1} style={styles.driverName}>{driver.name}</Text>
-            <Text style={styles.muted}>{totalParadas} stop{totalParadas === 1 ? '' : 's'}{rotuloDeStatus(route?.status)}</Text>
-            {/* Rascunho NÃO chega ao celular do motorista: o aviso fica na linha do status, que é
-                onde o gestor olha (melhoria do dono, 01/10/2026). */}
+            <View style={styles.driverTitleRow}>
+              <Text numberOfLines={1} style={styles.driverName}>{driver.name}</Text>
+              {/* BADGE DE STATUS (item 5): o status aparece AQUI e em nenhum outro lugar. Vira
+                  `Needs update` quando a publicação ficou velha (item 15). */}
+              {route ? (
+                <View style={[styles.statusBadge, republicar ? styles.statusBadgeAlerta : styles.statusBadgeNeutro]} testID="driver-status-badge">
+                  <Text style={[styles.statusBadgeText, republicar ? styles.statusBadgeTextoAlerta : null]}>{badgeStatus}</Text>
+                </View>
+              ) : null}
+              {!semParadas ? <Text style={styles.driverCount}>{totalParadas} stop{totalParadas === 1 ? '' : 's'}</Text> : null}
+            </View>
+            {/* ESTADO SEM PARADAS (item 13): nada de cartão vazio grande. */}
+            {semParadas ? <Text style={styles.emptyStops}>No stops assigned</Text> : null}
+            {/* Rascunho NÃO chega ao celular do motorista (item 14): linha discreta, sem bloco. */}
             {avisoRota ? (
-              <Text style={styles.draftBadge} testID="driver-draft-badge">{avisoRota}</Text>
+              <Text style={styles.draftLine} testID="driver-draft-badge">{avisoRota}</Text>
             ) : null}
-            {/* Aviso do topo (Defeito A, 03/10/2026): quantas e QUAIS paradas saíram do dia. */}
+            {/* UM aviso por assunto (item 9): aqui só o contador; o detalhe vive na linha da parada. */}
             {avisoForaDoDia ? (
               <Text style={styles.foraDoDiaAviso} testID={`route-off-day-${driver.id}`}>{avisoForaDoDia}</Text>
+            ) : null}
+            {avisoRepublicacao ? (
+              <Text style={styles.republishAviso} testID={`route-needs-update-${driver.id}`}>{avisoRepublicacao}</Text>
             ) : null}
             {route && stops.length > 0 ? (
               <Text style={[styles.muted, eta?.lateMinutes || frescor?.velha ? styles.lateText : null]}>
@@ -998,107 +1132,126 @@ const CartaoMotorista = memo(function CartaoMotorista({
             ) : null}
           </View>
         </View>
-        {onChooseVan && (vansIniciais.length > 1 || yards.length > 0) ? (
-        <View style={styles.recursosWrap}>
-        {vansIniciais.length > 1 ? (
-          <View style={styles.vanLinha} testID={`driver-van-${driver.id}`}>
-            <Text accessibilityLabel="Van · where the day starts" style={styles.vanRotulo}>Van</Text>
-            <View style={styles.vanChips}>
-              {vansIniciais.map((van) => {
-                const ativa = vanAtiva === van.id;
-                return (
-                  <Pressable
-                    key={van.id}
-                    accessibilityRole="radio"
-                    accessibilityState={{ checked: ativa }}
-                    accessibilityLabel={`Use ${van.name} for ${driver.name}`}
-                    hitSlop={{ top: 7, bottom: 7, left: 2, right: 2 }}
-                    disabled={salvandoVan || working || route?.status === 'completed' || route?.status === 'cancelled'}
-                    onPress={() => void escolherVan(van.id)}
-                    style={[styles.vanChip, ativa ? styles.vanChipAtiva : null]}
-                  >
-                    <Text numberOfLines={1} style={[styles.vanChipTexto, ativa ? styles.vanChipTextoAtivo : null]}>
-                      {van.name}{van.isDefault ? ' ★' : ''}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-            {!vanAtiva ? <Text style={styles.vanAuto}>auto · nearest</Text> : null}
-          </View>
-        ) : null}
-        {/* O YARD NÃO é van escolhível (dono, 02/10/2026: "não é uma van o yard, ele tem que ter o
-            endereço que ele vai finalizar"). Ele aparece aqui como o ponto onde a BUSCA termina — a
-            origem da 1ª perna da entrega — com endereço no rótulo acessível, sem seleção. */}
-        {yards.length > 0 ? (
-          <View style={styles.vanLinha} testID={`driver-yard-${driver.id}`}>
-            <Text accessibilityLabel="Yard · where the pick-up ends" style={styles.vanRotulo}>Yard</Text>
-            <View style={styles.vanChips}>
-              {yards.map((yard) => (
-                <View
-                  key={yard.id}
-                  style={styles.yardChip}
-                  accessibilityLabel={`Yard ${yard.name}${yard.address ? ` at ${yard.address}` : ''} — where the pick-up ends`}
-                >
-                  <Text numberOfLines={1} style={styles.yardChipTexto}>
-                    {yard.address ? `${yard.name} · ${yard.address}` : yard.name}
-                  </Text>
+        {/* VAN e YARD numa LINHA COMPACTA de chips (item 6) — sem "Van"/"Yard" gigantes. Aparece
+            também no estado SEM paradas (item 13: o gestor precisa ver onde o dia começa/termina). */}
+        {mostrarRecursos ? (
+          <View style={styles.recursosWrap}>
+            {onChooseVan && vansIniciais.length > 1 ? (
+              <View style={styles.vanLinha} testID={`driver-van-${driver.id}`}>
+                <Text accessibilityLabel="Van · where the day starts" style={styles.vanRotulo}>🚐</Text>
+                <View style={styles.vanChips}>
+                  {vansIniciais.map((van) => {
+                    const ativa = vanAtiva === van.id;
+                    return (
+                      <Pressable
+                        key={van.id}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: ativa }}
+                        accessibilityLabel={`Use ${van.name} for ${driver.name}`}
+                        hitSlop={{ top: 7, bottom: 7, left: 2, right: 2 }}
+                        disabled={salvandoVan || working || route?.status === 'completed' || route?.status === 'cancelled'}
+                        onPress={() => void escolherVan(van.id)}
+                        style={[styles.vanChip, ativa ? styles.vanChipAtiva : null]}
+                      >
+                        <Text numberOfLines={1} style={[styles.vanChipTexto, ativa ? styles.vanChipTextoAtivo : null]}>
+                          {van.name}{van.isDefault ? ' ★' : ''}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
-              ))}
+                {!vanAtiva ? <Text style={styles.vanAuto}>auto · nearest</Text> : null}
+              </View>
+            ) : null}
+            {/*
+              * YARD (itens 6/7): onde a busca termina. Com 0/1 yard o chip é INFORMATIVO; com 2+ (e a
+              * prop `onChooseYard`) vira escolha e grava `routes.end_location_id` pelo caminho da van.
+              */}
+            {yards.length > 0 && yardAtivoObj ? (
+              <View style={styles.vanLinha} testID={`driver-yard-${driver.id}`}>
+                <Text accessibilityLabel="Yard · where the pick-up ends" style={styles.vanRotulo}>📍</Text>
+                <View style={styles.vanChips}>
+                  {yards.length > 1 && onChooseYard ? (
+                    yards.map((yard) => {
+                      const ativa = yardAtivo === yard.id;
+                      return (
+                        <Pressable
+                          key={yard.id}
+                          accessibilityRole="radio"
+                          accessibilityState={{ checked: ativa }}
+                          accessibilityLabel={`Use ${yard.name} for ${driver.name}`}
+                          hitSlop={{ top: 7, bottom: 7, left: 2, right: 2 }}
+                          disabled={salvandoYard || working || route?.status === 'completed' || route?.status === 'cancelled'}
+                          onPress={() => void escolherYard(yard.id)}
+                          style={[styles.vanChip, ativa ? styles.vanChipAtiva : null]}
+                        >
+                          <Text numberOfLines={1} style={[styles.vanChipTexto, ativa ? styles.vanChipTextoAtivo : null]}>
+                            {yard.address ? `${yard.name} · ${yard.address}` : yard.name}
+                          </Text>
+                        </Pressable>
+                      );
+                    })
+                  ) : (
+                    <View
+                      style={styles.yardChip}
+                      accessibilityLabel={`Yard ${yardAtivoObj.name}${yardAtivoObj.address ? ` at ${yardAtivoObj.address}` : ''} — where the pick-up ends`}
+                    >
+                      <Text numberOfLines={1} style={styles.yardChipTexto}>
+                        {yardAtivoObj.address ? `${yardAtivoObj.name} · ${yardAtivoObj.address}` : yardAtivoObj.name}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+        {/* AÇÕES (item 8): [Optimize route] [Suggest] [Publish/Republish changes?] [•••].
+            Nada escondido atrás de rolagem — quebra em linhas. */}
+        {!semParadas && (route || onSuggest) ? (
+          <View testID="dispatch-actions-scroll" style={styles.actionsWrap}>
+            <View style={styles.driverActions} testID="driver-actions">
+              {route && stops.length >= 2 ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={`Optimize ${driver.name} route`} disabled={working} onPress={() => void onOptimize(route.routeId)} style={styles.primaryButton}>
+                  <Text numberOfLines={1} style={styles.primaryText}>Optimize route</Text>
+                </Pressable>
+              ) : null}
+              {onSuggest ? (
+                <Pressable accessibilityRole="button" accessibilityLabel="Suggest routes"
+                  disabled={working || suggestionBusy} onPress={() => void onSuggest()} style={styles.secondaryButton}>
+                  <Text numberOfLines={1} style={styles.secondaryText}>{suggestionBusy ? 'Thinking…' : 'Suggest'}</Text>
+                </Pressable>
+              ) : null}
+              {route && mostrarPublicar ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={republicar ? `Republish ${driver.name} route` : `Publish ${driver.name} route`} disabled={working || leg === 'dropoff'} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
+                  <Text numberOfLines={1} style={styles.publishText}>{leg === 'dropoff' ? 'Draft only' : republicar ? 'Republish changes' : 'Publish route'}</Text>
+                </Pressable>
+              ) : null}
+              {route ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={`More actions for ${driver.name}`} onPress={() => onOpenMenu?.({ driverName: driver.name, route, leg })} style={styles.overflowButton}>
+                  <Text numberOfLines={1} style={styles.overflowText}>•••</Text>
+                </Pressable>
+              ) : null}
             </View>
           </View>
         ) : null}
-        </View>
-        ) : null}
-        {onSuggest || (route && (stops.length > 0 || onOpenStopList)) ? (
-          /* NADA ESCONDIDO: era ScrollView horizontal e o "Publish"/"✓ Done" ficavam fora da tela num
-             iPhone estreito (dono, 04/10/2026: o gestor não pode ter de descobrir gesto para achar
-             ação). Aqui as ações quebram em duas linhas quando não couberem. */
-          <View testID="dispatch-actions-scroll" style={styles.actionsWrap}>
-          <View style={styles.driverActions} testID="driver-actions">
-        {route && onOpenStopList ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Stop list for ${driver.name}`}
-            onPress={() => onOpenStopList(route.routeId, driver.name)}
-            style={styles.stopListLink}
-          >
-            <Text numberOfLines={1} style={styles.stopListText}>Times ›</Text>
-          </Pressable>
-        ) : null}
-
-            {route && stops.length >= 2 ? (
-              <Pressable accessibilityRole="button" accessibilityLabel={`Optimize ${driver.name} route`} disabled={working} onPress={() => void onOptimize(route.routeId)} style={styles.optimizeButton}>
-                <Text numberOfLines={1} style={styles.optimizeText}>Optimize</Text>
+        {/* ESTADO VAZIO (item 13): `No stops assigned` + offer to assign (só quando existe). */}
+        {semParadas && (onSuggest || onOpenAddDog) ? (
+          <View style={styles.emptyActions}>
+            {onSuggest ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="Suggest routes" disabled={working || suggestionBusy} onPress={() => void onSuggest()} style={styles.emptyCta}>
+                <Text numberOfLines={1} style={styles.emptyCtaText}>{suggestionBusy ? 'Thinking…' : 'Suggest assignments'}</Text>
               </Pressable>
             ) : null}
-            {onSuggest ? <Pressable accessibilityRole="button" accessibilityLabel="Suggest routes"
-              disabled={working || suggestionBusy} onPress={() => void onSuggest()} style={styles.optimizeButton}>
-              <Text numberOfLines={1} style={styles.optimizeText}>{suggestionBusy ? 'Thinking…' : 'Suggest'}</Text>
-            </Pressable> : null}
-            {route && stops.length > 0 ? <>
-            <Pressable accessibilityRole="button" accessibilityLabel={`Publish ${driver.name} route`} disabled={working || leg === 'dropoff'} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
-              <Text numberOfLines={1} style={styles.publishText}>{leg === 'dropoff' ? 'Draft only' : route.status === 'published' ? 'Republish' : 'Publish'}</Text>
-            </Pressable>
-            {route.status === 'published' ? (
-              <>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Unpublish ${driver.name} route`} disabled={working} onPress={() => void onUnpublish(route.routeId)} style={styles.unpublishButton}>
-                  <Text numberOfLines={1} style={styles.unpublishText}>Unpublish</Text>
-                </Pressable>
-                <Pressable accessibilityRole="button" accessibilityLabel={`Complete ${driver.name} route`} disabled={working} onPress={() => void onCompleteRoute(route.routeId)} style={styles.completeButton}>
-                  <Text numberOfLines={1} style={styles.completeText}>✓ Done</Text>
-                </Pressable>
-              </>
+            {onOpenAddDog ? (
+              <Pressable accessibilityRole="button" accessibilityLabel="Add a dog by hand" onPress={onOpenAddDog} style={styles.emptyAdd}>
+                <Text numberOfLines={1} style={styles.emptyAddText}>+ Add dog</Text>
+              </Pressable>
             ) : null}
-            <Pressable accessibilityRole="button" accessibilityLabel={`Cancel ${driver.name} route`} disabled={working} onPress={() => void onCancelRoute(route.routeId)} style={styles.cancelRouteButton}>
-              <Text numberOfLines={1} style={styles.cancelRouteText}>✕</Text>
-            </Pressable>
-            </> : null}
-          </View>
           </View>
         ) : null}
       </View>
-      {grupos.map(({ leg, route: rotaDaPerna, stops: paradas }) => {
+      {!semParadas ? grupos.map(({ leg, route: rotaDaPerna, stops: paradas }) => {
         const moverPerna = leg === 'pickup' ? onMoveStop : onMoveDropoff;
         const foraDoDiaDaPerna = paradasForaDoDia(rotaDaPerna.stops ?? [], diaDogIds ?? new Set<string>());
         return (
@@ -1114,24 +1267,26 @@ const CartaoMotorista = memo(function CartaoMotorista({
             const high = stop.priority === 'priority';
             const alert = offDay ? SELO_PARADA_FORA_DO_DIA : problem ? '⚠ Problem' : late ? 'Late' : high ? '⚡ High' : null;
             const details = [offDay && SELO_PARADA_FORA_DO_DIA, problem && 'Problem', late && 'Late', high && 'High priority'].filter(Boolean).join(' · ');
+            /* HORA PLANEJADA (item 10): a hora que JÁ existe (janela/exata), sem conta nova. */
+            const plannedTime = stop.windowStart ? formatTimeOfDay(stop.windowStart) : stop.exactTime ? formatTimeOfDay(stop.exactTime) : null;
+            /* DESLOCAMENTO gravado pelo Optimize (migração 041/042) — nunca inventado na tela. */
+            const travelSeconds = leg === 'dropoff' ? stop.dropoffTravelSeconds : stop.travelSeconds;
+            const travelText = typeof travelSeconds === 'number' && travelSeconds > 0 ? `${Math.round(travelSeconds / 60)} min away` : null;
             return (
         <View key={`${driver.id}-${leg}-${stop.dogId}`} style={styles.stop}>
           <View style={styles.position}><Text style={styles.positionText}>{index + 1}</Text></View>
           <View style={styles.stopMain} {...accessibility} accessibilityHint={[accessibility.accessibilityHint, details].filter(Boolean).join(' ')}>
-            <Text numberOfLines={1} style={styles.stopName}>{stop.dogName}</Text>
+            <View style={styles.stopLine}>
+              <Text numberOfLines={1} style={styles.stopName}>{stop.dogName}</Text>
+              {plannedTime ? <Text style={styles.stopTime}>{plannedTime}</Text> : null}
+              {travelText ? <Text style={styles.stopTravel}>{travelText}</Text> : null}
+            </View>
             <View style={styles.badgeRow} testID={`stop-badges-${leg}-${stop.dogId}`}>
               {alert ? <View style={[styles.badge, { backgroundColor: `${colors.urgency}18` }]}>
                 <Text style={[styles.badgeText, styles.foraDoDiaSelo]} testID={offDay ? `stop-off-day-${stop.dogId}` : undefined}>{alert}</Text>
               </View> : null}
               {pinDaParada(stop, leg) ? <Badge text={`🔒 ${stop[`${leg}Pin`] === 'first' ? '1st' : stop[`${leg}Pin`] === 'last' ? 'last' : `#${stop[`${leg}PinPosition`]}`}`} color={colors.forest700} /> : null}
             </View>
-            {stop.windowStart && stop.windowEnd || stop.exactTime ? (
-              <Text style={styles.stopTime}>
-                {stop.windowStart && stop.windowEnd ? `⏰ ${formatTimeOfDay(stop.windowStart)}–${formatTimeOfDay(stop.windowEnd)}` : ''}
-                {stop.windowStart && stop.windowEnd && stop.exactTime ? ' · ' : ''}
-                {stop.exactTime ? `@ ${formatTimeOfDay(stop.exactTime)}` : ''}
-              </Text>
-            ) : null}
             <StopProofChips pickupPath={stop.pickupProofPath} dropoffPath={stop.dropoffProofPath} />
           </View>
           <View style={styles.stopActions}>
@@ -1147,7 +1302,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
           {paradas.length === 0 ? <Text style={styles.noStops}>{leg === 'pickup' ? 'No pick-up stops yet.' : 'No drop-off stops yet.'}</Text> : null}
         </View>
         );
-      })}
+      }) : null}
     </View>
   );
 
@@ -1175,16 +1330,17 @@ const styles = StyleSheet.create({
   manualDogSearch: { borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, padding: 12, color: colors.ink, marginVertical: 8 },
   pinRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 4 },
   /** Rótulo do seletor de perna — separa "PLANNING" dos chips de motorista logo abaixo. */
-  faseRotulo: { color: '#B9C7B6', fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 10, marginLeft: 14, marginBottom: 4 },
+  faseRotulo: { color: '#B9C7B6', fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 4, marginLeft: 14, marginBottom: 4 },
   /**
-   * SELETOR DE PERNA: uma linha só, com moldura própria (não é o chip de motorista). O ativo é verde
-   * CLARO com texto escuro — discreto no celular, e distinto dos chips de motorista (verde escuro).
+   * SELETOR DE PERNA (item 2): compacto, com moldura própria. O ativo segue o MESMO critério dos chips
+   * de motorista — verde escuro CHEIO com texto claro (antes era `sage`: o dono leu "coloração confusa"
+   * com dois verdes diferentes na mesma área).
    */
-  faseSeletor: { flexDirection: 'row', alignSelf: 'flex-start', marginLeft: 14, marginBottom: 10, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, backgroundColor: colors.paper, overflow: 'hidden' },
-  faseOpcao: { minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 18, borderRightWidth: 1, borderRightColor: colors.line },
-  faseOpcaoAtiva: { backgroundColor: colors.sage },
+  faseSeletor: { flexDirection: 'row', alignSelf: 'flex-start', marginLeft: 14, marginBottom: 6, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, backgroundColor: colors.paper, overflow: 'hidden' },
+  faseOpcao: { minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 14, borderRightWidth: 1, borderRightColor: colors.line },
+  faseOpcaoAtiva: { backgroundColor: colors.forest700 },
   faseOpcaoTexto: { color: colors.muted, fontSize: 13, fontWeight: '800' },
-  faseOpcaoTextoAtivo: { color: colors.forest900 },
+  faseOpcaoTextoAtivo: { color: 'white' },
   pinLabel: { width: 50, fontSize: 12, color: colors.ink },
   pinChip: { paddingHorizontal: 6, paddingVertical: 7 },
   pinInput: { width: 30, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, color: colors.ink, padding: 3 },
@@ -1197,9 +1353,9 @@ const styles = StyleSheet.create({
    * Aqui o topo volta ao padrao das outras telas: faixa VERDE, texto claro — o quadro fica emendado com
    * o verde e o corpo claro comeca no ScrollView.
    */
-  header: { backgroundColor: colors.forest700, paddingHorizontal: 14, paddingTop: 6, paddingBottom: 2 },
-  dateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 },
-  title: { flexShrink: 1, color: colors.cream, fontFamily: 'serif', fontSize: 24, fontWeight: '800', textTransform: 'capitalize' },
+  header: { backgroundColor: colors.forest700, paddingHorizontal: 14, paddingTop: 2, paddingBottom: 0 },
+  dateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 0 },
+  title: { flexShrink: 1, color: colors.cream, fontFamily: 'serif', fontSize: 21, fontWeight: '800', textTransform: 'capitalize' },
   // M5 da auditoria (02/10/2026): os setas de dia tinham 42×38 pt — abaixo do mínimo de 44 pt.
   arrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   arrowText: { color: colors.cream, fontSize: 30, fontWeight: '700', lineHeight: 32 },
@@ -1211,8 +1367,10 @@ const styles = StyleSheet.create({
    * Controles de UMA LINHA FINA, alvo de 44 pt, cores discretas (o dono não quer cor forte em área grande).
    */
   driverSelectorScroll: { flexGrow: 0, marginBottom: 4 },
-  motoristaSeletor: { flexDirection: 'row', gap: 4 },
-  motoristaChip: { maxWidth: 180, minWidth: 44, borderWidth: 1, borderColor: colors.line, borderRadius: 9, paddingHorizontal: 11, paddingVertical: 8, minHeight: 44, justifyContent: 'center', backgroundColor: '#F4F2EA' },
+  /** CHIPS DE MOTORISTA (item 4): linha que ROLA na horizontal (`showsHorizontalScrollIndicator={false}`). */
+  motoristaScroll: { flexGrow: 0, marginBottom: 4 },
+  motoristaSeletor: { flexDirection: 'row', gap: 6, paddingRight: 4 },
+  motoristaChip: { minWidth: 44, borderWidth: 1, borderColor: colors.line, borderRadius: 999, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center', backgroundColor: '#F4F2EA' },
   motoristaChipAtivo: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
   motoristaChipTexto: { color: colors.ink, fontSize: 12, fontWeight: '800' },
   motoristaChipTextoAtivo: { color: 'white' },
@@ -1229,9 +1387,22 @@ const styles = StyleSheet.create({
   driverHeader: { padding: 6, gap: 4, backgroundColor: '#FAFBF8', borderBottomWidth: 1, borderBottomColor: colors.line },
   driverIdentity: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   driverText: { flex: 1, minWidth: 0 },
-  avatar: { width: 36, height: 36, borderRadius: 11, backgroundColor: colors.forest700, alignItems: 'center', justifyContent: 'center' },
-  avatarText: { color: 'white', fontWeight: '900' },
+  driverTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  avatar: { width: 28, height: 28, borderRadius: 9, backgroundColor: colors.forest700, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: 'white', fontWeight: '900', fontSize: 13 },
   driverName: { fontSize: 14, lineHeight: 18, fontWeight: '900', color: colors.ink },
+  driverCount: { color: colors.muted, fontSize: 12, fontWeight: '700' },
+  /** BADGE DE STATUS (item 5): verde suave = normal; vermelho suave = `Needs update` (item 15). */
+  statusBadge: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
+  statusBadgeNeutro: { backgroundColor: colors.sage },
+  statusBadgeAlerta: { backgroundColor: `${colors.urgency}18`, borderWidth: 1, borderColor: colors.urgency },
+  statusBadgeText: { color: colors.forest900, fontSize: 11, fontWeight: '900' },
+  statusBadgeTextoAlerta: { color: colors.urgency },
+  /** Rascunho (item 14): linha discreta, sem borda nem bloco. */
+  draftLine: { color: colors.muted, fontSize: 12, lineHeight: 16 },
+  /** Publicação vencida (item 15): a contagem de mudanças, discreta. */
+  republishAviso: { color: colors.urgency, fontSize: 12, fontWeight: '800' },
+  emptyStops: { color: colors.ink, fontSize: 13, fontWeight: '800', marginTop: 2 },
   muted: { color: colors.muted, fontSize: 12, lineHeight: 16 },
   lateText: { color: colors.urgency, fontWeight: '800' },
   /**
@@ -1256,9 +1427,13 @@ const styles = StyleSheet.create({
    * esconderia justamente os cães (o dia dele teve 6 de uma vez).
    */
   resourcesWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 6 },
-  /** Ações do cartão: uma linha quando couber, duas quando não couber — NADA escondido atrás de rolagem. */
+  /**
+   * Ações do cartão: o WRAPPER quebra em linhas (`actionsWrap`); o miolo TAMBÉM precisa quebrar —
+   * medido no bundle web em 320 px, `[Optimize route][Suggest][Publish route][•••]` somava ~330 px e
+   * ficava FORA da tela com `flexWrap: 'nowrap'`. Nada pode ser cortado (item 8/17).
+   */
   actionsWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 6, marginBottom: 4 },
-  driverActions: { flexDirection: 'row', gap: 4, alignItems: 'center', flexWrap: 'nowrap' },
+  driverActions: { flexDirection: 'row', gap: 4, alignItems: 'center', flexWrap: 'wrap', rowGap: 4, maxWidth: '100%' },
   optimizeButton: { backgroundColor: colors.sage, borderRadius: 10, paddingHorizontal: 6, paddingVertical: 4, minWidth: 44, minHeight: 44, justifyContent: 'center' },
   optimizeText: { color: colors.forest900, fontWeight: '900', fontSize: 12 },
   stop: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#F0F1ED' },
@@ -1279,7 +1454,17 @@ const styles = StyleSheet.create({
   /** Ação "Create drop-off route" (Defeito B, 03/10/2026): discreta, com alvo de 44 pt. */
   createDropoffButton: { alignSelf: 'flex-start', marginTop: 8, marginHorizontal: 12, borderWidth: 1, borderColor: colors.forest500, backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 4, minWidth: 44, minHeight: 44, justifyContent: 'center' },
   createDropoffText: { color: colors.forest700, fontWeight: '900', fontSize: 12 },
-  unassigned: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#B9C4B9', borderRadius: radii.medium, padding: 4, backgroundColor: '#FAFBF7', marginBottom: 4 },
+  /**
+   * LINHA DE ATRIBUIÇÃO (item 3): uma linha de status, SEM borda tracejada nem cartão grande.
+   * Tudo atribuído → `✓ All dogs assigned`; com pendência → o título + os chips dos cães. O `+ Add dog`
+   * é um botão compacto de contorno (antes era o chip tracejado `＋ Add any dog`).
+   */
+  assignmentLine: { marginBottom: 6 },
+  assignedOk: { color: colors.success, fontSize: 12, fontWeight: '800', lineHeight: 16 },
+  addDog: { borderWidth: 1, borderColor: colors.forest500, backgroundColor: 'white', borderRadius: 999, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center' },
+  addDogText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
+  /** "Already in van" (item 12): linha discreta, sem moldura tracejada. */
+  jaNaVan: { marginBottom: 4 },
   naVanCabecalho: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1289,11 +1474,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
   },
   /**
-   * O titulo do "Boarding" tinha empurrado o "Show" para FORA da borda (dono, 04/10/2026: o print
-   * mostrava "Show" cortado). Com `flex: 1` o titulo encolhe/quebra e o "Show" fica sempre dentro.
+   * "Already in van" (item 12): linha discreta, secundária à rota — título + contagem + chevron.
+   * O título era longo e empurrava o "Show" para fora da borda (dono, 04/10/2026); com `flex: 1` +
+   * texto curto o affordance fica sempre dentro.
    */
-  naVanTitulo: { flex: 1, flexShrink: 1, color: colors.muted, textTransform: 'uppercase', fontWeight: '900', fontSize: 12 },
-  /** Chips de motorista: quebram em linhas (nada de chip cortado na borda direita). */
+  naVanTitulo: { flex: 1, flexShrink: 1, color: colors.forest700, textTransform: 'uppercase', fontWeight: '900', fontSize: 12 },
+  naVanCount: { color: colors.muted, fontSize: 12, fontWeight: '800' },
+  naVanChevron: { color: colors.forest700, fontSize: 14, fontWeight: '900' },
+  /** Chips de motorista antigos (mantidos por compatibilidade de estilo). */
   motoristaWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4, rowGap: 4, marginBottom: 4 },
   /** Van + Yard: quebram em linhas — o endereco do Yard nao fica cortado na borda. */
   recursosWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 6, paddingHorizontal: 2, marginBottom: 4 },
@@ -1310,9 +1498,11 @@ const styles = StyleSheet.create({
   foraDoDiaSelo: { color: colors.urgency, fontSize: 12, fontWeight: '900' },
   sugestaoErro: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginBottom: 8 },
   // Van e Yard compartilham a faixa; os papéis e o endereço continuam acessíveis.
-  vanLinha: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  vanRotulo: { color: colors.muted, fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
-  vanChips: { flexDirection: 'row', gap: 4 },
+  // MEDIDO em 320 px: com dois yards (endereços longos) a linha estourava a borda. Cada linha ocupa
+  // a largura toda e os chips QUEBRAM dentro do espaço que sobra do rótulo — nada sai da tela.
+  vanLinha: { flexDirection: 'row', alignItems: 'center', gap: 4, width: '100%' },
+  vanRotulo: { color: colors.muted, fontSize: 14, fontWeight: '800', letterSpacing: 0.4 },
+  vanChips: { flexDirection: 'row', gap: 4, flexWrap: 'wrap', flex: 1, minWidth: 0 },
   vanChip: { maxWidth: 160, minWidth: 44, borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, minHeight: 44, justifyContent: 'center', backgroundColor: 'white' },
   vanChipAtiva: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
   vanChipTexto: { color: colors.forest700, fontSize: 12, fontWeight: '800' },
@@ -1379,4 +1569,29 @@ const styles = StyleSheet.create({
   removeText: { color: colors.urgency, fontWeight: '800', fontSize: 13 },
   sheetCancel: { alignItems: 'center', justifyContent: 'center', padding: 8, minHeight: 44, marginTop: 2 },
   sheetCancelText: { color: colors.muted, fontWeight: '800' },
+  /*
+   * HIERARQUIA DE AÇÕES (item 8). `Optimize route` é o PRIMÁRIO (verde cheio); `Suggest` é o
+   * secundário (contorno); o `•••` é o terciário (discreto). Unpublish/Cancel nunca com o peso do
+   * primário — eles vivem no overflow, e o destrutivo é vermelho `urgency` por último.
+   */
+  primaryButton: { backgroundColor: colors.forest700, borderRadius: 10, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' },
+  primaryText: { color: 'white', fontWeight: '900', fontSize: 12 },
+  secondaryButton: { borderWidth: 1, borderColor: colors.forest500, backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center' },
+  secondaryText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
+  overflowButton: { borderWidth: 1, borderColor: colors.line, backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 10, minHeight: 44, minWidth: 44, justifyContent: 'center', alignItems: 'center' },
+  overflowText: { color: colors.forest700, fontWeight: '900', fontSize: 16, lineHeight: 18 },
+  /** Linhas do menu de overflow. */
+  menuItem: { borderTopWidth: 1, borderTopColor: colors.line, paddingVertical: 12, minHeight: 44, justifyContent: 'center' },
+  menuItemText: { color: colors.ink, fontWeight: '800', fontSize: 14 },
+  menuDanger: { borderTopColor: colors.urgency },
+  menuDangerText: { color: colors.urgency, fontWeight: '900' },
+  /** ESTADO VAZIO do motorista sem paradas (item 13). */
+  emptyActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 6, marginTop: 2, marginBottom: 4 },
+  emptyCta: { backgroundColor: colors.forest700, borderRadius: 10, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' },
+  emptyCtaText: { color: 'white', fontWeight: '900', fontSize: 12 },
+  emptyAdd: { borderWidth: 1, borderColor: colors.forest500, backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center' },
+  emptyAddText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
+  /** LINHA DE PARADA (item 10): número · nome · hora · deslocamento numa linha, separador sutil. */
+  stopLine: { flexDirection: 'row', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' },
+  stopTravel: { color: colors.muted, fontSize: 12, lineHeight: 16 },
 });

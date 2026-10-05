@@ -13,8 +13,14 @@
  */
 export type ParadaComCao = { dogId: string; clientName: string; dogName: string };
 
-/** Selo em inglês na linha da parada que não está mais no dia (o gestor lê em inglês). */
-export const SELO_PARADA_FORA_DO_DIA = "Booking cancelled — no longer in today's day";
+/**
+ * Selo em inglês na linha da parada que não está mais no dia (o gestor lê em inglês).
+ *
+ * Redesenho (05/10/2026, item 9): a frase longa `Booking cancelled — no longer in today's day`
+ * repetia no TOPO e na parada. O topo virou um contador compacto (`⚠ 1 booking changed`) e a frase
+ * inteira ficou só AQUI, na linha da parada — mais curta e dizendo o que aconteceu.
+ */
+export const SELO_PARADA_FORA_DO_DIA = "Cancelled — removed from today's route";
 
 /** Paradas da rota que NÃO estão no pool do dia confirmado (reserva cancelada/substituída). */
 export function paradasForaDoDia<T extends ParadaComCao>(stops: readonly T[], diaDogIds: ReadonlySet<string>): T[] {
@@ -22,13 +28,11 @@ export function paradasForaDoDia<T extends ParadaComCao>(stops: readonly T[], di
 }
 
 /**
- * Frase do topo do cartão: quantas e QUAIS paradas saíram do dia.
- * `1 stop is no longer in today's day: Akmal · Enso` / `2 stops are …: Akmal · Enso, Sam · Ollie`.
+ * Frase do topo do cartão: UM aviso por assunto (item 9). O detalhe (quais cães) vive na própria
+ * linha da parada; aqui fica só o contador, compacto — `⚠ 1 booking changed` / `⚠ 2 bookings changed`.
  * Sem parada fora do dia devolve `null` (nada é desenhado).
  */
 export function avisoDeParadasForaDoDia(fora: readonly ParadaComCao[]): string | null {
   if (fora.length === 0) return null;
-  const nomes = fora.map((p) => `${p.dogName}`).join(', ');
-  const singular = fora.length === 1;
-  return `${fora.length} stop${singular ? '' : 's'} ${singular ? 'is' : 'are'} no longer in today's day: ${nomes}`;
+  return `⚠ ${fora.length} booking${fora.length === 1 ? '' : 's'} changed`;
 }

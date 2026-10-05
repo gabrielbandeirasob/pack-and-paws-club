@@ -22,7 +22,7 @@ it('puts the assignment pool before both the driver selector and card inside the
 it('replaces the empty pool title with a single short assigned message, keeping Add any dog', async () => {
   const screen = await render(<DispatchBoard {...props} routes={[{ routeId: 'route', driverId: 'driver', status: 'draft', stops: [stop] }]} />);
   expect(screen.queryByText('0 unassigned')).toBeNull();
-  expect(screen.getByText('Every transport dog is assigned. 🎉').props.numberOfLines).toBe(1);
+  expect(screen.getByText('✓ All dogs assigned').props.numberOfLines).toBe(1);
   expect(screen.queryByLabelText('Assign Maui')).toBeNull();
   expect(screen.getByLabelText('Add any dog')).toBeTruthy();
 });
@@ -34,7 +34,7 @@ it('caps action badges at two while keeping both timing constraints and the drag
   expect(within(badges).getByText('⚠ Problem')).toBeTruthy();
   expect(within(badges).getByText('🔒 1st')).toBeTruthy();
   expect(within(badges).queryByText('⚡ High')).toBeNull();
-  expect(screen.getByText('⏰ 9:00 AM–11:00 AM · @ 10:00 AM')).toBeTruthy();
+  expect(screen.getByText('9:00 AM')).toBeTruthy();
   expect(screen.getByTestId('reorder-pickup-dog').props.accessibilityHint).toContain('High priority');
   expect(screen.getByTestId('drag-pickup-dog')).toBeTruthy();
   expect(screen.getByLabelText('Options for Maui')).toBeTruthy();

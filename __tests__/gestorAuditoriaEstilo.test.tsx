@@ -102,8 +102,11 @@ describe('M4b — cor do topo do Dispatch (dono, 04/10/2026: "parte da data cor 
 
   it('as faixas que nao podem cortar na borda quebram em linhas (motorista e Van/Yard)', async () => {
     const screen = await render(<DispatchBoard date="2026-10-04" drivers={[{ id: 'a', name: 'Rafael' }, { id: 'b', name: 'Gabriel' }]} dayItems={[]} routes={[]} {...noops} />);
-    // o seletor de motorista deixou de ser uma faixa que rola de lado (o chip ficava cortado na borda)
-    expect(screen.getByTestId('dispatch-linha-motoristas')).toHaveStyle({ flexWrap: 'wrap' });
+    // Redesenho (item 4/17): o seletor de motorista ROLA na horizontal (com muitos motoristas o chip
+    // não pode espremer a linha) — sem indicador de rolagem, como o dono pediu.
+    const linhaMotoristas = screen.getByTestId('dispatch-linha-motoristas');
+    expect(linhaMotoristas.props.horizontal).toBe(true);
+    expect(linhaMotoristas.props.showsHorizontalScrollIndicator).toBe(false);
   });
 });
 
@@ -120,10 +123,10 @@ describe('M4 — gold como TEXTO vira forest700 (contraste)', () => {
     expect(tela.getByText('Edit ›')).toHaveStyle({ color: colors.forest700 });
   });
 
-  it('DispatchBoard: "Show"/"Hide" (cão já na van) usa forest700', async () => {
+  it('DispatchBoard: a linha "Already in van" (cão já na van) usa forest700', async () => {
     const dayItems: DispatchStopItem[] = [{ dogId: 'dog-filo', clientName: 'Amor', dogName: 'Filó', reservationKind: 'boarding', inVan: true }];
     const tela = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} />);
-    expect(tela.getByText('Show')).toHaveStyle({ color: colors.forest700 });
+    expect(tela.getByText('Already in van')).toHaveStyle({ color: colors.forest700 });
   });
 });
 
@@ -137,7 +140,7 @@ describe('M5 — legendas ≥12 pt e alvos ≥44 pt no quadro do gestor', () => 
     const tela = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} />);
     expect(tela.getByText(/transport dogs? · .*drivers?/)).toHaveStyle({ fontSize: 12 });
     expect(tela.getByText(/unassigned/)).toHaveStyle({ fontSize: 12 });
-    expect(tela.getByText('Show')).toHaveStyle({ fontSize: 12 });
+    expect(tela.getByText('Already in van')).toHaveStyle({ fontSize: 12 });
     expect(tela.getByRole('button', { name: 'Assign Bob' })).toHaveStyle({ minHeight: 44 });
   });
 
@@ -222,7 +225,8 @@ describe('M4 — gold como TEXTO restante vira forest700', () => {
       <DispatchBoard date="2026-09-09" drivers={drivers} dayItems={[{ dogId: 'dog-bob', clientName: 'Maria', dogName: 'Bob', reservationKind: 'daycare' }]} routes={rota} {...noops} />,
     );
     // A hora exata aparece nas DUAS pernas do cartão (busca e entrega, dono 03/10/2026) — o ouro é o mesmo.
-    tela.getAllByText('@ 7:45 AM').forEach((no) => expect(no).toHaveStyle({ color: colors.forest700 }));
+    // Redesenho (item 10): a linha da parada mostra a hora PLANEJADA (janela/exata), sem o prefixo "@".
+    tela.getAllByText('7:45 AM').forEach((no) => expect(no).toHaveStyle({ color: colors.forest700 }));
   });
 });
 
@@ -259,6 +263,8 @@ describe('M5 (2ª passada) — legendas ≥12 pt e alvos ≥44 pt no lado gestor
     );
     expect(tela.getByLabelText('Previous day')).toHaveStyle({ width: 44, height: 44 });
     expect(tela.getByLabelText('Use Van 1 for Rafael')).toHaveStyle({ minHeight: 44 });
+    // Redesenho (item 8): o atalho da lista de paradas (Edit times) vive no overflow do cartão.
+    await fireEvent.press(tela.getByLabelText('More actions for Rafael'));
     expect(tela.getByLabelText('Stop list for Rafael')).toHaveStyle({ minHeight: 44 });
   });
 

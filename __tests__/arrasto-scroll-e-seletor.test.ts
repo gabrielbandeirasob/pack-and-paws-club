@@ -48,11 +48,16 @@ describe('arrasto e seletor de perna — os dois ajustes pedidos depois da 128',
     const trecho = quadro.slice(quadro.indexOf('dispatch-phase-selector'), quadro.indexOf('dispatch-phase-selector') + 900);
     expect(trecho).not.toContain('styles.driverOption');
     expect(trecho).toContain('styles.faseOpcao');
-    // Ativo = verde CLARO (sage) com texto escuro; nada de bloco verde cheio em metade da tela.
-    expect(quadro).toMatch(/faseOpcaoAtiva: \{[^}]*backgroundColor: colors\.sage/);
-    expect(quadro).toMatch(/faseOpcaoTextoAtivo: \{[^}]*color: colors\.forest900/);
+    /*
+     * REDESENHO (dono, 05/10/2026 — item 2): o dono escolheu UM critério de estado ativo para o quadro —
+     * o MESMO dos chips de motorista (verde escuro cheio com texto claro). O `sage` com texto escuro
+     * (que era a trava de 04/10) saiu de propósito: os dois verdes diferentes na mesma área eram
+     * exatamente a "coloração confusa" que ele apontou.
+     */
+    expect(quadro).toMatch(/faseOpcaoAtiva: \{[^}]*backgroundColor: colors\.forest700/);
+    expect(quadro).toMatch(/faseOpcaoTextoAtivo: \{[^}]*color: 'white'/);
 
-    // No motorista, segmento iOS: papel sobre trilho sage, ainda com texto escuro.
+    // No motorista, segmento iOS: papel sobre trilho sage, ainda com texto escuro (intocado).
     expect(motorista).toMatch(/phaseActive: \{[^}]*backgroundColor: colors\.paper/);
     expect(motorista).toMatch(/phaseTextActive: \{[^}]*color: colors\.forest900/);
   });

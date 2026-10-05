@@ -83,14 +83,23 @@ afterEach(() => alerta.mockRestore());
 
 async function montar() {
   const tela = await render(<DispatchScreen />);
-  await waitFor(() => expect(tela.getByLabelText('Complete Rafael route')).toBeTruthy());
+  await waitFor(() => expect(tela.getByLabelText('More actions for Rafael')).toBeTruthy());
   return tela;
+}
+
+/**
+ * Redesenho (item 8): `✓ Done`, `Unpublish` e `Cancel route` passaram para o OVERFLOW (`•••`) do cartão.
+ * O teste abre o menu e aciona o item — a ação e a confirmação continuam idênticas.
+ */
+async function acionar(tela: Awaited<ReturnType<typeof montar>>, rotulo: string) {
+  await fireEvent.press(tela.getByLabelText('More actions for Rafael'));
+  await fireEvent.press(tela.getByLabelText(rotulo));
 }
 
 describe('fechar rota com paradas pendentes', () => {
   it('não escreve o status antes do ok e diz quantas paradas e quais cães ficam sem o motorista', async () => {
     const tela = await montar();
-    await fireEvent.press(tela.getByLabelText('Complete Rafael route'));
+    await acionar(tela, 'Complete Rafael route');
 
     expect(mockAtualizacoes).toHaveLength(0);
     expect(alerta).toHaveBeenCalledTimes(1);
@@ -103,7 +112,7 @@ describe('fechar rota com paradas pendentes', () => {
 
   it('cancelar não muda nada', async () => {
     const tela = await montar();
-    await fireEvent.press(tela.getByLabelText('Complete Rafael route'));
+    await acionar(tela, 'Complete Rafael route');
     const botoes = alerta.mock.calls[0][2] as AlertButton[];
     await act(async () => { botoes[0].onPress?.(); });
     expect(mockAtualizacoes).toHaveLength(0);
@@ -111,7 +120,7 @@ describe('fechar rota com paradas pendentes', () => {
 
   it('depois do ok fecha com status completed', async () => {
     const tela = await montar();
-    await fireEvent.press(tela.getByLabelText('Complete Rafael route'));
+    await acionar(tela, 'Complete Rafael route');
     const botoes = alerta.mock.calls[0][2] as AlertButton[];
     await act(async () => { botoes[1].onPress?.(); });
     await waitFor(() => expect(mockAtualizacoes).toHaveLength(1));
@@ -122,7 +131,7 @@ describe('fechar rota com paradas pendentes', () => {
 describe('despublicar rota com paradas pendentes', () => {
   it('pergunta antes e só volta para rascunho depois do ok', async () => {
     const tela = await montar();
-    await fireEvent.press(tela.getByLabelText('Unpublish Rafael route'));
+    await acionar(tela, 'Unpublish Rafael route');
 
     expect(mockAtualizacoes).toHaveLength(0);
     expect(alerta).toHaveBeenCalledTimes(1);
@@ -142,7 +151,7 @@ describe('rota sem pendências', () => {
   it('fecha direto, sem confirmação', async () => {
     mockParadas = paradasDe(['completed', 'skipped', 'completed']);
     const tela = await montar();
-    await fireEvent.press(tela.getByLabelText('Complete Rafael route'));
+    await acionar(tela, 'Complete Rafael route');
     await waitFor(() => expect(mockAtualizacoes).toHaveLength(1));
     expect(mockAtualizacoes[0]).toMatchObject({ status: 'completed' });
     expect(alerta).not.toHaveBeenCalled();
@@ -151,7 +160,7 @@ describe('rota sem pendências', () => {
   it('despublica direto, sem confirmação', async () => {
     mockParadas = paradasDe(['completed', 'completed', 'skipped']);
     const tela = await montar();
-    await fireEvent.press(tela.getByLabelText('Unpublish Rafael route'));
+    await acionar(tela, 'Unpublish Rafael route');
     await waitFor(() => expect(mockAtualizacoes).toHaveLength(1));
     expect(mockAtualizacoes[0]).toMatchObject({ status: 'draft', published_at: null });
     expect(alerta).not.toHaveBeenCalled();
@@ -160,7 +169,7 @@ describe('rota sem pendências', () => {
   it('cancela direto, sem confirmação', async () => {
     mockParadas = paradasDe(['completed', 'skipped', 'completed']);
     const tela = await montar();
-    await fireEvent.press(tela.getByLabelText('Cancel Rafael route'));
+    await acionar(tela, 'Cancel Rafael route');
     await waitFor(() => expect(mockAtualizacoes).toHaveLength(1));
     expect(mockAtualizacoes[0]).toMatchObject({ status: 'cancelled' });
     expect(alerta).not.toHaveBeenCalled();
@@ -170,7 +179,7 @@ describe('rota sem pendências', () => {
 describe('cancelar rota com paradas pendentes', () => {
   it('não escreve o status antes do ok e diz quantas paradas e quais cães ficam sem o motorista', async () => {
     const tela = await montar();
-    await fireEvent.press(tela.getByLabelText('Cancel Rafael route'));
+    await acionar(tela, 'Cancel Rafael route');
 
     expect(mockAtualizacoes).toHaveLength(0);
     expect(alerta).toHaveBeenCalledTimes(1);
@@ -183,7 +192,7 @@ describe('cancelar rota com paradas pendentes', () => {
 
   it('cancelar a confirmação não muda nada', async () => {
     const tela = await montar();
-    await fireEvent.press(tela.getByLabelText('Cancel Rafael route'));
+    await acionar(tela, 'Cancel Rafael route');
     const botoes = alerta.mock.calls[0][2] as AlertButton[];
     await act(async () => { botoes[0].onPress?.(); });
     expect(mockAtualizacoes).toHaveLength(0);
@@ -191,7 +200,7 @@ describe('cancelar rota com paradas pendentes', () => {
 
   it('depois do ok cancela com status cancelled', async () => {
     const tela = await montar();
-    await fireEvent.press(tela.getByLabelText('Cancel Rafael route'));
+    await acionar(tela, 'Cancel Rafael route');
     const botoes = alerta.mock.calls[0][2] as AlertButton[];
     await act(async () => { botoes[1].onPress?.(); });
     await waitFor(() => expect(mockAtualizacoes).toHaveLength(1));
@@ -204,7 +213,7 @@ describe('cancelar rota com paradas pendentes', () => {
    */
   it('cancelar SOLTA OS CÃES: apaga as paradas da rota (é o que devolve para não-atribuídos)', async () => {
     const tela = await montar();
-    await fireEvent.press(tela.getByLabelText('Cancel Rafael route'));
+    await acionar(tela, 'Cancel Rafael route');
     const botoes = alerta.mock.calls[0][2] as AlertButton[];
     await act(async () => { botoes[1].onPress?.(); });
 

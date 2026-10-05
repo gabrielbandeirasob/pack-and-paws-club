@@ -16,13 +16,13 @@ it('devolve só as paradas que NÃO estão no dia', () => {
   expect(paradasForaDoDia(paradas, dia).map((p) => p.dogId)).toEqual(['dog-enso']);
 });
 
-it('o selo da linha está em inglês', () => {
-  expect(SELO_PARADA_FORA_DO_DIA).toBe("Booking cancelled — no longer in today's day");
+it('o selo da linha está em inglês (item 9: o detalhe vive na parada)', () => {
+  expect(SELO_PARADA_FORA_DO_DIA).toBe("Cancelled — removed from today's route");
 });
 
-it('monta o aviso no singular com os nomes', () => {
+it('monta o aviso no singular (contador compacto, um aviso por assunto)', () => {
   expect(avisoDeParadasForaDoDia(paradasForaDoDia(paradas, dia)))
-    .toBe("1 stop is no longer in today's day: Enso");
+    .toBe('⚠ 1 booking changed');
 });
 
 it('monta o aviso no plural', () => {
@@ -30,7 +30,7 @@ it('monta o aviso no plural', () => {
     { dogId: 'a', clientName: 'Akmal', dogName: 'Enso' },
     { dogId: 'b', clientName: 'Sam', dogName: 'Ollie' },
   ];
-  expect(avisoDeParadasForaDoDia(dois)).toBe("2 stops are no longer in today's day: Enso, Ollie");
+  expect(avisoDeParadasForaDoDia(dois)).toBe('⚠ 2 bookings changed');
 });
 
 it('sem parada fora do dia, não há aviso', () => {

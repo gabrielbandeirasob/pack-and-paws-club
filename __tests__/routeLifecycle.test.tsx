@@ -32,14 +32,17 @@ describe('rota publicada: despublicar e cancelar', () => {
   it('despublica a rota (volta para rascunho) — antes não havia como', async () => {
     const onUnpublish = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={[]} routes={publishedRoute} {...noops} onUnpublish={onUnpublish} />);
-    fireEvent.press(screen.getByLabelText('Unpublish Rafael route'));
+    // Redesenho (item 8): Unpublish vive no overflow do cartão.
+    await fireEvent.press(screen.getByLabelText('More actions for Rafael'));
+    await fireEvent.press(screen.getByLabelText('Unpublish Rafael route'));
     expect(onUnpublish).toHaveBeenCalledWith('route-1');
   });
 
   it('cancela a rota', async () => {
     const onCancelRoute = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={[]} routes={publishedRoute} {...noops} onCancelRoute={onCancelRoute} />);
-    fireEvent.press(screen.getByLabelText('Cancel Rafael route'));
+    await fireEvent.press(screen.getByLabelText('More actions for Rafael'));
+    await fireEvent.press(screen.getByLabelText('Cancel Rafael route'));
     expect(onCancelRoute).toHaveBeenCalledWith('route-1');
   });
 
@@ -52,7 +55,8 @@ describe('rota publicada: despublicar e cancelar', () => {
   it('fecha a rota (status completed) — antes esse status nunca era atingido', async () => {
     const onCompleteRoute = jest.fn().mockResolvedValue(undefined);
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={[]} routes={publishedRoute} {...noops} onCompleteRoute={onCompleteRoute} />);
-    fireEvent.press(screen.getByLabelText('Complete Rafael route'));
+    await fireEvent.press(screen.getByLabelText('More actions for Rafael'));
+    await fireEvent.press(screen.getByLabelText('Complete Rafael route'));
     expect(onCompleteRoute).toHaveBeenCalledWith('route-1');
   });
 });

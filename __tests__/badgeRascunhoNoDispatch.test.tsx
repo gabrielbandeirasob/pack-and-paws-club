@@ -19,7 +19,7 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
-const AVISO = "Draft — the driver can't see it yet";
+const AVISO = 'Not visible to driver yet';
 
 function paradas() {
   return [{
@@ -54,7 +54,9 @@ describe('aviso de rascunho no cartão do motorista', () => {
     const tela = await render(<DispatchBoard {...props('draft')} />);
     expect(tela.getByTestId('driver-draft-badge')).toBeTruthy();
     expect(tela.getByText(AVISO)).toBeTruthy();
-    expect(tela.getByText('1 stop · Draft')).toBeTruthy();
+    // Redesenho (item 5/14): o status virou BADGE e a contagem é uma peça própria.
+    expect(tela.getByText('1 stop')).toBeTruthy();
+    expect(tela.getByText('Draft')).toBeTruthy();
   });
 
   it('publicada não mostra o aviso: o motorista está vendo a rota', async () => {

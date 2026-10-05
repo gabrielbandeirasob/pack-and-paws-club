@@ -41,9 +41,11 @@ type StopRow = {
   priority: 'normal' | 'priority';
   pickup_proof_path: string | null;
   dropoff_proof_path: string | null;
+  travel_seconds?: number | null;
+  dropoff_travel_seconds?: number | null;
   dog: { id: string; name: string; client: { id?: string; name: string; latitude: number | null; longitude: number | null } };
 };
-type RouteRow = { phase?: Perna; id: string; driver_id: string; status: DispatchRoute['status']; lock_version: number | null; start_location_id?: string | null; route_stops: StopRow[] | null };
+type RouteRow = { phase?: Perna; id: string; driver_id: string; status: DispatchRoute['status']; lock_version: number | null; start_location_id?: string | null; end_location_id?: string | null; route_stops: StopRow[] | null };
 type DogRow = { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } };
 
 /** Coordenada do endereço do cliente por cão — é o que a sugestão de rota usa (geografia). */
@@ -350,7 +352,7 @@ export default function DispatchScreen() {
     const consulta = ++leituraRotas.current;
     const leitura = { ...revisoes.current };
     const pendentes = new Set(routesRef.current.filter((rota) => (fila.pendente(rota.routeId) || gravandoOrdens.current.has(rota.routeId))).map((rota) => rota.routeId));
-    const campos = 'id, driver_id, status, lock_version, start_location_id, route_stops(dog_id, pickup_pin, pickup_pin_position, dropoff_pin, dropoff_pin_position, dropoff_sequence, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, dog:dogs(id, name, client:clients(id, name, latitude, longitude)))';
+    const campos = 'id, driver_id, status, lock_version, start_location_id, end_location_id, route_stops(dog_id, pickup_pin, pickup_pin_position, dropoff_pin, dropoff_pin_position, dropoff_sequence, sequence, status, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, travel_seconds, dropoff_travel_seconds, dog:dogs(id, name, client:clients(id, name, latitude, longitude)))';
     let routeResult: { data: unknown; error: { code: string; message: string } | null } = await supabase.from('routes').select(`phase, ${campos}`).eq('organization_id', orgId).eq('route_date', date);
     const semFase = routeResult.error && ['42703', 'PGRST204'].includes(routeResult.error.code) && /phase/.test(routeResult.error.message);
     if (semFase) routeResult = await supabase.from('routes').select(campos).eq('organization_id', orgId).eq('route_date', date);
@@ -372,6 +374,8 @@ export default function DispatchScreen() {
       status: row.status,
       // A van escolhida para ESTA rota (é o que o cartão mostra marcado).
       startLocationId: row.start_location_id ?? null,
+      // O yard escolhido para ESTA rota (`routes.end_location_id`) — lido pelo fim do dia do motorista.
+      endLocationId: row.end_location_id ?? null,
       stops: (row.route_stops ?? []).map((stop) => ({
         dogId: stop.dog_id,
         pickupPin: stop.pickup_pin,
@@ -393,6 +397,8 @@ export default function DispatchScreen() {
         priority: stop.priority,
         pickupProofPath: stop.pickup_proof_path,
         dropoffProofPath: stop.dropoff_proof_path,
+        travelSeconds: stop.travel_seconds ?? null,
+        dropoffTravelSeconds: stop.dropoff_travel_seconds ?? null,
       })),
     }));
     const atuais = diaDasRotas.current === date ? routesRef.current : [];
@@ -749,6 +755,38 @@ export default function DispatchScreen() {
       if (versao !== null && (data ?? []).length === 0) {
         vanPorMotorista.current.delete(driverId);
         showAlert('Could not change the van', routeErrorMessage('stale_route'));
+        await carregarRotas();
+        return;
+      }
+      await carregarRotas();
+    },
+    [carregarRotas, versaoDe],
+  );
+
+  /**
+   * ESCOLHE O YARD DA ROTA (dono, 05/10/2026 — item 7 do redesenho; ÚNICA escrita NOVA autorizada).
+   *
+   * Espelha `escolherVan`, com a MESMA trava de versão (`.eq('lock_version', versao)` + `.select('id')`;
+   * 0 linha = `stale_route` + `carregarRotas()`), gravando **`routes.end_location_id`** — a coluna que
+   * JÁ existe e que o fim do dia do motorista já lê (`vanLocationForRoute(locais, route.end_location_id)`).
+   * Sem migração, sem SQL, sem RPC: o mesmo caminho da van. O seletor só existe com rota (o chip do yard
+   * mora no cartão), então rota inexistente = nada a gravar.
+   */
+  const escolherYard = useCallback(
+    async (driverId: string, locationId: string) => {
+      const rota = routesRef.current.find((item) => item.driverId === driverId && (item.phase ?? 'pickup') === 'pickup');
+      if (!rota) return;
+      const versao = versaoDe(rota.routeId);
+      const atualizacao: Record<string, unknown> = { end_location_id: locationId, lock_version: (versao ?? 1) + 1 };
+      let consulta = supabase.from('routes').update(atualizacao).eq('id', rota.routeId);
+      if (versao !== null) consulta = consulta.eq('lock_version', versao);
+      const { data, error } = await consulta.select('id');
+      if (error) {
+        showAlert('Could not change the yard', error.message);
+        return;
+      }
+      if (versao !== null && (data ?? []).length === 0) {
+        showAlert('Could not change the yard', routeErrorMessage('stale_route'));
         await carregarRotas();
         return;
       }
@@ -1562,6 +1600,7 @@ export default function DispatchScreen() {
           onApplySuggestion={aplicarSugestao}
           vans={vans}
           onChooseVan={escolherVan}
+          onChooseYard={escolherYard}
           vanDoMotorista={(driverId) => vanPorMotorista.current.get(driverId) ?? null}
           onOpenStopList={abrirListaDeParadas}
           onSaveStop={saveStopConstraint}

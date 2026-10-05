@@ -49,7 +49,7 @@ async function openRani(onAssign: (...args: any[]) => Promise<void>) {
     dayItems={[rani, { dogId: 'boarding', dogName: 'Boarding fixture', clientName: 'Fixture', inVan: true, reservationKind: 'boarding' }]}
     routes={[]} {...noops} onAssign={onAssign} />);
   await fireEvent.press(screen.getByRole('button', { name: 'Show Gabriel' }));
-  expect(screen.getByText('0 stops')).toBeTruthy();
+  expect(screen.getByText('No stops assigned')).toBeTruthy();
   expect(screen.getByText('Rani · manual')).toBeTruthy();
   await fireEvent.press(screen.getByRole('button', { name: 'Assign Rani' }));
   await fireEvent.press(screen.getByRole('button', { name: 'Driver Gabriel' }));

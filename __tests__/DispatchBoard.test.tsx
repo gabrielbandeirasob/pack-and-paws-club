@@ -57,7 +57,7 @@ describe('DispatchBoard', () => {
 
   it('nao comemora quando nao ha cao de transporte no dia (estado vazio coerente)', async () => {
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={[]} routes={[]} {...noops} />);
-    expect(screen.queryByText('Every transport dog is assigned. 🎉')).toBeNull();
+    expect(screen.queryByText('✓ All dogs assigned')).toBeNull();
     expect(screen.getByText('No transport dogs need a ride today.')).toBeTruthy();
   });
 
@@ -81,7 +81,7 @@ describe('DispatchBoard', () => {
       },
     ];
     const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={todos} {...noops} />);
-    expect(screen.getByText('Every transport dog is assigned. 🎉')).toBeTruthy();
+    expect(screen.getByText('✓ All dogs assigned')).toBeTruthy();
     expect(screen.queryByText('No transport dogs need a ride today.')).toBeNull();
   });
 
@@ -110,13 +110,13 @@ describe('DispatchBoard', () => {
     // Fila principal: 3 (o da van não está ali) + a seção dele existe.
     expect(screen.getByText('3 unassigned')).toBeTruthy();
     expect(screen.getByTestId('dispatch-ja-na-van')).toBeTruthy();
-    expect(screen.getByText('Boarding — already in the van (1) ▸')).toBeTruthy();
+    // Redesenho (item 12): `Already in van  N  ⌄` substitui o bloco tracejado.
+    expect(screen.getByText('Already in van')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Assign Filó' })).toBeNull();
 
     // 🪤 CLIENTE (02/10/2026): o boarding é só informação — abre no toque, mostra o chip, e NÃO existe
     // nenhum botão para jogá-lo na rota (era por aí que ele aparecia na rota de volta/drop-off).
     await fireEvent.press(screen.getByRole('button', { name: 'Show boarding dogs already in the van' }));
-    expect(screen.getByText('Boarding — already in the van (1) ▾')).toBeTruthy();
     expect(screen.getByTestId('boarding-na-van-dog-filo')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Add boarding Filó' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Assign Filó' })).toBeNull();
@@ -150,6 +150,8 @@ describe('DispatchBoard', () => {
     // dois motoristas na tela (Rafael com rota, Jordan sem): o cartao do Rafael e' o primeiro
     expect(screen.getAllByTestId('driver-info')[0]).toHaveStyle({ flex: 1 });
     expect(screen.getByTestId('dispatch-actions-scroll')).toHaveStyle({ flexWrap: 'wrap' });
+    // Redesenho (item 8): `✓ Done` vive no overflow — o primário é `Optimize route` (só com 2+ paradas).
+    await fireEvent.press(screen.getByLabelText('More actions for Rafael'));
     expect(screen.getByRole('button', { name: 'Complete Rafael route' })).toBeTruthy();
   });
 
@@ -353,9 +355,12 @@ it('Unpublish recebe a rota da perna escolhida', async () => {
   const dropoff = { ...routes[0], routeId: 'delivery-route', phase: 'dropoff' as const, status: 'published' as const };
   const screen = await render(<DispatchBoard date="2026-10-04" drivers={drivers} dayItems={dayItems}
     routes={[pickup, dropoff]} {...noops} onUnpublish={onUnpublish} />);
+  // Redesenho (item 8): Unpublish vive no overflow do cartão.
+  await fireEvent.press(screen.getByLabelText('More actions for Rafael'));
   await fireEvent.press(screen.getByLabelText('Unpublish Rafael route'));
   expect(onUnpublish).toHaveBeenLastCalledWith('route-1');
   await fireEvent.press(screen.getByLabelText('Drop-offs'));
+  await fireEvent.press(screen.getByLabelText('More actions for Rafael'));
   await fireEvent.press(screen.getByLabelText('Unpublish Rafael route'));
   expect(onUnpublish).toHaveBeenLastCalledWith('delivery-route');
 });

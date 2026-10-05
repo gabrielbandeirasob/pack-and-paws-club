@@ -126,7 +126,9 @@ describe('lista de paradas no cartão do Dispatch', () => {
   it('com rota, o toque abre a lista do motorista certo', async () => {
     const onOpenStopList = jest.fn();
     const tela = await render(<DispatchBoard {...props({ onOpenStopList, routes: [rotaComParada] })} />);
-    fireEvent.press(tela.getByLabelText('Stop list for Rafael'));
+    // Redesenho (item 8): "Edit times" (a lista de paradas) vive no overflow do cartão.
+    await fireEvent.press(tela.getByLabelText('More actions for Rafael'));
+    await fireEvent.press(tela.getByLabelText('Stop list for Rafael'));
     expect(onOpenStopList).toHaveBeenCalledWith('rota-1', 'Rafael');
   });
 

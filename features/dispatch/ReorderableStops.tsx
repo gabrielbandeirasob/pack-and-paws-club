@@ -136,11 +136,18 @@ function DraggableRow({ stop, leg, enabled, offset, lifted, onHeight, onStart, o
     onLayout={event => onHeight(event.nativeEvent.layout.height)}
     style={[{ transform: [{ translateY: translate }] }, lifted && styles.lifted]}>
     {children(enabled ? <View testID={`drag-${leg}-${stop.dogId}`} {...responder.panHandlers}
-      style={styles.handle} accessible={false}><Text accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.grip}>≡</Text></View> : null, accessibility)}
+      style={styles.handle} accessible={false}><Text testID={`grip-${leg}-${stop.dogId}`} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.grip, lifted && styles.gripAtiva]}>≡</Text></View> : null, accessibility)}
   </Animated.View>;
 }
 const styles = StyleSheet.create({
   handle: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  grip: { color: colors.forest700, fontSize: 24 },
+  /**
+   * ALÇA DE ARRASTO DISCRETA (dono, 05/10/2026 — item 11 do redesenho): em repouso a alça não pode
+   * competir com a linha da parada — `muted` e menor. Ela ganha peso só quando o gesto começa
+   * (`lifted`), que é quando o arrasto/long press/reordenação está de fato em curso. A MECÂNICA não
+   * mudou (o `PanResponder` abaixo e a fila `reorderQueue` continuam idênticos).
+   */
+  grip: { color: colors.muted, fontSize: 18, fontWeight: '700' },
+  gripAtiva: { color: colors.forest700, fontSize: 22, fontWeight: '900' },
   lifted: { zIndex: 10, elevation: 6, backgroundColor: colors.sage, shadowColor: colors.forest900, shadowOpacity: 0.2, shadowRadius: 5, shadowOffset: { width: 0, height: 3 } },
 });

@@ -59,12 +59,13 @@ describe('Dispatch — parada que saiu do dia (Defeito A)', () => {
   it('marca a parada cancelada com selo em inglês', async () => {
     const tela = await render(<DispatchBoard date="2026-10-03" drivers={drivers} dayItems={dayItems} routes={rotaComOCancelado} {...noops} />);
     // O selo aparece nas DUAS pernas do cartão (busca e entrega, dono 03/10/2026).
-    expect(tela.getAllByText("Booking cancelled — no longer in today's day").length).toBeGreaterThan(0);
+    expect(tela.getAllByText("Cancelled — removed from today's route").length).toBeGreaterThan(0);
   });
 
   it('avisa no topo do cartão quantas e quais paradas estão fora do dia', async () => {
     const tela = await render(<DispatchBoard date="2026-10-03" drivers={drivers} dayItems={dayItems} routes={rotaComOCancelado} {...noops} />);
-    expect(tela.getByText("1 stop is no longer in today's day: Enso")).toBeTruthy();
+    // Redesenho (item 9): UM aviso por assunto — o topo é um contador compacto; o detalhe vive na parada.
+    expect(tela.getByText('⚠ 1 booking changed')).toBeTruthy();
   });
 
   it('mantém a saída da parada cancelada acessível (o app não remove sozinho)', async () => {
@@ -81,6 +82,7 @@ describe('Dispatch — parada que saiu do dia (Defeito A)', () => {
 
   it('não marca nada quando todas as paradas estão no dia', async () => {
     const tela = await render(<DispatchBoard date="2026-10-03" drivers={drivers} dayItems={dayItems} routes={rotaDoBilly} {...noops} />);
-    expect(tela.queryByText(/no longer in today's day/)).toBeNull();
+    expect(tela.queryByText(/booking changed/)).toBeNull();
+    expect(tela.queryByText(/removed from today's route/)).toBeNull();
   });
 });
