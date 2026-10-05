@@ -576,6 +576,10 @@ export default function DispatchScreen() {
         avisarRotaMudou();
         throw new Error(routeErrorMessage('stale_route'));
       }
+      // A versão no banco virou `versao + 1` (é o valor que mandamos): guardar AGORA evita que a
+      // próxima ação mande a versão velha e seja recusada como `stale_route` — o alarme falso de
+      // "outro aparelho" quando, na verdade, foi a nossa própria gravação (05/10/2026).
+      if (versao !== null) versoes.current[routeId] = versao + 1;
       await carregarRotas();
     },
     [versaoDe, falhaDeEscrita, avisarRotaMudou, carregarRotas],
@@ -1286,8 +1290,13 @@ export default function DispatchScreen() {
       showAlert('Drop-offs are draft only', 'Publishing drop-offs will be available with the driver update.');
       return;
     }
-    const { error } = await supabase.rpc('publish_route', { p_route_id: routeId, p_esperado: versaoDe(routeId) });
+    const versao = versaoDe(routeId);
+    const { error } = await supabase.rpc('publish_route', { p_route_id: routeId, p_esperado: versao });
     falhaDeEscrita(error);
+    // `publish_route` grava a rota, então o gatilho sobe a `lock_version` em 1. Sem sincronizar a nossa
+    // cópia AGORA, uma segunda toque antes de a recarga chegar mandaria a versão velha e o RPC
+    // recusaria como `stale_route` — foi o alarme falso de 05/10/2026 (3 publicações em 9 s).
+    if (versao !== null) versoes.current[routeId] = versao + 1;
     await carregarRotas();
   }, [versaoDe, falhaDeEscrita, carregarRotas]);
 

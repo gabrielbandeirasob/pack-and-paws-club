@@ -6,7 +6,7 @@
  * o que já foi feito lia o contrário do que aconteceu (o quadro mostra "✓ Done" e ao lado dizia "Draft").
  *
  * Redesenho do Dispatch (05/10/2026): o status do cartão passou a ser um BADGE compacto colado no nome
- * (`Draft` / `Published` / `Needs update` / `Completed`) e o antigo sufixo ` · Draft` continua existindo
+ * (`Draft` / `Published` / `Completed` / `Cancelled`) e o antigo sufixo ` · Draft` continua existindo
  * para quem já o lê (a Home usa `rotuloDeStatus` para montar o subtítulo).
  */
 export type RouteStatus = 'draft' | 'published' | 'completed' | 'cancelled';
@@ -59,40 +59,14 @@ export function avisoDeRotaInvisivel(status: RouteStatus | null | undefined): st
   return status === 'draft' ? AVISO_NAO_VISIVEL : null;
 }
 
-/**
- * REGRA PURA de republicação (dono, 05/10/2026 — item 15 do redesenho).
+/*
+ * `Needs update` / `Republish changes` foram REMOVIDOS (dono, 05/10/2026), com a regra pura
+ * `precisaRepublicar` / `avisoDeRepublicacao` / `mudancasNaoPublicadas`.
  *
- * Hoje o `Republish` aparecia SEMPRE numa rota publicada, mesmo quando o dia não tinha mudado nada
- * desde a publicação — o gestor era convidado a republicar por nada (e o número de "changes" não
- * existia). A pergunta certa é: a rota publicada ainda corresponde ao dia? Ela deixa de corresponder
- * quando (a) alguma parada da rota saiu do dia confirmado (reserva cancelada/substituída) OU (b) há
- * cão do dia ainda em UNASSIGNED (reserva nova que entrou depois de a rota ser publicada).
- *
- * Fontes: só o que a tela JÁ tem — `status` da rota, `foraDoDia` (de `paradasForaDoDia`) e
- * `unassigned`. Nada de consulta nova.
+ * Motivo (medido no banco): `route_versions` — o snapshot que `publish_route` grava — NUNCA é lido
+ * por ninguém no app; o motorista lê `route_stops` AO VIVO (`app/(tabs)/driver.tsx`, filtrando só
+ * `status='published'`). Republicar não muda nada para ele, então o badge nunca "limpava" (parada
+ * cancelada não sai da rota ao publicar — quem remove é `Remove from route`) e cada republish subia
+ * a `lock_version`, fazendo a pressa seguinte ser recusada como `stale_route` (alarme falso).
+ * Ficou o que é real: `Publish route` (o portão rascunho→publicado) e o aviso `⚠ N booking changed`.
  */
-export type MudancaNaoPublicada = { foraDoDia: number; unassigned: number };
-
-/** Quantas mudanças o dia tem em relação ao que foi publicado (paradas fora do dia + cães soltos). */
-export function mudancasNaoPublicadas(mudanca: MudancaNaoPublicada): number {
-  return Math.max(0, mudanca.foraDoDia || 0) + Math.max(0, mudanca.unassigned || 0);
-}
-
-/**
- * A rota PUBLICADA precisa ser republicada? 
- *  - draft → não (publicar é o primeiro passo, não é republicar);
- *  - published sem mudança → não (é o defeito que este item corrige);
- *  - published com parada cancelada (fora do dia) → sim;
- *  - published com cão novo ainda em unassigned → sim;
- *  - completed/cancelled → não (a rota saiu de circulação de propósito).
- */
-export function precisaRepublicar(status: RouteStatus | null | undefined, mudanca: MudancaNaoPublicada): boolean {
-  return status === 'published' && mudancasNaoPublicadas(mudanca) > 0;
-}
-
-/** Frase do topo do cartão quando a publicação ficou velha: `1 unpublished change` / `2 unpublished changes`. */
-export function avisoDeRepublicacao(status: RouteStatus | null | undefined, mudanca: MudancaNaoPublicada): string | null {
-  if (!precisaRepublicar(status, mudanca)) return null;
-  const total = mudancasNaoPublicadas(mudanca);
-  return `${total} unpublished change${total === 1 ? '' : 's'}`;
-}

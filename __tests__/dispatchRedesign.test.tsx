@@ -132,11 +132,16 @@ describe('item 8 — hierarquia de ações e overflow', () => {
     expect(screen.getByText('Cancel route')).toBeTruthy();
   });
 
-  it('publicação pendente sobe para a linha principal como `Republish changes`', async () => {
+  it('publicada NÃO sobe ação de publicar (o motorista já vê as paradas ao vivo)', async () => {
     const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={[dog, dogRosie]}
       routes={[rota({ status: 'published', stops: [parada('d-cancelado', 'Scarlet')] })]} {...noops} />);
-    expect(screen.getByLabelText('Republish Rafael route')).toBeTruthy();
-    expect(screen.getByText('Republish changes')).toBeTruthy();
+    expect(screen.queryByLabelText('Republish Rafael route')).toBeNull();
+    expect(screen.queryByText('Republish changes')).toBeNull();
+    expect(screen.queryByLabelText('Publish Rafael route')).toBeNull();
+    // O overflow também não oferece republicar (só Edit times / Unpublish / Done / Cancel).
+    await fireEvent.press(screen.getByLabelText('More actions for Rafael'));
+    expect(screen.queryByText('Republish')).toBeNull();
+    expect(screen.getByLabelText('Unpublish Rafael route')).toBeTruthy();
   });
 });
 
@@ -202,27 +207,34 @@ describe('item 9 — um aviso por assunto', () => {
   });
 });
 
-/* ---------------------------------- item 15 -------------------------------- */
-describe('item 15 — Needs update só quando o dia mudou', () => {
-  it('published + parada fora do dia → `Needs update` + `⚠ 1 booking changed`, SEM repetir o estado', async () => {
+/* ------------- republicação: REMOVIDA (dono, 05/10/2026) ------------- */
+describe('sem `Needs update` / `Republish changes` — o motorista lê as paradas AO VIVO', () => {
+  it('publicada com parada cancelada: badge `Published` + `⚠ 1 booking changed`, e NENHUM republish', async () => {
     const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={[dog]}
       routes={[rota({ status: 'published', stops: [parada('d-rani', 'Rani'), parada('d-cancelado', 'Scarlet', { sequence: 2 })] })]} {...noops} />);
-    expect(screen.getByText('Needs update')).toBeTruthy();
+    expect(screen.getByText('Published')).toBeTruthy();
     expect(screen.getByTestId('driver-status-badge')).toBeTruthy();
     expect(screen.getByText('⚠ 1 booking changed')).toBeTruthy();
-    // POLIMENTO (05/10/2026): `N unpublished change` SAIU — badge + `Republish changes` já dizem o mesmo.
-    expect(screen.queryByText(/unpublished change/)).toBeNull();
-    expect(screen.getByLabelText('Republish Rafael route')).toBeTruthy();
-  });
-
-  it('published sem mudança → NADA de `Needs update` nem Republish grande', async () => {
-    const paradas = [parada('d-rani', 'Rani'), parada('d-rosie', 'Rosie', { sequence: 2 })];
-    const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={[dog, dogRosie]}
-      routes={[rota({ status: 'published', stops: paradas })]} {...noops} />);
     expect(screen.queryByText('Needs update')).toBeNull();
     expect(screen.queryByText(/unpublished change/)).toBeNull();
     expect(screen.queryByLabelText('Republish Rafael route')).toBeNull();
+    expect(screen.queryByText('Republish changes')).toBeNull();
+  });
+
+  it('publicada sem mudança: badge `Published` e nenhum convite a republicar', async () => {
+    const paradas = [parada('d-rani', 'Rani'), parada('d-rosie', 'Rosie', { sequence: 2 })];
+    const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={[dog, dogRosie]}
+      routes={[rota({ status: 'published', stops: paradas })]} {...noops} />);
     expect(screen.getByText('Published')).toBeTruthy();
+    expect(screen.queryByText('Needs update')).toBeNull();
+    expect(screen.queryByLabelText('Republish Rafael route')).toBeNull();
+  });
+
+  it('rascunho continua publicando pelo caminho normal (`Publish route`)', async () => {
+    const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={[dog]}
+      routes={[rota({ status: 'draft' })]} {...noops} />);
+    expect(screen.getByLabelText('Publish Rafael route')).toBeTruthy();
+    expect(screen.getByText('Publish route')).toBeTruthy();
   });
 });
 

@@ -119,6 +119,9 @@ describe('A2 — rótulo de status e filtro do dia', () => {
 
 describe('M2 — "Saved" só quando o banco confirmou', () => {
   async function digitarESalvar(tela: Awaited<ReturnType<typeof render>>, texto: string) {
+    // REVELAÇÃO PROGRESSIVA (dono, 05/10/2026): o cartão abre em LEITURA — o "Edit" revela os campos.
+    await waitFor(() => expect(tela.getByLabelText('Edit the day plan')).toBeTruthy());
+    await fireEvent.press(tela.getByLabelText('Edit the day plan'));
     await waitFor(() => expect(tela.getByLabelText('Walk location of the day')).toBeTruthy());
     await fireEvent.changeText(tela.getByLabelText('Walk location of the day'), texto);
     await fireEvent.press(tela.getByRole('button', { name: 'Save the day plan' }));
@@ -171,5 +174,35 @@ describe('B1 — resposta de carga velha não sobrescreve o dia novo', () => {
     // A carga VELHA responde depois — não pode apagar a tela.
     await act(async () => { mockResolvedoresRotas[0]({ data: [], error: null }); });
     expect(tela.getByText('2 stops')).toBeTruthy();
+  });
+});
+
+/**
+ * TEMPO DA PRÓXIMA PARADA (dono, 05/10/2026): o cartão do dia mostrava `~23306 min` quando a posição
+ * do motorista estava LONGE (estimativa em linha reta) ou VELHA. A Home nunca mostra número
+ * impossível — cai na janela/hora exata da parada, que é o que o gestor tem de concreto.
+ */
+describe('tempo da próxima parada (nunca ~23306 min)', () => {
+  const agora = new Date().toISOString();
+  const perto = { latitude: 37.41, longitude: -122.11, updatedAt: agora };
+  const doOutroLadoDoMundo = { latitude: -33.86, longitude: 151.2, updatedAt: agora };
+  const velha = { latitude: 37.41, longitude: -122.11, updatedAt: '2020-01-01T00:00:00.000Z' };
+  const comHora = () => [{ ...parada('Scarlet'), window_end: '08:15', dog: { name: 'Scarlet', client: { latitude: 37.4, longitude: -122.1 } } }];
+
+  it('posição perto: minutos plausíveis (abaixo de 1 hora)', () => {
+    const linha = toDashboardRoute(rota('r', 'published', comHora()), {}, perto);
+    expect(linha.nextLabel).toMatch(/^Scarlet · ~\d+ min$/);
+    expect(Number(linha.nextLabel?.match(/(\d+)/)?.[1] ?? 999)).toBeLessThan(60);
+  });
+
+  it('posição do outro lado do mundo: sem número absurdo — cai na janela da parada', () => {
+    const linha = toDashboardRoute(rota('r', 'published', comHora()), {}, doOutroLadoDoMundo);
+    expect(linha.nextLabel).toBe('Scarlet · by 8:15 AM');
+    expect(linha.nextLabel).not.toMatch(/23306|23290/);
+  });
+
+  it('posição velha: também não inventa número', () => {
+    const linha = toDashboardRoute(rota('r', 'published', comHora()), {}, velha);
+    expect(linha.nextLabel).toBe('Scarlet · by 8:15 AM');
   });
 });

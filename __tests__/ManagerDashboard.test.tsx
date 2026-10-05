@@ -111,7 +111,7 @@ describe('ManagerDashboard', () => {
   it('explica embaixo do número o que o Total Pack conta (e o quadrado é clicável)', async () => {
     const { screen } = await setup();
 
-    expect(screen.getByText('going to the walk · tap to see the dogs')).toBeTruthy();
+    expect(screen.getByText("Dogs going on today's walk")).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Total Pack — open the pack of the day' })).toBeTruthy();
   });
 
@@ -173,10 +173,14 @@ describe('ManagerDashboard', () => {
     expect(screen.getByText('Boarding')).toBeTruthy();
     // Rótulo em PORTUGUÊS por pedido do dono (28/09/2026): o indicador de total de cães e o de
     // faturamento ficam em português; day care, boarding e Total Pack continuam como o escritório fala.
-    expect(screen.getByText('Número total de Cães')).toBeTruthy();
+    expect(screen.getByText('Total dogs')).toBeTruthy();
     expect(screen.getByText('23')).toBeTruthy();
     expect(screen.getByText('Total Pack')).toBeTruthy();
-    expect(screen.getByText('Faturamento · tap to type')).toBeTruthy();
+    // Idioma ÚNICO (dono, 05/10/2026): antes eram "Número total de Cães" e "Faturamento · tap to type".
+    // O quadrado do faturamento abre em LEITURA (`$1,234.56` + `Revenue`) e o toque revela o campo.
+    expect(screen.getByText('Revenue')).toBeTruthy();
+    expect(screen.getByText('$1,234.56')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Edit the revenue of the day'));
     expect(screen.getByLabelText('Revenue of the day').props.value).toBe('1,234.56');
   });
 
@@ -204,6 +208,7 @@ describe('ManagerDashboard', () => {
   it('faturamento digitado sobe em centavos ao sair do campo', async () => {
     const { screen, day } = await setup();
 
+    await fireEvent.press(screen.getByLabelText('Edit the revenue of the day'));
     const campo = screen.getByLabelText('Revenue of the day');
     await fireEvent.changeText(campo, '$2,500.75');
     await fireEvent(campo, 'blur');
@@ -227,6 +232,11 @@ describe('ManagerDashboard', () => {
     expect(screen.getByText('Day plan')).toBeTruthy();
     expect(screen.getByText('Photo and walk location — decided the day before.')).toBeTruthy();
     expect(screen.queryByText('End of the day')).toBeNull();
+    // LEITURA por padrão (dono, 05/10/2026): os valores aparecem como TEXTO; o campo só entra no "Edit".
+    expect(screen.getByText('Yard — Goiânia')).toBeTruthy();
+    expect(screen.getByText('Turma do dia')).toBeTruthy();
+    expect(screen.queryByLabelText('Walk location of the day')).toBeNull();
+    await fireEvent.press(screen.getByLabelText('Edit the day plan'));
     expect(screen.getByLabelText('Walk location of the day').props.value).toBe('Yard — Goiânia');
     expect(screen.getByLabelText('Photo of the day idea').props.value).toBe('Turma do dia');
   });
@@ -242,8 +252,8 @@ describe('ManagerDashboard', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Previous day' }));
     expect(onPreviousDay).toHaveBeenCalledTimes(1);
 
-    // Em hoje, o cabeçalho convida a arrastar em vez de oferecer "voltar para hoje".
-    expect(screen.getByText('swipe sideways for the next day')).toBeTruthy();
+    // A frase "swipe sideways for the next day" SAIU (dono, 05/10/2026): o gesto e as setas se explicam.
+    expect(screen.queryByText('swipe sideways for the next day')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Back to today' })).toBeNull();
   });
 

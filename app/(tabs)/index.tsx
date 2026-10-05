@@ -44,7 +44,8 @@ import { landingRouteForRole } from '@/features/navigation/roleTabs';
 import { showAlert } from '@/features/ui/alert';
 import { haversineKm } from '@/features/dispatch/routeOptimizer';
 import { rotuloDeStatus, type RouteStatus } from '@/features/dispatch/routeStatusLabel';
-import { isPastDeadline, nextStopEta } from '@/features/driver/eta';
+import { frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
+import { rotuloDeEtaMinutos } from '@/features/dashboard/routeEtaLabel';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -117,7 +118,7 @@ function routeMiles(stops: StopRow[]): number {
 export function toDashboardRoute(
   route: RouteRow,
   driversById: Record<string, string>,
-  location: { latitude: number; longitude: number } | null,
+  location: { latitude: number; longitude: number; updatedAt?: string | null } | null,
 ): DashboardRoute {
   const stops = [...route.route_stops].sort((a, b) => a.sequence - b.sequence);
   const finished = stops.filter((stop) => stop.status === 'completed' || stop.status === 'skipped');
@@ -156,8 +157,17 @@ export function toDashboardRoute(
     })),
     location,
   );
-  const suffix = eta
-    ? `~${eta.minutes} min`
+  /**
+   * TEMPO ATÉ A PRÓXIMA PARADA (dono, 05/10/2026). Dois consertos:
+   *  (a) posição VELHA não vira número — o app do motorista e o Dispatch já escondem o ETA nesse caso;
+   *  (b) número fora do plausível (`~23306 min`, posição do outro lado do mundo) e formato — `80 min`
+   *      vira `1 hr 20 min` — pela regra pura `rotuloDeEtaMinutos`, que devolve `null` no inválido.
+   * Sem ETA, cai na hora exata/janela da parada (o que o gestor tem de concreto).
+   */
+  const frescor = location?.updatedAt ? frescorDaPosicao(location.updatedAt) : null;
+  const minutos = frescor?.muitoVelha ? null : rotuloDeEtaMinutos(eta?.minutes);
+  const suffix = minutos
+    ? `~${minutos}`
     : next?.exact_time
       ? formatTimeOfDay(next.exact_time)
       : next?.window_end
@@ -391,7 +401,7 @@ export default function HomeScreen() {
       ((driverResult.data as unknown as DriverRow[]) ?? []).map((row) => [row.user_id, row.profiles?.full_name?.trim() || 'Driver']),
     );
     const locations = Object.fromEntries(
-      ((locationResult.data as unknown as LocationRow[]) ?? []).map((row) => [row.driver_id, { latitude: row.latitude, longitude: row.longitude }]),
+      ((locationResult.data as unknown as LocationRow[]) ?? []).map((row) => [row.driver_id, { latitude: row.latitude, longitude: row.longitude, updatedAt: row.updated_at }]),
     );
     const routeRows = ((routeResult.data as unknown as RouteRow[]) ?? []).sort((a, b) => a.id.localeCompare(b.id));
     /**
@@ -686,7 +696,9 @@ export default function HomeScreen() {
           onOpenDriverHours={() => router.push('/driver-hours')}
           onOpenWeekSummary={() => router.push('/week-summary')}
           weekSummaryHint={
-            ehSabado ? 'The week is closed — check who came' : 'Monday to Saturday — who came day by day'
+            // Copy CURTA (dono, 05/10/2026): a antiga ("Monday to Saturday — who came day by day", 48
+            // caracteres) era cortada em 320 px; esta é a frase que o próprio dono sugeriu.
+            ehSabado ? 'The week is closed' : 'Monday–Saturday overview'
           }
         />
       )}

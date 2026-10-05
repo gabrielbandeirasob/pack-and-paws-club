@@ -37,14 +37,23 @@ type Props = {
    */
   packRows?: PackRow[];
   members?: { id: string; name: string }[];
+  /** Abre a folha do Total Pack (o botão "Assign dogs" da distribuição). Sem a prop, o botão não aparece. */
+  onOpenPack?: () => void;
 };
 
-export function DayPlanCard({ walkLocation, photoIdea, busy = false, saved = null, onSave, packRows = [], members = [] }: Props) {
+export function DayPlanCard({ walkLocation, photoIdea, busy = false, saved = null, onSave, packRows = [], members = [], onOpenPack }: Props) {
+  const [editando, setEditando] = useState(false);
   const [local, setLocal] = useState(walkLocation ?? '');
   const [foto, setFoto] = useState(photoIdea ?? '');
 
   const noPack = packRows.filter((linha) => linha.inPack).length;
   const grupos = useMemo(() => packDistribution(packRows, members), [packRows, members]);
+  /** Cão que VAI à caminhada e ainda não tem caminhante — a linha de alerta + o botão "Assign dogs". */
+  const semCaminhante = packRows.filter((linha) => linha.inPack && !linha.walkerId);
+  const gruposAtribuidos = grupos.filter((grupo) => grupo.walkerId !== null);
+  /** Atribuídos ≠ no pack: a contagem tem de casar com o alerta (medido na tela, 05/10/2026 — aparecia
+   *  "2/2 assigned" com "⚠ 1 unassigned" ao lado, o que se contradiz). */
+  const atribuidos = packRows.filter((linha) => linha.inPack && linha.walkerId).length;
 
   // O que veio do banco manda quando a tela recarrega (outro gestor pode ter salvo, ou o gestor
   // acabou de arrastar para outro dia).
@@ -55,45 +64,76 @@ export function DayPlanCard({ walkLocation, photoIdea, busy = false, saved = nul
 
   return (
     <View style={styles.cartao}>
-      <Text style={styles.titulo}>Day plan</Text>
-      <Text style={styles.sub}>Photo and walk location — decided the day before.</Text>
-
-      <Text style={styles.rotulo}>Walk location</Text>
-      <TextInput
-        accessibilityLabel="Walk location of the day"
-        placeholder="Where the walk will be…"
-        placeholderTextColor={colors.muted}
-        value={local}
-        onChangeText={setLocal}
-        maxLength={PLANO_TEXTO_MAX}
-        style={styles.entrada}
-      />
-
-      <Text style={styles.rotulo}>Photo of the day — idea</Text>
-      <TextInput
-        accessibilityLabel="Photo of the day idea"
-        placeholder="What the photo is about…"
-        placeholderTextColor={colors.muted}
-        value={foto}
-        onChangeText={setFoto}
-        maxLength={PLANO_TEXTO_MAX}
-        multiline
-        style={[styles.entrada, styles.entradaAlta]}
-      />
-
-      <View style={styles.rodape}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: busy || !mudou }}
-          disabled={busy || !mudou}
-          accessibilityLabel="Save the day plan"
-          onPress={() => onSave({ walkLocation: local, photoIdea: foto })}
-          style={[styles.salvar, (busy || !mudou) && styles.salvarOff]}
-        >
-          <Text style={styles.salvarTexto}>{busy ? 'Saving…' : 'Save'}</Text>
-        </Pressable>
-        {saved ? <Text style={styles.ok}>{saved}</Text> : null}
+      <View style={styles.topo}>
+        <Text style={styles.titulo}>Day plan</Text>
+        {editando ? null : (
+          <Pressable accessibilityRole="button" accessibilityLabel="Edit the day plan" onPress={() => setEditando(true)} style={styles.editar}>
+            <Text style={styles.editarTexto}>Edit</Text>
+          </Pressable>
+        )}
       </View>
+
+      {editando ? (
+        <>
+          <Text style={styles.rotulo}>Walk location</Text>
+          <TextInput
+            accessibilityLabel="Walk location of the day"
+            placeholder="Where the walk will be…"
+            placeholderTextColor={colors.muted}
+            value={local}
+            onChangeText={setLocal}
+            maxLength={PLANO_TEXTO_MAX}
+            style={styles.entrada}
+          />
+
+          <Text style={styles.rotulo}>Photo of the day — idea</Text>
+          <TextInput
+            accessibilityLabel="Photo of the day idea"
+            placeholder="What the photo is about…"
+            placeholderTextColor={colors.muted}
+            value={foto}
+            onChangeText={setFoto}
+            maxLength={PLANO_TEXTO_MAX}
+            multiline
+            style={[styles.entrada, styles.entradaAlta]}
+          />
+
+          <View style={styles.rodape}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: busy || !mudou }}
+              disabled={busy || !mudou}
+              accessibilityLabel="Save the day plan"
+              onPress={() => { onSave({ walkLocation: local, photoIdea: foto }); setEditando(false); }}
+              style={[styles.salvar, (busy || !mudou) && styles.salvarOff]}
+            >
+              <Text style={styles.salvarTexto}>{busy ? 'Saving…' : 'Save'}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Cancel editing the day plan"
+              onPress={() => { setLocal(walkLocation ?? ''); setFoto(photoIdea ?? ''); setEditando(false); }}
+              style={styles.cancelar}
+            >
+              <Text style={styles.cancelarTexto}>Cancel</Text>
+            </Pressable>
+            {saved ? <Text style={styles.ok}>{saved}</Text> : null}
+          </View>
+        </>
+      ) : (
+        <>
+          <Text style={styles.sub}>Photo and walk location — decided the day before.</Text>
+          <View style={styles.linhaLeitura}>
+            <Text style={styles.rotuloLeitura}>Walk location</Text>
+            <Text numberOfLines={2} style={local.trim() ? styles.valorLeitura : styles.valorVazio}>{local.trim() || 'Not set'}</Text>
+          </View>
+          <View style={styles.linhaLeitura}>
+            <Text style={styles.rotuloLeitura}>Photo idea</Text>
+            <Text numberOfLines={2} style={foto.trim() ? styles.valorLeitura : styles.valorVazio}>{foto.trim() || 'Not set'}</Text>
+          </View>
+          {saved ? <Text style={styles.ok}>{saved}</Text> : null}
+        </>
+      )}
 
       {/*
         DISTRIBUIÇÃO DO PACK (pedido do dono, 29/09/2026): "motorista gabriel ficou com tais cachorros,
@@ -101,20 +141,31 @@ export function DayPlanCard({ walkLocation, photoIdea, busy = false, saved = nul
         É LEITURA, não edição — quem assina o caminhante é a folha do Total Pack (indicador da Home).
       */}
       <View style={styles.separador} />
-      <Text style={styles.distTitulo}>Pack distribution</Text>
+      <View style={styles.distTopo}>
+        <Text style={styles.distTitulo}>Pack distribution</Text>
+        <Text style={styles.distContagem}>{`${atribuidos}/${noPack} assigned`}</Text>
+      </View>
       {noPack === 0 ? (
         <Text style={styles.distVazio}>No dogs going to the walk on this day.</Text>
       ) : (
         <>
-          <Text style={styles.distSub}>{`${noPack} of ${packRows.length} dogs on the walk`}</Text>
-          {grupos.map((grupo) => (
+          {semCaminhante.length > 0 ? (
+            <Text numberOfLines={2} style={styles.distAlerta}>
+              ⚠ {semCaminhante.length} unassigned · {semCaminhante.map((linha) => linha.dogName).join(', ')}
+            </Text>
+          ) : null}
+          {gruposAtribuidos.map((grupo) => (
             <View key={grupo.walkerId ?? 'sem-caminhante'} style={styles.distLinha}>
               <Text style={styles.distNome}>{`${grupo.name} · ${grupo.dogs.length}`}</Text>
-              <Text style={styles.distCaes}>{grupo.dogs.map((cao) => cao.dogName).join(', ')}</Text>
+              <Text numberOfLines={1} style={styles.distCaes}>{grupo.dogs.map((cao) => cao.dogName).join(', ')}</Text>
             </View>
           ))}
-          {grupos.some((grupo) => grupo.walkerId === null) ? (
-            <Text style={styles.distDica}>Assign them in the Total Pack sheet.</Text>
+          {/* AÇÃO DIRETA (dono, 05/10/2026): antes era a instrução "Assign them in the Total Pack
+              sheet." — agora o botão abre a folha do pack, onde a atribuição acontece. */}
+          {semCaminhante.length > 0 ? (
+            <Pressable accessibilityRole="button" accessibilityLabel="Assign dogs" onPress={onOpenPack} style={styles.distBotao}>
+              <Text style={styles.distBotaoTexto}>Assign dogs</Text>
+            </Pressable>
           ) : null}
         </>
       )}
@@ -123,7 +174,23 @@ export function DayPlanCard({ walkLocation, photoIdea, busy = false, saved = nul
 }
 
 const styles = StyleSheet.create({
-  cartao: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.large, padding: 16, marginHorizontal: 18, marginTop: 12 },
+  cartao: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.large, padding: 12, marginHorizontal: 18, marginTop: 10 },
+  topo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  /** "Edit" (dono, 05/10/2026): o cartão abre em LEITURA; a edição só entra no toque. Alvo de 44 pt. */
+  editar: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 4 },
+  editarTexto: { color: colors.forest700, fontWeight: '800', fontSize: 12.5 },
+  /** Leitura: rótulo + valor numa linha, sem caixa de digitação no painel. */
+  linhaLeitura: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 6 },
+  rotuloLeitura: { color: colors.muted, fontSize: 12, fontWeight: '700', minWidth: 96 },
+  valorLeitura: { color: colors.ink, fontSize: 13, flex: 1 },
+  valorVazio: { color: colors.muted, fontSize: 13, flex: 1, fontStyle: 'italic' },
+  cancelar: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 10 },
+  cancelarTexto: { color: colors.muted, fontWeight: '800', fontSize: 12.5 },
+  distTopo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  distContagem: { color: colors.forest700, fontSize: 12, fontWeight: '800' },
+  distAlerta: { color: colors.urgency, fontSize: 12.5, fontWeight: '800', marginTop: 4 },
+  distBotao: { alignSelf: 'flex-start', marginTop: 8, backgroundColor: colors.forest700, borderRadius: radii.small, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' },
+  distBotaoTexto: { color: 'white', fontWeight: '800', fontSize: 12.5 },
   titulo: { fontFamily: 'serif', fontWeight: '800', fontSize: 16, color: colors.ink },
   // M5 da auditoria (02/10/2026): legendas do gestor com pelo menos 12 pt.
   sub: { color: colors.muted, fontSize: 12, marginTop: 3, marginBottom: 10 },

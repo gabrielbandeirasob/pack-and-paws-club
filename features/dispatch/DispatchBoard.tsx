@@ -9,7 +9,7 @@ import type { DogRef } from '@/features/calendar/dayMath';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
 import { ReorderableStops } from '@/features/dispatch/ReorderableStops';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
-import { avisoDeRotaInvisivel, precisaRepublicar, rotuloDoBadge } from '@/features/dispatch/routeStatusLabel';
+import { avisoDeRotaInvisivel, rotuloDoBadge } from '@/features/dispatch/routeStatusLabel';
 import { STALE_ROUTE_MESSAGE, STALE_ROUTE_TITLE } from '@/features/dispatch/staleRoute';
 import { SELO_PARADA_FORA_DO_DIA, avisoDeParadasForaDoDia, paradasForaDoDia } from '@/features/dispatch/dayReconciliation';
 import { colors, radii } from '@/features/theme/tokens';
@@ -577,7 +577,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
               vans={vans} onChooseVan={assignmentPhase === 'pickup' ? onChooseVan : undefined}
               onChooseYard={assignmentPhase === 'pickup' ? onChooseYard : undefined}
               vanDoMotorista={vanDoMotorista} onOpenStopList={onOpenStopList}
-              diaDogIds={diaDogIds} unassignedCount={unassigned.length}
+              diaDogIds={diaDogIds}
               onOpenMenu={abrirOverflow} onOpenAddDog={onAddExtraDog ? abrirBuscaCao : undefined}
               onDraggingChange={setArrastando}
               onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
@@ -895,13 +895,6 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
                   <Text style={styles.menuItemText}>Edit times</Text>
                 </Pressable>
               ) : null}
-              {menuRota.leg === 'pickup' && menuRota.route.status === 'published' && !precisaRepublicar(menuRota.route.status, { foraDoDia: paradasForaDoDia(menuRota.route.stops ?? [], diaDogIds).length, unassigned: unassigned.length }) ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={`Republish ${menuRota.driverName} route`} disabled={working}
-                  onPress={() => { const alvo = menuRota; setMenuRota(null); void onPublish(alvo.route.routeId); }}
-                  style={styles.menuItem}>
-                  <Text style={styles.menuItemText}>Republish</Text>
-                </Pressable>
-              ) : null}
               {menuRota.route.status === 'published' ? (
                 <Pressable accessibilityRole="button" accessibilityLabel={`Unpublish ${menuRota.driverName} route`} disabled={working}
                   onPress={() => { const alvo = menuRota; setMenuRota(null); void onUnpublish(alvo.route.routeId); }}
@@ -1009,8 +1002,6 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
   onOpenStopList?: Props['onOpenStopList'];
   /** Cães do dia confirmado — a linha confere as paradas contra este conjunto (Defeito A, 03/10/2026). */
   diaDogIds?: ReadonlySet<string>;
-  /** Cães do dia ainda SEM motorista nesta perna — a regra de republicação (item 15) usa este número. */
-  unassignedCount?: number;
   /** Abre o menu de overflow do cartão (item 8). */
   onOpenMenu?: (estado: { driverName: string; route: DispatchRoute; leg: Perna }) => void;
   /** Abre a busca "Add any dog" do quadro (estado vazio do motorista, item 13). */
@@ -1020,7 +1011,7 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
 const CartaoMotorista = memo(function CartaoMotorista({
   driver, route, leg, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
   onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy,
-  vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList, diaDogIds, unassignedCount = 0,
+  vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList, diaDogIds,
   onOpenMenu, onOpenAddDog, onDraggingChange,
 }: PropsCartao) {
   // A rota e as ações pertencem somente à perna selecionada.
@@ -1047,13 +1038,11 @@ const CartaoMotorista = memo(function CartaoMotorista({
   }, [route, diaDogIds]);
   const avisoForaDoDia = avisoDeParadasForaDoDia(foraDoDia);
   /**
-   * PUBLICAÇÃO VENCIDA (dono, 05/10/2026 — item 15). Antes o `Republish` aparecia SEMPRE; agora só
-   * quando o dia realmente mudou desde a publicação (parada fora do dia OU cão ainda sem motorista).
-   * A regra é PURA (`precisaRepublicar`) e usa só o que a tela já tem.
+   * BADGE DE STATUS (item 5). `Needs update` + `Republish changes` foram REMOVIDOS (dono, 05/10/2026):
+   * o motorista lê as paradas AO VIVO, então republicar não muda nada para ele — o badge tinha de
+   * mostrar só o estado real da rota.
    */
-  const mudanca = { foraDoDia: foraDoDia.length, unassigned: unassignedCount };
-  const republicar = precisaRepublicar(route?.status, mudanca);
-  const badgeStatus = route ? (republicar ? 'Needs update' : rotuloDoBadge(route.status)) : '';
+  const badgeStatus = route ? rotuloDoBadge(route.status) : '';
   /*
    * VAN DA ROTA (pergunta do dono, 01/10/2026). A van da rota manda; quando ela ainda não existe, vale a
    * escolha que o gestor fez no cartão (fica guardada na tela e vai gravada na rota que nascer). Sem
@@ -1109,7 +1098,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
   // HIERARQUIA DE AÇÕES (item 8): primário = Optimize route; secundário = Suggest; overflow = ⋯.
   // POLIMENTO (05/10/2026): o botão desabilitado `Draft only` SAIU — ele repetia o estado (`Draft`) e
   // parecia uma ação. Publicar só existe onde existe ação de publicar (perna de pick-up).
-  const mostrarPublicar = Boolean(route && stops.length > 0 && leg === 'pickup' && (route.status === 'draft' || republicar));
+  const mostrarPublicar = Boolean(route && stops.length > 0 && leg === 'pickup' && route.status === 'draft');
   return (
     <View key={driver.id} testID={`dispatch-route-${driver.id}-${route?.phase ?? 'pickup'}`} style={styles.driverCard}>
       <View style={styles.driverHeader}>
@@ -1121,11 +1110,10 @@ const CartaoMotorista = memo(function CartaoMotorista({
           <View style={styles.driverText} testID={route?.phase === 'dropoff' ? 'driver-info-dropoff' : 'driver-info'}>
             <View style={styles.driverTitleRow}>
               <Text numberOfLines={1} style={styles.driverName}>{driver.name}</Text>
-              {/* BADGE DE STATUS (item 5): o status aparece AQUI e em nenhum outro lugar. Vira
-                  `Needs update` quando a publicação ficou velha (item 15). */}
+              {/* BADGE DE STATUS (item 5): o status aparece AQUI e em nenhum outro lugar. */}
               {route ? (
-                <View style={[styles.statusBadge, republicar ? styles.statusBadgeAlerta : styles.statusBadgeNeutro]} testID="driver-status-badge">
-                  <Text style={[styles.statusBadgeText, republicar ? styles.statusBadgeTextoAlerta : null]}>{badgeStatus}</Text>
+                <View style={[styles.statusBadge, styles.statusBadgeNeutro]} testID="driver-status-badge">
+                  <Text style={styles.statusBadgeText}>{badgeStatus}</Text>
                 </View>
               ) : null}
               {!semParadas ? <Text style={styles.driverCount}>{totalParadas} stop{totalParadas === 1 ? '' : 's'}</Text> : null}
@@ -1252,8 +1240,8 @@ const CartaoMotorista = memo(function CartaoMotorista({
                 </Pressable>
               ) : null}
               {route && mostrarPublicar ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={republicar ? `Republish ${driver.name} route` : `Publish ${driver.name} route`} disabled={working} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
-                  <Text numberOfLines={1} style={styles.publishText}>{republicar ? 'Republish changes' : 'Publish route'}</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel={`Publish ${driver.name} route`} disabled={working} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
+                  <Text numberOfLines={1} style={styles.publishText}>Publish route</Text>
                 </Pressable>
               ) : null}
               {route ? (
@@ -1424,17 +1412,12 @@ const styles = StyleSheet.create({
   avatarText: { color: 'white', fontWeight: '900', fontSize: 13 },
   driverName: { fontSize: 14, lineHeight: 18, fontWeight: '900', color: colors.ink },
   driverCount: { color: colors.muted, fontSize: 12, fontWeight: '700' },
-  /** BADGE DE STATUS (item 5): verde suave = normal; vermelho suave = `Needs update` (item 15). */
+  /** BADGE DE STATUS (item 5): o verde suave é o único estado — `Needs update` saiu em 05/10/2026. */
   statusBadge: { borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2 },
   statusBadgeNeutro: { backgroundColor: colors.sage },
-  statusBadgeAlerta: { backgroundColor: `${colors.urgency}18`, borderWidth: 1, borderColor: colors.urgency },
   statusBadgeText: { color: colors.forest900, fontSize: 11, fontWeight: '900' },
-  statusBadgeTextoAlerta: { color: colors.urgency },
   /** Rascunho (item 14): linha discreta, sem borda nem bloco. */
   draftLine: { color: colors.muted, fontSize: 12, lineHeight: 16 },
-  /** Publicação vencida (item 15): o texto `N unpublished change` SAIU no polimento de 05/10/2026 —
-   *  o badge `Needs update` + o botão `Republish changes` já dizem o mesmo. */
-  republishAviso: { color: colors.urgency, fontSize: 12, fontWeight: '800' },
   emptyStops: { color: colors.ink, fontSize: 13, fontWeight: '800', marginTop: 2 },
   muted: { color: colors.muted, fontSize: 12, lineHeight: 16 },
   lateText: { color: colors.urgency, fontWeight: '800' },

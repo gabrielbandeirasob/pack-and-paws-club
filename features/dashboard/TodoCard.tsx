@@ -31,6 +31,7 @@ type Props = {
 
 export function TodoCard({ title = "Today's to-do", todos, busy = false, onAdd, onToggle, onEdit, onRemove }: Props) {
   const [novo, setNovo] = useState('');
+  const [adicionando, setAdicionando] = useState(false);
   const [editando, setEditando] = useState<string | null>(null);
   const [rascunho, setRascunho] = useState('');
   const lista = sortTodos(todos);
@@ -56,13 +57,13 @@ export function TodoCard({ title = "Today's to-do", todos, busy = false, onAdd, 
         <Text style={styles.titulo}>{title}</Text>
         <View style={[styles.selo, abertos === 0 && styles.seloOk]}>
           <Text style={[styles.seloTexto, abertos === 0 && styles.seloTextoOk]}>
-            {abertos === 0 ? 'all done' : `${abertos} open`}
+            {abertos === 0 ? 'All done' : `${abertos} open`}
           </Text>
         </View>
       </View>
 
       {lista.length === 0 ? (
-        <Text style={styles.vazio}>Nothing on the list yet — write what has to happen today.</Text>
+        <Text style={styles.vazio}>No tasks for today.</Text>
       ) : (
         lista.map((item) => (
           <View key={item.id} style={styles.linha}>
@@ -116,36 +117,48 @@ export function TodoCard({ title = "Today's to-do", todos, busy = false, onAdd, 
         ))
       )}
 
-      <View style={styles.novaLinha}>
-        <TextInput
-          accessibilityLabel="New to-do for today"
-          placeholder="Add something for today…"
-          placeholderTextColor={colors.muted}
-          value={novo}
-          onChangeText={setNovo}
-          onSubmitEditing={adicionar}
-          maxLength={TODO_TEXTO_MAX}
-          style={styles.entrada}
-        />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: busy || novo.trim().length === 0 }}
-          disabled={busy || novo.trim().length === 0}
-          accessibilityLabel="Add to-do"
-          onPress={adicionar}
-          style={[styles.adicionar, (busy || !novo.trim()) && styles.adicionarOff]}
-        >
-          <Text style={styles.adicionarTexto}>Add</Text>
+      {/* REVELAÇÃO PROGRESSIVA (dono, 05/10/2026): o campo NÃO fica aberto no painel. O cartão mostra a
+          lista (ou "No tasks for today.") e o "+ Add task" abre a digitação. */}
+      {adicionando ? (
+        <View style={styles.novaLinha}>
+          <TextInput
+            accessibilityLabel="New to-do for today"
+            placeholder="Add something for today…"
+            placeholderTextColor={colors.muted}
+            value={novo}
+            onChangeText={setNovo}
+            onSubmitEditing={adicionar}
+            autoFocus
+            maxLength={TODO_TEXTO_MAX}
+            style={styles.entrada}
+          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ disabled: busy || novo.trim().length === 0 }}
+            disabled={busy || novo.trim().length === 0}
+            accessibilityLabel="Add to-do"
+            onPress={adicionar}
+            style={[styles.adicionar, (busy || !novo.trim()) && styles.adicionarOff]}
+          >
+            <Text style={styles.adicionarTexto}>Add</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <Pressable accessibilityRole="button" accessibilityLabel="Add task" onPress={() => setAdicionando(true)} style={styles.addTask}>
+          <Text style={styles.addTaskTexto}>+ Add task</Text>
         </Pressable>
-      </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  cartao: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.large, padding: 16, marginHorizontal: 18, marginTop: 12 },
-  topo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  titulo: { fontFamily: 'serif', fontWeight: '800', fontSize: 16, color: colors.ink },
+  cartao: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.large, padding: 12, marginHorizontal: 18, marginTop: 10 },
+  topo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  titulo: { fontFamily: 'serif', fontWeight: '800', fontSize: 15, color: colors.ink },
+  /** Botão "+ Add task" (dono, 05/10/2026): alvo de 44 pt, contorno discreto — não é ação primária. */
+  addTask: { alignSelf: 'flex-start', marginTop: 6, borderWidth: 1, borderColor: colors.forest500, borderRadius: radii.small, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center' },
+  addTaskTexto: { color: colors.forest700, fontWeight: '800', fontSize: 12.5 },
   selo: { backgroundColor: '#FBEAE6', borderRadius: 20, paddingHorizontal: 9, paddingVertical: 5 },
   seloOk: { backgroundColor: '#E3F1DF' },
   seloTexto: { color: colors.urgency, fontSize: 12, fontWeight: '800' },

@@ -109,6 +109,13 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
   const [folhaAberta, setFolhaAberta] = useState(false);
 
   /**
+   * ATENÇÃO e PROGRESSO (dono, 05/10/2026). `semCaminhante` = cão que VAI à caminhada e ainda não tem
+   * caminhante assinado (é o que a seção "Needs attention" denuncia e resolve). `pct` é só a barra.
+   */
+  const semCaminhante = day.packRows.filter((linha) => linha.inPack && !linha.walkerId).length;
+  const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+
+  /**
    * O cabo do swipe: arrastar para a ESQUERDA vai para o dia seguinte, para a DIREITA volta um dia
    * (é o sentido de um calendário que rola por baixo do dedo). O gesto só é capturado quando é
    * claramente horizontal — assim a rolagem da tela (vertical) continua funcionando em cima do
@@ -153,10 +160,13 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
               <Text style={styles.dayArrowText}>‹</Text>
             </Pressable>
             <View style={styles.dayCenter}>
-              <Text style={styles.date}>{dateLabel}</Text>
-              {dayNav.isToday ? (
-                <Text style={styles.dayHint}>swipe sideways for the next day</Text>
-              ) : (
+              {/* numberOfLines 2 (medido em 320 px, 05/10/2026): "TODAY · MONDAY · OCTOBER 5" tem 200 px e o
+                  espaço é 180 — em UMA linha ele era cortado. Aqui ele quebra no separador, nunca no meio
+                  da palavra; de 360 px para cima continua numa linha só. */}
+              <Text numberOfLines={2} style={styles.date}>{dateLabel}</Text>
+              {/* "swipe sideways for the next day" SAIU (dono, 05/10/2026): o gesto e as setas já se
+                  explicam, e a frase custava uma linha inteira do painel. */}
+              {dayNav.isToday ? null : (
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Back to today"
@@ -178,7 +188,7 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
               <Text style={styles.dayArrowText}>›</Text>
             </Pressable>
           </View>
-          <Text style={styles.greeting}>{greeting}</Text>
+          <Text numberOfLines={1} style={styles.greeting}>{greeting}</Text>
           {viewSwitch}
         </View>
 
@@ -193,9 +203,9 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
         <View style={styles.statsRow}>
           <Stat value={String(daycare)} label="Daycare" />
           <Stat value={String(boarding)} label="Boarding" />
-          {/* Rótulo em PORTUGUÊS por pedido do dono (28/09/2026): "o número total de cães aparece sempre a
-              contagem de acordo com o calendário" — e ele quer esse rótulo e o do faturamento em português. */}
-          <Stat value={String(day.totalDogs)} label="Número total de Cães" hint="on the calendar today" />
+          {/* Rótulo CURTO e em inglês: o dono pediu idioma ÚNICO na tela (05/10/2026) — antes o total de
+              cães estava em português ("Número total de Cães") misturado com o resto em inglês. */}
+          <Stat value={String(day.totalDogs)} label="Total dogs" />
         </View>
 
         <View style={styles.statsRow2}>
@@ -207,21 +217,37 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
           >
             <Text style={styles.statValueDestaque}>{String(day.pack)}</Text>
             <Text style={styles.statLabelDestaque}>Total Pack</Text>
-            <Text style={styles.statHint}>going to the walk · tap to see the dogs</Text>
+            {/* Sem "tap to see the dogs": o cartão JÁ se comporta como cartão de painel clicável. */}
+            <Text numberOfLines={2} style={styles.statHint}>Dogs going on today&apos;s walk</Text>
           </Pressable>
           <RevenueStat revenueCents={day.revenueCents} onSave={day.onSaveRevenue} />
         </View>
 
+        {/* ATENÇÃO (dono, 05/10/2026): a seção só existe quando há o que resolver, e leva DIRETO ao
+            lugar da ação — nada de "Assign them in the Total Pack sheet". */}
+        {semCaminhante > 0 ? (
+          <Pressable accessibilityRole="button" accessibilityLabel="Review dogs without a walker" onPress={() => setFolhaAberta(true)} style={styles.attention}>
+            <View style={styles.attentionTop}>
+              <Text style={styles.attentionTitle}>Needs attention</Text>
+              <Text style={styles.attentionSeta}>›</Text>
+            </View>
+            <Text numberOfLines={2} style={styles.attentionText}>
+              ⚠ {semCaminhante} dog{semCaminhante === 1 ? '' : 's'} still need{semCaminhante === 1 ? 's' : ''} a pack assignment
+            </Text>
+          </Pressable>
+        ) : null}
+
         {/*
           ATENÇÃO (23/09/2026): quem o cliente pediu para TIRAR foi o QUADRADO "Routes" da fileira de
-          indicadores — o áudio diz "tira o botão, esse aqui mostrando as rotas que tem no dia". O
-          print dele tem duas setas verdes: uma no quadrado "Total Pack" e outra no quadrado
-          "Routes"; o cabo da segunda atravessa este cartão, mas o alvo é o quadrado. Este cartão
-          ("Today's progress") foi pedido por ele em 22/09 e FICA.
+          indicadores — este cartão ("Today's progress") foi pedido por ele em 22/09 e FICA.
+          A BARRA (dono, 05/10/2026) faz o progresso ser lido de relance, sem contar cabeça.
         */}
         <Pressable accessibilityRole="button" accessibilityLabel="See today's progress" style={styles.progressCard} onPress={onOpenProgress}>
-          <View style={styles.progressLeft}>
+          <View style={styles.progressTop}>
             <Text style={styles.progressTitle}>{`${dayNav.prefix}'s progress`}</Text>
+            <Text style={styles.link}>See all ›</Text>
+          </View>
+          <View style={styles.progressRow}>
             <Text style={styles.muted}>
               {progress.total === 0
                 ? dayNav.isToday
@@ -229,8 +255,13 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
                   : 'Nothing scheduled for this day'
                 : `${progress.done} of ${progress.total} dogs done`}
             </Text>
+            {progress.total > 0 ? <Text style={styles.progressPct}>{pct}%</Text> : null}
           </View>
-          <Text style={styles.link}>See all ›</Text>
+          {progress.total > 0 ? (
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${pct}%` }]} />
+            </View>
+          ) : null}
         </Pressable>
 
         {/* TO-DO LIST do dia (operação, 26/09/2026) — dentro do progresso do dia. */}
@@ -254,6 +285,7 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
           onSave={day.onSavePlan}
           packRows={day.packRows}
           members={day.members}
+          onOpenPack={() => setFolhaAberta(true)}
         />
 
         <View style={styles.sectionTitleRow}>
@@ -280,9 +312,11 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
               <View style={styles.routeTop}>
                 <View style={styles.driverBlock}>
                   <View style={styles.driverAvatar}><Text style={styles.driverInitial}>{route.driverName.charAt(0).toUpperCase()}</Text></View>
-                  <View>
-                    <Text style={styles.driverName}>{route.driverName}</Text>
-                    <Text style={styles.muted}>
+                  {/* `flex:1`+`minWidth:0` no bloco do nome: o badge de status não pode espremer o
+                      nome do motorista (num iPhone estreito o texto quebrava letra por letra). */}
+                  <View style={styles.driverTextBlock}>
+                    <Text numberOfLines={1} style={styles.driverName}>{route.driverName}</Text>
+                    <Text numberOfLines={1} style={styles.muted}>
                       {route.stops} stop{route.stops === 1 ? '' : 's'}
                       {route.miles > 0 ? ` · ${route.miles} mi` : ''}
                     </Text>
@@ -293,7 +327,7 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
                 </View>
               </View>
               <View style={styles.routeBottom}>
-                <Text style={styles.muted}>{route.nextLabel ?? 'All stops done'}</Text>
+                <Text numberOfLines={1} style={styles.routeNext}>{route.nextLabel ?? 'All stops done'}</Text>
                 {/* O cliente pediu para ABRIR a lista de pick-ups daquele motorista (áudio de
                     01/10/2026): a seta é o convite ao toque, e sem a prop o cartão fica como era. */}
                 {onOpenRoute ? <Text style={styles.routeSeta}>›</Text> : null}
@@ -302,37 +336,44 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
           ))
         )}
 
-        {/* Histórico do dia: "você vai ser capaz de clicar lá, dia tal, e ver todas essas informações". */}
-        <Pressable accessibilityRole="button" accessibilityLabel="See another day" style={styles.dayLink} onPress={day.onOpenDaySummary}>
-          <Text style={styles.dayLinkTexto}>See another day</Text>
-          <Text style={styles.dayLinkSeta}>›</Text>
-        </Pressable>
-
-        {/* RESUMO DA SEMANA (áudio do dono, 27/09/2026): "sempre que chegar no sábado, vai ter essa
-            checagem da semana" — a lista dos cães que vieram, com os dias de cada um. */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Weekly summary — Monday to Saturday"
-          style={styles.dayLink}
-          onPress={onOpenWeekSummary}
-        >
-          <View style={styles.dayLinkBloco}>
-            <Text style={styles.dayLinkTexto}>Weekly summary</Text>
-            <Text style={styles.muted}>{weekSummaryHint}</Text>
-          </View>
-          <Text style={styles.dayLinkSeta}>›</Text>
-        </Pressable>
+        {/*
+          NAVEGAÇÃO SECUNDÁRIA (dono, 05/10/2026): "See another day" e "Weekly summary" eram cartões
+          grandes competindo com a operação. Viram DUAS LINHAS compactas, com ícone da mesma família
+          (glifos de texto, como o resto do app) e seta — nada de bloco de destaque.
+        */}
+        <View style={styles.secondaryCard}>
+          <Pressable accessibilityRole="button" accessibilityLabel="See another day" style={styles.secondaryRow} onPress={day.onOpenDaySummary}>
+            <Text style={styles.secondaryIcon}>▤</Text>
+            <Text numberOfLines={1} style={styles.secondaryText}>See another day</Text>
+            <Text style={styles.secondarySeta}>›</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Weekly summary — Monday to Saturday"
+            style={[styles.secondaryRow, styles.secondaryRowLast]}
+            onPress={onOpenWeekSummary}
+          >
+            <Text style={styles.secondaryIcon}>▦</Text>
+            <View style={styles.secondaryBlock}>
+              <Text numberOfLines={1} style={styles.secondaryText}>Weekly summary</Text>
+              <Text numberOfLines={1} style={styles.secondaryHint}>{weekSummaryHint}</Text>
+            </View>
+            <Text style={styles.secondarySeta}>›</Text>
+          </Pressable>
+        </View>
 
         <Text style={styles.sectionTitle}>Quick actions</Text>
+        {/* Ícones da MESMA família (glifo de texto), um por ação; rótulo curto com `numberOfLines={2}`
+            e largura mínima — assim "New reservation" quebra na PALAVRA, nunca "reservatio n". */}
         <View style={styles.quickRow}>
           <Pressable accessibilityRole="button" accessibilityLabel="Add from contacts" style={styles.quickCard} onPress={onOpenClients}>
-            <Text style={styles.quickIcon}>＋</Text><Text style={styles.quickText}>Add from Contacts</Text>
+            <Text style={styles.quickIcon}>＋</Text><Text numberOfLines={2} style={styles.quickText}>Add contact</Text>
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="New reservation" style={styles.quickCard} onPress={onNewReservation}>
-            <Text style={styles.quickIcon}>▦</Text><Text style={styles.quickText}>New reservation</Text>
+            <Text style={styles.quickIcon}>▦</Text><Text numberOfLines={2} style={styles.quickText}>New reservation</Text>
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Driver hours" style={styles.quickCard} onPress={onOpenDriverHours}>
-            <Text style={styles.quickIcon}>⏱</Text><Text style={styles.quickText}>Driver hours</Text>
+            <Text style={styles.quickIcon}>◷</Text><Text numberOfLines={2} style={styles.quickText}>Driver hours</Text>
           </Pressable>
         </View>
       </ScrollView>
@@ -352,10 +393,13 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
 }
 
 /**
- * Faturamento digitável: o valor vive no TextInput enquanto o gestor digita e sobe para o banco ao
- * sair do campo (ou apertar "done"). Fica em centavos, nunca em ponto flutuante.
+ * Faturamento (dono, 05/10/2026): REVELAÇÃO PROGRESSIVA. Em repouso o quadrado mostra só o valor
+ * (`$1,234.56` + `Revenue`) e o toque abre o campo — antes o `TextInput` vivia aberto com a instrução
+ * "Faturamento · tap to type" dentro de um cartão de painel. Grava do mesmo jeito: centavos, ao sair
+ * do campo.
  */
 function RevenueStat({ revenueCents, onSave }: { revenueCents: number | null; onSave: (cents: number | null) => void }) {
+  const [editando, setEditando] = useState(false);
   const [texto, setTexto] = useState(formatCents(revenueCents));
   useEffect(() => setTexto(formatCents(revenueCents)), [revenueCents]);
 
@@ -363,7 +407,23 @@ function RevenueStat({ revenueCents, onSave }: { revenueCents: number | null; on
     const centavos = parseMoneyToCents(texto);
     if (centavos !== revenueCents) onSave(centavos);
     setTexto(formatCents(centavos));
+    setEditando(false);
   };
+
+  if (!editando) {
+    const valor = revenueCents === null || revenueCents === undefined ? '0.00' : formatCents(revenueCents);
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Edit the revenue of the day"
+        onPress={() => setEditando(true)}
+        style={[styles.stat, styles.statReceita]}
+      >
+        <Text numberOfLines={1} style={styles.statValueReceita}>{`$${valor}`}</Text>
+        <Text style={styles.muted}>Revenue</Text>
+      </Pressable>
+    );
+  }
 
   return (
     <View style={[styles.stat, styles.statReceita]}>
@@ -374,13 +434,13 @@ function RevenueStat({ revenueCents, onSave }: { revenueCents: number | null; on
         onChangeText={setTexto}
         onBlur={enviar}
         onSubmitEditing={enviar}
+        autoFocus
         keyboardType="numbers-and-punctuation"
         placeholder="0.00"
         placeholderTextColor={colors.muted}
         style={styles.receitaCampo}
       />
-      {/* Rótulo em PORTUGUÊS por pedido do dono (28/09/2026): "o faturamento é por conta do admin". */}
-      <Text style={styles.muted}>Faturamento · tap to type</Text>
+      <Text style={styles.muted}>Revenue</Text>
     </View>
   );
 }
@@ -396,16 +456,15 @@ function Stat({ value, label, hint, destaque = false }: { value: string; label: 
 }
 
 const styles = StyleSheet.create({
-  screen:{flex:1,backgroundColor:colors.forest700},content:{paddingBottom:28},scroll:{flex:1,backgroundColor:colors.cream},hero:{backgroundColor:colors.forest700,paddingHorizontal:20,paddingTop:12,paddingBottom:50,borderBottomLeftRadius:radii.hero,borderBottomRightRadius:radii.hero},brandRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},brandBlock:{flexDirection:'row',alignItems:'center',gap:10},logo:{width:44,height:44,borderRadius:12,borderWidth:1,borderColor:colors.gold},brand:{color:'white',fontFamily:'serif',fontSize:15,fontWeight:'700',letterSpacing:.4},avatar:{width:38,height:38,borderRadius:19,backgroundColor:'#F0DB9C',alignItems:'center',justifyContent:'center'},avatarText:{color:colors.forest700,fontWeight:'800'},date:{color:'#D7E1D4',fontSize:12,letterSpacing:.7,textAlign:'center'},
+  screen:{flex:1,backgroundColor:colors.forest700},content:{paddingBottom:28},scroll:{flex:1,backgroundColor:colors.cream},hero:{backgroundColor:colors.forest700,paddingHorizontal:18,paddingTop:6,paddingBottom:22,borderBottomLeftRadius:radii.hero,borderBottomRightRadius:radii.hero},brandRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},brandBlock:{flexDirection:'row',alignItems:'center',gap:10},logo:{width:30,height:30,borderRadius:9,borderWidth:1,borderColor:colors.gold},brand:{color:'white',fontFamily:'serif',fontSize:15,fontWeight:'700',letterSpacing:.4},avatar:{width:32,height:32,borderRadius:16,backgroundColor:'#F0DB9C',alignItems:'center',justifyContent:'center'},avatarText:{color:colors.forest700,fontWeight:'800'},date:{color:'#D7E1D4',fontSize:12,letterSpacing:.7,textAlign:'center'},
   /** Navegação por dia: setas nas pontas, data no meio (o gestor também pode arrastar). */
-  dayNavRow:{flexDirection:'row',alignItems:'center',gap:10,marginTop:20},
+  dayNavRow:{flexDirection:'row',alignItems:'center',gap:8,marginTop:8},
   dayArrow:{width:44,height:44,borderRadius:22,borderWidth:1,borderColor:'rgba(255,255,255,.35)',alignItems:'center',justifyContent:'center'},
   dayArrowOff:{opacity:.3},
   dayArrowText:{color:'white',fontSize:22,fontWeight:'700',lineHeight:24},
   dayCenter:{flex:1,alignItems:'center'},
-  dayHint:{color:'#A9BFA6',fontSize:12,marginTop:3},
-  dayPill:{marginTop:5,borderWidth:1,borderColor:colors.gold,borderRadius:20,paddingHorizontal:12,paddingVertical:5,minHeight:44,justifyContent:'center'},
-  dayPillText:{color:colors.gold,fontSize:12,fontWeight:'800'},greeting:{color:'white',fontFamily:'serif',fontSize:29,fontWeight:'700',lineHeight:34,marginTop:6,maxWidth:310},statsRow:{flexDirection:'row',gap:9,paddingHorizontal:18,marginTop:-27},statsRow2:{flexDirection:'row',gap:9,paddingHorizontal:18,marginTop:9},stat:{flex:1,backgroundColor:colors.paper,borderRadius:radii.medium,padding:14,shadowColor:colors.forest900,shadowOpacity:.08,shadowRadius:14,shadowOffset:{width:0,height:6},elevation:2},statValue:{color:colors.forest700,fontFamily:'serif',fontWeight:'800',fontSize:23},muted:{color:colors.muted,fontSize:12},sectionTitleRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:20,marginTop:24,marginBottom:11},sectionTitle:{fontFamily:'serif',fontWeight:'800',fontSize:18,color:colors.ink,marginHorizontal:20,marginTop:22,marginBottom:11},link:{color:colors.forest700,fontWeight:'800'},routeCard:{backgroundColor:colors.paper,borderWidth:1,borderColor:colors.line,borderRadius:radii.large,padding:16,marginHorizontal:18,marginBottom:11},routeCardPressed:{opacity:.75},routeSeta:{color:colors.forest700,fontWeight:'800',fontSize:16},routeTop:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},driverBlock:{flexDirection:'row',alignItems:'center',gap:11},driverAvatar:{width:38,height:38,borderRadius:12,backgroundColor:colors.sage,alignItems:'center',justifyContent:'center'},driverInitial:{color:colors.forest700,fontWeight:'900'},driverName:{fontWeight:'800',color:colors.ink},statusPill:{backgroundColor:'#E3F1DF',borderRadius:20,paddingHorizontal:9,paddingVertical:6},statusText:{color:'#2E6334',fontSize:11,fontWeight:'800'},routeBottom:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',marginTop:15},dogs:{fontSize:18},quickRow:{flexDirection:'row',gap:10,paddingHorizontal:18},quickCard:{flex:1,backgroundColor:colors.paper,borderRadius:radii.medium,borderWidth:1,borderColor:colors.line,padding:15,minHeight:92},quickIcon:{color:colors.forest700,fontSize:25,fontWeight:'500'},quickText:{color:colors.ink,fontWeight:'800',fontSize:13,marginTop:8},
+  dayPill:{marginTop:3,borderWidth:1,borderColor:colors.gold,borderRadius:20,paddingHorizontal:12,paddingVertical:3,minHeight:44,justifyContent:'center'},
+  dayPillText:{color:colors.gold,fontSize:12,fontWeight:'800'},greeting:{color:'white',fontFamily:'serif',fontSize:22,fontWeight:'700',lineHeight:27,marginTop:4,maxWidth:'100%'},statsRow:{flexDirection:'row',gap:8,paddingHorizontal:18,marginTop:-12},statsRow2:{flexDirection:'row',gap:8,paddingHorizontal:18,marginTop:8},stat:{flex:1,backgroundColor:colors.paper,borderRadius:radii.medium,padding:12,shadowColor:colors.forest900,shadowOpacity:.08,shadowRadius:14,shadowOffset:{width:0,height:6},elevation:2},statValue:{color:colors.forest700,fontFamily:'serif',fontWeight:'800',fontSize:23},muted:{color:colors.muted,fontSize:12},sectionTitleRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',paddingHorizontal:20,marginTop:24,marginBottom:11},sectionTitle:{fontFamily:'serif',fontWeight:'800',fontSize:18,color:colors.ink,marginHorizontal:20,marginTop:22,marginBottom:11},link:{color:colors.forest700,fontWeight:'800'},routeCard:{backgroundColor:colors.paper,borderWidth:1,borderColor:colors.line,borderRadius:radii.large,padding:12,marginHorizontal:18,marginBottom:8},routeCardPressed:{opacity:.75},routeSeta:{color:colors.forest700,fontWeight:'800',fontSize:16},routeTop:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:8},driverBlock:{flexDirection:'row',alignItems:'center',gap:9,flex:1,minWidth:0},driverTextBlock:{flex:1,minWidth:0},routeNext:{color:colors.muted,fontSize:12,flex:1},driverAvatar:{width:32,height:32,borderRadius:10,backgroundColor:colors.sage,alignItems:'center',justifyContent:'center'},driverInitial:{color:colors.forest700,fontWeight:'900'},driverName:{fontWeight:'800',color:colors.ink,fontSize:13.5},statusPill:{backgroundColor:'#E3F1DF',borderRadius:20,paddingHorizontal:9,paddingVertical:4},statusText:{color:'#2E6334',fontSize:11,fontWeight:'800'},routeBottom:{flexDirection:'row',justifyContent:'space-between',alignItems:'center',gap:8,marginTop:6},dogs:{fontSize:18},quickRow:{flexDirection:'row',flexWrap:'wrap',gap:8,paddingHorizontal:18},quickCard:{flexGrow:1,flexBasis:'30%',minWidth:104,backgroundColor:colors.paper,borderRadius:radii.medium,borderWidth:1,borderColor:colors.line,paddingHorizontal:10,paddingVertical:12,minHeight:76,alignItems:'center',justifyContent:'center'},quickIcon:{color:colors.forest700,fontSize:22,fontWeight:'600'},quickText:{color:colors.ink,fontWeight:'800',fontSize:12.5,marginTop:6,textAlign:'center'},
   sectionTitleInline:{fontFamily:'serif',fontWeight:'800',fontSize:18,color:colors.ink},
   emptyTitle:{fontFamily:'serif',fontWeight:'800',fontSize:15,color:colors.forest900,marginBottom:5},
   statDestaque:{backgroundColor:colors.gold},
@@ -417,14 +476,32 @@ const styles = StyleSheet.create({
   statReceita:{backgroundColor:colors.paper},
   moeda:{color:colors.forest700,fontFamily:'serif',fontWeight:'800',fontSize:13,marginBottom:2},
   receitaCampo:{color:colors.forest700,fontFamily:'serif',fontWeight:'800',fontSize:19,padding:0,margin:0},
-  progressCard:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:colors.paper,borderWidth:1,borderColor:colors.line,borderRadius:radii.large,padding:16,marginHorizontal:18,marginTop:20},
-  progressLeft:{flex:1},
+  progressCard:{backgroundColor:colors.paper,borderWidth:1,borderColor:colors.line,borderRadius:radii.large,padding:12,marginHorizontal:18,marginTop:12},
+  progressTop:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},
+  progressRow:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',gap:8,marginTop:2},
+  progressPct:{color:colors.forest700,fontWeight:'900',fontSize:12},
+  /** BARRA do progresso: o gestor entende em 2 s sem contar cabeça (dono, 05/10/2026). */
+  progressTrack:{height:6,borderRadius:3,backgroundColor:colors.line,marginTop:8,overflow:'hidden'},
+  progressFill:{height:6,borderRadius:3,backgroundColor:colors.forest700},
   progressTitle:{fontFamily:'serif',fontWeight:'800',fontSize:16,color:colors.ink,marginBottom:3},
   statusPillLate:{backgroundColor:'#FBEAE6'},
   statusTextLate:{color:colors.urgency},
-  /** Atalho para o histórico do dia (indicadores de um dia passado). */
-  dayLink:{flexDirection:'row',alignItems:'center',justifyContent:'space-between',backgroundColor:colors.paper,borderWidth:1,borderColor:colors.line,borderRadius:radii.large,paddingHorizontal:16,paddingVertical:14,marginHorizontal:18,marginTop:16},
-  dayLinkTexto:{color:colors.forest700,fontWeight:'800',fontSize:13.5},
-  dayLinkBloco:{flex:1},
-  dayLinkSeta:{color:colors.forest700,fontWeight:'800',fontSize:16},
+  /** ATENÇÃO (dono, 05/10/2026): o cartão só aparece quando há cão no pack sem caminhante. */
+  attention:{backgroundColor:'#FBEDED',borderWidth:1,borderColor:colors.urgency,borderRadius:radii.medium,paddingHorizontal:12,paddingVertical:10,marginHorizontal:18,marginTop:12},
+  attentionTop:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'},
+  attentionTitle:{color:colors.urgency,fontWeight:'900',fontSize:12,letterSpacing:.4,textTransform:'uppercase'},
+  attentionText:{color:colors.urgency,fontSize:12.5,fontWeight:'700',marginTop:3},
+  attentionSeta:{color:colors.urgency,fontWeight:'900',fontSize:16},
+  /** Total Pack ganha mais largura: é o número que puxa ação (o faturamento é leitura). */
+  statPack:{flex:1.4,backgroundColor:colors.gold},
+  statValueReceita:{color:colors.forest700,fontFamily:'serif',fontWeight:'800',fontSize:19},
+  /** Navegação secundária: DUAS linhas compactas num cartão só (dono, 05/10/2026). */
+  secondaryCard:{backgroundColor:colors.paper,borderWidth:1,borderColor:colors.line,borderRadius:radii.medium,marginHorizontal:18,marginTop:14,overflow:'hidden'},
+  secondaryRow:{flexDirection:'row',alignItems:'center',gap:10,paddingHorizontal:12,paddingVertical:11,minHeight:44,borderBottomWidth:1,borderBottomColor:colors.line},
+  secondaryRowLast:{borderBottomWidth:0},
+  secondaryIcon:{color:colors.forest700,fontSize:15,fontWeight:'700'},
+  secondaryText:{color:colors.forest700,fontWeight:'800',fontSize:13.5},
+  secondaryHint:{color:colors.muted,fontSize:11.5,marginTop:1},
+  secondaryBlock:{flex:1,minWidth:0},
+  secondarySeta:{color:colors.forest700,fontWeight:'800',fontSize:16},
 });

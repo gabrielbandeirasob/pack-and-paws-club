@@ -288,9 +288,12 @@ describe('M5 (2ª passada) — legendas ≥12 pt e alvos ≥44 pt no lado gestor
     expect(tela.getByLabelText('Add photo for Mowgli')).toHaveStyle({ minHeight: 44 });
   });
 
-  it('DayPlanCard: subtítulo/dica com ≥12 pt e "Save" com 44 pt', async () => {
+  it('DayPlanCard: subtítulo com ≥12 pt, "Edit" na leitura e "Save" com 44 pt', async () => {
     const tela = await render(<DayPlanCard walkLocation={null} photoIdea={null} onSave={jest.fn()} />);
     expect(tela.getByText('Photo and walk location — decided the day before.')).toHaveStyle({ fontSize: 12 });
+    // LEITURA por padrão (dono, 05/10/2026): o "Save" só existe depois do "Edit" — e com 44 pt.
+    expect(tela.queryByLabelText('Save the day plan')).toBeNull();
+    await fireEvent.press(tela.getByLabelText('Edit the day plan'));
     expect(tela.getByLabelText('Save the day plan')).toHaveStyle({ minHeight: 44 });
   });
 

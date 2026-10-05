@@ -119,6 +119,9 @@ describe('stale_day — a tela avisa em PT-BR e recarrega', () => {
       daily_plans: [{ id: 'p1', revenue_cents: null, walk_location: null, photo_idea: null, lock_version: 1 }],
     });
     const tela = await render(<HomeScreen />);
+    // REVELAÇÃO PROGRESSIVA (dono, 05/10/2026): o "Edit" revela os campos do plano do dia.
+    await waitFor(() => expect(tela.getByLabelText('Edit the day plan')).toBeTruthy());
+    await fireEvent.press(tela.getByLabelText('Edit the day plan'));
     await waitFor(() => expect(tela.getByLabelText('Walk location of the day')).toBeTruthy());
     const leiturasAntes = mockLeiturasPlano;
 
