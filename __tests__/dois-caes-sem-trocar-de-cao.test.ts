@@ -13,7 +13,7 @@
 import { planCalendarImport, type BookingForImport } from '@/features/integrations/google/importPlan';
 import { supabaseImportPorts } from '@/features/integrations/google/importPorts';
 import { runCalendarImport } from '@/features/integrations/google/importService';
-import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
+import type { RemoteEvent } from '@/features/integrations/google/eventMarkers';
 
 const DIA = '2026-09-28';
 const window = { from: DIA, to: '2026-09-30' };

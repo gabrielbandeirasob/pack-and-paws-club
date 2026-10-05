@@ -24,7 +24,7 @@ import {
   planCalendarImport,
   type DogForImport,
 } from '@/features/integrations/google/importPlan';
-import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
+import type { RemoteEvent } from '@/features/integrations/google/eventMarkers';
 
 const HOJE = '2026-09-24';
 const JANELA = { from: HOJE, to: '2027-03-23' };

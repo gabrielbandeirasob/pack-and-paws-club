@@ -10,7 +10,7 @@
  * (incluindo os tons que ele NAO citou) para que uma regressao futura quebre ESTE arquivo.
  */
 import { planCalendarImport, type BookingForImport, type DogForImport, type ImportOutcome } from '@/features/integrations/google/importPlan';
-import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
+import type { RemoteEvent } from '@/features/integrations/google/eventMarkers';
 
 const HOJE = '2026-09-24';
 const JANELA = { from: HOJE, to: '2027-03-23' };

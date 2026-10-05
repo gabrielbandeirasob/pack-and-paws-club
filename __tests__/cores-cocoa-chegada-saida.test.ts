@@ -13,7 +13,7 @@
  */
 import { buildDay, transportPool, vanPool, type ReservationRecord } from '@/features/calendar/dayMath';
 import { HEX_COCOA, type EventLabel } from '@/features/calendar/googleColors';
-import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
+import type { RemoteEvent } from '@/features/integrations/google/eventMarkers';
 import { coberturaDaHospedagem, planCalendarImport } from '@/features/integrations/google/importPlan';
 
 const labels: EventLabel[] = [

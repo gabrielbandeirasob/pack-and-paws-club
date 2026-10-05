@@ -1,5 +1,4 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
-import type { LocalReservation } from '@/features/integrations/google/calendarSync';
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn() }),
@@ -57,7 +56,7 @@ async function remove(tela: Awaited<ReturnType<typeof render>>) {
   await act(async () => { buttons.find((button) => button.text === 'Remove')?.onPress?.(); });
 }
 
-it('Remove cancela sem DELETE e atualiza o dia e o espelho antes de terminar a recarga', async () => {
+it('Remove cancela sem DELETE e atualiza o dia antes de terminar a recarga', async () => {
   const tela = await render(<CalendarScreen />);
   await waitFor(() => expect(tela.getByLabelText('Options Kona')).toBeTruthy());
   expect(tela.queryByLabelText('Options Agnes')).toBeNull();
@@ -67,11 +66,12 @@ it('Remove cancela sem DELETE e atualiza o dia e o espelho antes de terminar a r
   await waitFor(() => expect(tela.queryByLabelText('Options Kona')).toBeNull());
   expect(mockUpdate).toHaveBeenCalledWith({ status: 'cancelled' });
   expect(mockEq).toHaveBeenCalledWith('id', 'r-kona');
-  expect(mockAlert).toHaveBeenLastCalledWith('Day cancelled', expect.stringContaining('next Sync'));
-  const props = mockCard.mock.calls.at(-1)?.[0] as { reservations: LocalReservation[] };
-  expect(props.reservations).toEqual(expect.arrayContaining([
-    expect.objectContaining({ id: 'res:r-kona', cancelled: true, googleEventId: 'g-kona' }),
-  ]));
+  expect(mockAlert).toHaveBeenLastCalledWith('Day cancelled', expect.stringContaining('is not changed by the app'));
+  // O cartão deixou de receber a lista de reservas: desde 05/10/2026 ele NÃO espelha nada no
+  // calendário do cliente (o app só importa). A prova é o prop não existir mais.
+  const props = mockCard.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+  expect(props.organizationId).toBe('org');
+  expect(props.reservations).toBeUndefined();
 });
 
 it('erro ao cancelar mantém o cão visível e avisa o gestor', async () => {

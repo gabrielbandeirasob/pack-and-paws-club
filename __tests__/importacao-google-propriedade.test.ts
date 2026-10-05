@@ -19,7 +19,7 @@ import {
   type ImportOutcome,
   type ParsedBooking,
 } from '@/features/integrations/google/importPlan';
-import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
+import type { RemoteEvent } from '@/features/integrations/google/eventMarkers';
 
 const AZUL = '7';
 const VERDE = '2';

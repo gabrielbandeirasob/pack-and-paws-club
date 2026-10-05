@@ -51,7 +51,10 @@ describe('estado da configuracao do Google no app', () => {
     expect(config.isCalendarConfigured()).toBe(false);
   });
 
-  it('pede eventos, a lista de calendarios e as CORES do calendario', () => {
+  it('pede SÓ escopos de leitura: eventos, a lista de calendarios e as CORES do calendario', () => {
+    // `calendar.events.readonly` (e não `calendar.events`) é a decisão do dono de 05/10/2026: o app
+    // só IMPORTA do calendário do cliente e não pode criar/alterar/apagar evento. Com o token de
+    // leitura é o próprio Google que recusa escrita, mesmo que um bug tente.
     // `calendar.calendarlist.readonly` entrou em 24/09/2026 com o seletor de calendário: a API
     // `users/me/calendarList` recusa `calendar.events` com HTTP 403 (insufficient scopes), e sem
     // listar calendários o gestor não escolhe o "bot venda" — onde os agendamentos estão.
@@ -60,7 +63,7 @@ describe('estado da configuracao do Google no app', () => {
     // também recusa `calendar.events`. Token gravado antes disso PRECISA reconectar — é o que o
     // cartão explica (`TEXTO_FALTA_DE_ESCOPO_CORES`).
     const esperado = [
-      'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/calendar.events.readonly',
       'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
       'https://www.googleapis.com/auth/calendar.calendars.readonly',
     ];

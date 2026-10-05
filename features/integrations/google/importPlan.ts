@@ -37,7 +37,7 @@
  */
 import { addDaysISO, weekdayOfISO } from '@/features/calendar/dates';
 import { movimentaOCao, readEventColor, serviceTypeOfMeaning, type BookingServiceType, type ColorMeaning, type EventColorRead, type EventLabel } from '@/features/calendar/googleColors';
-import type { RemoteEvent } from './calendarSync';
+import type { RemoteEvent } from './eventMarkers';
 
 export type { BookingServiceType };
 
