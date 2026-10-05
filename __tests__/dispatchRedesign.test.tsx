@@ -204,12 +204,15 @@ describe('item 9 — um aviso por assunto', () => {
 
 /* ---------------------------------- item 15 -------------------------------- */
 describe('item 15 — Needs update só quando o dia mudou', () => {
-  it('published + parada fora do dia → badge `Needs update` + `1 unpublished change` + Republish', async () => {
+  it('published + parada fora do dia → `Needs update` + `⚠ 1 booking changed`, SEM repetir o estado', async () => {
     const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={[dog]}
       routes={[rota({ status: 'published', stops: [parada('d-rani', 'Rani'), parada('d-cancelado', 'Scarlet', { sequence: 2 })] })]} {...noops} />);
     expect(screen.getByText('Needs update')).toBeTruthy();
-    expect(screen.getByText('1 unpublished change')).toBeTruthy();
-    expect(screen.getByTestId('route-needs-update-m-rafael')).toBeTruthy();
+    expect(screen.getByTestId('driver-status-badge')).toBeTruthy();
+    expect(screen.getByText('⚠ 1 booking changed')).toBeTruthy();
+    // POLIMENTO (05/10/2026): `N unpublished change` SAIU — badge + `Republish changes` já dizem o mesmo.
+    expect(screen.queryByText(/unpublished change/)).toBeNull();
+    expect(screen.getByLabelText('Republish Rafael route')).toBeTruthy();
   });
 
   it('published sem mudança → NADA de `Needs update` nem Republish grande', async () => {
@@ -257,5 +260,55 @@ describe('item 13 — estado vazio do motorista', () => {
     expect(screen.getByText('Suggest assignments')).toBeTruthy();
     expect(screen.getByLabelText('Add a dog by hand')).toBeTruthy();
     expect(screen.getByTestId('dispatch-route-m-rafael-pickup')).toBeTruthy();
+  });
+});
+
+/* --------------------------- POLIMENTO (05/10/2026) ------------------------ */
+describe('polimento — sem repetir estado, cartão compacto, modal do stale', () => {
+  it('rascunho: `Draft` + `Not visible to driver yet` e NENHUM botão `Draft only`', async () => {
+    const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={[dog]}
+      routes={[rota({ status: 'draft' })]} {...noops} />);
+    expect(screen.getByText('Draft')).toBeTruthy();
+    expect(screen.getByText('Not visible to driver yet')).toBeTruthy();
+    expect(screen.queryByText('Draft only')).toBeNull();
+    expect(screen.getByLabelText('Publish Rafael route')).toBeTruthy();
+  });
+
+  it('van e yard dividem a MESMA linha de recursos', async () => {
+    const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={[dog]}
+      routes={[rota({ status: 'draft' })]}
+      vans={[{ id: 'v1', name: 'Van 1', isDefault: true, kind: 'van' }, { id: 'v2', name: 'Van 2', isDefault: false, kind: 'van' }, { id: 'y1', name: 'Main Yard', isDefault: false, kind: 'yard', address: '1089 Memorex Drive' }]}
+      onChooseVan={jest.fn()} onChooseYard={jest.fn()} {...noops} />);
+    expect(screen.getByTestId('driver-van-m-rafael').parent).toBe(screen.getByTestId('driver-yard-m-rafael').parent);
+  });
+
+  it('"Already in van" explica em UMA linha curta', async () => {
+    const dayItems: DispatchStopItem[] = [{ ...dog, inVan: true, reservationKind: 'boarding' }];
+    const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={dayItems} routes={[]} {...noops} />);
+    await fireEvent.press(screen.getByLabelText('Show boarding dogs already in the van'));
+    expect(screen.getByText('Dogs already riding in the van and not included as route stops.')).toBeTruthy();
+    expect(screen.queryByText(/finish it there too/)).toBeNull();
+  });
+
+  it('rota mudada: modal do app com `Reload` no verde escuro', async () => {
+    const onReloadRotas = jest.fn();
+    const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={[dog]} routes={[]}
+      avisoRotaMudou onReloadRotas={onReloadRotas} {...noops} />);
+    expect(screen.getByText('Route changed on another device')).toBeTruthy();
+    expect(screen.getByText('This route was updated elsewhere. Reload to see the latest version.')).toBeTruthy();
+    const botao = screen.getByLabelText('Reload');
+    expect(botao).toHaveStyle({ backgroundColor: colors.forest700 });
+    await fireEvent.press(botao);
+    expect(onReloadRotas).toHaveBeenCalledTimes(1);
+  });
+
+  it('com o aviso aceso o menu de overflow NÃO monta (nunca dois modais)', async () => {
+    const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={[dog]}
+      routes={[rota({ status: 'published' })]} avisoRotaMudou onReloadRotas={jest.fn()} {...noops} />);
+    expect(screen.getByLabelText('Reload')).toBeTruthy();
+    // Mesmo tocando no `•••`, o menu não entra em cena enquanto o aviso está aceso: só um Modal existe.
+    await fireEvent.press(screen.getByLabelText('More actions for Rafael'));
+    expect(screen.queryByLabelText('Unpublish Rafael route')).toBeNull();
+    expect(screen.getByLabelText('Reload')).toBeTruthy();
   });
 });

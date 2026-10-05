@@ -9,7 +9,8 @@ import type { DogRef } from '@/features/calendar/dayMath';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
 import { ReorderableStops } from '@/features/dispatch/ReorderableStops';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
-import { avisoDeRotaInvisivel, avisoDeRepublicacao, precisaRepublicar, rotuloDoBadge } from '@/features/dispatch/routeStatusLabel';
+import { avisoDeRotaInvisivel, precisaRepublicar, rotuloDoBadge } from '@/features/dispatch/routeStatusLabel';
+import { STALE_ROUTE_MESSAGE, STALE_ROUTE_TITLE } from '@/features/dispatch/staleRoute';
 import { SELO_PARADA_FORA_DO_DIA, avisoDeParadasForaDoDia, paradasForaDoDia } from '@/features/dispatch/dayReconciliation';
 import { colors, radii } from '@/features/theme/tokens';
 import { StopProofChips } from '@/features/dispatch/ProofViewer';
@@ -193,6 +194,14 @@ type Props = {
    * Dispatch ganha um atalho; sem ela nada muda.
    */
   onOpenStopList?: (routeId: string, driverName: string) => void;
+  /**
+   * AVISO DE ROTA MUDADA EM OUTRO APARELHO (polimento, 05/10/2026): a tela acende esta flag quando uma
+   * escrita é recusada com `stale_route`. O quadro mostra um MODAL PRÓPRIO (botão `Reload` no verde
+   * escuro do app — o `Alert` nativo do iOS não deixa estilizar o botão) e, enquanto ele está aberto,
+   * NENHUM outro modal é renderizado (nunca dois `Modal` nativos ao mesmo tempo).
+   */
+  avisoRotaMudou?: boolean;
+  onReloadRotas?: () => void;
 };
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -204,7 +213,13 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseChange, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onCreateDropoffRoute, pickupDriverByDog, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList }: Props) {
+export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseChange, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onCreateDropoffRoute, pickupDriverByDog, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList, avisoRotaMudou, onReloadRotas }: Props) {
+  /**
+   * Rota mudada em outro aparelho: enquanto o aviso está na tela, ele é o ÚNICO `Modal` renderizado
+   * (os outros nem montam) — nunca dois modais nativos ao mesmo tempo.
+   */
+  const avisoAberto = Boolean(avisoRotaMudou);
+
   const [localPhase, setAssignmentPhase] = useState<Perna>('pickup');
   const assignmentPhase = phase ?? localPhase;
   const escolherPerna = (phase: Perna) => { setAssignmentPhase(phase); onPhaseChange?.(phase); };
@@ -468,6 +483,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
 
   return (
     <View style={styles.screen}>
+      <View style={styles.chrome}>
       <View style={styles.header} testID="dispatch-header">
         <View style={styles.dateRow}>
           <Pressable accessibilityRole="button" accessibilityLabel="Previous day" onPress={() => onDateChange(addDaysISO(date, -1))} style={styles.arrow}>
@@ -494,6 +510,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
           style={[styles.faseOpcao, assignmentPhase === phase && styles.faseOpcaoAtiva]}>
           <Text style={[styles.faseOpcaoTexto, assignmentPhase === phase && styles.faseOpcaoTextoAtivo]}>{phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'}</Text>
         </Pressable>)}</View>
+      </View>
       <ScrollView testID="dispatch-scroll" scrollEnabled={!arrastando} automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/*
           * LINHA DE ATRIBUIÇÃO (dono, 05/10/2026 — item 3 do redesenho): a antiga faixa com BORDA
@@ -618,8 +635,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
             {mostrarNaVan ? (
               <>
                 <Text style={styles.muted}>
-                  They start the day in the van and finish it there too — they are not route stops and never
-                  have a drop-off. This list is just so you can see who is already in the van.
+                  Dogs already riding in the van and not included as route stops.
                 </Text>
                 {naVan.map((item) => (
                   <View
@@ -642,7 +658,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
         última hora, ou o transporte não foi marcado na reserva). Não inventa reserva: a parada vive
         só na rota. Pedido do dono (23/09/2026) — controle do Total Pack sem depender do calendário.
       */}
-      <Modal visible={buscaCao} transparent animationType="fade" onRequestClose={() => setBuscaCao(false)}>
+      <Modal visible={buscaCao && !avisoRotaMudou} transparent animationType="fade" onRequestClose={() => setBuscaCao(false)}>
         <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
           <View style={[styles.sheet, styles.manualDogSheet]}>
             <View style={styles.sheetHeader}>
@@ -667,7 +683,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
         motorista, na ordem que será GRAVADA, o total de cada perna e o que ficou de fora por falta de
         endereço no cadastro. Nada vai para o banco antes do "Apply".
       */}
-      <Modal visible={sugestao !== null} transparent animationType="fade" onRequestClose={() => { if (!sugestaoBusy) setSugestao(null); }}>
+      <Modal visible={sugestao !== null && !avisoRotaMudou} transparent animationType="fade" onRequestClose={() => { if (!sugestaoBusy) setSugestao(null); }}>
         <View style={styles.backdrop}>
           <View style={styles.sheet}>
             <View style={styles.sheetHeader}>
@@ -743,7 +759,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
         </View>
       </Modal>
 
-      <Modal visible={sheet !== null} transparent animationType="fade" onRequestClose={() => setSheet(null)}>
+      <Modal visible={sheet !== null && !avisoRotaMudou} transparent animationType="fade" onRequestClose={() => setSheet(null)}>
         <View style={styles.backdrop}>
           <View style={styles.sheet}>
             <View style={styles.sheetHeader}>
@@ -862,7 +878,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
       {/* OVERFLOW DO CARTÃO (dono, 05/10/2026 — item 8): as ações menos frequentes vivem AQUI, para o
           cartão não competir com o primário (`Optimize route`). Menu com UMA instância de `Modal`
           nativo; abrir o overflow já fechou a folha/ busca (ver `abrirOverflow`), nunca empilha. */}
-      <Modal visible={menuRota !== null} transparent animationType="fade" onRequestClose={() => setMenuRota(null)}>
+      <Modal visible={menuRota !== null && !avisoRotaMudou} transparent animationType="fade" onRequestClose={() => setMenuRota(null)}>
         <View style={styles.backdrop}>
           <View style={styles.sheet}>
             <View style={styles.sheetHeader}>
@@ -908,6 +924,22 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
             </> : null}
             <Pressable accessibilityRole="button" accessibilityLabel="Cancel" onPress={() => setMenuRota(null)} style={styles.sheetCancel}>
               <Text style={styles.sheetCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* MODAL "rota mudada em outro aparelho" (polimento, 05/10/2026): substitui o `Alert` nativo
+          (botão azul/cinza, "parecia desabilitado") por um modal do app com a ação primária verde.
+          UMA instância de Modal: quando `avisoRotaMudou` acende, os outros modais ficam invisíveis
+          (`&& !avisoRotaMudou`), então nunca há dois Modais nativos ao mesmo tempo. */}
+      <Modal visible={Boolean(avisoRotaMudou)} transparent animationType="fade" onRequestClose={onReloadRotas}>
+        <View style={styles.avisoFundo}>
+          <View style={styles.avisoCard}>
+            <Text style={styles.avisoTitulo} testID="rota-mudou-titulo">{STALE_ROUTE_TITLE}</Text>
+            <Text style={styles.avisoTexto}>{STALE_ROUTE_MESSAGE}</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Reload" onPress={onReloadRotas} style={styles.avisoBotao}>
+              <Text style={styles.avisoBotaoTexto}>Reload</Text>
             </Pressable>
           </View>
         </View>
@@ -1021,7 +1053,6 @@ const CartaoMotorista = memo(function CartaoMotorista({
    */
   const mudanca = { foraDoDia: foraDoDia.length, unassigned: unassignedCount };
   const republicar = precisaRepublicar(route?.status, mudanca);
-  const avisoRepublicacao = avisoDeRepublicacao(route?.status, mudanca);
   const badgeStatus = route ? (republicar ? 'Needs update' : rotuloDoBadge(route.status)) : '';
   /*
    * VAN DA ROTA (pergunta do dono, 01/10/2026). A van da rota manda; quando ela ainda não existe, vale a
@@ -1076,8 +1107,9 @@ const CartaoMotorista = memo(function CartaoMotorista({
       )
     : null;
   // HIERARQUIA DE AÇÕES (item 8): primário = Optimize route; secundário = Suggest; overflow = ⋯.
-  const publicarNaLinha = Boolean(route && stops.length > 0 && leg === 'pickup' && (route.status === 'draft' || republicar));
-  const mostrarPublicar = Boolean(route && stops.length > 0 && (leg === 'dropoff' || publicarNaLinha));
+  // POLIMENTO (05/10/2026): o botão desabilitado `Draft only` SAIU — ele repetia o estado (`Draft`) e
+  // parecia uma ação. Publicar só existe onde existe ação de publicar (perna de pick-up).
+  const mostrarPublicar = Boolean(route && stops.length > 0 && leg === 'pickup' && (route.status === 'draft' || republicar));
   return (
     <View key={driver.id} testID={`dispatch-route-${driver.id}-${route?.phase ?? 'pickup'}`} style={styles.driverCard}>
       <View style={styles.driverHeader}>
@@ -1107,9 +1139,6 @@ const CartaoMotorista = memo(function CartaoMotorista({
             {/* UM aviso por assunto (item 9): aqui só o contador; o detalhe vive na linha da parada. */}
             {avisoForaDoDia ? (
               <Text style={styles.foraDoDiaAviso} testID={`route-off-day-${driver.id}`}>{avisoForaDoDia}</Text>
-            ) : null}
-            {avisoRepublicacao ? (
-              <Text style={styles.republishAviso} testID={`route-needs-update-${driver.id}`}>{avisoRepublicacao}</Text>
             ) : null}
             {route && stops.length > 0 ? (
               <Text style={[styles.muted, eta?.lateMinutes || frescor?.velha ? styles.lateText : null]}>
@@ -1223,8 +1252,8 @@ const CartaoMotorista = memo(function CartaoMotorista({
                 </Pressable>
               ) : null}
               {route && mostrarPublicar ? (
-                <Pressable accessibilityRole="button" accessibilityLabel={republicar ? `Republish ${driver.name} route` : `Publish ${driver.name} route`} disabled={working || leg === 'dropoff'} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
-                  <Text numberOfLines={1} style={styles.publishText}>{leg === 'dropoff' ? 'Draft only' : republicar ? 'Republish changes' : 'Publish route'}</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel={republicar ? `Republish ${driver.name} route` : `Publish ${driver.name} route`} disabled={working} onPress={() => void onPublish(route.routeId)} style={styles.publishButton}>
+                  <Text numberOfLines={1} style={styles.publishText}>{republicar ? 'Republish changes' : 'Publish route'}</Text>
                 </Pressable>
               ) : null}
               {route ? (
@@ -1336,7 +1365,7 @@ const styles = StyleSheet.create({
    * de motorista — verde escuro CHEIO com texto claro (antes era `sage`: o dono leu "coloração confusa"
    * com dois verdes diferentes na mesma área).
    */
-  faseSeletor: { flexDirection: 'row', alignSelf: 'flex-start', marginLeft: 14, marginBottom: 6, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, backgroundColor: colors.paper, overflow: 'hidden' },
+  faseSeletor: { flexDirection: 'row', alignSelf: 'flex-start', marginLeft: 14, marginBottom: 0, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, backgroundColor: colors.paper, overflow: 'hidden' },
   faseOpcao: { minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 14, borderRightWidth: 1, borderRightColor: colors.line },
   faseOpcaoAtiva: { backgroundColor: colors.forest700 },
   faseOpcaoTexto: { color: colors.muted, fontSize: 13, fontWeight: '800' },
@@ -1353,6 +1382,9 @@ const styles = StyleSheet.create({
    * Aqui o topo volta ao padrao das outras telas: faixa VERDE, texto claro — o quadro fica emendado com
    * o verde e o corpo claro comeca no ScrollView.
    */
+  /** CHROME FIXA do topo (polimento, 05/10/2026): header + PLANNING + seletor num ÚNICO bloco opaco,
+   *  com aresta inferior nítida. O conteúdo rola SEMPRE abaixo dela (nada por baixo do verde). */
+  chrome: { backgroundColor: colors.forest700, paddingBottom: 2, borderBottomWidth: 1, borderBottomColor: 'rgba(247,243,232,0.16)' },
   header: { backgroundColor: colors.forest700, paddingHorizontal: 14, paddingTop: 2, paddingBottom: 0 },
   dateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 0 },
   title: { flexShrink: 1, color: colors.cream, fontFamily: 'serif', fontSize: 21, fontWeight: '800', textTransform: 'capitalize' },
@@ -1360,7 +1392,7 @@ const styles = StyleSheet.create({
   arrow: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   arrowText: { color: colors.cream, fontSize: 30, fontWeight: '700', lineHeight: 32 },
   summary: { color: '#D7E1D4', fontSize: 12, lineHeight: 16, textAlign: 'center' },
-  content: { padding: 12, paddingBottom: 30 },
+  content: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 28 },
   /**
    * SELETOR DE MOTORISTA e TROCA DE PERNA (Proposta B, dono 03/10/2026): o quadro desenhava 2N cartões;
    * agora é uma linha de chips (um motorista por vez) + um cartão único com a troca Pick-up | Drop-off.
@@ -1384,7 +1416,7 @@ const styles = StyleSheet.create({
   /** Perna sem rota (ex.: drop-off que ainda não nasceu): caixa discreta com a ação de criar. */
   pernaVazia: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, marginBottom: 12 },
   driverCard: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, overflow: 'hidden', marginBottom: 4 },
-  driverHeader: { padding: 6, gap: 4, backgroundColor: '#FAFBF8', borderBottomWidth: 1, borderBottomColor: colors.line },
+  driverHeader: { paddingHorizontal: 8, paddingVertical: 6, gap: 3, backgroundColor: '#FAFBF8', borderBottomWidth: 1, borderBottomColor: colors.line },
   driverIdentity: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   driverText: { flex: 1, minWidth: 0 },
   driverTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
@@ -1400,7 +1432,8 @@ const styles = StyleSheet.create({
   statusBadgeTextoAlerta: { color: colors.urgency },
   /** Rascunho (item 14): linha discreta, sem borda nem bloco. */
   draftLine: { color: colors.muted, fontSize: 12, lineHeight: 16 },
-  /** Publicação vencida (item 15): a contagem de mudanças, discreta. */
+  /** Publicação vencida (item 15): o texto `N unpublished change` SAIU no polimento de 05/10/2026 —
+   *  o badge `Needs update` + o botão `Republish changes` já dizem o mesmo. */
   republishAviso: { color: colors.urgency, fontSize: 12, fontWeight: '800' },
   emptyStops: { color: colors.ink, fontSize: 13, fontWeight: '800', marginTop: 2 },
   muted: { color: colors.muted, fontSize: 12, lineHeight: 16 },
@@ -1484,7 +1517,7 @@ const styles = StyleSheet.create({
   /** Chips de motorista antigos (mantidos por compatibilidade de estilo). */
   motoristaWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4, rowGap: 4, marginBottom: 4 },
   /** Van + Yard: quebram em linhas — o endereco do Yard nao fica cortado na borda. */
-  recursosWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 6, paddingHorizontal: 2, marginBottom: 4 },
+  recursosWrap: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 10, rowGap: 4, paddingHorizontal: 2, marginBottom: 4 },
   // 🪤 M4 DA AUDITORIA (02/10/2026): o "Show/Hide" era `colors.gold` sobre o cartão claro (~2,3:1).
   // Cor de TEXTO vira `forest700`; o gold continua nas bordas/fundos.
   naVanToque: { color: colors.forest700, fontSize: 12, fontWeight: '700' },
@@ -1494,16 +1527,18 @@ const styles = StyleSheet.create({
   /** Rota em rascunho: uma linha fina, âmbar, dizendo que o motorista ainda não vê (não é erro). */
   draftBadge: { alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: colors.gold, backgroundColor: colors.cream, color: colors.forest700, fontSize: 12, fontWeight: '800', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden' },
   /** Parada que saiu do dia (Defeito A, 03/10/2026): aviso no topo do cartão e selo na linha, em vermelho. */
-  foraDoDiaAviso: { alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: colors.urgency, backgroundColor: '#FBEDED', color: colors.urgency, fontSize: 12, fontWeight: '800', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, overflow: 'hidden' },
+  foraDoDiaAviso: { alignSelf: 'flex-start', marginTop: 3, backgroundColor: '#FBEDED', color: colors.urgency, fontSize: 12, fontWeight: '800', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 2, overflow: 'hidden' },
   foraDoDiaSelo: { color: colors.urgency, fontSize: 12, fontWeight: '900' },
   sugestaoErro: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginBottom: 8 },
   // Van e Yard compartilham a faixa; os papéis e o endereço continuam acessíveis.
   // MEDIDO em 320 px: com dois yards (endereços longos) a linha estourava a borda. Cada linha ocupa
   // a largura toda e os chips QUEBRAM dentro do espaço que sobra do rótulo — nada sai da tela.
-  vanLinha: { flexDirection: 'row', alignItems: 'center', gap: 4, width: '100%' },
-  vanRotulo: { color: colors.muted, fontSize: 14, fontWeight: '800', letterSpacing: 0.4 },
-  vanChips: { flexDirection: 'row', gap: 4, flexWrap: 'wrap', flex: 1, minWidth: 0 },
-  vanChip: { maxWidth: 160, minWidth: 44, borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, minHeight: 44, justifyContent: 'center', backgroundColor: 'white' },
+  /** Van e Yard na MESMA linha (polimento, 05/10/2026): `🚐 Van 1 ★   📍 Main Yard`. Cada grupo
+   *  encolhe (`flexShrink`/`minWidth:0`) e o endereço longo trunca limpo em vez de estourar a borda. */
+  vanLinha: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 1, minWidth: 0 },
+  vanRotulo: { color: colors.muted, fontSize: 14, fontWeight: '800' },
+  vanChips: { flexDirection: 'row', gap: 4, flexWrap: 'wrap', flexShrink: 1, minWidth: 0 },
+  vanChip: { maxWidth: 140, minWidth: 44, flexShrink: 1, borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, minHeight: 44, justifyContent: 'center', backgroundColor: 'white' },
   vanChipAtiva: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
   vanChipTexto: { color: colors.forest700, fontSize: 12, fontWeight: '800' },
   vanChipTextoAtivo: { color: 'white' },
@@ -1513,7 +1548,7 @@ const styles = StyleSheet.create({
    * que ele vai finalizar"*). Ele fica na faixa de recursos, SEM seleção, com endereço acessível — é o ponto onde a
    * busca termina (e a entrega começa), não uma opção. Alvo de 44 pt por consistência com os chips.
    */
-  yardChip: { alignSelf: 'flex-start', maxWidth: 180, borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, minHeight: 44, justifyContent: 'center', backgroundColor: '#F4F1E7' },
+  yardChip: { alignSelf: 'flex-start', maxWidth: 140, flexShrink: 1, minWidth: 0, borderWidth: 1, borderColor: colors.line, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, minHeight: 44, justifyContent: 'center', backgroundColor: '#F4F1E7' },
   yardChipTexto: { color: colors.forest700, fontSize: 12, fontWeight: '800' },
   // Atalho para a lista de paradas com hora (o dono procurou aqui, 01/10/2026). Alvo de 44 pt.
   stopListLink: { paddingHorizontal: 6, minWidth: 44, minHeight: 44, justifyContent: 'center' },
@@ -1594,4 +1629,15 @@ const styles = StyleSheet.create({
   /** LINHA DE PARADA (item 10): número · nome · hora · deslocamento numa linha, separador sutil. */
   stopLine: { flexDirection: 'row', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' },
   stopTravel: { color: colors.muted, fontSize: 12, lineHeight: 16 },
+  /**
+   * ROTA MUDADA EM OUTRO APARELHO (polimento, 05/10/2026): modal PRÓPRIO no lugar do `Alert` nativo
+   * — no iOS o botão do alerta é azul/cinza e não veste o verde do app ("parecia desabilitado").
+   * Aqui a ação primária é o verde escuro cheio, igual às demais ações primárias da tela.
+   */
+  avisoFundo: { flex: 1, backgroundColor: 'rgba(23,43,29,0.72)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  avisoCard: { width: '100%', maxWidth: 420, backgroundColor: colors.paper, borderRadius: radii.medium, padding: 18, borderWidth: 1, borderColor: colors.line },
+  avisoTitulo: { color: colors.forest900, fontFamily: 'serif', fontSize: 18, fontWeight: '800', marginBottom: 8 },
+  avisoTexto: { color: colors.ink, fontSize: 14, lineHeight: 20, marginBottom: 16 },
+  avisoBotao: { backgroundColor: colors.forest700, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  avisoBotaoTexto: { color: 'white', fontWeight: '900', fontSize: 15 },
 });

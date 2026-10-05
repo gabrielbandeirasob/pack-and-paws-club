@@ -522,8 +522,15 @@ export default function DispatchScreen() {
   const versaoDe = useCallback((routeId: string) => expectedVersion(versoes.current, routeId), []);
 
   // Dois gestores na mesma rota: avisa e recarrega, em vez de deixar a escrita velha passar.
+  // POLIMENTO (05/10/2026): o aviso era `Alert` nativo (botão azul/cinza, "parecia desabilitado").
+  // Agora é um modal do PRÓPRIO quadro, com a ação primária no verde do app.
+  const [rotaMudou, setRotaMudou] = useState(false);
   const avisarRotaMudou = useCallback(() => {
-    showAlert(STALE_ROUTE_TITLE, routeErrorMessage('stale_route'), [{ text: 'Reload', onPress: () => void carregarRotas() }]);
+    setRotaMudou(true);
+  }, []);
+  const recarregarRotas = useCallback(() => {
+    setRotaMudou(false);
+    void carregarRotas();
   }, [carregarRotas]);
 
   /** Trata erro de escrita: avisa quando for concorrencia e sempre devolve mensagem legivel. */
@@ -1601,6 +1608,8 @@ export default function DispatchScreen() {
           vans={vans}
           onChooseVan={escolherVan}
           onChooseYard={escolherYard}
+          avisoRotaMudou={rotaMudou}
+          onReloadRotas={recarregarRotas}
           vanDoMotorista={(driverId) => vanPorMotorista.current.get(driverId) ?? null}
           onOpenStopList={abrirListaDeParadas}
           onSaveStop={saveStopConstraint}

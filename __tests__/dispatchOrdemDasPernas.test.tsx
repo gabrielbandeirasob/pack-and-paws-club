@@ -182,7 +182,9 @@ it('trava recusada por stale_route recarrega silenciosamente sem selo inventado'
     await fireEvent.press(tela.getByRole('button', { name: 'Save stop' }));
     expect(rpc).toHaveBeenCalledWith('set_stop_order_pin', expect.objectContaining({ p_leg: 'dropoff', p_pin: 'first', p_esperado: 4 }));
     await act(async () => confirmar[0]({ data: null, error: { message: 'stale_route' } }));
-    expect(alerta).toHaveBeenCalled();
+    // POLIMENTO (05/10/2026): o aviso de rota mudada virou MODAL do app (o `Alert` nativo tinha o
+    // botão azul/cinza e parecia desabilitado) — o recado continua aparecendo.
+    expect(tela.getByText('Route changed on another device')).toBeTruthy();
     expect(tela.queryByText('🔒 1st')).toBeNull();
     expect(tela.queryByTestId('dispatch-loading')).toBeNull();
   } finally { alerta.mockRestore(); }

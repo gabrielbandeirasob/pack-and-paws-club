@@ -7,7 +7,11 @@
  * reconhecem esse caso e escrevem a mensagem que o gestor entende.
  */
 
-export const STALE_ROUTE_MESSAGE = 'This route was changed on another device. Reload to see the latest version.';
+/**
+ * Redesenho/polimento (dono, 05/10/2026): a copy ficou explícita — o gestor lê o que aconteceu e o que
+ * fazer. O botão (`Reload`) usa o verde escuro do app (modal próprio, ver `DispatchBoard`).
+ */
+export const STALE_ROUTE_MESSAGE = 'This route was updated elsewhere. Reload to see the latest version.';
 
 export const STALE_ROUTE_TITLE = 'Route changed on another device';
 

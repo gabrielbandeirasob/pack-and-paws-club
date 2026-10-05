@@ -308,10 +308,11 @@ it('sugere e grava duas pernas independentes, sem boarding e sem publicar drop-o
   expect(inserts.map(w => [w.payload.phase, w.payload.start_location_id, w.payload.end_location_id])).toEqual([
     ['pickup', 'van', 'yard'], ['dropoff', 'yard', 'van'],
   ]);
-  // Pedido de 04/10: só a entrega está visível; ela continua draft only.
+  // Pedido de 04/10: só a entrega está visível. POLIMENTO (05/10/2026): o botão `Draft only` SAIU —
+  // era uma AÇÃO falsa repetindo o estado; a perna de entrega simplesmente não publica.
   expect(screen.getAllByText(/^sam$/)).toHaveLength(1);   // somente na entrega selecionada
-  expect(screen.getByText('Draft only')).toBeTruthy();
-  expect(screen.getByLabelText('Publish Rafael route')).toBeDisabled();
+  expect(screen.queryByText('Draft only')).toBeNull();
+  expect(screen.queryByLabelText('Publish Rafael route')).toBeNull();
   expect((supabase.rpc as jest.Mock).mock.calls.every(c => c[0] === 'assign_stop_to_route')).toBe(true);
 });
 
