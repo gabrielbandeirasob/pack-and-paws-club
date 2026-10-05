@@ -278,7 +278,8 @@ describe('(3) NENHUM clock automático', () => {
     await act(async () => { await rolagem.props.refreshControl.props.onRefresh(); });
 
     // Recarregar com outra conta NÃO cria jornada nem fecha nada sozinho.
-    await waitFor(() => expect(tela.getByTestId('cartao-jornada')).toBeTruthy());
+    // Sem jornada é o CARTÃO DE INÍCIO (redesenho de 05/10/2026).
+    await waitFor(() => expect(tela.getByTestId('cartao-inicio')).toBeTruthy());
     expect(insercoesDe('driver_shifts')).toHaveLength(0);
     expect(mockEstado.atualizacoes).toHaveLength(0);
     expect(getCurrentDriverLocation).not.toHaveBeenCalled();

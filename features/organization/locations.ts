@@ -224,6 +224,21 @@ export function distanceText(km: number): string {
 }
 
 /**
+ * Versão COMPACTA do número de distância (aviso operacional da tela pré-clock-in).
+ *
+ * O dono recusou o aviso cortado com "…" e pediu a distância com separador de milhar:
+ * `9,702 km away`. O separador é montado à mão (regex) para não depender de ICU/locale do
+ * aparelho. Abaixo de 1 km continua em metros ("280 m"); de 1 a 999 km, uma casa decimal
+ * ("3.2 km"); de mil para cima, o inteiro separado por vírgula ("9,702 km").
+ */
+export function distanceTextCompacta(km: number): string {
+  const seguro = Number.isFinite(km) && km > 0 ? km : 0;
+  if (seguro < 1) return `${Math.max(0, Math.round((seguro * 1000) / 10) * 10)} m`;
+  if (seguro >= 1000) return `${`${Math.round(seguro)}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} km`;
+  return `${seguro.toFixed(1)} km`;
+}
+
+/**
  * O motivo que o motorista lê quando está fora do raio.
  *
  * Dono, 02/10/2026: *"1- deixa em inglês"* — o app é em inglês e este era o último texto em português

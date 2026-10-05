@@ -448,14 +448,23 @@ describe('serviço das sedes', () => {
  * TELA DO MOTORISTA — o caminho de verdade: aperta o clock in e vê o que o banco recebe
  * ------------------------------------------------------------------ */
 
-const mockPosicao: { compartilhada: { latitude: number; longitude: number } | null; fresca: { latitude: number; longitude: number } | null } = {
+/**
+ * Posição do aparelho. `capturedAt` importa desde o redesenho do pré-clock-in (05/10/2026): a tela só
+ * TRAVA o botão do clock in quando a amostra compartilhada é RECENTE (`frescorDaPosicao`, 15 min) —
+ * com leitura vencida o botão continua primário e quem decide é o GPS fresco do toque, porque o
+ * clock in de verdade libera por QUALQUER uma das duas leituras (regra do dono, 01/10/2026).
+ */
+const mockPosicao: {
+  compartilhada: { latitude: number; longitude: number; capturedAt?: number } | null;
+  fresca: { latitude: number; longitude: number } | null;
+} = {
   compartilhada: null,
   fresca: null,
 };
 
 jest.mock('@/features/driver/locationService', () => ({
   getCurrentDriverLocation: async () => mockPosicao.fresca,
-  startLocationSharing: async (onUpdate: (update: { latitude: number; longitude: number }) => void) => {
+  startLocationSharing: async (onUpdate: (update: { latitude: number; longitude: number; capturedAt?: number }) => void) => {
     if (mockPosicao.compartilhada) onUpdate(mockPosicao.compartilhada);
     return { stop: () => undefined };
   },
@@ -668,7 +677,7 @@ describe('van navigation in JOURNEY', () => {
     const Tela = require('../app/(tabs)/driver').default;
     const tela = await render(<Tela />);
     await waitFor(() => expect(tela.getByLabelText('Clock in')).toBeTruthy());
-    await fireEvent.press(within(tela.getByTestId('cartao-jornada')).getByRole('button', { name: 'Navigate to van' }));
+    await fireEvent.press(within(tela.getByTestId('cartao-inicio')).getByRole('button', { name: 'Navigate to van' }));
     await waitFor(() => expect(tela.getByText('Open navigation in…')).toBeTruthy());
     await fireEvent.press(tela.getByRole('button', { name: 'Open in Google Maps' }));
     expect(openURL).toHaveBeenCalledWith(expect.stringContaining('destination=38,-121'));
@@ -683,8 +692,8 @@ describe('van navigation in JOURNEY', () => {
     const Tela = require('../app/(tabs)/driver').default;
     const tela = await render(<Tela />);
     await waitFor(() => expect(tela.getByLabelText('Clock in')).toBeTruthy());
-    const card = within(tela.getByTestId('cartao-jornada'));
-    expect(card.getByText(/Clock in opens at the van "Bay van"/)).toBeTruthy();
+    const card = within(tela.getByTestId('cartao-inicio'));
+    expect(card.getByText('Start your day at Bay van')).toBeTruthy();
     await fireEvent.press(card.getByRole('button', { name: 'Navigate to van' }));
     await waitFor(() => expect(openURL).toHaveBeenCalledWith(expect.stringContaining('destination=38,-121')));
     expect(insercoesDe('driver_shifts')).toHaveLength(0);
@@ -706,16 +715,49 @@ describe('clock in na tela do motorista (trava por distância)', () => {
     mockEstado.erroSedes = false;
   });
 
-  it('(a) sede cadastrada + motorista a 3,2 km: NADA é gravado e o motivo aparece na tela', async () => {
+  it('(a) sede cadastrada + motorista a 3,2 km: o Clock in nasce DESABILITADO e só a exceção registra', async () => {
     mockEstado.sedes = [SEDE_ROW];
-    mockPosicao.compartilhada = LONGE;
+    // Leitura RECENTE (é o caso em que a tela sabe que ele está fora e pode travar o botão).
+    mockPosicao.compartilhada = { ...LONGE, capturedAt: Date.now() };
     mockPosicao.fresca = LONGE;
+
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+    await waitFor(() => expect(tela.getByLabelText('Clock in')).toBeTruthy());
+
+    // Fora do raio o botão normal NÃO parece habilitado (o pedido é mostrar o estado REAL na interface).
+    expect(tela.getByLabelText('Clock in').props.accessibilityState).toMatchObject({ disabled: true });
+    expect(tela.getByText('Available within 300 m of Van — Palo Alto')).toBeTruthy();
+    expect(insercoesDe('driver_shifts')).toHaveLength(0);
+
+    // A exceção do dono (para testar fora da van) continua ofertada e grava a DISTÂNCIA no motivo.
+    await fireEvent.press(tela.getByLabelText('Clock in anyway'));
+    await waitFor(() => expect(tela.getByLabelText('Reason for the manual record')).toBeTruthy());
+    await fireEvent.changeText(tela.getByLabelText('Reason for the manual record'), 'Van broke down');
+    await fireEvent.press(tela.getByLabelText('Save manual record'));
+    await waitFor(() => expect(insercoesDe('driver_shifts')).toHaveLength(1));
+    const gravado = insercoesDe('driver_shifts')[0].payload as { start_reason?: string };
+    expect(String(gravado.start_reason)).toMatch(/outside the van/i);
+  });
+
+  it('(a2) leitura VENCIDA não trava o botão: o GPS fresco do toque é quem decide', async () => {
+    /*
+     * Regra do dono (01/10/2026): a trava não pode impedir o trabalho. O clock in de verdade libera por
+     * QUALQUER uma das duas leituras (amostra visível OU GPS fresco do toque). Com amostra vencida a
+     * tela não sabe se ele está fora, então o botão continua PRIMÁRIO — quem decide é o toque. Sem esta
+     * guarda, o motorista parado na van com amostra velha cairia na exceção e o relatório de horas
+     * receberia um motivo de "fora da van" que não aconteceu.
+     */
+    mockEstado.sedes = [SEDE_ROW];
+    mockPosicao.compartilhada = { ...LONGE, capturedAt: Date.now() - 60 * 60 * 1000 }; // 1 h atrás
+    mockPosicao.fresca = NA_VAN; // chegou na van: a leitura fresca do toque libera
 
     const tela = await apertarClockIn();
 
-    await waitFor(() => expect(tela.getByText(/it opens when you get there/)).toBeTruthy());
-    expect(tela.getByText(/You are 3.2 km from the van "Van — Palo Alto"/)).toBeTruthy();
-    expect(insercoesDe('driver_shifts')).toHaveLength(0);
+    await waitFor(() => expect(insercoesDe('driver_shifts')).toHaveLength(1));
+    const gravado = insercoesDe('driver_shifts')[0].payload as { start_reason?: string };
+    // Jornada NORMAL (na van), não exceção: a leitura fresca valeu.
+    expect(gravado.start_reason).toBe('Journey started at the van');
   });
 
   it('(b) sede cadastrada + motorista no raio: a jornada manual é gravada', async () => {
@@ -779,8 +821,11 @@ describe('clock in na tela do motorista (trava por distância)', () => {
     const Tela = require('../app/(tabs)/driver').default;
     const tela = await render(<Tela />);
 
-    await waitFor(() => expect(tela.getByText(/Clock in opens at the van "Van — Palo Alto"/)).toBeTruthy());
-    expect(tela.getByText(/you are 3.2 km/)).toBeTruthy();
+    // O aviso compacto do redesenho (item 4): a distância REAL e o raio REAL da van, sem truncamento.
+    await waitFor(() => expect(tela.getByText(/Outside clock-in area/)).toBeTruthy());
+    expect(tela.getByText(/3.2 km away/)).toBeTruthy();
+    expect(tela.getByText(/Clock-in available within 300 m/)).toBeTruthy();
+    expect(tela.getByText('Start your day at Van — Palo Alto')).toBeTruthy();
   });
 
   it('sem sede cadastrada o cartão da jornada não fala de van (nada mudou para quem já usa)', async () => {

@@ -23,7 +23,9 @@ const MANAGER_TABS: TabSpec[] = [
 const DRIVER_TABS: TabSpec[] = [
   { name: 'driver', title: "Today's Route", icon: '➤' },
   { name: 'schedule', title: 'Schedule', icon: '▦' },
-  { name: 'assigned', title: 'Assigned', icon: '♙' },
+  // "Assigned" e "Profile" usavam o MESMO glifo (♙). O Assigned passa a um glifo de TAREFAS/lista,
+  // e o ♙ fica só no Profile (não confundir as duas abas).
+  { name: 'assigned', title: 'Assigned', icon: '☑' },
   { name: 'profile', title: 'Profile', icon: '♙' },
 ];
 

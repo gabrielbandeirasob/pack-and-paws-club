@@ -1,15 +1,20 @@
 /**
- * Cartão da JORNADA do motorista (clock in / clock out).
+ * Cartão da JORNADA do motorista (clock in / clock out) — ESTADOS COM JORNADA.
  *
  * Pedido do cliente (áudio de 16/09/2026): "quando o driver chegar, ele tem que dar o clock in e
  * depois o clock out". No dia normal ele NÃO aperta nada — a jornada é deduzida dos eventos da
  * rota. Os botões existem para a exceção (esqueceu, imprevisto) e por isso pedem MOTIVO.
+ *
+ * Desde o redesenho do estado PRÉ-CLOCK-IN (05/10/2026), o cartão de INÍCIO (sem jornada nenhuma) é
+ * o `StartStateCard`; este aqui cobre a jornada ABERTA (clock out / Start pick-ups) e FECHADA. A
+ * folha do motivo é compartilhada (`ManualReasonSheet`).
  */
 import { useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { ManualReasonSheet } from '@/features/driver/ManualReasonSheet';
 import { durationText, shiftLabel, type ShiftState } from '@/features/driver/shift';
-import { colors, radii } from '@/features/theme/tokens';
+import { colors } from '@/features/theme/tokens';
 
 type Props = {
   state: ShiftState;
@@ -26,8 +31,8 @@ type Props = {
   /**
    * A trava da van RECUSOU o clock in porque o motorista está fora do raio. Quando vem preenchido,
    * o cartão oferece o registro COMO EXCEÇÃO — foi o que faltava para o dia não terminar sem jornada
-   * nenhuma (relato do cliente em 01/10/2026: "não conseguiu dar clock in" e o dia ficou sem
-   * registro). A distância entra no motivo gravado, então o gestor VÊ a exceção no relatório de horas.
+   * nenhuma (relato do cliente em 01/10/2026). A distância entra no motivo gravado, então o gestor VÊ
+   * a exceção no relatório de horas.
    */
   foraDaVan?: { distanceKm: number; vanName: string } | null;
   /** Navigate independently of the clock-in radius or pending shift writes. */
@@ -42,8 +47,7 @@ type Props = {
   onStartDropoffs?: () => void;
   /**
    * Rótulo VISÍVEL da virada, decidido pela TELA. No passo do YARD (`to_yard`) a tela passa
-   * `I'm at the yard — start drop-offs` para deixar a ORDEM clara (sequência do dono, 03/10/2026:
-   * *"depois de pegar todos os cachorros é pra ir pro yard, depois do yard começa o drop off"*).
+   * `I'm at the yard — start drop-offs` para deixar a ORDEM clara (sequência do dono, 03/10/2026).
    * O `accessibilityLabel` continua `Start drop-offs` DE PROPÓSITO: é o nome estável para leitores de
    * tela e para os testes que casam por role/name.
    */
@@ -57,21 +61,6 @@ type Props = {
 export function ShiftCard({ state, routeStarted = false, pendingCount = 0, busy = false, error, gateHint = null, foraDaVan = null, navigation, onStartPickups, onStartDropoffs, dropoffsLabel, onClockIn, onClockOut, onClockInAnyway }: Props) {
   const [pedindo, setPedindo] = useState<'in' | 'out' | 'in-fora' | null>(null);
   const [details, setDetails] = useState(false);
-  const [motivo, setMotivo] = useState('');
-
-  const abrir = (tipo: 'in' | 'out' | 'in-fora') => {
-    setMotivo('');
-    setPedindo(tipo);
-  };
-
-  const confirmar = () => {
-    const texto = motivo.trim();
-    if (texto.length < 3) return;
-    if (pedindo === 'in') onClockIn(texto);
-    else if (pedindo === 'out') onClockOut(texto);
-    else if (pedindo === 'in-fora' && onClockInAnyway) onClockInAnyway(texto);
-    setPedindo(null);
-  };
 
   const aberta = state.kind === 'open';
 
@@ -90,7 +79,8 @@ export function ShiftCard({ state, routeStarted = false, pendingCount = 0, busy 
             ? 'Manual journey (exception): this one was entered by hand.'
             : 'Manual record for today.'}
       </Text> : null}
-      {gateHint ? <Text numberOfLines={details ? undefined : 2} style={styles.gateHint}>{gateHint}</Text> : null}
+      {/* SEM `numberOfLines`: o aviso nunca é cortado com "...". */}
+      {gateHint ? <Text style={styles.gateHint}>{gateHint}</Text> : null}
 
       <View style={styles.acoes}>
         {navigation ? (
@@ -98,7 +88,7 @@ export function ShiftCard({ state, routeStarted = false, pendingCount = 0, busy 
             accessibilityRole="button"
             accessibilityLabel={`Navigate to ${navigation.kind}`}
             onPress={navigation.onPress}
-            style={({ pressed }) => [styles.botao, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.botao, styles.secundario, pressed && styles.pressed]}
           >
             <Text style={[styles.botaoTexto, styles.navegarTexto]}>Navigate to {navigation.kind}</Text>
           </Pressable>
@@ -107,7 +97,7 @@ export function ShiftCard({ state, routeStarted = false, pendingCount = 0, busy 
           accessibilityRole="button"
           accessibilityLabel={aberta ? 'Clock out' : 'Clock in'}
           disabled={busy}
-          onPress={() => abrir(aberta ? 'out' : 'in')}
+          onPress={() => setPedindo(aberta ? 'out' : 'in')}
           style={({ pressed }) => [styles.botao, !aberta && styles.botaoPrincipal, pressed && styles.pressed, busy && styles.desabilitado]}
         >
           <Text style={[styles.botaoTexto, !aberta && styles.botaoTextoPrincipal]}>
@@ -153,67 +143,26 @@ export function ShiftCard({ state, routeStarted = false, pendingCount = 0, busy 
           accessibilityRole="button"
           accessibilityLabel="Clock in anyway"
           disabled={busy}
-          onPress={() => abrir('in-fora')}
+          onPress={() => setPedindo('in-fora')}
           style={({ pressed }) => [styles.botaoExcecao, pressed && styles.pressed, busy && styles.desabilitado]}
         >
           <Text style={styles.botaoExcecaoTexto}>Clock in anyway · outside the van</Text>
         </Pressable>
       ) : null}
 
-      {/*
-        * O TECLADO NÃO PODE COBRIR O CAMPO (reclamação do dono, 01/10/2026: *"quando vai colocar clock in
-        * manual o teclado ocupa a tela e não consigo [ver] o que estou digitando"*). A folha abre colada no
-        * rodapé e o Modal não encolhe sozinho quando o teclado sobe: sem o KeyboardAvoidingView, o campo do
-        * motivo ficava exatamente embaixo do teclado. Agora a folha sobe com o teclado e, se o conteúdo não
-        * couber (tela pequena / fonte grande do sistema), ela rola.
-        */}
-      <Modal visible={pedindo !== null} transparent animationType="slide" onRequestClose={() => setPedindo(null)}>
-        <KeyboardAvoidingView
-          testID="manual-clock-avoiding"
-          style={styles.fundo}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <ScrollView
-            testID="manual-clock-rolagem"
-            style={styles.rolagem}
-            contentContainerStyle={styles.rolagemConteudo}
-            keyboardShouldPersistTaps="handled"
-            bounces={false}
-          >
-          <View style={styles.folha}>
-            <Text style={styles.folhaTitulo}>
-              {pedindo === 'out' ? 'Clock out manually' : pedindo === 'in-fora' ? 'Clock in outside the van' : 'Clock in manually'}
-            </Text>
-            <Text style={styles.folhaSub}>
-              {pedindo === 'in-fora' && foraDaVan
-                ? `This is recorded as an exception: your start carries the distance from "${foraDaVan.vanName}", and the manager sees it in the driver hours.`
-                : 'Only when the automatic record does not cover it (you forgot, or something came up). The manager sees this was entered by hand.'}
-            </Text>
-            <TextInput
-              accessibilityLabel="Reason for the manual record"
-              placeholder="Reason (e.g. forgot to press, van broke down)"
-              placeholderTextColor={colors.muted}
-              value={motivo}
-              onChangeText={setMotivo}
-              style={styles.campo}
-              autoCapitalize="sentences"
-            />
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Save manual record"
-              disabled={motivo.trim().length < 3 || busy}
-              onPress={confirmar}
-              style={({ pressed }) => [styles.salvar, (motivo.trim().length < 3 || busy) && styles.desabilitado, pressed && styles.pressed]}
-            >
-              {busy ? <ActivityIndicator color={colors.forest900} /> : <Text style={styles.salvarTexto}>Save record</Text>}
-            </Pressable>
-            <Pressable accessibilityRole="button" accessibilityLabel="Cancel manual record" onPress={() => setPedindo(null)} style={styles.cancelar}>
-              <Text style={styles.cancelarTexto}>Cancel</Text>
-            </Pressable>
-          </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </Modal>
+      <ManualReasonSheet
+        visible={pedindo !== null}
+        kind={pedindo ?? 'in'}
+        foraDaVan={foraDaVan}
+        busy={busy}
+        onConfirm={(reason) => {
+          setPedindo(null);
+          if (pedindo === 'out') onClockOut(reason);
+          else if (pedindo === 'in-fora') onClockInAnyway?.(reason);
+          else onClockIn(reason);
+        }}
+        onClose={() => setPedindo(null)}
+      />
     </View>
   );
 }
@@ -226,11 +175,13 @@ const styles = StyleSheet.create({
   pendente: { color: colors.muted, fontSize: 12, fontWeight: '800' },
   titulo: { color: colors.forest900, fontSize: 13, fontWeight: '600' },
   dica: { color: colors.muted, fontSize: 12, marginTop: 4, lineHeight: 17 },
-  /** Onde o clock in abre (só existe quando a organização cadastrou a sede/van). */
-  gateHint: { color: '#7A5B12', backgroundColor: '#FBF0D9', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, fontSize: 12, fontWeight: '800', marginTop: 8, lineHeight: 17, overflow: 'hidden' },
+  /** Onde o clock in abre (só existe quando a organização cadastrou a sede/van). Nunca truncado. */
+  gateHint: { color: '#7A5B12', backgroundColor: '#FBF0D9', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, fontSize: 12, fontWeight: '800', marginTop: 8, lineHeight: 17 },
   acoes: { flexDirection: 'row', gap: 8, marginTop: 11 },
-  botao: { flex: 1, borderWidth: 0, borderColor: colors.forest700, borderRadius: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', minHeight: 44 },
-  botaoPrincipal: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
+  botao: { flex: 1, borderRadius: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', minHeight: 44, paddingHorizontal: 12 },
+  botaoPrincipal: { backgroundColor: colors.forest700, borderWidth: 1, borderColor: colors.forest700 },
+  /** "Navigate to van/yard": secundário OUTLINED, não texto solto. */
+  secundario: { borderWidth: 1.5, borderColor: colors.forest700, backgroundColor: colors.paper },
   botaoExcecao: { borderWidth: 1.5, borderColor: colors.urgency, borderRadius: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', minHeight: 44, marginTop: 8 },
   botaoExcecaoTexto: { color: colors.urgency, fontWeight: '900', fontSize: 12.5 },
   botaoTexto: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
@@ -242,18 +193,6 @@ const styles = StyleSheet.create({
   iniciarEntregasTexto: { color: colors.forest900, fontWeight: '900', fontSize: 13 },
   botaoTextoPrincipal: { color: 'white' },
   erro: { color: colors.urgency, fontSize: 12, fontWeight: '700', marginTop: 9, lineHeight: 17 },
-  fundo: { flex: 1, backgroundColor: 'rgba(23,43,29,0.45)', justifyContent: 'flex-end' },
-  /** A folha rola quando o teclado sobe (tela pequena / fonte grande): o campo nunca fica escondido. */
-  rolagem: { flexGrow: 0 },
-  rolagemConteudo: { flexGrow: 1, justifyContent: 'flex-end' },
-  folha: { backgroundColor: colors.paper, borderTopLeftRadius: radii.hero, borderTopRightRadius: radii.hero, padding: 20, paddingBottom: 30 },
-  folhaTitulo: { fontSize: 18, fontWeight: '800', color: colors.ink },
-  folhaSub: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 6 },
-  campo: { backgroundColor: colors.cream, borderWidth: 1, borderColor: colors.line, borderRadius: 12, paddingHorizontal: 13, paddingVertical: 11, color: colors.ink, fontSize: 15, marginTop: 12 },
-  salvar: { backgroundColor: colors.gold, borderRadius: 14, padding: 14, alignItems: 'center', marginTop: 12 },
-  salvarTexto: { color: colors.forest900, fontWeight: '900', fontSize: 15 },
-  cancelar: { alignItems: 'center', paddingVertical: 12 },
-  cancelarTexto: { color: colors.muted, fontWeight: '800' },
   pressed: { opacity: 0.85 },
   desabilitado: { opacity: 0.5 },
 });

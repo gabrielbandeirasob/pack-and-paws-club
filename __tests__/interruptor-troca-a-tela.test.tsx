@@ -105,7 +105,7 @@ beforeEach(() => {
   (SecureStore.getItemAsync as jest.Mock).mockResolvedValue(null);
 });
 
-it('Home liga; rota desliga: troca cabeçalhos, abas e destino sem remontar as abas', async () => {
+it('Home liga; Perfil desliga: troca cabeçalhos, abas e destino sem remontar as abas', async () => {
   const tela = await render(<TabLayout />);
   const interruptor = await tela.findByLabelText('Drive today');
   expect(tela.getByText(/Good .*Alex/)).toBeTruthy();
@@ -118,19 +118,27 @@ it('Home liga; rota desliga: troca cabeçalhos, abas e destino sem remontar as a
   await tela.findByText('No published route today');
   for (const aba of ['driver', 'schedule', 'assigned', 'profile']) expect(tela.getByTestId(`aba-${aba}`)).toBeTruthy();
   expect(tela.queryByTestId('aba-index')).toBeNull();
-  expect(tela.getByLabelText('Drive today').props.value).toBe(true);
-  // O interruptor passou a ser UMA linha (dono, 27/09/2026: "tomando muito espaço"): no lugar do par de
-  // frases de ajuda ficou a legenda de duas palavras — o comportamento é o mesmo.
-  expect(tela.getByText('driver view')).toBeTruthy();
   expect(mockReplace).not.toHaveBeenCalledWith('/(tabs)');
 
-  await fireEvent(tela.getByLabelText('Drive today'), 'valueChange', false);
+  /*
+   * O interruptor SAIU da tela da rota (redesenho do pré-clock-in, 05/10/2026). A volta para a visão
+   * de gestor é pela aba PERFIL, onde ele vive — a asserção foi REPONTADA para lá (mesma cobertura:
+   * ligar/desligar troca a visão e o destino).
+   */
+  expect(tela.queryByLabelText('Drive today')).toBeNull();
+  const PerfilScreen = require('@/app/(tabs)/profile').default;
+  const perfil = await render(<PerfilScreen />);
+  const switchPerfil = await perfil.findByLabelText('Drive today');
+  expect(switchPerfil.props.value).toBe(true);
+  expect(perfil.getByText('driver view')).toBeTruthy();
+
+  await fireEvent(perfil.getByLabelText('Drive today'), 'valueChange', false);
   expect(mockSetView).toHaveBeenLastCalledWith('manager');
   expect(mockReplace).toHaveBeenLastCalledWith('/(tabs)');
   await tela.findByText(/Good .*Alex/);
   for (const aba of ['index', 'calendar', 'dispatch', 'clients', 'more']) expect(tela.getByTestId(`aba-${aba}`)).toBeTruthy();
   expect(tela.queryByTestId('aba-driver')).toBeNull();
-  expect(tela.getByLabelText('Drive today').props.value).toBe(false);
+  expect(perfil.getByLabelText('Drive today').props.value).toBe(false);
   expect(mockMontouAbas).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(SecureStore.setItemAsync).toHaveBeenLastCalledWith('packpaws.visaoAtiva.v1', 'manager'));
 });
@@ -139,9 +147,13 @@ it('gestor com escolha salva abre a rota e permanece nela', async () => {
   (SecureStore.getItemAsync as jest.Mock).mockResolvedValue('driver');
   const tela = await render(<TabLayout />);
   await tela.findByText('No published route today');
-  expect(tela.getByLabelText('Drive today').props.value).toBe(true);
   expect(tela.queryByTestId('aba-index')).toBeNull();
   expect(mockReplace).not.toHaveBeenCalledWith('/(tabs)');
+  // O interruptor não vive mais na tela da rota — repontado para o Perfil.
+  expect(tela.queryByLabelText('Drive today')).toBeNull();
+  const PerfilScreen = require('@/app/(tabs)/profile').default;
+  const perfil = await render(<PerfilScreen />);
+  expect((await perfil.findByLabelText('Drive today')).props.value).toBe(true);
 });
 
 it('Home não mostra interruptor nem painel para motorista', async () => {
@@ -174,7 +186,10 @@ it('leitura lenta do cofre não desfaz uma escolha nova', async () => {
   await act(async () => { concluir('manager'); await leitura; });
   const tela = await render(<TabLayout />);
   await tela.findByText('No published route today');
-  expect(tela.getByLabelText('Drive today').props.value).toBe(true);
+  // O interruptor não vive mais na tela da rota — repontado para o Perfil.
+  const PerfilScreen = require('@/app/(tabs)/profile').default;
+  const perfil = await render(<PerfilScreen />);
+  expect((await perfil.findByLabelText('Drive today')).props.value).toBe(true);
 });
 
 it('More oferece o mesmo switch nativo e abre a rota ao ligar', async () => {
@@ -218,8 +233,11 @@ it('falha no cofre não impede a troca imediata e a volta para o painel', async 
   const tela = await render(<TabLayout />);
   await fireEvent(await tela.findByLabelText('Drive today'), 'valueChange', true);
   await tela.findByText('No published route today');
-  await fireEvent(tela.getByLabelText('Drive today'), 'valueChange', false);
+  // A volta para o painel é pela aba Perfil (o interruptor saiu da tela da rota).
+  const PerfilScreen = require('@/app/(tabs)/profile').default;
+  const perfil = await render(<PerfilScreen />);
+  await fireEvent(await perfil.findByLabelText('Drive today'), 'valueChange', false);
   await tela.findByText(/Good .*Alex/);
   expect(tela.getByTestId('aba-index')).toBeTruthy();
-  expect(tela.getByLabelText('Drive today').props.value).toBe(false);
+  expect(perfil.getByLabelText('Drive today').props.value).toBe(false);
 });

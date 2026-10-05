@@ -284,7 +284,7 @@ it('seletor mantém entrega bloqueada até o yard e preserva a liberação ao vo
 });
 
 
-it('seletor não abre busca antes de Start pick-ups', async () => {
+it('o seletor de perna NÃO aparece antes de Start Route (item 7 do redesenho)', async () => {
   await AsyncStorage.clear();
   mockEstado.sedes = [VAN_ROW, YARD_ROW];
   mockEstado.erroSedes = false;
@@ -292,11 +292,11 @@ it('seletor não abre busca antes de Start pick-ups', async () => {
   mockRota.route_stops[0].delivered_at = null;
   const Tela = require('../app/(tabs)/driver').default;
   const tela = await render(<Tela />);
-  const busca = await tela.findByRole('button', { name: 'Pick-ups' });
-  expect(busca).toBeDisabled();
-  await fireEvent.press(busca);
+  // Antes de a rota começar o seletor Pick-ups/Drop-offs NÃO existe (era inútil antes de começar).
+  await waitFor(() => expect(tela.getByLabelText('Start pick-ups')).toBeTruthy());
+  expect(tela.queryByRole('button', { name: 'Pick-ups' })).toBeNull();
+  expect(tela.queryByRole('button', { name: 'Drop-offs' })).toBeNull();
   expect(tela.queryByText('PICK-UPS')).toBeNull();
-  expect(tela.getByRole('button', { name: 'Drop-offs' })).toBeDisabled();
   await fireEvent.press(tela.getByLabelText('Start pick-ups'));
   await waitFor(() => expect(tela.getByText('PICK-UPS')).toBeTruthy());
   expect(tela.getByRole('button', { name: 'Pick-ups' })).toBeEnabled();
@@ -308,7 +308,8 @@ it('redesign mostra resumo real e progresso acessível sem inventar distância',
   const tela = await montarTela();
   expect(tela.getByTestId('route-summary')).toBeTruthy();
   expect(tela.getByRole('progressbar').props.accessibilityValue).toEqual({ min: 0, max: 1, now: 0 });
-  expect(tela.getByText('0 of 1 completed')).toBeTruthy();
+  // Progresso compacto de uma linha: "0/1" no lugar de "0 of 1 completed".
+  expect(tela.getByText('0/1')).toBeTruthy();
   expect(tela.queryByText(/34.2 mi/)).toBeNull();
 });
 

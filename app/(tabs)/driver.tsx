@@ -1,5 +1,6 @@
 import { agruparEmTarefas, posicoesDasParadas } from '@/features/driver/tasks';
 import { RouteSummary } from '@/features/driver/RouteSummary';
+import { StartStateCard } from '@/features/driver/StartStateCard';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type AlertButton } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
@@ -9,7 +10,7 @@ import { todayLocalISO } from '@/features/calendar/dates';
 import { DriverRouteView, type DriverAction, type DriverStartPoint, type DriverStop } from '@/features/driver/DriverRouteView';
 import { resolveDriverOptimizationOrigin } from '@/features/driver/driverRouteLocation';
 import { clockInGate, distanceText, estaNaVan, loadOrganizationLocations, loadRouteEndLocationForDriver, loadVanLocationForDriver, motivoDoClockIn, travaDoClockIn, vanLocationForRoute, type OrganizationLocation } from '@/features/organization/locations';
-import { ETA_MAXIMO_PLAUSIVEL_MIN, lateMinutesForStop, minutosAteParada, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
+import { ETA_MAXIMO_PLAUSIVEL_MIN, frescorDaPosicao, lateMinutesForStop, minutosAteParada, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
 import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/features/driver/etaMessage';
 
 import { NextStopCard, nextActionForStatus } from '@/features/driver/NextStopCard';
@@ -54,9 +55,9 @@ import type { NavTarget } from '@/features/maps/links';
 import { navigationUrlFor, type NavApp } from '@/features/maps/navigation';
 import { loadPreferredNavApp, savePreferredNavApp } from '@/features/maps/preferences';
 import { rowToStop, type DriverRouteRow, type DriverStopRow } from '@/features/driver/rows';
-import { DriveSwitchRow } from '@/features/auth/DriveSwitchRow';
 import { useRoleGuard } from '@/features/auth/useRoleGuard';
 import { supabase } from '@/lib/supabase';
+import { plural } from '@/lib/plural';
 
 type StopRow = DriverStopRow;
 type RouteResult = DriverRouteRow;
@@ -981,6 +982,41 @@ export default function DriverTodayScreen() {
     return `Clock in opens at the van ${onde} (radius of ${vanLocation.radiusMeters} m).`;
   }, [vanLocation, position]);
 
+  /**
+   * O PORTÃO do clock in como a TELA o mostra hoje (usa a amostra de posição visível, não o GPS
+   * fresco do toque). É o que decide o botão desabilitado, o aviso compacto e a oferta da exceção
+   * "Clock in anyway" ANTES de qualquer toque — antes o motorista só descobria a trava depois de
+   * apertar e ser recusado. `null` = organização sem van (sem trava, sem aviso).
+   */
+  const gateNaTela = useMemo(
+    () => (vanLocation ? clockInGate({ location: vanLocation, position }) : null),
+    [vanLocation, position],
+  );
+
+  /**
+   * A AMOSTRA VISÍVEL ESTÁ VENCIDA? (sem carimbo de tempo = vencida).
+   *
+   * 🪤 A TRAVA DA INTERFACE NÃO PODE IMPEDIR O TRABALHO (regra do dono, 01/10/2026: *"mesmo chegando na
+   * van"* o clock in era recusado). O clock in de verdade libera quando **qualquer uma** das duas
+   * leituras diz "está na van" — a amostra visível OU o GPS fresco lido no toque. Então a amostra
+   * visível só pode TRAVAR o botão quando ela é RECENTE (aí sabemos que ele está fora); com leitura
+   * vencida o botão continua primário e quem decide é o toque, que lê o GPS na hora. Sem essa guarda,
+   * um motorista parado na van com amostra velha/imprecisa ficaria SEM o clock in normal e cairia na
+   * exceção ("Clock in anyway"), que grava um motivo de fora da van no relatório de horas.
+   */
+  const amostraVencida = useMemo(() => {
+    if (!position) return true;
+    if (typeof position.capturedAt !== 'number') return true;
+    return frescorDaPosicao(new Date(position.capturedAt).toISOString()).velha;
+  }, [position]);
+  /** A idade legível da amostra, só para o aviso ser honesto quando ela estiver vencida. */
+  const idadeDaAmostra = useMemo(() => {
+    if (!position || typeof position.capturedAt !== 'number') return null;
+    return frescorDaPosicao(new Date(position.capturedAt).toISOString()).texto;
+  }, [position]);
+  /** Bloqueio REAL na tela: fora do raio E com leitura recente (ver `amostraVencida`). */
+  const clockInBloqueado = gateNaTela?.kind === 'outside' && !amostraVencida;
+
   const recarregarJornadas = async (motorista: string) => {
     setShifts(await loadDriverShifts(supabase, { driverId: motorista, dayStart: startOfToday(), dayEnd: startOfTomorrow() }));
   };
@@ -1439,9 +1475,57 @@ export default function DriverTodayScreen() {
   }
 
  const routeTasks = agruparEmTarefas(stopsDaFase);
- const completedTasks = routeTasks.filter(task => task.stops.every(stop => paradaDaFaseConcluida(stop, fase))).length;
+ /**
+  * O CHIP DE ESTADO do cabeçalho (item 10 do pedido): uma evolução clara por jornada, sem toggle.
+  * Ordem de prioridade: Route complete → Returning to van → Route active → Clocked in → Ready to start.
+  */
+ const statusChipLabel = journey.kind === 'closed'
+   ? 'Route complete'
+   : etapaAtual === 'to_van'
+     ? 'Returning to van'
+     : mostrarRota
+       ? 'Route active'
+       : journey.kind === 'open'
+         ? 'Clocked in'
+         : 'Ready to start';
+ /**
+  * UMA instrução por estado (item 8): antes do clock in manda ir para a van; depois do ponto batido,
+  * começar a rota. Sem van cadastrada o texto é neutro (não cita van nenhuma).
+  */
+ const instrucaoDoDia = journey.kind === 'open'
+   ? "You're clocked in. Start today's route when you're ready."
+   : vanLocation
+     ? `Head to ${vanLocation.name} to start your day.`
+     : 'Clock in to start your day.';
  const journeyCard = (stops.length > 0 || organizationId ? (
                 <View style={styles.jornada}>
+                  {journey.kind === 'none' ? (
+                    /**
+                     * PRÉ-CLOCK-IN: cartão de início (item 3). Antes da jornada a tela é MÍNIMA — nada
+                     * de JOURNEY administrativo, seletor de perna ou interruptor. O aviso de geofence é
+                     * compacto (item 4), o Clock in nasce DESABILITADO fora do raio (item 5) com a
+                     * distância real e a exceção "Clock in anyway" ainda ofertada.
+                     */
+                    <StartStateCard
+                      vanName={vanLocation?.name ?? null}
+                      address={vanLocation ? ([vanLocation.addressLine1, vanLocation.city].filter(Boolean).join(' ') || null) : null}
+                      gate={gateNaTela}
+                      gateDetails={gateHint}
+                      gateAge={idadeDaAmostra}
+                      clockInDisabled={clockInBloqueado}
+                      busy={shiftBusy}
+                      error={shiftError}
+                      foraDaVan={foraDaVan ?? (gateNaTela?.kind === 'outside'
+                        ? { distanceKm: gateNaTela.distanceKm ?? 0, vanName: vanLocation?.name ?? 'van' }
+                        : null)}
+                      navigation={journeyDestination ? {
+                        kind: journeyDestination.kind,
+                        onPress: () => void navegarPara(journeyDestination, fechamento ? 'closing' : 'start'),
+                      } : undefined}
+                      onClockIn={(motivo) => void clockIn(motivo)}
+                      onClockInAnyway={(motivo) => void clockIn(motivo, true)}
+                    />
+                  ) : (
                   <ShiftCard
                     routeStarted={mostrarRota}
                     state={journey}
@@ -1475,8 +1559,10 @@ export default function DriverTodayScreen() {
                     onClockInAnyway={(motivo) => void clockIn(motivo, true)}
                     onClockOut={(motivo) => void clockOut(motivo)}
                   />
+                  )}
                 </View>
               ) : null);
+
 
  return (
     <SafeAreaView style={styles.screen} edges={['top']}>
@@ -1507,10 +1593,9 @@ export default function DriverTodayScreen() {
         <View style={styles.header}>
           <Text style={styles.title}>Today&apos;s Route</Text>
           <View style={styles.headerMeta}>
-            {routeTasks.length > 0 ? <Text style={styles.date}>{completedTasks} of {routeTasks.length} stops</Text> : null}
-            <Text style={styles.statusChip}>{etapaAtual === 'to_van' ? 'Returning to base' : mostrarRota ? 'On route' : 'Ready to start'}</Text>
+            {routeTasks.length > 0 ? <Text testID="stops-count" style={styles.date}>{plural(routeTasks.length, 'stop', 'stops')}</Text> : null}
+            <Text testID="status-chip" style={styles.statusChip}>{statusChipLabel}</Text>
           </View>
-          <DriveSwitchRow dentroDeLista />
         </View>
         {offline || pendingSync + pendingWrites.length > 0 ? (
           <View style={styles.offlineBanner} accessibilityRole="alert">
@@ -1547,7 +1632,7 @@ export default function DriverTodayScreen() {
                */}
               <View style={styles.jornada}><RouteSummary stops={stopsDaFase} fase={fase} /></View>
               {!mostrarRota || !proximaParada ? journeyCard : null}
-              {stops.length > 0 && etapaAtual !== 'to_van' ? <View style={styles.phaseSection}>
+              {mostrarRota && stops.length > 0 && etapaAtual !== 'to_van' ? <View style={styles.phaseSection}>
                 <View style={styles.phaseRow}>{(['pickup', 'dropoff'] as const).map(phase => {
                   const disabled = phase === 'pickup' ? !buscaIniciada : !entregasLiberadas;
                   return <Pressable key={phase} accessibilityRole="button"
@@ -1627,9 +1712,11 @@ export default function DriverTodayScreen() {
                 </>
               ) : (
                 /* ETAPA DO DIA (dono, 03/10/2026): antes de começar, a tela é SÓ o cartão da jornada —
-                 * a lista de cães é o trabalho dele e aparece quando ele aperta "Start pick-ups". */
+                 * a lista de cães é o trabalho dele e aparece quando ele aperta "Start pick-ups".
+                 * UMA instrução por estado (item 8): `Head to Van 2 to start your day.` antes do clock
+                 * in e `You're clocked in. Start today's route when you're ready.` depois. */
                 <View style={styles.empty}>
-                  <Text style={styles.emptyText}>Clock in and tap Start Route to see today&apos;s stops.</Text>
+                  <Text style={styles.emptyText}>{instrucaoDoDia}</Text>
                 </View>
               )}
             </>
@@ -1684,7 +1771,7 @@ const styles = StyleSheet.create({
   header: { backgroundColor: colors.forest700, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16 },
   eyebrow: { color: colors.gold, fontSize: 12, fontWeight: '900', letterSpacing: 1.3 },
   title: { color: 'white', fontSize: 24, fontWeight: '800', marginTop: 6 },
-  headerMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 8 },
+  headerMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 8 },
   statusChip: { color: colors.forest900, backgroundColor: colors.sage, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, fontSize: 12, fontWeight: '700' },
   date: { color: '#D7E1D4', fontSize: 12, marginTop: 4 },
   offlineBanner: { backgroundColor: '#FBF0D9', borderBottomWidth: 1, borderBottomColor: '#EADFB8', paddingHorizontal: 16, paddingVertical: 8 },

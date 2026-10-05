@@ -245,10 +245,11 @@ describe('DriverRouteView', () => {
 it('resumo conta uma casa com dois cães só quando ambos terminam e separa entrega', async () => {
   const grupo: DriverStop[] = stops.map((stop, index) => ({ ...stop, groupId: 'casa', status: index === 0 ? 'completed' : 'pending' }));
   const tela = await render(<RouteSummary stops={grupo} fase="pickup" />);
-  expect(tela.getByText('0 of 1 completed')).toBeTruthy();
+  // Barra compacta de uma linha (redesenho de 05/10/2026): "0/1" no lugar de "0 of 1 completed".
+  expect(tela.getByText('0/1')).toBeTruthy();
   const buscados: DriverStop[] = grupo.map(stop => ({ ...stop, status: 'completed' }));
   await tela.rerender(<RouteSummary stops={buscados} fase="pickup" />);
-  expect(tela.getByText('1 of 1 completed')).toBeTruthy();
+  expect(tela.getByText('1/1')).toBeTruthy();
   await tela.rerender(<RouteSummary stops={buscados} fase="dropoff" />);
-  expect(tela.getByText('0 of 1 completed')).toBeTruthy();
+  expect(tela.getByText('0/1')).toBeTruthy();
 });

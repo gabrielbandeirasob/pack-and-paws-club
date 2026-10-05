@@ -89,11 +89,12 @@ afterEach(cleanup);
 
 it('reconcilia uma jornada aberta depois da carga quando o servidor recusa o novo Clock in', async () => {
   const screen = await render(<Driver />);
-  await waitFor(() => expect(screen.getByText('Journey not started yet')).toBeTruthy());
+  // Sem jornada é o CARTÃO DE INÍCIO (redesenho 05/10/2026): o marcador estável passou a ser o botão.
+  await waitFor(() => expect(screen.getByLabelText('Clock in')).toBeTruthy());
   mockState.rows = [mockOld()]; // Outro aparelho / leitura anterior à escrita.
   await record(screen, 'Clock in');
   await waitFor(() => expect(screen.getByLabelText('Clock out')).toBeTruthy());
-  expect(screen.queryByText('Journey not started yet')).toBeNull();
+  expect(screen.queryByLabelText('Clock in')).toBeNull();
   expect(mockState.inserts).toBe(1); // Somente a tentativa recusada, nunca duplicação.
   expect(mockState.rows).toHaveLength(1);
   expect(await loadPendingWrites()).toEqual([]);
@@ -139,7 +140,7 @@ it('mostra Clock out para a jornada de outro dia e fecha o id original sem criar
   mockState.rows = [mockOld()];
   const screen = await render(<Driver />);
   await waitFor(() => expect(screen.getByLabelText('Clock out')).toBeTruthy());
-  expect(screen.queryByText('Journey not started yet')).toBeNull();
+  expect(screen.queryByLabelText('Clock in')).toBeNull();
   expect(screen.queryByLabelText('Clock in')).toBeNull();
   expect(mockState.inserts).toBe(0);
   await record(screen, 'Clock out');

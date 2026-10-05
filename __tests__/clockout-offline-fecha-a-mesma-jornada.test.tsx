@@ -132,7 +132,8 @@ it('clock out sem sinal guarda QUAL jornada fechar e o replay fecha a mesma — 
   expect(mockState.rows).toHaveLength(1);       // exatamente a jornada do dia anterior, agora fechada
   expect(mockState.rows[0].ended_at).not.toBeNull();
   expect(await loadPendingWrites()).toEqual([]);
-  await waitFor(() => expect(screen.getByText('Journey not started yet')).toBeTruthy());
+  // Sem jornada é o CARTÃO DE INÍCIO (redesenho 05/10/2026): o marcador é o botão.
+  await waitFor(() => expect(screen.getByLabelText('Clock in')).toBeTruthy());
 });
 
 it('o replay não insiste quando a jornada da fila já foi fechada em outro aparelho', async () => {
