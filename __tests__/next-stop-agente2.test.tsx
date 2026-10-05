@@ -182,7 +182,7 @@ describe('NextStopCard', () => {
 
   it('parada arrived mostra "Next": o 2º toque grava pegou + concluiu juntos', async () => {
     const { tela, onAction } = await painel(parada({ status: 'arrived' }));
-    expect(tela.getByText('Next')).toBeTruthy();
+    expect(tela.getByText('Complete pickup')).toBeTruthy();
 
     await fireEvent.press(tela.getByLabelText('Next stop: Next for Bob'));
     expect(onAction).toHaveBeenCalledWith('stop-1', 'finish');
@@ -190,7 +190,7 @@ describe('NextStopCard', () => {
 
   it('parada picked_up (rota antiga) mostra o MESMO "Next" para fechar', async () => {
     const { tela, onAction } = await painel(parada({ status: 'picked_up' }));
-    expect(tela.getByText('Next')).toBeTruthy();
+    expect(tela.getByText('Complete pickup')).toBeTruthy();
 
     await fireEvent.press(tela.getByLabelText('Next stop: Next for Bob'));
     expect(onAction).toHaveBeenCalledWith('stop-1', 'finish');
@@ -216,7 +216,7 @@ describe('NextStopCard', () => {
   it('todo botão tem papel e rótulo acessível (a varredura de acessibilidade depende disso)', async () => {
     const { tela } = await painel(parada({ status: 'arrived' }));
     const botoes = tela.getAllByRole('button');
-    expect(botoes).toHaveLength(2); // navegar + o próximo passo do dia (a foto saiu)
+    expect(botoes).toHaveLength(3); // concluir + navegar + reportar problema (a foto saiu)
     for (const botao of botoes) {
       expect(typeof botao.props.accessibilityLabel).toBe('string');
       expect(botao.props.accessibilityLabel.length).toBeGreaterThan(0);

@@ -464,10 +464,12 @@ it('depois do toque a tela NÃO volta para o "carregando"', async () => {
       // O yard libera a entrega; confirmada, o dia fecha voltando para a VAN.
       expect(tela.queryByLabelText('Delivered Bob')).toBeNull();
       await fireEvent.press(tela.getByTestId('start-dropoffs'));
+      await fireEvent.press(tela.getByLabelText('Stop details Bob'));
       await waitFor(() => expect(tela.getByLabelText('Delivered Bob')).toBeTruthy());
       await fireEvent.press(tela.getByLabelText('Delivered Bob'));
       await waitFor(() => expect(tela.getByText('Back to the van')).toBeTruthy());
-      expect(tela.getByText('All dogs delivered — the day ends here.')).toBeTruthy();
+      expect(tela.getByText('Route complete')).toBeTruthy();
+      expect(tela.getByRole('button', { name: 'Return to van' })).toBeTruthy();
     } finally {
       mockLocais = [];
       mockEstado.startLocationId = null;
@@ -602,6 +604,7 @@ describe('duas pernas publicadas do motorista', () => {
     const tela = await abrirBuscaConcluida();
     await fireEvent.press(tela.getByTestId('start-dropoffs'));
     await waitFor(() => expect(tela.getByText('DROP-OFFS')).toBeTruthy());
+    await fireEvent.press(tela.getByLabelText('Stop details Bob'));
     expect(tela.getByLabelText('Delivered Bob')).toBeTruthy();
     expect(mockConsultas.some(c => !c.campos.startsWith('phase,'))).toBe(true);
   });

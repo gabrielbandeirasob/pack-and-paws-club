@@ -1,3 +1,5 @@
+import { agruparEmTarefas, posicoesDasParadas } from '@/features/driver/tasks';
+import { RouteSummary } from '@/features/driver/RouteSummary';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type AlertButton } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
@@ -1326,8 +1328,9 @@ export default function DriverTodayScreen() {
   const scrollRef = useRef<ScrollView | null>(null);
   const corpoY = useRef(0);
   const proximaParadaY = useRef(0);
+  const routeViewY = useRef(0);
   const focarBusca = useCallback(() => {
-    scrollRef.current?.scrollTo({ y: corpoY.current + proximaParadaY.current, animated: true });
+    scrollRef.current?.scrollTo({ y: corpoY.current + routeViewY.current + proximaParadaY.current, animated: true });
   }, []);
   /**
    * "START PICK-UPS" — a ETAPA do dia (dono, 03/10/2026): a lista de cães só aparece depois que o motorista
@@ -1413,74 +1416,12 @@ export default function DriverTodayScreen() {
     );
   }
 
- return (
-    <SafeAreaView style={styles.screen} edges={['top']}>
-      {/*
-       * ROLAGEM ÚNICA vertical — defeito relatado pelo dono em 25/09/2026 ("ainda não estou
-       * conseguindo arrastar a página pra baixo"). Antes desta mudança o ÚNICO componente rolável
-       * da tela era o ScrollView de dentro do DriverRouteView (mapa + lista de paradas): o
-       * cabeçalho, a linha "Next:" e os cartões SMART ROUTE / JOURNEY / NEXT STOP ficavam presos no
-       * topo e o conteúdo de baixo não era alcançável. Agora cabeçalho + avisos + cartões +
-       * DriverRouteView rolam JUNTOS neste único ScrollView (o scroller interno virou View).
-       * A tab bar do expo-router vive fora desta árvore, então não é empurrada nem quebra.
-       */}
-      <ScrollView
-        ref={scrollRef}
-        testID="driver-scroll"
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        automaticallyAdjustContentInsets={false}
-        contentInsetAdjustmentBehavior="never"
-        /**
-         * 🪤 ACHADO DA VISTORIA (02/10/2026): era o único scroller da tela e não tinha puxar para
-         * atualizar — o motorista parado com sinal de volta não tinha como forçar nada (e `load()` é
-         * quem sobe a fila de escritas offline).
-         */
-        refreshControl={<RefreshControl refreshing={atualizando} onRefresh={() => void puxarParaAtualizar()} tintColor={colors.gold} />}
-      >
-        <View style={styles.header}>
-          <Text style={styles.eyebrow}>PACK & PAWS CLUB · DRIVER</Text>
-          <Text style={styles.title}>Today&apos;s Route</Text>
-          {publishedAt || stops.length > 0 ? <Text style={styles.date}>{todayLocalISO()}</Text> : null}
-          <DriveSwitchRow />
-        </View>
-        {offline || pendingSync + pendingWrites.length > 0 ? (
-          <View style={styles.offlineBanner} accessibilityRole="alert">
-            <Text style={styles.offlineText}>
-              {offline ? '📡 Offline — showing the saved route. ' : ''}
-              {pendingSync + pendingWrites.length > 0
-                ? `${pendingSync + pendingWrites.length} change${pendingSync + pendingWrites.length === 1 ? '' : 's'} waiting to sync.`
-                : 'Changes will sync when you are back online.'}
-            </Text>
-          </View>
-        ) : null}
-        {eta ? (
-          <View style={[styles.etaBanner, eta.lateMinutes > 0 && styles.etaBannerLate]} accessibilityRole="alert">
-            <Text style={[styles.etaText, eta.lateMinutes > 0 && styles.etaTextLate]}>
-              {eta.lateMinutes > 0
-                ? `⚠️ Running ${eta.lateMinutes} min late for ${eta.dogName}`
-                : `Next: ${eta.dogName} — ${!eta.temBase ? 'route not timed yet' : eta.minutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${eta.minutes} min away` : 'far from your stops'}${position ? '' : ' (sharing location…)'}`}
-            </Text>
-          </View>
-        ) : null}
-        <View
-          style={styles.body}
-          testID="driver-body"
-          onLayout={(evento) => { corpoY.current = evento.nativeEvent.layout.y; }}
-        >
-          {loading ? <ActivityIndicator testID="driver-loading" style={styles.center} color={colors.gold} size="large" /> : (
-            <>
-              {/*
-               * A JORNADA (clock in/out) fica ANTES do vazio: num dia SEM rota publicada o motorista
-               * que chega na van ainda precisa bater o ponto (vistoria, 02/10/2026 — o cartão só
-               * aparecia junto da lista de paradas, então um dia sem rota não tinha clock in nenhum).
-               * Sem rota o cartão só aparece quando a organização do VÍNCULO é conhecida — sem org
-               * não há onde gravar a jornada.
-               */}
-              {stops.length > 0 || organizationId ? (
+ const routeTasks = agruparEmTarefas(stopsDaFase);
+ const completedTasks = routeTasks.filter(task => task.stops.every(stop => paradaDaFaseConcluida(stop, fase))).length;
+ const journeyCard = (stops.length > 0 || organizationId ? (
                 <View style={styles.jornada}>
                   <ShiftCard
+                    routeStarted={mostrarRota}
                     state={journey}
                     pendingCount={pendingWrites.length}
                     busy={shiftBusy}
@@ -1513,8 +1454,78 @@ export default function DriverTodayScreen() {
                     onClockOut={(motivo) => void clockOut(motivo)}
                   />
                 </View>
-              ) : null}
-              {stops.length > 0 ? <View style={styles.phaseSection}>
+              ) : null);
+
+ return (
+    <SafeAreaView style={styles.screen} edges={['top']}>
+      {/*
+       * ROLAGEM ÚNICA vertical — defeito relatado pelo dono em 25/09/2026 ("ainda não estou
+       * conseguindo arrastar a página pra baixo"). Antes desta mudança o ÚNICO componente rolável
+       * da tela era o ScrollView de dentro do DriverRouteView (mapa + lista de paradas): o
+       * cabeçalho, a linha "Next:" e os cartões SMART ROUTE / JOURNEY / NEXT STOP ficavam presos no
+       * topo e o conteúdo de baixo não era alcançável. Agora cabeçalho + avisos + cartões +
+       * DriverRouteView rolam JUNTOS neste único ScrollView (o scroller interno virou View).
+       * A tab bar do expo-router vive fora desta árvore, então não é empurrada nem quebra.
+       */}
+      <ScrollView
+        ref={scrollRef}
+        testID="driver-scroll"
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        automaticallyAdjustContentInsets={false}
+        contentInsetAdjustmentBehavior="never"
+        /**
+         * 🪤 ACHADO DA VISTORIA (02/10/2026): era o único scroller da tela e não tinha puxar para
+         * atualizar — o motorista parado com sinal de volta não tinha como forçar nada (e `load()` é
+         * quem sobe a fila de escritas offline).
+         */
+        refreshControl={<RefreshControl refreshing={atualizando} onRefresh={() => void puxarParaAtualizar()} tintColor={colors.gold} />}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Today&apos;s Route</Text>
+          <View style={styles.headerMeta}>
+            {routeTasks.length > 0 ? <Text style={styles.date}>{completedTasks} of {routeTasks.length} stops</Text> : null}
+            <Text style={styles.statusChip}>{etapaAtual === 'to_van' ? 'Returning to base' : mostrarRota ? 'On route' : 'Ready to start'}</Text>
+          </View>
+          <DriveSwitchRow dentroDeLista />
+        </View>
+        {offline || pendingSync + pendingWrites.length > 0 ? (
+          <View style={styles.offlineBanner} accessibilityRole="alert">
+            <Text style={styles.offlineText}>
+              {offline ? '📡 Offline — showing the saved route. ' : ''}
+              {pendingSync + pendingWrites.length > 0
+                ? `${pendingSync + pendingWrites.length} change${pendingSync + pendingWrites.length === 1 ? '' : 's'} waiting to sync.`
+                : 'Changes will sync when you are back online.'}
+            </Text>
+          </View>
+        ) : null}
+        {eta && eta.lateMinutes > 0 ? (
+          <View style={[styles.etaBanner, eta.lateMinutes > 0 && styles.etaBannerLate]} accessibilityRole="alert">
+            <Text style={[styles.etaText, eta.lateMinutes > 0 && styles.etaTextLate]}>
+              {eta.lateMinutes > 0
+                ? `⚠️ Running ${eta.lateMinutes} min late for ${eta.dogName}`
+                : `Next: ${eta.dogName} — ${!eta.temBase ? 'route not timed yet' : eta.minutes <= ETA_MAXIMO_PLAUSIVEL_MIN ? `~${eta.minutes} min away` : 'far from your stops'}${position ? '' : ' (sharing location…)'}`}
+            </Text>
+          </View>
+        ) : null}
+        <View
+          style={styles.body}
+          testID="driver-body"
+          onLayout={(evento) => { corpoY.current = evento.nativeEvent.layout.y; }}
+        >
+          {loading ? <ActivityIndicator testID="driver-loading" style={styles.center} color={colors.gold} size="large" /> : (
+            <>
+              {/*
+               * A JORNADA (clock in/out) fica ANTES do vazio: num dia SEM rota publicada o motorista
+               * que chega na van ainda precisa bater o ponto (vistoria, 02/10/2026 — o cartão só
+               * aparecia junto da lista de paradas, então um dia sem rota não tinha clock in nenhum).
+               * Sem rota o cartão só aparece quando a organização do VÍNCULO é conhecida — sem org
+               * não há onde gravar a jornada.
+               */}
+              <View style={styles.jornada}><RouteSummary stops={stopsDaFase} fase={fase} /></View>
+              {!mostrarRota || !proximaParada ? journeyCard : null}
+              {stops.length > 0 && etapaAtual !== 'to_van' ? <View style={styles.phaseSection}>
                 <View style={styles.phaseRow}>{(['pickup', 'dropoff'] as const).map(phase => {
                   const disabled = phase === 'pickup' ? !buscaIniciada : !entregasLiberadas;
                   return <Pressable key={phase} accessibilityRole="button"
@@ -1525,7 +1536,7 @@ export default function DriverTodayScreen() {
                   </Pressable>;
                 })}</View>
                 {!entregasLiberadas ? <Text style={styles.phaseHint}>Use the yard button to start drop-offs.</Text> : null}
-                {!buscaIniciada ? <Text style={styles.phaseHint}>Tap Start pick-ups to open the pick-up list.</Text> : null}
+                {!buscaIniciada ? <Text style={styles.phaseHint}>Tap Start Route to open the pick-up list.</Text> : null}
               </View> : null}
               {stops.length === 0 ? (
                 /*
@@ -1559,35 +1570,44 @@ export default function DriverTodayScreen() {
                     * tela — o motorista volta do ponto batido direto para o próximo cão. O `onLayout`
                     * entrega a posição relativa ao corpo, e o corpo (índice 0 do scroller) dá o resto.
                     */}
+                  <DriverRouteView
+                    onLayout={(event) => { routeViewY.current = event.nativeEvent.layout.y; }}
+                    activeStopId={proximaParada?.id}
+                    activeCard={
                   <View
                     style={styles.nextStop}
                     testID={fase === 'pickup' ? 'pickup-focus' : 'dropoff-focus'}
                     onLayout={(evento) => { proximaParadaY.current = evento.nativeEvent.layout.y; }}
                   >
-                    <NextStopCard
+                    {!position ? <Text style={styles.phaseHint}>Location unavailable. Check location permission in Settings; navigation and manual arrival are available.</Text> : null}
+                    {proximaParada ? <NextStopCard
+                      phase={fase}
+                      positionLabel={proximaParada ? `STOP ${posicoesDasParadas(agruparEmTarefas(stopsDaFase)).get(proximaParada.id)?.numero} OF ${agruparEmTarefas(stopsDaFase).length}` : undefined}
                       stop={proximaParada}
                       nextAction={proximaParada ? fase === 'dropoff' ? 'deliver' : nextActionForStatus(proximaParada.status, proximaParada.deliveredAt) : null}
                       onNavigate={(stop) => void act(stop.id, 'navigate')}
                       onAction={(stopId, action) => void act(stopId, action)}
                       // O aviso ao tutor também no cartão grande (o dono procurou aqui, 01/10/2026).
                       onNotifyOwner={avisarTutor}
-                    />
+                    /> : null}
                   </View>
-                  <DriverRouteView
+                    }
                     stops={stopsDaFase}
                     onAction={act}
                     onNotifyOwner={avisarTutor}
                     start={start}
                     closing={fechamento}
+                    onNavigateClosing={fechamento && etapaAtual === 'to_van' ? () => void navegarPara(fechamento, 'closing') : undefined}
                     fase={fase}
                     etapa={etapaAtual}
                   />
+                  {proximaParada ? journeyCard : null}
                 </>
               ) : (
                 /* ETAPA DO DIA (dono, 03/10/2026): antes de começar, a tela é SÓ o cartão da jornada —
                  * a lista de cães é o trabalho dele e aparece quando ele aperta "Start pick-ups". */
                 <View style={styles.empty}>
-                  <Text style={styles.emptyText}>Clock in and tap Start pick-ups to see today&apos;s stops.</Text>
+                  <Text style={styles.emptyText}>Clock in and tap Start Route to see today&apos;s stops.</Text>
                 </View>
               )}
             </>
@@ -1627,21 +1647,23 @@ const styles = StyleSheet.create({
    * discreto, e não o bloco verde cheio que ocupava metade da tela.
    */
   phaseSection: { marginBottom: 12, gap: 8 },
-  phaseRow: { flexDirection: 'row', gap: 8 },
-  phaseOption: { flex: 1, minHeight: 44, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, padding: 12, alignItems: 'center', backgroundColor: colors.paper },
-  phaseActive: { backgroundColor: colors.sage, borderColor: colors.forest700 },
+  phaseRow: { flexDirection: 'row', gap: 4, padding: 4, marginHorizontal: 16, backgroundColor: colors.sage, borderRadius: 12 },
+  phaseOption: { flex: 1, minHeight: 44, borderWidth: 0, borderColor: colors.line, borderRadius: 8, padding: 12, alignItems: 'center', backgroundColor: colors.paper },
+  phaseActive: { backgroundColor: colors.paper, borderColor: colors.forest700 },
   phaseDisabled: { opacity: 0.5 },
   phaseText: { color: colors.muted, fontWeight: '800' },
   phaseTextActive: { color: colors.forest900 },
-  phaseHint: { color: colors.muted, fontSize: 12 },
+  phaseHint: { color: colors.muted, fontSize: 12, marginHorizontal: 16 },
   screen: { flex: 1, backgroundColor: colors.forest700 },
   /** ScrollView externo = o ÚNICO scroller vertical da tela do motorista. */
   scroll: { flex: 1 },
   /** flexGrow: 1 deixa o conteúdo curto (loading / rota vazia) preencher a tela com o fundo creme. */
   scrollContent: { flexGrow: 1 },
-  header: { backgroundColor: colors.forest700, paddingHorizontal: 20, paddingTop: 14, paddingBottom: 24, borderBottomLeftRadius: radii.hero, borderBottomRightRadius: radii.hero },
+  header: { backgroundColor: colors.forest700, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16 },
   eyebrow: { color: colors.gold, fontSize: 12, fontWeight: '900', letterSpacing: 1.3 },
-  title: { color: 'white', fontFamily: 'serif', fontSize: 28, fontWeight: '800', marginTop: 6 },
+  title: { color: 'white', fontSize: 24, fontWeight: '800', marginTop: 6 },
+  headerMeta: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginTop: 8 },
+  statusChip: { color: colors.forest900, backgroundColor: colors.sage, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, fontSize: 12, fontWeight: '700' },
   date: { color: '#D7E1D4', fontSize: 12, marginTop: 4 },
   offlineBanner: { backgroundColor: '#FBF0D9', borderBottomWidth: 1, borderBottomColor: '#EADFB8', paddingHorizontal: 16, paddingVertical: 8 },
   offlineText: { color: '#7A5E12', fontSize: 12, fontWeight: '800', textAlign: 'center' },
@@ -1653,7 +1675,7 @@ const styles = StyleSheet.create({
   body: { flexGrow: 1, backgroundColor: colors.cream },
   jornada: { paddingHorizontal: 16, paddingTop: 2, paddingBottom: 2 },
   /** Espaço do painel NEXT STOP: mesmo respiro horizontal do otimizador e da jornada. */
-  nextStop: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 2 },
+  nextStop: { paddingTop: 8 },
   center: { marginTop: 80 },
   empty: { alignItems: 'center', paddingHorizontal: 34, marginTop: 90 },
   emptyEmoji: { fontSize: 44 },

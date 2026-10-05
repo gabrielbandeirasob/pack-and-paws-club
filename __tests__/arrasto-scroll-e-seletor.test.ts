@@ -52,8 +52,8 @@ describe('arrasto e seletor de perna — os dois ajustes pedidos depois da 128',
     expect(quadro).toMatch(/faseOpcaoAtiva: \{[^}]*backgroundColor: colors\.sage/);
     expect(quadro).toMatch(/faseOpcaoTextoAtivo: \{[^}]*color: colors\.forest900/);
 
-    // No celular do motorista, o MESMO desenho (o dono vê as duas telas).
-    expect(motorista).toMatch(/phaseActive: \{[^}]*backgroundColor: colors\.sage/);
+    // No motorista, segmento iOS: papel sobre trilho sage, ainda com texto escuro.
+    expect(motorista).toMatch(/phaseActive: \{[^}]*backgroundColor: colors\.paper/);
     expect(motorista).toMatch(/phaseTextActive: \{[^}]*color: colors\.forest900/);
   });
 });

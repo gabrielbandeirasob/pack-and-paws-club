@@ -764,7 +764,7 @@ describe('clock in na tela do motorista (trava por distância)', () => {
     const tela = await render(<Tela />);
 
     // É o pedido do áudio: a jornada começa NA VAN, não no primeiro cão — mesmo sem nenhuma parada.
-    await waitFor(() => expect(tela.getByText(/On the clock since/)).toBeTruthy());
+    await waitFor(() => expect(tela.getByText(/Clocked in/)).toBeTruthy());
     expect(tela.queryByLabelText('Clock in')).toBeNull();
     expect(tela.getByLabelText('Clock out')).toBeTruthy();
     expect(insercoesDe('driver_shifts')).toHaveLength(0); // nada foi gravado: é a dedução

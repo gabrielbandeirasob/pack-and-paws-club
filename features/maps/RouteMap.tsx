@@ -13,9 +13,9 @@ import { regionForPoints } from './region';
 
 export type { MapStop };
 
-type Props = { stops: MapStop[]; height?: number };
+type Props = { stops: MapStop[]; height?: number; activeStopId?: string };
 
-export function RouteMap({ stops, height = 210 }: Props) {
+export function RouteMap({ stops, height = 210, activeStopId }: Props) {
   const points = stops
     .filter((stop) => typeof stop.latitude === 'number' && typeof stop.longitude === 'number')
     .sort((a, b) => a.sequence - b.sequence)
@@ -64,10 +64,14 @@ export function RouteMap({ stops, height = 210 }: Props) {
           <Marker
             key={stop.id}
             coordinate={{ latitude, longitude }}
-            title={`${stop.sequence}. ${stop.dogName}`}
+            title={`${stop.id === activeStopId ? 'Current · ' : ''}${stop.sequence}. ${stop.dogName}`}
             description={stop.address ?? undefined}
-            pinColor={stop.status === 'completed' ? colors.muted : colors.forest700}
-          />
+            pinColor={stop.id === activeStopId ? colors.forest900 : colors.muted}
+            zIndex={stop.id === activeStopId ? 10 : 0}
+            opacity={stop.id === activeStopId ? 1 : 0.65}
+          >
+            {stop.id === activeStopId ? <View style={styles.activeMarker}><Text style={styles.activeMarkerText}>➤ {stop.sequence} · Current</Text></View> : null}
+          </Marker>
         ))}
       </MapView>
     </View>
@@ -75,6 +79,8 @@ export function RouteMap({ stops, height = 210 }: Props) {
 }
 
 const styles = StyleSheet.create({
+  activeMarker: { minHeight: 44, minWidth: 44, justifyContent: 'center', backgroundColor: colors.forest900, borderRadius: 12, borderWidth: 2, borderColor: colors.paper, padding: 8 },
+  activeMarkerText: { color: 'white', fontWeight: '800', fontSize: 12 },
   container: { borderRadius: radii.large, overflow: 'hidden', backgroundColor: colors.paper },
   empty: {
     alignItems: 'center',

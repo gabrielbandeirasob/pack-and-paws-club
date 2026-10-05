@@ -13,6 +13,7 @@ import { colors, radii } from '@/features/theme/tokens';
 
 type Props = {
   state: ShiftState;
+  routeStarted?: boolean;
   /** registros que estão na fila local (sem sinal) e ainda vão subir */
   pendingCount?: number;
   busy?: boolean;
@@ -53,8 +54,9 @@ type Props = {
   onClockInAnyway?: (reason: string) => void;
 };
 
-export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHint = null, foraDaVan = null, navigation, onStartPickups, onStartDropoffs, dropoffsLabel, onClockIn, onClockOut, onClockInAnyway }: Props) {
+export function ShiftCard({ state, routeStarted = false, pendingCount = 0, busy = false, error, gateHint = null, foraDaVan = null, navigation, onStartPickups, onStartDropoffs, dropoffsLabel, onClockIn, onClockOut, onClockInAnyway }: Props) {
   const [pedindo, setPedindo] = useState<'in' | 'out' | 'in-fora' | null>(null);
+  const [details, setDetails] = useState(false);
   const [motivo, setMotivo] = useState('');
 
   const abrir = (tipo: 'in' | 'out' | 'in-fora') => {
@@ -77,17 +79,18 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHi
     <View style={styles.card} testID="cartao-jornada">
       <View style={styles.topo}>
         <Text style={styles.eyebrow}>JOURNEY</Text>
+        <Text style={styles.titulo}>{aberta ? `Clocked in · ${durationText(state.minutes)}` : shiftLabel(state)}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Journey details" accessibilityState={{ expanded: details }} onPress={() => setDetails(!details)} style={styles.details}><Text style={styles.botaoTexto}>Details</Text></Pressable>
         {pendingCount > 0 ? <Text style={styles.pendente}>{pendingCount} to sync</Text> : null}
       </View>
-      <Text style={styles.titulo}>{shiftLabel(state)}</Text>
-      <Text style={styles.dica}>
+      {details ? <Text style={styles.dica}>
         {state.source === 'route'
           ? 'Worked out from your route stops — nothing to press.'
           : state.manualOpen
             ? 'Manual journey (exception): this one was entered by hand.'
             : 'Manual record for today.'}
-      </Text>
-      {gateHint ? <Text style={styles.gateHint}>{gateHint}</Text> : null}
+      </Text> : null}
+      {gateHint ? <Text numberOfLines={details ? undefined : 2} style={styles.gateHint}>{gateHint}</Text> : null}
 
       <View style={styles.acoes}>
         {navigation ? (
@@ -122,10 +125,10 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHi
           accessibilityRole="button"
           accessibilityLabel="Start pick-ups"
           onPress={onStartPickups}
-          style={styles.iniciarBuscas}
+          style={[styles.iniciarBuscas, routeStarted && { backgroundColor: colors.sage }]}
           testID="start-pickups"
         >
-          <Text style={styles.iniciarBuscasTexto}>Start pick-ups</Text>
+          <Text style={[styles.iniciarBuscasTexto, routeStarted && { color: colors.forest900 }]}>{routeStarted ? 'On route · View next stop' : 'Start Route'}</Text>
         </Pressable>
       ) : null}
 
@@ -216,18 +219,19 @@ export function ShiftCard({ state, pendingCount = 0, busy = false, error, gateHi
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.medium, padding: 14, marginBottom: 12 },
-  topo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  card: { paddingVertical: 8, marginBottom: 8 },
+  topo: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between' },
+  details: { minHeight: 44, minWidth: 44, justifyContent: 'center' },
   eyebrow: { color: colors.forest700, fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
   pendente: { color: colors.muted, fontSize: 12, fontWeight: '800' },
-  titulo: { color: colors.forest900, fontFamily: 'serif', fontSize: 17, fontWeight: '800', marginTop: 5 },
+  titulo: { color: colors.forest900, fontSize: 13, fontWeight: '600' },
   dica: { color: colors.muted, fontSize: 12, marginTop: 4, lineHeight: 17 },
   /** Onde o clock in abre (só existe quando a organização cadastrou a sede/van). */
   gateHint: { color: '#7A5B12', backgroundColor: '#FBF0D9', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7, fontSize: 12, fontWeight: '800', marginTop: 8, lineHeight: 17, overflow: 'hidden' },
   acoes: { flexDirection: 'row', gap: 8, marginTop: 11 },
-  botao: { flex: 1, borderWidth: 1.5, borderColor: colors.forest700, borderRadius: 12, paddingVertical: 13, alignItems: 'center', justifyContent: 'center', minHeight: 44 },
+  botao: { flex: 1, borderWidth: 0, borderColor: colors.forest700, borderRadius: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', minHeight: 44 },
   botaoPrincipal: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
-  botaoExcecao: { borderWidth: 1.5, borderColor: colors.urgency, borderRadius: 12, paddingVertical: 13, alignItems: 'center', justifyContent: 'center', minHeight: 44, marginTop: 8 },
+  botaoExcecao: { borderWidth: 1.5, borderColor: colors.urgency, borderRadius: 12, paddingVertical: 8, alignItems: 'center', justifyContent: 'center', minHeight: 44, marginTop: 8 },
   botaoExcecaoTexto: { color: colors.urgency, fontWeight: '900', fontSize: 12.5 },
   botaoTexto: { color: colors.forest700, fontWeight: '900', fontSize: 13 },
   navegarTexto: { textAlign: 'center', paddingHorizontal: 6 },

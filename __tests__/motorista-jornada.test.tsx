@@ -167,11 +167,12 @@ describe('Start pick-ups in JOURNEY', () => {
     await waitFor(() => expect(tela.getByLabelText('Clock out')).toBeTruthy());
     expect(within(tela.getByTestId('cartao-jornada')).getByRole('button', { name: 'Start pick-ups' })).toBeTruthy();
     await fireEvent(tela.getByTestId('driver-body'), 'layout', { nativeEvent: { layout: { y: 120 } } });
+    await fireEvent(tela.getByTestId('route-content'), 'layout', { nativeEvent: { layout: { y: 80 } } });
     await fireEvent(tela.getByTestId('pickup-focus'), 'layout', { nativeEvent: { layout: { y: 240 } } });
     const queueBefore = await loadPendingWrites();
     const storageBefore = await AsyncStorage.multiGet(await AsyncStorage.getAllKeys());
     await fireEvent.press(within(tela.getByTestId('cartao-jornada')).getByRole('button', { name: 'Start pick-ups' }));
-    expect(scrollTo).toHaveBeenCalledWith({ y: 360, animated: true });
+    expect(scrollTo).toHaveBeenCalledWith({ y: 440, animated: true });
     expect(tela.getByText('PICK-UPS')).toBeTruthy();
     expect(mockRotaPublicada.route_stops[0].status).toBe('pending');
     expect(await loadPendingWrites()).toEqual(queueBefore);

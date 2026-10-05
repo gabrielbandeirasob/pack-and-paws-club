@@ -327,7 +327,7 @@ describe('o toque do motorista sobrevive à carga em voo', () => {
 
     // Nada de lista: nem o cartão da próxima parada, nem a parada do dia.
     expect(tela.queryByLabelText('Next stop: I arrived for Bob')).toBeNull();
-    expect(tela.getByText("Clock in and tap Start pick-ups to see today's stops.")).toBeTruthy();
+    expect(tela.getByText("Clock in and tap Start Route to see today's stops.")).toBeTruthy();
   });
 
   it('com a JORNADA FECHADA a lista não aparece — mesmo com o dia já começado antes (print do dono)', async () => {
@@ -343,7 +343,7 @@ describe('o toque do motorista sobrevive à carga em voo', () => {
 
     await waitFor(() => expect(tela.getByTestId('cartao-jornada')).toBeTruthy());
     expect(tela.queryByLabelText('Next stop: I arrived for Bob')).toBeNull();
-    expect(tela.getByText("Clock in and tap Start pick-ups to see today's stops.")).toBeTruthy();
+    expect(tela.getByText("Clock in and tap Start Route to see today's stops.")).toBeTruthy();
   });
 
   it('a fase gravada do DIA não abre a entrega antes do yard NESTA sessão (dono, 04/10/2026)', async () => {
@@ -377,7 +377,7 @@ describe('o toque do motorista sobrevive à carga em voo', () => {
     const tela = await render(<Tela />);
 
     await waitFor(() => expect(tela.getByLabelText('Next stop: I arrived for Bob')).toBeTruthy());
-    expect(tela.queryByText("Clock in and tap Start pick-ups to see today's stops.")).toBeNull();
+    expect(tela.queryByText("Clock in and tap Start Route to see today's stops.")).toBeNull();
   });
 });
 
@@ -529,7 +529,7 @@ it('uma ação aguardando replay não é enviada usando a conta que entrou depoi
   expect(statusGravados()).not.toContain('picked_up');
   expect(statusGravados()).not.toContain('completed');
   expect(tela.queryByLabelText('Next stop: Next for Bob')).toBeNull();
-  expect(tela.getByText("Clock in and tap Start pick-ups to see today's stops.")).toBeTruthy();
+  expect(tela.getByText("Clock in and tap Start Route to see today's stops.")).toBeTruthy();
   const outro = await AsyncStorage.getItem('pnp:driver:outbox:driver-2');
   expect(JSON.parse(outro ?? '[]')).toEqual([]);
 });

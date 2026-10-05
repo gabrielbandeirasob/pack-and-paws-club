@@ -114,7 +114,7 @@ it('Home liga; rota desliga: troca cabeçalhos, abas e destino sem remontar as a
   await fireEvent(interruptor, 'valueChange', true);
   expect(mockSetView).toHaveBeenLastCalledWith('driver');
   expect(mockReplace).toHaveBeenCalledWith('/(tabs)/driver');
-  await tela.findByText('PACK & PAWS CLUB · DRIVER');
+  await tela.findByTestId('driver-scroll');
   await tela.findByText('No published route today');
   for (const aba of ['driver', 'schedule', 'assigned', 'profile']) expect(tela.getByTestId(`aba-${aba}`)).toBeTruthy();
   expect(tela.queryByTestId('aba-index')).toBeNull();

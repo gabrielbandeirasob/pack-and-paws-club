@@ -1,7 +1,8 @@
+import { clockText } from '@/features/driver/shift';
 import { proximaParadaDoDia } from '@/features/driver/dayOrder';
 import { dogPhotoThumbnailUrl } from '@/features/dogs/dogPhoto';
 import { useState } from 'react';
-import { Image, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Image, Linking, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { DriverAction, DriverStop } from '@/features/driver/DriverRouteView';
 import { ETA_MAXIMO_PLAUSIVEL_MIN } from '@/features/driver/eta';
@@ -88,6 +89,8 @@ export function nextStopFor(stops: DriverStop[]): DriverStop | null {
 type Props = {
   /** Próxima parada da rota (null = nada pendente: rota terminada). */
   stop: DriverStop | null;
+  positionLabel?: string;
+  phase?: 'pickup' | 'dropoff';
   /** Próxima ação do dia para esta parada (`nextActionForStatus`). */
   nextAction: DriverAction | null;
   /** Abre o seletor de app de mapa do sistema — MESMO handler do "Navigate" da lista. */
@@ -102,9 +105,10 @@ type Props = {
   onNotifyOwner?: (stop: DriverStop) => void;
 };
 
-export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyOwner }: Props) {
+export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyOwner, positionLabel, phase }: Props) {
   /** Foto do cão ampliada (pedido do dono, 02/10/2026): toque na miniatura abre em tela cheia. */
   const [fotoAberta, setFotoAberta] = useState(false);
+  const [navigatedId, setNavigatedId] = useState<string | null>(null);
   // Sem parada pendente: o painel continua no topo (o motorista não procura botão que não existe mais),
   // mas sem nenhuma ação — nada de oferecer passo para uma rota que acabou.
   if (!stop) {
@@ -117,6 +121,8 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
     );
   }
 
+  const navigatePrimary = !nextAction || (nextAction === 'arrived' && navigatedId !== stop.id);
+  const visibleAction = nextAction === 'finish' ? 'Complete pickup' : nextAction === 'deliver' ? 'Complete drop-off' : "I've arrived";
   const endereco = [stop.address, stop.city].filter(Boolean).join(' · ');
   /**
    * MINIATURA (auditoria de desempenho, 02/10/2026): a foto aparece em 64 pt, mas o bucket servia a
@@ -142,12 +148,12 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
    * em casa) — sem ela o motorista ficava sem fechar o dia (achado da vistoria, 02/10/2026).
    */
   const secundarias = nextAction
-    ? nextAction === 'deliver' ? ['problem' as const] : nextActionsForStatus(stop.status, stop.deliveredAt).filter((acao) => acao !== nextAction)
+    ? nextAction === 'deliver' || stop.status === 'arrived' ? ['problem' as const] : nextActionsForStatus(stop.status, stop.deliveredAt).filter((acao) => acao !== nextAction)
     : [];
 
   return (
-    <View style={styles.card}>
-      <Text style={styles.eyebrow}>NEXT STOP</Text>
+    <View testID="active-stop-card" style={styles.card}>
+      <View style={styles.stopHeading}><Text style={styles.eyebrow}>{positionLabel ?? 'NEXT STOP'}</Text><Text style={styles.badge}>{phase === 'dropoff' || nextAction === 'deliver' ? 'DROP-OFF' : 'PICK-UP'}</Text></View>
       <View style={styles.dogRow}>
         {/* FOTO DO CÃO (pedido do dono, 02/10/2026): é o que confirma o cão certo na porta. Toca nela
             para ver grande — na rua, com sol, o polegar decide. Sem foto no cadastro, nada aparece. */}
@@ -170,29 +176,27 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
               {atraso > 0 ? ` · ${atraso} min late` : ''}
             </Text>
           ) : null}
+          {minutos != null && minutos >= 0 && minutos <= ETA_MAXIMO_PLAUSIVEL_MIN ? <Text style={styles.eta}>ETA ~{clockText(new Date(Date.now() + minutos * 60000).toISOString())}</Text> : null}
         </View>
       </View>
+      {stop.instructions ? <Text style={styles.safety}>Access · {stop.instructions}</Text> : null}
+      {stop.medicalNotes ? <Text style={styles.safety}>Medical · {stop.medicalNotes}</Text> : null}
+      {stop.behaviorNotes ? <Text style={styles.safety}>Behavior · {stop.behaviorNotes}</Text> : null}
       <View style={styles.actions}>
-        {/* 1) NAVEGAR — reusa o handler de navegação da lista (abre o mapa escolhido pelo motorista). */}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Next stop: navigate to ${stop.dogName}`}
-          onPress={() => onNavigate(stop)}
-          style={[styles.action, styles.actionDark]}
-        >
-          <Text style={styles.actionDarkText}>Navigate</Text>
+        <Pressable accessibilityRole="button" testID="stop-primary"
+          accessibilityLabel={navigatePrimary ? `Next stop: navigate to ${stop.dogName}` : `Next stop: ${NEXT_ACTION_LABEL[nextAction!] ?? nextAction} for ${stop.dogName}`}
+          onPress={() => { if (navigatePrimary) { setNavigatedId(stop.id); onNavigate(stop); } else if (nextAction) onAction(stop.id, nextAction); }}
+          style={[styles.action, styles.actionDark]}>
+          <Text style={styles.actionDarkText}>{navigatePrimary ? 'Navigate' : visibleAction}</Text>
         </Pressable>
-        {/* 2) "I ARRIVED" (ou o passo seguinte do dia, já que a parada pode estar mais adiante). */}
-        {nextAction ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Next stop: ${NEXT_ACTION_LABEL[nextAction] ?? nextAction} for ${stop.dogName}`}
-            onPress={() => onAction(stop.id, nextAction)}
-            style={[styles.action, styles.actionGold]}
-          >
-            <Text style={styles.actionGoldText}>{NEXT_ACTION_LABEL[nextAction] ?? nextAction}</Text>
-          </Pressable>
-        ) : null}
+        {navigatePrimary && nextAction ? <Pressable accessibilityRole="button"
+          accessibilityLabel={`Next stop: ${NEXT_ACTION_LABEL[nextAction] ?? nextAction} for ${stop.dogName}`}
+          onPress={() => onAction(stop.id, nextAction)} style={[styles.action, styles.actionSecondary]}>
+          <Text style={styles.actionNotifyText}>{visibleAction}</Text>
+        </Pressable> : !navigatePrimary ? <Pressable accessibilityRole="button" accessibilityLabel={`Next stop: navigate to ${stop.dogName}`}
+          onPress={() => onNavigate(stop)} style={[styles.action, styles.actionSecondary]}>
+          <Text style={styles.actionNotifyText}>Navigate</Text>
+        </Pressable> : null}
         {/* 2b) A SEGUNDA SAÍDA da entrega: reportar problema (tutor não estava em casa). */}
         {secundarias.map((acao) => (
           <Pressable
@@ -200,9 +204,9 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
             accessibilityRole="button"
             accessibilityLabel={`Next stop: ${SECONDARY_ACTION_LABEL[acao] ?? acao} for ${stop.dogName}`}
             onPress={() => onAction(stop.id, acao)}
-            style={[styles.action, styles.actionProblem]}
+            style={[styles.action, styles.actionSecondary]}
           >
-            <Text style={styles.actionProblemText}>{SECONDARY_ACTION_LABEL[acao] ?? acao}</Text>
+            <Text style={styles.actionProblemText}>Report issue</Text>
           </Pressable>
         ))}
         {/* 3) AVISAR O TUTOR — o mesmo SMS da lista, aqui onde o motorista já está olhando. */}
@@ -213,13 +217,17 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
             accessibilityLabel={`Next stop: notify owner ${stop.dogName}`}
             disabled={!aviso.enabled}
             onPress={() => onNotifyOwner(stop)}
-            style={[styles.action, aviso.tone === 'late' ? styles.actionLate : styles.actionNotify, !aviso.enabled && styles.actionOff]}
+            style={[styles.action, styles.actionSecondary, !aviso.enabled && styles.actionOff]}
           >
             <Text style={aviso.tone === 'late' ? styles.actionLateText : styles.actionNotifyText}>
-              {aviso.tone === 'late' ? 'Notify owner · late' : 'Notify owner'}
+              {aviso.tone === 'late' ? 'Message owner · late' : 'Message owner'}
             </Text>
           </Pressable>
         ) : null}
+        {stop.clientPhone || stop.clientPhone2 ? <Pressable accessibilityRole="button" accessibilityLabel={`Call owner ${stop.dogName}`}
+          style={[styles.action, styles.actionSecondary]} onPress={() => void Linking.openURL(`tel:${encodeURIComponent(stop.clientPhone ?? stop.clientPhone2 ?? '')}`).catch(() => Alert.alert('Call unavailable', 'Please check that this device can make phone calls.'))}>
+          <Text style={styles.actionNotifyText}>Call owner</Text>
+        </Pressable> : null}
       </View>
       {/* FOTO AMPLIADA (pedido do dono, 02/10/2026): fundo escuro, cão inteiro no centro e o nome
           embaixo — é o que o motorista confere na porta. Tocar em qualquer lugar fecha. */}
@@ -244,8 +252,12 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
 
 const styles = StyleSheet.create({
   /** Cartão do herói: papel do app com borda dourada para o motorista achar sem procurar. */
-  card: { backgroundColor: colors.paper, borderRadius: radii.large, borderWidth: 2, borderColor: colors.gold, padding: 15, marginBottom: 12 },
+  card: { backgroundColor: colors.paper, borderRadius: radii.large, padding: 16, marginBottom: 12 },
   /** Rota terminada: mesmo formato, sem o destaque dourado (não há nada a fazer aqui). */
+  safety: { color: colors.ink, fontSize: 14, marginTop: 8 },
+  stopHeading: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  badge: { color: colors.forest700, backgroundColor: colors.sage, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, fontSize: 12, fontWeight: '700' },
+  actionSecondary: { backgroundColor: 'transparent', minHeight: 44 },
   cardDone: { borderWidth: 1, borderColor: colors.line },
   eyebrow: { color: colors.forest700, fontSize: 12, fontWeight: '900', letterSpacing: 1.2 },
   /** Linha do cão: miniatura tocável à esquerda; nome, endereço e ETA à direita. */
@@ -258,15 +270,15 @@ const styles = StyleSheet.create({
   photoFull: { width: '100%', height: '72%' },
   photoCaption: { color: 'white', fontFamily: 'serif', fontSize: 20, fontWeight: '800', marginTop: 14 },
   photoHint: { color: 'rgba(255,255,255,0.72)', fontSize: 13, marginTop: 6 },
-  title: { color: colors.forest900, fontFamily: 'serif', fontSize: 19, fontWeight: '800', marginTop: 4 },
+  title: { color: colors.forest900, fontSize: 24, fontWeight: '800', marginTop: 4 },
   body: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 5 },
-  address: { color: colors.ink, fontSize: 13, marginTop: 5 },
+  address: { color: colors.ink, fontSize: 16, marginTop: 8 },
   eta: { color: colors.forest700, fontSize: 12, fontWeight: '800', marginTop: 4 },
   etaLate: { color: colors.urgency },
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 13 },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 16 },
   /** Mesmas medidas dos botões da lista (DriverRouteView) para o toque não mudar de tamanho na tela. */
   action: { borderRadius: 12, paddingVertical: 14, paddingHorizontal: 15, flexGrow: 1, alignItems: 'center', minWidth: 110 },
-  actionDark: { backgroundColor: colors.forest700 },
+  actionDark: { backgroundColor: colors.forest700, width: '100%', minHeight: 56 },
   actionDarkText: { color: 'white', fontWeight: '900', fontSize: 13 },
   /** Avisar o tutor: sage quando é só o ETA, âmbar quando já está atrasado (cores da lista). */
   actionNotify: { backgroundColor: colors.sage },

@@ -33,7 +33,8 @@ async function montar(overrides: Partial<React.ComponentProps<typeof ShiftCard>>
 describe('ShiftCard (jornada do motorista)', () => {
   it('mostra a jornada deduzida da rota e explica que não precisa apertar nada', async () => {
     const { tela } = await montar();
-    expect(tela.getByText(/On the clock since/)).toBeTruthy();
+    expect(tela.getByText(/Clocked in/)).toBeTruthy();
+    await fireEvent.press(tela.getByLabelText('Journey details'));
     expect(tela.getByText('Worked out from your route stops — nothing to press.')).toBeTruthy();
   });
 

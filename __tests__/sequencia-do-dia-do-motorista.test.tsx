@@ -247,7 +247,10 @@ describe('tela do motorista — sequência pickup → yard → drop-off → van'
     mockRota.route_stops[0].status = 'completed';
     mockRota.route_stops[0].delivered_at = '2026-10-03T20:00:00.000Z';
     const tela = await montarTela();
-    await waitFor(() => expect(tela.getByText('DROP-OFFS')).toBeTruthy());
+    await waitFor(() => expect(tela.getByText('Route complete')).toBeTruthy());
+    expect(tela.queryByTestId('stop-primary')).toBeNull();
+    expect(tela.queryByRole('button', { name: 'Drop-offs' })).toBeNull();
+    expect(tela.getByRole('button', { name: 'Return to van' })).toBeTruthy();
     const jornada = within(tela.getByTestId('cartao-jornada'));
     await waitFor(() => expect(jornada.getByRole('button', { name: 'Navigate to van' })).toBeTruthy());
     await tela.unmount();
@@ -298,4 +301,28 @@ it('seletor não abre busca antes de Start pick-ups', async () => {
   expect(tela.getByRole('button', { name: 'Pick-ups' })).toBeEnabled();
   expect(tela.getByRole('button', { name: 'Drop-offs' })).toBeDisabled();
   await tela.unmount();
+});
+
+it('redesign mostra resumo real e progresso acessível sem inventar distância', async () => {
+  const tela = await montarTela();
+  expect(tela.getByTestId('route-summary')).toBeTruthy();
+  expect(tela.getByRole('progressbar').props.accessibilityValue).toEqual({ min: 0, max: 1, now: 0 });
+  expect(tela.getByText('0 of 1 completed')).toBeTruthy();
+  expect(tela.queryByText(/34.2 mi/)).toBeNull();
+});
+
+it('redesign alterna mapa e lista mantendo parada ativa e timeline', async () => {
+  const tela = await montarTela();
+  expect(tela.getByRole('button', { name: 'Map view' })).toBeSelected();
+  await fireEvent.press(tela.getByRole('button', { name: 'List view' }));
+  expect(tela.getByRole('button', { name: 'List view' })).toBeSelected();
+  expect(tela.getByText('Route timeline')).toBeTruthy();
+  expect(tela.getByText('STOP 1 OF 1')).toBeTruthy();
+  expect(tela.getByTestId('stop-primary')).toBeTruthy();
+});
+
+it('redesign coloca resumo, mapa, ação e timeline nessa ordem', async () => {
+  const tela = await montarTela();
+  const elementos = tela.getAllByTestId(/^(route-summary|route-map-preview|active-stop-card|route-timeline)$/);
+  expect(elementos.map(elemento => elemento.props.testID)).toEqual(['route-summary', 'route-map-preview', 'active-stop-card', 'route-timeline']);
 });

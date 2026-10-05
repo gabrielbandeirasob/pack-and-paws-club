@@ -255,7 +255,8 @@ describe('(3) NENHUM clock automático', () => {
 
     const tela = await abrirTela();
     await waitFor(() => expect(tela.getByTestId('cartao-jornada')).toBeTruthy());
-    // A tela mostra uma jornada (deduzida)…
+    // A explicação da jornada deduzida agora fica nos detalhes compactos.
+    await fireEvent.press(tela.getByLabelText('Journey details'));
     await waitFor(() => expect(tela.getByText(/Worked out from your route stops/)).toBeTruthy());
 
     // …mas NADA foi gravado: sem toque do motorista não existe clock.

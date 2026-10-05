@@ -1,5 +1,6 @@
+import { useState, type ReactNode } from 'react';
 import { formatTimeOfDay } from '@/lib/clock';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 
 import { ordenarParadasDoDia } from '@/features/driver/dayOrder';
 import { dogPhotoThumbnailUrl } from '@/features/dogs/dogPhoto';
@@ -95,6 +96,9 @@ export type DriverStartPoint = {
 };
 
 type Props = {
+  onLayout?: (event: LayoutChangeEvent) => void;
+  activeCard?: ReactNode;
+  activeStopId?: string;
   start?: DriverStartPoint | null;
   onNavigateStart?: () => void;
   stops: DriverStop[];
@@ -135,7 +139,10 @@ function addressLine(stop: DriverStop): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavigateStart, closing, onNavigateClosing, fase: faseProp, etapa: etapaProp, onStartDropoffs, canStartDropoffs }: Props) {
+export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavigateStart, closing, onNavigateClosing, fase: faseProp, etapa: etapaProp, onStartDropoffs, canStartDropoffs, activeCard, activeStopId, onLayout }: Props) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [mode, setMode] = useState<'map' | 'list'>('map');
+  const { height } = useWindowDimensions();
   const fase: DayPhase = faseProp ?? 'pickup';
   /**
    * A VIRADA da perna só existe quando a BUSCA acabou e ainda há ENTREGA (mesma condição de antes).
@@ -164,6 +171,21 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
    */
   const naOrdemDasParadas = tarefas.flatMap((tarefa) => tarefa.stops);
 
+  // Fechamento visual usa a etapa já calculada; não libera nem grava transição.
+  if (activeCard && etapa === 'to_van') {
+    const delivered = stops.map(stop => stop.deliveredAt).filter((value): value is string => Boolean(value)).sort();
+    return <View style={styles.list} testID="route-complete">
+      <Text style={styles.timelineTitle}>Route complete</Text>
+      <Text style={styles.closingSub}>{tarefas.length} stops {stops.some(stop => stop.status === 'skipped') ? 'resolved' : 'completed'}{delivered.length ? ` · Completed at ${clockText(delivered[delivered.length - 1])}` : ''}</Text>
+      {closing ? <View style={styles.closing} testID="route-closing">
+        <Text style={styles.closingTitle}>{closing.title}</Text>
+        {onNavigateClosing ? <Pressable accessibilityRole="button" accessibilityLabel={closing.kind === 'van' ? 'Return to van' : 'Return to yard'} onPress={onNavigateClosing}
+          style={[styles.action, { backgroundColor: colors.forest700, marginVertical: 8 }]}><Text style={{ color: 'white', fontWeight: '700' }}>{closing.kind === 'van' ? 'Return to van' : 'Return to yard'}</Text></Pressable> : null}
+        {closing.address ? <Text style={styles.closingAddress}>{closing.address}</Text> : null}
+      </View> : <Text style={styles.closingSub}>Contact the office for your return location.</Text>}
+    </View>;
+  }
+
   return (
     /*
      * View, NÃO ScrollView: a rolagem ÚNICA da tela do motorista é o ScrollView de
@@ -176,14 +198,14 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
      * saíram daqui — se precisarem existir, existem só no scroller externo. O `scrollEnabled={false}`
      * do mapa (features/maps/RouteMap.tsx) continua igual.
      */
-    <View style={styles.list}>
+    <View testID="route-content" onLayout={onLayout} style={styles.list}>
       {/*
         * FASE DO DIA (cliente, 02/10/2026): a perna atual fica EXPLÍCITA no topo — o motorista sabe se
         * está buscando ou entregando, e a virada é um ato dele (botão abaixo), não automática.
         */}
-      <View style={styles.closing} testID="day-phase">
+      <View style={styles.phaseHeading} testID="day-phase">
         <Text style={styles.closingTag}>{fase === 'pickup' ? 'PICK-UPS' : 'DROP-OFFS'}</Text>
-        <Text style={styles.closingTitle}>{fase === 'pickup' ? 'Picking up the dogs' : 'Delivering the dogs'}</Text>
+
         {fase === 'dropoff' ? (
           <Text style={styles.closingSub}>The pick-up run is over — everything here is a delivery.</Text>
         ) : null}
@@ -208,8 +230,17 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
           </View>
         </View>
       ) : null}
-      {tarefas.length > 0 ? (
-        <RouteMap
+      <View style={styles.segment}>
+        {(['map', 'list'] as const).map(value => <Pressable key={value} accessibilityRole="button"
+          accessibilityLabel={value === 'map' ? 'Map view' : 'List view'} accessibilityState={{ selected: mode === value }}
+          onPress={() => setMode(value)} style={[styles.segmentOption, mode === value && styles.segmentSelected]}>
+          <Text style={styles.segmentText}>{value === 'map' ? 'Map' : 'List'}</Text>
+        </Pressable>)}
+      </View>
+      {tarefas.length > 0 && mode === 'map' ? (
+        <View testID="route-map-preview"><RouteMap
+          height={Math.round(height * 0.30)}
+          activeStopId={tarefas.find(task => task.stops.some(stop => stop.id === activeStopId))?.id}
           stops={tarefas.map((tarefa, index) => {
             // UM ponto por PARADA (não por cão): dois cães da mesma casa são a mesma parada no mapa.
             const primeiro = tarefa.stops[0];
@@ -224,8 +255,10 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
               longitude: primeiro.longitude,
             };
           })}
-        />
+        /></View>
       ) : null}
+      {activeCard}
+      <Text testID="route-timeline" style={styles.timelineTitle}>Route timeline</Text>
       {naOrdemDasParadas.map((stop, index) => {
         /*
          * `done` agora depende da PERNA (cliente, 02/10/2026): na busca, conclui no pick-up; na
@@ -233,6 +266,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
          * pick-up já deixa a parada `completed`.
          */
         const done = paradaDaFaseConcluida(stop, fase);
+        const showDetails = !activeCard || expanded[stop.id];
         /*
          * ENTREGA (conferência do dono, 01/10/2026): `done` marca a BUSCA concluída (é o que pinta o
          * cartão), mas a parada só sai da fila quando a entrega é confirmada — `deliveredAt` — ou
@@ -268,8 +302,9 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
             accessibilityRole="button"
             accessibilityLabel={`Open navigation for ${stop.dogName}`}
             onPress={() => fire(stop, 'navigate')}
-            style={({ pressed }) => [styles.card, done && styles.cardDone, pressed && styles.cardPressed]}
+            style={({ pressed }) => [styles.card, done && styles.cardDone, stop.id === activeStopId && styles.cardCurrent, pressed && styles.cardPressed]}
           >
+            <Text style={styles.timelineState}>{done ? stop.status === 'skipped' ? '✓ Issue reported' : '✓ Completed' : stop.id === activeStopId ? '● Current' : index === naOrdemDasParadas.findIndex(item => item.id === activeStopId) + 1 ? '○ Next' : '○ Upcoming'} · {fase === 'pickup' ? 'Pick-up' : 'Drop-off'}</Text>
             <View style={styles.rowTop}>
               {/* Foto do cão (cadastro): é o que confirma que é o cachorro certo na porta — sem
                   ela o motorista só tem o nome. */}
@@ -285,6 +320,10 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
               <Text style={styles.title}>{posicao?.numero ?? index + 1}. {stop.dogName}</Text>
               <StatusBadge status={stop.status} entregue={Boolean(stop.deliveredAt)} />
             </View>
+            {activeCard ? <Pressable accessibilityRole="button" accessibilityLabel={`Stop details ${stop.dogName}`}
+              accessibilityState={{ expanded: Boolean(expanded[stop.id]) }} onPress={() => setExpanded(previous => ({ ...previous, [stop.id]: !previous[stop.id] }))}
+              style={styles.segmentOption}><Text style={styles.segmentText}>{showDetails ? 'Hide details' : 'Details'}</Text></Pressable> : null}
+            {showDetails ? <>
             {address ? <Text style={styles.address}>{address}</Text> : null}
             {stop.exactTime ? <Text style={styles.deadline}>⏱ Must arrive by {formatTimeOfDay(stop.exactTime)}</Text> : stop.windowEnd ? <Text style={styles.deadline}>⏱ Window until {formatTimeOfDay(stop.windowEnd)}</Text> : null}
             {/* HORA DE CADA MARCO (chegada/conclusão), carimbada no servidor desde a migration 024 —
@@ -367,6 +406,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
                 </>
               ) : null}
             </View>
+            </> : <Text style={styles.marcos}>{marcosDaParada(stop, fase)}</Text>}
           </Pressable>
           </View>
         );
@@ -468,9 +508,17 @@ function StatusBadge({ status, entregue }: { status: DriverStop['status']; entre
 
 const styles = StyleSheet.create({
   /** Estilo de CONTEÚDO da lista (antes era contentContainerStyle do ScrollView interno). */
+  phaseHeading: { paddingVertical: 8 },
+  segment: { flexDirection: 'row', padding: 4, backgroundColor: colors.sage, borderRadius: 12, marginBottom: 8 },
+  segmentOption: { flex: 1, minHeight: 44, justifyContent: 'center', alignItems: 'center', borderRadius: 8 },
+  segmentSelected: { backgroundColor: colors.paper },
+  segmentText: { color: colors.forest900, fontWeight: '700' },
+  timelineTitle: { color: colors.forest900, fontSize: 18, fontWeight: '700', marginVertical: 16 },
+  timelineState: { color: colors.forest700, fontSize: 12, fontWeight: '700', marginBottom: 8 },
   list: { padding: 16, paddingBottom: 40 },
-  card: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, padding: 15, marginBottom: 12 },
-  cardDone: { opacity: 0.55 },
+  card: { backgroundColor: colors.paper, borderRadius: radii.medium, borderLeftWidth: 2, borderColor: colors.sage, padding: 16, marginBottom: 8 },
+  cardDone: { backgroundColor: colors.cream },
+  cardCurrent: { borderColor: colors.forest700 },
   cardPressed: { opacity: 0.9 },
   /** Cabeçalho da PARADA com mais de um cão (mesmo cliente): "Stop 2 · Ana · 2 dogs". */
   groupHeader: { marginTop: 2, marginBottom: 6 },
@@ -499,9 +547,9 @@ const styles = StyleSheet.create({
   careText: { color: colors.ink, fontSize: 13, lineHeight: 19, marginTop: 4 },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 13 },
   action: { borderRadius: 12, paddingVertical: 14, paddingHorizontal: 15, flexGrow: 1, alignItems: 'center', minWidth: 120 },
-  actionDark: { backgroundColor: colors.forest700 },
-  actionDarkText: { color: 'white', fontWeight: '900', fontSize: 13 },
-  actionGold: { backgroundColor: colors.gold },
+  actionDark: { backgroundColor: colors.sage },
+  actionDarkText: { color: colors.forest900, fontWeight: '900', fontSize: 13 },
+  actionGold: { backgroundColor: colors.sage },
   actionGoldText: { color: colors.forest900, fontWeight: '900', fontSize: 13 },
   actionProblem: { backgroundColor: '#FBEAE6' },
   closing: {
@@ -524,6 +572,6 @@ const styles = StyleSheet.create({
   actionLate: { backgroundColor: '#F3D9A4' },
   actionLateText: { color: '#7A5B12', fontWeight: '900', fontSize: 13 },
   /** Botão de ENTREGA: verde fechado (ação que encerra a parada), distinto do dourado da busca. */
-  actionDelivered: { backgroundColor: colors.forest700 },
-  actionDeliveredText: { color: colors.cream, fontWeight: '900', fontSize: 13 },
+  actionDelivered: { backgroundColor: colors.sage },
+  actionDeliveredText: { color: colors.forest900, fontWeight: '900', fontSize: 13 },
 });

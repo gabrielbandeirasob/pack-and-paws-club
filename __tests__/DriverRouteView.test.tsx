@@ -1,3 +1,4 @@
+import { RouteSummary } from '@/features/driver/RouteSummary';
 import { fireEvent, render } from '@testing-library/react-native';
 import { DriverRouteView, type DriverStop } from '@/features/driver/DriverRouteView';
 
@@ -238,4 +239,16 @@ describe('DriverRouteView', () => {
     const tela = await render(<DriverRouteView fase="dropoff" stops={entregue} onAction={jest.fn()} />);
     expect(tela.queryByRole('button', { name: 'Problem stop-1' })).toBeNull();
   });
+});
+
+
+it('resumo conta uma casa com dois cães só quando ambos terminam e separa entrega', async () => {
+  const grupo: DriverStop[] = stops.map((stop, index) => ({ ...stop, groupId: 'casa', status: index === 0 ? 'completed' : 'pending' }));
+  const tela = await render(<RouteSummary stops={grupo} fase="pickup" />);
+  expect(tela.getByText('0 of 1 completed')).toBeTruthy();
+  const buscados: DriverStop[] = grupo.map(stop => ({ ...stop, status: 'completed' }));
+  await tela.rerender(<RouteSummary stops={buscados} fase="pickup" />);
+  expect(tela.getByText('1 of 1 completed')).toBeTruthy();
+  await tela.rerender(<RouteSummary stops={buscados} fase="dropoff" />);
+  expect(tela.getByText('0 of 1 completed')).toBeTruthy();
 });

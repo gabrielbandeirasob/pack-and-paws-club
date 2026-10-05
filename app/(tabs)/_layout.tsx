@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { Tabs } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, Text } from 'react-native';
+import { ActivityIndicator, Text, type ColorValue } from 'react-native';
 import { View } from 'react-native';
 
 import { NoAccess } from '@/features/auth/NoAccess';
@@ -24,7 +24,7 @@ const DRIVER_TABS: TabSpec[] = [
   { name: 'driver', title: "Today's Route", icon: '➤' },
   { name: 'schedule', title: 'Schedule', icon: '▦' },
   { name: 'assigned', title: 'Assigned', icon: '♙' },
-  { name: 'profile', title: 'Profile', icon: '👤' },
+  { name: 'profile', title: 'Profile', icon: '♙' },
 ];
 
 const ALL_TABS = [...MANAGER_TABS, ...DRIVER_TABS];
@@ -58,8 +58,9 @@ export default function TabLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.forest700,
         tabBarInactiveTintColor: colors.muted,
-        tabBarStyle: { backgroundColor: colors.paper, borderTopColor: colors.line, height: 70, paddingTop: 7, paddingBottom: 8 },
+        tabBarStyle: { backgroundColor: colors.paper, borderTopColor: colors.line, paddingTop: 8 },
         tabBarLabelStyle: { fontSize: 12, fontWeight: '700' },
+        tabBarLabelPosition: 'below-icon',
       }}
     >
       {ALL_TABS.map((tab) => {
@@ -70,6 +71,8 @@ export default function TabLayout() {
             name={tab.name}
             options={{
               title: tab.title,
+              ...(view === 'driver' ? { tabBarLabel: ({ color }: { color: ColorValue }) =>
+                <Text style={{ color, fontSize: 12, fontWeight: '700', textAlign: 'center' }}>{tab.title}</Text> } : {}),
               href: active ? undefined : null,
               tabBarIcon: ({ color }) => <Text style={{ color, fontSize: 18, fontWeight: '800' }}>{tab.icon}</Text>,
               ...(tab.name === 'index' && todosPendentes > 0

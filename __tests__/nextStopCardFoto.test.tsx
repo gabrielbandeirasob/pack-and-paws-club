@@ -104,3 +104,32 @@ describe('NEXT STOP — foto do cão', () => {
     expect(tela.getByText(/min away/)).toBeTruthy();
   });
 });
+
+it('redesign mantém uma ação dominante e promove chegada depois de navegar', async () => {
+  const navegar = jest.fn();
+  const agir = jest.fn();
+  const tela = await render(<NextStopCard stop={parada()} nextAction="arrived" onNavigate={navegar} onAction={agir} />);
+  expect(tela.getByTestId('stop-primary').props.accessibilityLabel).toBe('Next stop: navigate to Bob');
+  await fireEvent.press(tela.getByTestId('stop-primary'));
+  expect(navegar).toHaveBeenCalledTimes(1);
+  expect(tela.getByTestId('stop-primary').props.accessibilityLabel).toBe('Next stop: I arrived for Bob');
+  expect(agir).not.toHaveBeenCalled();
+});
+
+it('redesign conclusão explícita mantém o handler obrigatório', async () => {
+  const agir = jest.fn();
+  const tela = await render(<NextStopCard stop={parada({ status: 'arrived' })} nextAction="finish" onNavigate={jest.fn()} onAction={agir} />);
+  expect(tela.getByText('Complete pickup')).toBeTruthy();
+  await fireEvent.press(tela.getByTestId('stop-primary'));
+  expect(agir).toHaveBeenCalledWith('stop-1', 'finish');
+});
+
+it('redesign entrega exige toque explícito e mantém saída de problema', async () => {
+  const agir = jest.fn();
+  const tela = await render(<NextStopCard stop={parada({ status: 'completed' })} nextAction="deliver" onNavigate={jest.fn()} onAction={agir} />);
+  expect(agir).not.toHaveBeenCalled();
+  expect(tela.getByText('Complete drop-off')).toBeTruthy();
+  expect(tela.getByText('Report issue')).toBeTruthy();
+  await fireEvent.press(tela.getByTestId('stop-primary'));
+  expect(agir).toHaveBeenCalledWith('stop-1', 'deliver');
+});

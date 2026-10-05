@@ -16,9 +16,9 @@ import type { MapStop } from './mapStop';
 
 export type { MapStop };
 
-type Props = { stops: MapStop[]; height?: number };
+type Props = { stops: MapStop[]; height?: number; activeStopId?: string };
 
-export function RouteMap({ stops, height = 210 }: Props) {
+export function RouteMap({ stops, height = 210, activeStopId }: Props) {
   const points = stops.filter((stop) => typeof stop.latitude === 'number' && typeof stop.longitude === 'number');
 
   return (
