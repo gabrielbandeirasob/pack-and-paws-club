@@ -66,7 +66,7 @@ jest.mock('@/lib/supabase', () => {
     let op: 'select' | 'insert' | 'update' = 'select';
     let payload: Linha | null = null;
     const mesmo = () => chain;
-    for (const metodo of ['select', 'eq', 'gte', 'lt', 'lte', 'order', 'limit']) chain[metodo] = mesmo;
+    for (const metodo of ['select', 'eq', 'or', 'gte', 'lt', 'lte', 'order', 'limit']) chain[metodo] = mesmo;
     chain.insert = (p: Linha) => { op = 'insert'; payload = p; return chain; };
     chain.update = (p: Linha) => { op = 'update'; payload = p; return chain; };
     chain.maybeSingle = async () => {

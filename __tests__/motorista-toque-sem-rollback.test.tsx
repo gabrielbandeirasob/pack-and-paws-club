@@ -116,6 +116,7 @@ jest.mock('@/lib/supabase', () => {
     const mesmo = () => chain;
     chain.select = mesmo;
     chain.eq = mesmo; chain.gte = mesmo; chain.lt = mesmo; chain.lte = mesmo; chain.order = mesmo; chain.limit = mesmo;
+    chain.or = mesmo;
     chain.maybeSingle = mesmo; chain.insert = mesmo; chain.delete = mesmo; chain.upsert = () => Promise.resolve({ error: null });
     chain.update = (payload: Record<string, unknown>) => { payloadDoUpdate = payload; mockEstado.atualizacoes.push({ tabela, payload }); return chain; };
     chain.then = (res: (v: unknown) => unknown) => {

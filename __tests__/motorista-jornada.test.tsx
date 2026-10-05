@@ -60,7 +60,7 @@ jest.mock('@/lib/supabase', () => {
     const chain: Record<string, unknown> = {};
     let payloadDeInsert: Record<string, unknown> | null = null;
     const mesmo = () => chain;
-    for (const metodo of ['select', 'eq', 'gte', 'lt', 'lte', 'order', 'limit']) chain[metodo] = mesmo;
+    for (const metodo of ['select', 'eq', 'or', 'gte', 'lt', 'lte', 'order', 'limit']) chain[metodo] = mesmo;
     chain.maybeSingle = async () => ({ data: leitura(tabela)[0] ?? null, error: null });
     chain.insert = (payload: Record<string, unknown>) => { payloadDeInsert = payload; return chain; };
     chain.update = mesmo;

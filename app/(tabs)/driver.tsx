@@ -23,6 +23,7 @@ import { ShiftCard } from '@/features/driver/ShiftCard';
 import { usePendingSyncRetry } from '@/features/driver/usePendingSyncRetry';
 import { shiftErrorMessage, shiftState, type ManualShift } from '@/features/driver/shift';
 import {
+  closeShiftIfOpen,
   createClosedShift,
   endManualShift,
   loadDriverShifts,
@@ -356,6 +357,16 @@ export default function DriverTodayScreen() {
         }
         if (!alvo.organizationId || !alvo.driverId) throw new Error('Organization not found for this account.');
         if (entrada.endedAt) {
+          // A entrada que LEMBRA qual jornada fechar é reenviada como UPDATE: sem isto o replay criava
+          // uma segunda jornada fechada e deixava a original aberta para sempre (ver `closeShiftIfOpen`).
+          if (entrada.shiftId) {
+            await closeShiftIfOpen(supabase, {
+              shiftId: entrada.shiftId,
+              reason: entrada.endReason,
+              endedAt: entrada.endedAt,
+            });
+            return;
+          }
           await createClosedShift(supabase, {
             organizationId: alvo.organizationId,
             driverId: alvo.driverId,
@@ -1041,7 +1052,15 @@ export default function DriverTodayScreen() {
 
       const resultado = await startManualShift(supabase, { organizationId, driverId, routeId, reason: motivoGravado, startedAt });
       if (resultado.mode === 'already-open') {
-        setShiftError('You already have a journey open.');
+        // A restrição é global por motorista (inclusive jornada de outro dia).
+        // Reconciliar dentro da mesma escrita preserva a proteção contra cargas antigas.
+        // Uma falha nesta LEITURA não é um clock-in offline: nunca enfileirar outra entrada.
+        try {
+          await recarregarJornadas(driverId);
+          setMessage('An existing journey was found. Your journey has been refreshed.');
+        } catch {
+          setShiftError('You already have a journey open. Could not load it. Pull down to refresh before trying again.');
+        }
         return;
       }
       await recarregarJornadas(driverId);
@@ -1128,8 +1147,11 @@ export default function DriverTodayScreen() {
       setMessage('Journey closed.');
     } catch (causa) {
       if (isNetworkError(causa)) {
-        // Uma linha só com entrada e saída: nada de meio registro no aparelho.
-        await guardarNaFila({ kind: 'shift', startedAt: plano.startedAt, endedAt: agora, startReason: plano.startReason, endReason: motivo, routeId, queuedAt: agora });
+        // Uma linha só com entrada e saída: nada de meio registro no aparelho. Quando a jornada já
+        // estava ABERTA no banco, a entrada leva o `shiftId` para o replay FECHAR a mesma jornada em
+        // vez de criar uma segunda (achado de 05/10/2026 — a original ficava aberta e travava o clock
+        // in do dia seguinte).
+        await guardarNaFila({ kind: 'shift', shiftId: plano.abertaNoBanco?.id ?? null, startedAt: plano.startedAt, endedAt: agora, startReason: plano.startReason, endReason: motivo, routeId, queuedAt: agora });
         setMessage('No connection: the journey is saved on your phone and will sync automatically.');
       } else {
         setShiftError(shiftErrorMessage(causa));

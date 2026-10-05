@@ -44,7 +44,7 @@ export function shiftFromRow(row: ShiftRow): ManualShift {
   };
 }
 
-/** Jornadas manuais do motorista no dia (o app só precisa das de hoje). */
+/** Jornadas do dia e qualquer jornada ainda aberta: a unicidade é global por motorista. */
 export async function loadDriverShifts(
   client: SupabaseClient,
   params: { driverId: string; dayStart: string; dayEnd: string },
@@ -53,8 +53,7 @@ export async function loadDriverShifts(
     .from('driver_shifts')
     .select('id, started_at, ended_at, start_reason, end_reason, route_id')
     .eq('driver_id', params.driverId)
-    .gte('started_at', params.dayStart)
-    .lt('started_at', params.dayEnd)
+    .or(`ended_at.is.null,and(started_at.gte.${params.dayStart},started_at.lt.${params.dayEnd})`)
     .order('started_at', { ascending: true });
   if (error) throw new Error(error.message);
   return ((data ?? []) as unknown as ShiftRow[]).map(shiftFromRow);
@@ -107,6 +106,31 @@ export async function endManualShift(
     .select('id');
   if (error) throw new Error(error.message);
   if (!fechadas || fechadas.length === 0) throw new Error('Could not close this journey. Ask the manager to check your access.');
+}
+
+/**
+ * Fecha a jornada ABERTA indicada (UPDATE), usada pelo REPLAY da fila local.
+ *
+ * 🪤 ACHADO EM CAMPO (05/10/2026): o clock out sem sinal de uma jornada que estava aberta no banco
+ * era reenviado como registro novo (INSERT de uma jornada fechada) — a original continuava ABERTA e o
+ * motorista ficava sem conseguir dar Clock in no dia seguinte ("You already have a journey open.").
+ * O `.is('ended_at', null)` deixa a operação IDEMPOTENTE.
+ *
+ * `false` = a jornada já não estava aberta (outro aparelho fechou, por exemplo): nada a corrigir e a
+ * entrada da fila pode sair, em vez de travar a fila para sempre repetindo um erro que não melhora.
+ */
+export async function closeShiftIfOpen(
+  client: SupabaseClient,
+  params: { shiftId: string; reason: string | null; endedAt: string },
+): Promise<boolean> {
+  const { data, error } = await client
+    .from('driver_shifts')
+    .update({ ended_at: params.endedAt, end_reason: params.reason })
+    .eq('id', params.shiftId)
+    .is('ended_at', null)
+    .select('id');
+  if (error) throw new Error(error.message);
+  return Array.isArray(data) && data.length > 0;
 }
 
 /**

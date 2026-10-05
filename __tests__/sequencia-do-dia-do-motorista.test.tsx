@@ -146,6 +146,7 @@ jest.mock('@/lib/supabase', () => {
     chain.select = mesmo;
     chain.eq = mesmo;
     chain.gte = mesmo;
+    chain.or = mesmo;
     chain.lt = mesmo;
     chain.lte = mesmo;
     chain.order = mesmo;

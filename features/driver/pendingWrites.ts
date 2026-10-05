@@ -23,6 +23,18 @@ export type PendingShift = {
   endReason: string | null;
   routeId: string | null;
   queuedAt: string;
+  /**
+   * Jornada JÁ ABERTA no banco que este registro precisa FECHAR (`null`/ausente = jornada que só
+   * existiu no aparelho, vai como registro novo e completo).
+   *
+   * 🪤 ACHADO EM CAMPO (05/10/2026): o clock out SEM SINAL de uma jornada que estava aberta no
+   * servidor entrava na fila só com as horas. No replay, `createClosedShift` fazia INSERT de uma
+   * SEGUNDA jornada fechada e a original continuava ABERTA para sempre — no dia seguinte o app dizia
+   * "Journey not started yet" e o servidor recusava o Clock in ("You already have a journey open.").
+   * Campo OPCIONAL de propósito: a fila gravado pela build anterior não tem esta chave e continua
+   * sendo enviada como antes.
+   */
+  shiftId?: string | null;
 };
 
 export type PendingEtaNotice = {

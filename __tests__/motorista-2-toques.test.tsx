@@ -134,6 +134,7 @@ jest.mock('@/lib/supabase', () => {
     chain.select = (campos: string) => { consulta.campos = campos; return chain; };
     chain.eq = (campo: string, valor: unknown) => { consulta.filtros[campo] = valor; return chain; };
     chain.gte = mesmo;
+    chain.or = mesmo;
     chain.lt = mesmo;
     chain.lte = mesmo;
     chain.order = mesmo;
