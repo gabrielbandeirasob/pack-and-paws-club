@@ -1,9 +1,9 @@
 import { formatTimeOfDay } from '@/lib/clock';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
-import { DogPicker } from '@/features/calendar/DogPicker';
+import { agruparPorCliente, filtrarCaes, resumoDaBusca } from '@/features/calendar/dogPickerSearch';
 import type { BlocoSugerido, SugestaoDeRotas, SugestoesDoDia } from '@/features/dispatch/routeSuggestion';
 import type { DogRef } from '@/features/calendar/dayMath';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
@@ -609,8 +609,8 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
         só na rota. Pedido do dono (23/09/2026) — controle do Total Pack sem depender do calendário.
       */}
       <Modal visible={buscaCao} transparent animationType="fade" onRequestClose={() => setBuscaCao(false)}>
-        <View style={styles.backdrop}>
-          <View style={styles.sheet}>
+        <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={[styles.sheet, styles.manualDogSheet]}>
             <View style={styles.sheetHeader}>
               <Text style={styles.sheetTitle}>Add any dog</Text>
               <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setBuscaCao(false)} hitSlop={10}>
@@ -620,14 +620,12 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
             <Text style={styles.muted}>
               Straight from the registry — no reservation needed today. The stop is created only on the route.
             </Text>
-            <DogPicker
+            {buscaCao ? <ManualDogSearch
               dogs={dogs}
-              selected={null}
-              hint="Search by dog or client"
               onSelect={(dog) => { onAddExtraDog?.(dog); setBuscaCao(false); }}
-            />
+            /> : null}
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/*
@@ -829,6 +827,46 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
     </View>
   );
 });
+
+/**
+ * Search INSIDE the Dispatch sheet, not a second native Modal. The shared calendar picker owns a
+ * Modal; nesting it here dismissed child and parent together after selection. On iOS that is a
+ * risky native presentation transition even though the manual dog has already reached the pool.
+ * Keep the shared search rules, but only one presenter/backdrop for this workflow.
+ */
+function ManualDogSearch({ dogs, onSelect }: { dogs: DogRef[]; onSelect: (dog: DogRef) => void }) {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState('');
+  const found = useMemo(() => filtrarCaes(dogs, term), [dogs, term]);
+  const groups = useMemo(() => agruparPorCliente(found), [found]);
+  if (!open) return (
+    <Pressable accessibilityRole="button" accessibilityLabel="Select dog" onPress={() => setOpen(true)} style={styles.driverOption}>
+      <Text style={styles.driverOptionText}>Select dog…</Text>
+    </Pressable>
+  );
+  return <View style={{ flexShrink: 1 }}>
+    <Text style={styles.muted}>{resumoDaBusca(dogs.length, found.length, term)}</Text>
+    <TextInput accessibilityLabel="Search dog or client" placeholder="Search dog or client…"
+      placeholderTextColor={colors.muted} value={term} onChangeText={setTerm}
+      autoCorrect={false} autoCapitalize="none" style={styles.manualDogSearch} />
+    <ScrollView style={styles.sugestaoLista} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+      {groups.length === 0 ? <Text style={styles.muted}>No dogs found for “{term}”.</Text> : groups.map(group => (
+        <View key={group.cliente}>
+          <Text style={styles.fieldLabel}>{group.cliente}</Text>
+          {group.caes.map(dog => <Pressable key={dog.id} accessibilityRole="button"
+            accessibilityLabel={`Select ${dog.dogName} of ${dog.clientName}`}
+            onPress={() => onSelect(dog)} style={styles.driverOption}>
+            <Text style={styles.driverOptionText}>{dog.dogName}</Text>
+          </Pressable>)}
+        </View>
+      ))}
+    </ScrollView>
+    <Pressable accessibilityRole="button" accessibilityLabel="Cancel dog selection"
+      onPress={() => { setTerm(''); setOpen(false); }} style={styles.sheetCancel}>
+      <Text style={styles.sheetCancelText}>Cancel</Text>
+    </Pressable>
+  </View>;
+}
 
 type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | 'onPublish' | 'onUnpublish' | 'onCancelRoute' | 'onCompleteRoute'> & {
   driver: DispatchDriver;
@@ -1133,6 +1171,8 @@ function TimeTargetButton({ label, accessibilityLabel, value, active, onPress, h
 }
 
 const styles = StyleSheet.create({
+  manualDogSheet: { maxHeight: '90%' },
+  manualDogSearch: { borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, padding: 12, color: colors.ink, marginVertical: 8 },
   pinRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 4 },
   /** Rótulo do seletor de perna — separa "PLANNING" dos chips de motorista logo abaixo. */
   faseRotulo: { color: '#B9C7B6', fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 10, marginLeft: 14, marginBottom: 4 },
