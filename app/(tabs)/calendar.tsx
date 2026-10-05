@@ -5,6 +5,7 @@ import { ModalScreen } from '@/features/ui/ModalScreen';
 import { showAlert } from '@/features/ui/alert';
 import { useFocusEffect, useRouter } from 'expo-router';
 
+import { useRoleGuard } from '@/features/auth/useRoleGuard';
 import { CalendarGrid, BOARDING_DOT, DAYCARE_DOT } from '@/features/calendar/CalendarGrid';
 import { addDaysISO, formatDayLabel, todayLocalISO } from '@/features/calendar/dates';
 import { buildDay, isSkipped, type DayItem, type DogRef, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
@@ -364,6 +365,39 @@ export default function CalendarScreen() {
       { text: 'Restore', onPress: () => void removeSkipOnDate(schedule.id) },
     ]);
   };
+
+  /**
+   * TRAVA DE PAPEL (achado dos testes de papel, 05/10/2026): esta é a aba do GESTOR — `DRIVER_TABS`
+   * não tem `calendar` —, mas a tela era alcançável pela URL (build web / link direto) e o cartão do
+   * Google Calendar, que é do escritório, APARECIA para o motorista. Aqui a visão errada é devolvida
+   * para o app dela, o mesmo padrão da tela do motorista (`useRoleGuard`).
+   *
+   * A integração do Google é do gestor: o motorista não vê o cartão, não conecta e não dispara
+   * importação — nem por link.
+   */
+  const { liberado, role, isLoading: carregandoPapel } = useRoleGuard('manager');
+  if (!liberado) {
+    // Rodinha enquanto a visão carrega. Conta SEM vínculo ativo (`role` nulo) fica parada no guard:
+    // sem a frase abaixo ela giraria para sempre — lição da vistoria de 02/10/2026 na tela do motorista.
+    if (carregandoPapel || role !== null) {
+      return (
+        <SafeAreaView style={styles.screen} edges={['top']}>
+          <ActivityIndicator testID="calendar-loading" style={styles.marginTop} color={colors.gold} size="large" />
+        </SafeAreaView>
+      );
+    }
+    return (
+      <SafeAreaView style={styles.screen} edges={['top']}>
+        <ScrollView contentContainerStyle={styles.marginTop}>
+          <Text style={styles.title}>This account has no daycare</Text>
+          <Text style={styles.errorText}>
+            Your login is not linked to an active daycare. Ask the manager to invite this e-mail again,
+            or sign in with the account you use there.
+          </Text>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
