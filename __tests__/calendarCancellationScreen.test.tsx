@@ -20,6 +20,12 @@ jest.mock('@/lib/supabase', () => ({ supabase: {
 } }));
 import CalendarScreen from '@/app/(tabs)/calendar';
 
+jest.mock('@/features/auth/useOrganizationRole', () => ({
+  // A tela Calendar é a aba do GESTOR (DRIVER_TABS não tem 'calendar'): a trava de papel entrou em
+  // 05/10/2026 porque o cartão do Google Calendar aparecia para o motorista quando ele caía na URL.
+  useOrganizationRole: () => ({ role: 'manager', view: 'manager', isLoading: false }),
+}));
+
 const row = { id: 'r-kona', status: 'confirmed', service_type: 'daycare', start_date: '2026-09-28',
   end_date: '2026-09-28', transport_required: true, google_event_id: 'g-kona', source: 'google',
   dog: { id: 'kona', name: 'Kona', client: { name: 'Leigh Ann' } } };

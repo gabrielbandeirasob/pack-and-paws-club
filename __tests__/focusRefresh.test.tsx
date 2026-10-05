@@ -48,6 +48,12 @@ jest.mock('@/features/integrations/google/useCalendarConnection', () => ({
 import ClientListScreen from '@/app/(tabs)/clients';
 import CalendarScreen from '@/app/(tabs)/calendar';
 
+jest.mock('@/features/auth/useOrganizationRole', () => ({
+  // A tela Calendar é a aba do GESTOR (DRIVER_TABS não tem 'calendar'): a trava de papel entrou em
+  // 05/10/2026 porque o cartão do Google Calendar aparecia para o motorista quando ele caía na URL.
+  useOrganizationRole: () => ({ role: 'manager', view: 'manager', isLoading: false }),
+}));
+
 /** Cadeia do PostgREST falsa: aceita select/eq/limit/order e pode ser awaited. */
 function cadeia(resultado: unknown) {
   const builder: Record<string, unknown> = {};

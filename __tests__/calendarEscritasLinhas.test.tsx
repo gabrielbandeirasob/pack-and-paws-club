@@ -51,6 +51,12 @@ jest.mock('@/lib/supabase', () => ({
 
 import CalendarScreen from '@/app/(tabs)/calendar';
 
+jest.mock('@/features/auth/useOrganizationRole', () => ({
+  // A tela Calendar é a aba do GESTOR (DRIVER_TABS não tem 'calendar'): a trava de papel entrou em
+  // 05/10/2026 porque o cartão do Google Calendar aparecia para o motorista quando ele caía na URL.
+  useOrganizationRole: () => ({ role: 'manager', view: 'manager', isLoading: false }),
+}));
+
 const hoje = '2026-09-28';
 const diaSemana = new Date(`${hoje}T00:00:00Z`).getUTCDay();
 

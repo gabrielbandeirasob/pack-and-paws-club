@@ -37,6 +37,12 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
 import CalendarScreen from '@/app/(tabs)/calendar';
 
+jest.mock('@/features/auth/useOrganizationRole', () => ({
+  // A tela Calendar é a aba do GESTOR (DRIVER_TABS não tem 'calendar'): a trava de papel entrou em
+  // 05/10/2026 porque o cartão do Google Calendar aparecia para o motorista quando ele caía na URL.
+  useOrganizationRole: () => ({ role: 'manager', view: 'manager', isLoading: false }),
+}));
+
 const gteArgs: unknown[] = [];
 
 /** Cadeia do PostgREST falsa: registra a janela (gte/lte) que a tela pediu. */
