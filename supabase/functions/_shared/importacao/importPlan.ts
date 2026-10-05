@@ -40,7 +40,7 @@
  */
 import { addDaysISO, weekdayOfISO } from './dates.ts';
 import { movimentaOCao, readEventColor, serviceTypeOfMeaning, type BookingServiceType, type ColorMeaning, type EventColorRead, type EventLabel } from './googleColors.ts';
-import type { RemoteEvent } from './calendarSync.ts';
+import type { RemoteEvent } from './eventMarkers.ts';
 
 export type { BookingServiceType };
 

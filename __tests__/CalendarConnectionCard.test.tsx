@@ -1,19 +1,14 @@
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
-import { CalendarConnectionCard, dentroDaJanela, janelaDeEspelho, janelaDeImportacao } from '@/features/integrations/google/CalendarConnectionCard';
-import { TEXTO_FALTA_DE_ESCOPO, TEXTO_FALTA_DE_ESCOPO_CORES, TEXTO_SOMENTE_LEITURA } from '@/features/integrations/google/calendarChoice';
-import type { LocalReservation } from '@/features/integrations/google/calendarSync';
+import { CalendarConnectionCard, janelaDeImportacao } from '@/features/integrations/google/CalendarConnectionCard';
+import { TEXTO_FALTA_DE_ESCOPO, TEXTO_FALTA_DE_ESCOPO_CORES } from '@/features/integrations/google/calendarChoice';
 import type { BookingForImport, DogForImport } from '@/features/integrations/google/importPlan';
 import { esquecerSincronizacao, lerUltimaSincronizacao, marcarSincronizacao } from '@/features/integrations/google/lastSyncStore';
 
 import { enviarCredencialAoServidor, revogarCredencialDoServidor, servidorTemCredencial } from '@/features/integrations/google/serverCredential';
 
 jest.mock('@/features/integrations/google/useCalendarConnection');
-jest.mock('@/features/integrations/google/sync', () => ({
-  runCalendarSync: jest.fn(),
-  describeSummary: jest.requireActual('@/features/integrations/google/sync').describeSummary,
-}));
 // A importacao e testada no seu proprio modulo; aqui o card so precisa dizer o que fez com o resumo.
 jest.mock('@/features/integrations/google/importService', () => ({
   runCalendarImport: jest.fn(),
@@ -89,7 +84,6 @@ jest.mock('@/lib/supabase', () => ({
 }));
 
 const useCalendarConnection = jest.requireMock('@/features/integrations/google/useCalendarConnection').useCalendarConnection as jest.Mock;
-const runCalendarSync = jest.requireMock('@/features/integrations/google/sync').runCalendarSync as jest.Mock;
 const runCalendarImport = jest.requireMock('@/features/integrations/google/importService').runCalendarImport as jest.Mock;
 const listCalendars = jest.requireMock('@/features/integrations/google/calendarApi').listCalendars as jest.Mock;
 const getCalendarLabels = jest.requireMock('@/features/integrations/google/calendarApi').getCalendarLabels as jest.Mock;
@@ -111,17 +105,12 @@ function conexao(
 }
 
 const hoje = todayLocalISO();
-const reservas: LocalReservation[] = [
-  { id: 'res:futura', dogName: 'Mocha', clientName: 'Elisha', serviceType: 'daycare', startDate: addDaysISO(hoje, 3) },
-  { id: 'res:antiga', dogName: 'Bob', clientName: 'Maria', serviceType: 'daycare', startDate: addDaysISO(hoje, -400) },
-];
-
 const dogs: DogForImport[] = [{ id: 'dog-luna', name: 'Luna', clientName: 'Maria' }];
 const bookings: BookingForImport[] = [];
 const onImported = jest.fn();
 
 function props() {
-  return { reservations: reservas, organizationId: 'org-1', dogs, bookings, onImported };
+  return { organizationId: 'org-1', dogs, bookings, onImported };
 }
 
 /**
@@ -141,7 +130,6 @@ describe('CalendarConnectionCard', () => {
     mockOrganizacao = { google_calendar_id: null, google_calendar_summary: null };
     // A marca da sincronização automática vive fora do React: sem zerar, um teste contaminaria o outro.
     await esquecerSincronizacao();
-    runCalendarSync.mockResolvedValue({ created: 2, updated: 0, deleted: 1, failures: [] });
     runCalendarImport.mockResolvedValue({ created: 0, updated: 0, cancelled: 0, review: [], failures: [] });
     listCalendars.mockResolvedValue(contaCalendarios);
     getCalendarLabels.mockResolvedValue([]);
@@ -169,13 +157,13 @@ describe('CalendarConnectionCard', () => {
     expect(ctx.connect).toHaveBeenCalled();
   });
 
-  it('depois de conectar, ja espelha as reservas', async () => {
+  it('depois de conectar, ja importa os agendamentos do calendario', async () => {
     const ctx = conexao('disconnected');
     useCalendarConnection.mockReturnValue(ctx);
     const screen = await render(<CalendarConnectionCard {...props()} />);
 
     await fireEvent.press(screen.getByTestId('google-calendar-connect'));
-    await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
   });
 
   /* -------- conferência da credencial no servidor (auditoria de integrações, 02/10/2026) --------
@@ -194,8 +182,8 @@ describe('CalendarConnectionCard', () => {
 
     await waitFor(() => expect(screen.getByTestId('google-calendar-aviso-servidor')).toBeTruthy());
     expect(screen.getByTestId('google-calendar-aviso-servidor')).toHaveTextContent(/did not receive the Google credential/);
-    // A conta segue conectada no aparelho: o espelho do primeiro plano continua funcionando.
-    await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
+    // A conta segue conectada no aparelho: a importação do primeiro plano continua funcionando.
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
   });
 
   it('Connect: envio com "ok" mas leitura de volta NEGATIVA também avisa (não confia só no ok)', async () => {
@@ -220,7 +208,7 @@ describe('CalendarConnectionCard', () => {
 
     await fireEvent.press(screen.getByTestId('google-calendar-connect'));
 
-    await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
     expect(screen.queryByTestId('google-calendar-aviso-servidor')).toBeNull();
   });
 
@@ -232,8 +220,6 @@ describe('CalendarConnectionCard', () => {
     const screen = await render(<CalendarConnectionCard {...props()} autoImport />);
 
     await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
-    // O espelho ESCREVE no calendário do cliente: continua sendo um toque de gente.
-    expect(runCalendarSync).not.toHaveBeenCalled();
     await waitFor(() => expect(screen.getByText(/Auto · 1 cancelled/)).toBeTruthy());
   });
 
@@ -253,22 +239,22 @@ describe('CalendarConnectionCard', () => {
     expect(runCalendarImport).not.toHaveBeenCalled();
   });
 
-  it('com a conta conectada, espelha SO a janela e resume o resultado', async () => {
+  it('com a conta conectada, importa o calendario e resume o resultado', async () => {
     useCalendarConnection.mockReturnValue(conexao('connected'));
+    runCalendarImport.mockResolvedValue({ created: 2, updated: 0, cancelled: 0, review: [], failures: [] });
     const screen = await render(<CalendarConnectionCard {...props()} />);
 
     expect(screen.getByText(/raphael@packandpawsclub\.com/)).toBeTruthy();
 
     await fireEvent.press(screen.getByTestId('google-calendar-sync'));
-    await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
 
-    const chamada = runCalendarSync.mock.calls[0][0];
+    const chamada = runCalendarImport.mock.calls[0][0];
     expect(chamada.accessToken).toBe('token-123');
-    // A reserva de 400 dias atras fica fora da janela (30 atras -> 180 a frente).
-    expect(chamada.reservations.map((r: LocalReservation) => r.id)).toEqual(['res:futura']);
+    expect(chamada.calendarId).toBe('primary');
     await waitFor(() => expect(screen.getByTestId('google-calendar-resumo')).toBeTruthy());
     // Texto do resumo no idioma da interface (inglês) — o cliente viu a mistura de idiomas.
-    expect(screen.getByText(/2 created/)).toBeTruthy();
+    expect(screen.getByText(/2 from Google/)).toBeTruthy();
   });
 
   it('desconecta quando o gestor pede (revoke no servidor deu certo)', async () => {
@@ -333,7 +319,7 @@ describe('CalendarConnectionCard', () => {
 
   // ------------------------------------------------------------------ importacao (Google -> app)
 
-  it('mostra o que veio do Google junto com o que foi enviado', async () => {
+  it('mostra o que veio do Google e recarrega a agenda', async () => {
     useCalendarConnection.mockReturnValue(conexao('connected'));
     runCalendarImport.mockResolvedValue({ created: 2, updated: 1, cancelled: 0, review: [], failures: [] });
     const screen = await render(<CalendarConnectionCard {...props()} />);
@@ -346,18 +332,15 @@ describe('CalendarConnectionCard', () => {
     expect(onImported).toHaveBeenCalled();
   });
 
-  it('a importação consulta de HOJE para frente — a janela do espelho não vale para ela', async () => {
+  it('a importação consulta de HOJE para frente (nada do passado entra)', async () => {
     useCalendarConnection.mockReturnValue(conexao('connected'));
     const screen = await render(<CalendarConnectionCard {...props()} />);
 
     await fireEvent.press(screen.getByTestId('google-calendar-sync'));
     await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
 
-    // O espelho continua recuando 30 dias (o recuo evita evento duplicado no Google)...
-    expect(runCalendarSync.mock.calls[0][0].range).toEqual(janelaDeEspelho());
-
-    // ...a importação não: nada do passado entra, e a janela é o que também impede cancelar uma
-    // reserva de ontem que veio do Google.
+    // Nada do passado entra, e a janela é o que também impede cancelar uma reserva de ontem que veio
+    // do Google.
     const esperada = janelaDeImportacao();
     const chamada = runCalendarImport.mock.calls[0][0];
     expect(chamada.range).toEqual({ timeMin: esperada.timeMin, timeMax: esperada.timeMax });
@@ -541,12 +524,11 @@ describe('CalendarConnectionCard', () => {
     await esperandoEscolha(screen, 'Primary calendar');
 
     await fireEvent.press(screen.getByTestId('google-calendar-sync'));
-    await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
-    expect(runCalendarSync.mock.calls[0][0].calendarId).toBe('primary');
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
     expect(runCalendarImport.mock.calls[0][0].calendarId).toBe('primary');
   });
 
-  it('o Sync usa o calendário escolhido nas DUAS vias (espelho e importação)', async () => {
+  it('o Sync importa do calendário escolhido pela organização', async () => {
     useCalendarConnection.mockReturnValue(conexao('connected'));
     mockOrganizacao = { google_calendar_id: CAL_BOT_VENDA, google_calendar_summary: 'bot venda' };
     const screen = await render(<CalendarConnectionCard {...props()} />);
@@ -555,7 +537,6 @@ describe('CalendarConnectionCard', () => {
     await fireEvent.press(screen.getByTestId('google-calendar-sync'));
 
     await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
-    expect(runCalendarSync.mock.calls[0][0].calendarId).toBe(CAL_BOT_VENDA);
     expect(runCalendarImport.mock.calls[0][0].calendarId).toBe(CAL_BOT_VENDA);
   });
 
@@ -566,7 +547,7 @@ describe('CalendarConnectionCard', () => {
     await esperandoEscolha(screen, 'bot venda');
 
     await fireEvent.press(screen.getByTestId('google-calendar-trocar'));
-    // O aviso é do calendário ATUAL: o que já foi espelhado continua lá.
+    // O aviso é do calendário ATUAL: nada é movido nem apagado no calendário antigo.
     expect(screen.getByText(/does not move or delete anything there/)).toBeTruthy();
     expect(screen.getByText('Feriados')).toBeTruthy();
     expect(screen.getByText('Read-only')).toBeTruthy();
@@ -588,26 +569,19 @@ describe('CalendarConnectionCard', () => {
     expect(screen.getByTestId('google-calendar-aviso-troca')).toHaveTextContent(/bot venda/);
   });
 
-  it('calendário somente leitura: o espelho falha com uma frase que o gestor entende', async () => {
+  it('calendário de leitura: o app importa dele normalmente (só lê, não há o que bloquear)', async () => {
     useCalendarConnection.mockReturnValue(conexao('connected'));
     mockOrganizacao = { google_calendar_id: CAL_FERIADOS, google_calendar_summary: 'Feriados' };
-    runCalendarSync.mockResolvedValue({
-      created: 0,
-      updated: 0,
-      deleted: 0,
-      failures: [{ action: 'create', reservationId: 'res:futura', error: 'criar evento falhou (HTTP 403): The user does not have write access to this calendar.' }],
-    });
     const screen = await render(<CalendarConnectionCard {...props()} />);
     await esperandoEscolha(screen, 'Feriados');
 
     await fireEvent.press(screen.getByTestId('google-calendar-sync'));
 
-    await waitFor(() => expect(screen.getByTestId('google-calendar-erro')).toBeTruthy());
-    expect(screen.getByTestId('google-calendar-erro')).toHaveTextContent(TEXTO_SOMENTE_LEITURA);
-    // O erro cru da API não vai para a tela do gestor.
-    expect(screen.queryByText(/HTTP 403/)).toBeNull();
-    // E o cartão já avisa que ali não dá para espelhar.
-    expect(screen.getByTestId('google-calendar-escolhido-acesso')).toHaveTextContent(TEXTO_SOMENTE_LEITURA);
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+    expect(runCalendarImport.mock.calls[0][0].calendarId).toBe(CAL_FERIADOS);
+    // Nada de aviso de "somente leitura" no topo: era o freio do espelho, que não existe mais.
+    expect(screen.queryByTestId('google-calendar-escolhido-acesso')).toBeNull();
+    expect(screen.queryByTestId('google-calendar-erro')).toBeNull();
   });
 
   it('token antigo (sem permissão de listar calendários) explica que é preciso reconectar', async () => {
@@ -709,13 +683,13 @@ describe('CalendarConnectionCard', () => {
     );
     expect(screen.queryByText(/insufficient authentication scopes/)).toBeNull();
 
-    // E o Sync continua funcionando (o espelho cai no `colorId` legado).
+    // E o Sync continua funcionando (a importação cai no `colorId` legado).
     await fireEvent.press(screen.getByTestId('google-calendar-sync'));
-    await waitFor(() => expect(runCalendarSync).toHaveBeenCalledTimes(1));
-    expect(runCalendarSync.mock.calls[0][0].labels).toEqual([]);
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+    expect(runCalendarImport.mock.calls[0][0].labels).toEqual([]);
   });
 
-  it('as etiquetas do calendário são lidas uma vez e vão para AS DUAS vias (espelho e importação)', async () => {
+  it('as etiquetas do calendário são lidas uma vez e vão para a importação', async () => {
     useCalendarConnection.mockReturnValue(conexao('connected'));
     getCalendarLabels.mockResolvedValue([{ id: 'lab-azul', name: 'Cobalto', backgroundColor: '#4A86E8' }]);
     const screen = await render(<CalendarConnectionCard {...props()} />);
@@ -725,7 +699,6 @@ describe('CalendarConnectionCard', () => {
     await fireEvent.press(screen.getByTestId('google-calendar-sync'));
     await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
 
-    expect(runCalendarSync.mock.calls[0][0].labels).toEqual([{ id: 'lab-azul', name: 'Cobalto', backgroundColor: '#4A86E8' }]);
     expect(runCalendarImport.mock.calls[0][0].labels).toEqual([{ id: 'lab-azul', name: 'Cobalto', backgroundColor: '#4A86E8' }]);
   });
 });

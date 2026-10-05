@@ -1,36 +1,25 @@
 /**
- * Cliente REST do Google Calendar (v3) — chamadas puras, sem estado.
+ * Cliente REST do Google Calendar (v3) — chamadas puras, **SOMENTE LEITURA**.
+ *
+ * Decisão do dono (05/10/2026): *"quero que o aplicativo apenas importe do cliente… quero remover essa
+ * capacidade dele de criar ou mudar o calendário do cliente"*. Este arquivo tinha as funções de
+ * escrita (`createEvent`, `updateEvent`, `deleteEvent`) do espelho — elas foram REMOVIDAS junto com o
+ * espelho, e o escopo OAuth caiu para `calendar.events.readonly` (ver `config.ts`). Não existe mais,
+ * em lugar nenhum do app, requisição que crie, altere ou apague evento no calendário do cliente; o
+ * teste `__tests__/sem-escrita-no-google.test.ts` varre o código e falha se alguém reintroduzir uma.
+ *
  * Tudo aqui recebe o access token e devolve dados/erros tratados; o fluxo OAuth fica no hook
  * `useCalendarConnection` e a persistência do token no secure store.
  *
- * Qual calendário: TODA chamada de evento recebe o `calendarId` da organização (o gestor escolhe —
- * ver `calendarChoice.ts`). O padrão continua sendo o `primary` da conta conectada, que era o
- * comportamento antigo: sem escolha gravada nada muda. O motivo de ser parâmetro, e não um segundo
- * caminho paralelo, é que as DUAS vias (espelho e importação) têm de ler/escrever no MESMO
- * calendário — foi um calendário secundário ("bot venda") que fez a importação parecer quebrada.
+ * Qual calendário: TODA chamada recebe o `calendarId` da organização (o gestor escolhe — ver
+ * `calendarChoice.ts`). O padrão é o `primary` da conta conectada.
  */
-import type { GoogleEventInput } from '@/features/calendar/googleEvents';
 import { interpretarEtiquetas, type EventLabel } from '@/features/calendar/googleColors';
 import { addDaysISO } from '@/features/calendar/dates';
 import { DEFAULT_CALENDAR_ID, interpretarCalendarios, normalizarCalendarId, type GoogleCalendarEntry } from './calendarChoice';
-import { APP_KEY_PROPERTY, MIRROR_MARKER_PROPERTY, MIRROR_MARKER_VALUE, type RemoteEvent } from './calendarSync';
+import { APP_KEY_PROPERTY, type RemoteEvent } from './eventMarkers';
 
 export const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
-
-/**
- * `eventLabelVersion=1` — parâmetro das operações de ESCRITA com etiqueta.
- *
- * Bug 56 (produção, build 55): o Google trocou/ampliou o esquema de cor em junho/2026 (24 cores
- * padrão + até 200 personalizadas por calendário, via `labelProperties.eventLabels`; o evento passou
- * a ter `eventLabelId`). Sem este parâmetro a API assume a versão 0 na ESCRITA e processa `colorId`.
- * A descoberta oficial da API (revision 20260826) não aceita este parâmetro em `events.list/get`:
- * nessas leituras `eventLabelId` já faz parte do recurso Event devolvido.
- *
- * Doc: https://developers.google.com/workspace/calendar/api/guides/labels
- */
-export const EVENT_LABEL_VERSION_PARAM = 'eventLabelVersion=1';
-
-const GOOGLE_EVENT_ID_FIELD = 'googleEventId';
 
 type GoogleEventResource = {
   id: string;
@@ -75,7 +64,7 @@ export function fimExclusivoDoEvento(end?: { date?: string; dateTime?: string } 
   return hora === '00:00' ? dia : addDaysISO(dia, 1);
 }
 
-/** Resposta da API → formato do planejador. Eventos que nao sao nossos ficam com appKey null. */
+/** Resposta da API → formato do planejador. `appKey` presente = evento criado pelo app (legado). */
 export function parseEvent(resource: GoogleEventResource): RemoteEvent {
   return {
     id: resource.id,
@@ -89,19 +78,6 @@ export function parseEvent(resource: GoogleEventResource): RemoteEvent {
     eventLabelId: resource.eventLabelId ?? null,
     recurrence: resource.recurrence ?? null,
   };
-}
-
-export function toEventBody(event: GoogleEventInput): Record<string, unknown> {
-  const body: Record<string, unknown> = { summary: event.summary, start: event.start, end: event.end };
-  if (event.description) body.description = event.description;
-  if (event.recurrence) body.recurrence = event.recurrence;
-  // `colorId` vai no corpo mesmo quando o evento é atualizado por PATCH: é assim que um evento antigo
-  // (sem cor) ganha a cor do serviço no próximo Sync.
-  if (event.colorId) body.colorId = event.colorId;
-  // Etiqueta: `null` = limpar (a API remove com string vazia); `undefined` = não mexe no que está lá.
-  if (event.eventLabelId !== undefined) body.eventLabelId = event.eventLabelId ?? '';
-  if (event.extendedProperties) body.extendedProperties = event.extendedProperties;
-  return body;
 }
 
 export type CalendarFetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string }) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
@@ -162,9 +138,9 @@ export async function listCalendars(accessToken: string, doFetch: CalendarFetch)
  * Escopo: `GET /calendars/{id}` (Calendars.get) NÃO aceita `calendar.events` nem
  * `calendar.calendarlist.readonly` — exige um dos `calendar.calendars.readonly`, `calendar.calendars`,
  * `calendar.readonly`, `calendar` (ver `config.ts`, que passou a pedir `calendar.calendars.readonly`).
- * Token gravado ANTES desta mudança falha aqui com HTTP 403 "insufficient authentication scopes": o
+ * Token gravado ANTES daquele pedido falha aqui com HTTP 403 "insufficient authentication scopes": o
  * cartão explica que é preciso reconectar, e a importação continua lendo a paleta antiga pelo
- * `colorId` (o espelho não quebra).
+ * `colorId`.
  *
  * Doc: https://developers.google.com/workspace/calendar/api/v3/reference/calendars/get
  */
@@ -181,31 +157,12 @@ export async function getCalendarLabels(
   return interpretarEtiquetas(payload);
 }
 
-/** Eventos do calendario entre duas datas (a janela que o app espelha). */
-export async function listEvents(
-  accessToken: string,
-  range: { timeMin: string; timeMax: string },
-  doFetch: CalendarFetch,
-  calendarId: string = DEFAULT_CALENDAR_ID,
-): Promise<RemoteEvent[]> {
-  const url =
-    `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events` +
-    `?singleEvents=false&maxResults=2500&showDeleted=false` +
-    `&timeMin=${encodeURIComponent(range.timeMin)}&timeMax=${encodeURIComponent(range.timeMax)}` +
-    // O Google exige `nome=valor` (a chave sozinha devolve HTTP 400): por isso a marca fixa.
-    `&privateExtendedProperty=${encodeURIComponent(`${MIRROR_MARKER_PROPERTY}=${MIRROR_MARKER_VALUE}`)}`;
-  const response = await doFetch(url, { method: 'GET', headers: authHeaders(accessToken) });
-  const payload = await handle<{ items?: GoogleEventResource[] }>(response, 'listar eventos');
-  return (payload.items ?? []).map(parseEvent);
-}
-
 /**
  * TODOS os eventos da janela — inclusive os que o escritório digitou à mão no Google Calendar.
  *
- * Por que existe separado de `listEvents`: aquela filtra pela marca do app
- * (`privateExtendedProperty=packpawsMirror=v1`), ou seja, só enxerga o nosso espelho. Para trazer
- * para o app as datas marcadas direto no Google (pedido do dono, 23/09/2026) é preciso listar sem
- * esse filtro. Quem separa "nosso" de "do cliente" é a importação, pelo campo `appKey`.
+ * É a ÚNICA listagem de eventos do app (a listagem filtrada pela marca do espelho foi removida junto
+ * com o espelho, 05/10/2026): quem separa "nosso" de "do cliente" é a importação, pelo campo `appKey`
+ * (`if (evento.appKey) continue` em `importPlan`).
  *
  * `singleEvents=false` mantém as séries como UM evento (com RRULE), que é o formato que o app
  * entende; expandir a série viraria dezenas de eventos soltos.
@@ -224,61 +181,3 @@ export async function listAllEvents(
   const payload = await handle<{ items?: GoogleEventResource[] }>(response, 'listar todos os eventos');
   return (payload.items ?? []).map(parseEvent);
 }
-
-export async function createEvent(
-  accessToken: string,
-  event: GoogleEventInput,
-  doFetch: CalendarFetch,
-  calendarId: string = DEFAULT_CALENDAR_ID,
-): Promise<string> {
-  // Versão 1 só quando há etiqueta. Sem etiqueta, omitir é obrigatório para a API processar o
-  // `colorId` legado (com versão 1 o Google ignora colorId).
-  const sufixo = event.eventLabelId !== undefined ? `?${EVENT_LABEL_VERSION_PARAM}` : '';
-  const response = await doFetch(
-    `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events${sufixo}`,
-    {
-      method: 'POST',
-      headers: authHeaders(accessToken),
-      body: JSON.stringify(toEventBody(event)),
-    },
-  );
-  const created = await handle<{ id: string }>(response, 'criar evento');
-  return created.id;
-}
-
-export async function updateEvent(
-  accessToken: string,
-  eventId: string,
-  event: GoogleEventInput,
-  doFetch: CalendarFetch,
-  calendarId: string = DEFAULT_CALENDAR_ID,
-): Promise<void> {
-  const sufixo = event.eventLabelId !== undefined ? `?${EVENT_LABEL_VERSION_PARAM}` : '';
-  const response = await doFetch(
-    `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events/${encodeURIComponent(eventId)}${sufixo}`,
-    {
-      method: 'PATCH',
-      headers: authHeaders(accessToken),
-      body: JSON.stringify(toEventBody(event)),
-    },
-  );
-  await handle<unknown>(response, 'atualizar evento');
-}
-
-export async function deleteEvent(
-  accessToken: string,
-  eventId: string,
-  doFetch: CalendarFetch,
-  calendarId: string = DEFAULT_CALENDAR_ID,
-): Promise<void> {
-  const response = await doFetch(
-    `${CALENDAR_API}/calendars/${calendarPath(calendarId)}/events/${encodeURIComponent(eventId)}`,
-    {
-      method: 'DELETE',
-      headers: authHeaders(accessToken),
-    },
-  );
-  await handle<unknown>(response, 'apagar evento');
-}
-
-export { GOOGLE_EVENT_ID_FIELD };

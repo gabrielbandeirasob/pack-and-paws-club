@@ -11,7 +11,6 @@
  *    BOARDING em 27/09/2026);
  *  - vínculo por EVENTO, janela comecando HOJE, nada de duplicar reserva existente.
  */
-import { buildGoogleEvent } from '@/features/calendar/googleEvents';
 import {
   describeImport,
   dogNameFromTitle,
@@ -23,7 +22,7 @@ import {
   type DogForImport,
 } from '@/features/integrations/google/importPlan';
 import { meaningOfColor } from '@/features/calendar/googleColors';
-import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
+import type { RemoteEvent } from '@/features/integrations/google/eventMarkers';
 
 const JANELA = { from: '2026-09-01', to: '2026-12-31' };
 const DA_JANELA = { from: '2026-09-24', to: '2027-03-23' };
@@ -172,38 +171,29 @@ describe('leitura da recorrência', () => {
   });
 });
 
-describe('ida e volta do formato', () => {
-  it('o evento que o app cria volta como o agendamento original (serviço pela cor)', () => {
-    const reserva = {
-      dogName: 'Filó',
-      clientName: 'Amor',
-      serviceType: 'boarding' as const,
-      startDate: '2026-09-28',
-      endDate: '2026-10-31',
-      weekdays: [1, 3],
-      skipDates: ['2026-09-30'],
-    };
-    const enviado = buildGoogleEvent(reserva);
-    // O espelho PINTou o evento com a cor do serviço — é isso que faz a volta ler boarding.
-    expect(enviado.colorId).toBe('10'); // Basil = a cor da ESTADIA (dono, 28/09/2026); era Sage (2)
+describe('formato do evento do ESCRITÓRIO (o app só lê — não há mais ida)', () => {
+  it('evento com RRULE + EXDATE e cor da estadia volta como o agendamento original', () => {
+    // Evento como o Google devolve (dia inteiro: `end.date`/`endDate` é o primeiro dia FORA do
+    // evento — 31/10 de fim significa `2026-11-01`), pintado com Basil (id 10) e com a pausa do dia
+    // 30 como EXDATE. Antes do 05/10/2026 este mesmo evento era construído por `buildGoogleEvent`;
+    // com o espelho removido, a volta é o que importa: o que o escritório marcou é o que o app lê.
     const lido = parseBookingEvent(
       evento({
         id: 'e1',
-        summary: enviado.summary,
-        startDate: enviado.start.date,
-        endDate: enviado.end.date,
-        colorId: enviado.colorId ?? null,
-        recurrence: enviado.recurrence ?? null,
+        summary: 'Filó',
+        startDate: '2026-09-28',
+        endDate: '2026-11-01',
+        colorId: '10', // Basil = a cor da ESTADIA (dono, 28/09/2026)
+        recurrence: ['RRULE:FREQ=WEEKLY;BYDAY=MO,WE;UNTIL=20261031', 'EXDATE;VALUE=DATE:20260930'],
       }),
     );
     expect(lido).toEqual({
       serviceType: 'boarding',
-      // O que foi lido na cor (paleta antiga): o cartão mostra `colorId 2 (Sage)`.
       color: { source: 'colorId', labelId: null, labelName: null, backgroundColor: null, colorId: '10', meaning: { kind: 'service', serviceType: 'boarding' } },
       cancels: false,
       // VERDE = dia de hotel (escritório, 27/09/2026): quem entra na van é o dia de CHEGADA/SAÍDA
-      // (amarelo/verde-claro). Como este evento é o espelho do PRÓPRIO app, a reserva dele é ligada
-      // pelo `google_event_id` e o `updateBooking` não mexe no transporte — o que o gestor marcou fica.
+      // (amarelo/verde-claro). Como a reserva já existe no app, o `updateBooking` não mexe no
+      // transporte — o que o gestor marcou fica.
       transportRequired: false,
       // Todo dia de boarding passa pelo daycare por regra (contrato do cliente, 28/09/2026).
       goesToDaycare: true,

@@ -11,7 +11,7 @@
  */
 import { meaningOfLabelColor, hueOfHex } from '@/features/calendar/googleColors';
 import { planCalendarImport, type BookingForImport, type DogForImport, type ImportOutcome } from '@/features/integrations/google/importPlan';
-import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
+import type { RemoteEvent } from '@/features/integrations/google/eventMarkers';
 
 const JANELA = { from: '2026-09-24', to: '2027-03-23' };
 const DIA = '2026-09-26';

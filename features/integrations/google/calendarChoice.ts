@@ -115,11 +115,13 @@ export function nomeDoCalendario(escolha: CalendarChoice): string {
 }
 
 /**
- * Aviso obrigatório antes de trocar de calendário (pedido do dono): o que já foi espelhado fica
- * onde está. O app NUNCA apaga nem move evento no calendário do escritório.
+ * Aviso antes de trocar de calendário (pedido do dono): o que já existe fica onde está.
+ *
+ * O app NUNCA apaga nem move evento — e, desde 05/10/2026, também não CRIA: ele só LÊ o calendário
+ * escolhido. A frase diz exatamente isso (antes prometia "creates and reads").
  */
 export function textoDeAvisoDeTroca(nomeAntigo: string): string {
-  return `Bookings already mirrored stay in ${nomeAntigo} — the app does not move or delete anything there. From the next Sync on it creates and reads in the calendar you pick here.`;
+  return `Existing events stay in ${nomeAntigo} — the app does not move or delete anything there. From the next Sync on it only reads the calendar you pick here.`;
 }
 
 /** Aviso só quando a escolha MUDA de verdade (escolher o mesmo calendário não avisa nada). */
@@ -128,26 +130,9 @@ export function avisoDeTroca(atual: CalendarChoice, novoId: string): string | nu
   return textoDeAvisoDeTroca(nomeDoCalendario(atual));
 }
 
-/** Frase que o gestor entende quando o calendário escolhido não aceita escrita. */
-export const TEXTO_SOMENTE_LEITURA =
-  'This calendar is read-only for the connected account, so bookings cannot be mirrored to it. Pick a calendar you can write to.';
-
 /** Frase para o caso do token não ter permissão de listar calendários (precisa reconectar). */
 export const TEXTO_FALTA_DE_ESCOPO =
   'The connected account has not allowed the app to list its calendars yet. Disconnect and connect Google Calendar again to grant it.';
-
-/**
- * O espelho falhou porque o calendário é de leitura?
- *
- * Duas provas aceitáveis: o papel de acesso que a própria API devolveu na lista (`reader` /
- * `freeBusyReader`) ou o texto do erro. O `insufficient authentication scopes` NÃO conta — ali o
- * problema é a permissão do APP (token antigo), não o calendário.
- */
-export function ehSomenteLeitura(mensagem: string, accessRole?: string | null): boolean {
-  if (acessoConhecido(accessRole)) return !podeEscrever(accessRole);
-  if (/insufficient authentication scopes/i.test(mensagem)) return false;
-  return /read-?only|does not have (write|modify|edit)|insufficient ?permission|forbidden|HTTP 403/i.test(mensagem);
-}
 
 /** Erro legível na hora de LISTAR os calendários (o token atual não tem o escopo, por exemplo). */
 export function explicarFalhaDeListagem(mensagem: string): string {

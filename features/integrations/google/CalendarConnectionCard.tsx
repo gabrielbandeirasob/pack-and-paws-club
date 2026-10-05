@@ -1,13 +1,20 @@
 import { formatClock } from '@/lib/clock';
 /**
- * Card do gestor para o Google Calendar (duas vias).
+ * Card do gestor para o Google Calendar — **SOMENTE IMPORTAÇÃO** (Google → app).
  *
- * 1. ESPELHO (app → Google): reservas do app viram eventos com marca própria (`appKey`).
- * 2. IMPORTAÇÃO (Google → app): o que o escritório marca direto no calendário vira reserva no app —
- *    pedido do dono em 23/09/2026 ("as datas que estão marcadas no calendário do cliente fossem para
- *    o aplicativo"). Quem manda em cada reserva é quem a criou: reserva que nasceu no Google muda
- *    (e é cancelada) quando o evento muda/some; reserva que nasceu no app continua com o app.
- *    A janela desta via começa em HOJE (nada do passado entra nem é cancelado).
+ * O que o escritório marca direto no calendário vira reserva no app — pedido do dono em 23/09/2026
+ * ("as datas que estão marcadas no calendário do cliente fossem para o aplicativo"). Quem manda em
+ * cada reserva é quem a criou: reserva que nasceu no Google muda (e é cancelada) quando o evento
+ * muda/some; reserva que nasceu no app continua com o app. A janela começa em HOJE (nada do passado
+ * entra nem é cancelado).
+ *
+ * O ESPELHO FOI REMOVIDO (decisão do dono, 05/10/2026): *"quero que o aplicativo apenas importe do
+ * cliente… quero remover essa capacidade dele de criar ou mudar o calendário do cliente"*. Não existe
+ * mais, no app, nenhuma chamada que crie/altere/apague evento no calendário — o escopo OAuth caiu para
+ * leitura (`calendar.events.readonly`, ver `config.ts`) e o teste `sem-escrita-no-google` varre o
+ * código para impedir que a escrita volte. Eventos que o espelho criou ANTES disso continuam no
+ * calendário do escritório: a importação reconhece a marca deles (`appKey`, ver `eventMarkers.ts`) e
+ * ignora esses eventos (não viram pendência nem reserva duplicada). Nada foi apagado.
  *
  * REGRA NOVA (dono, 24/09/2026 — inverte o cadastro automático dos builds 52-54): o escritório escreve
  * no título SÓ o nome do cão e diz o serviço pela COR do evento (verde = boarding, azul = daycare,
@@ -19,10 +26,10 @@ import { formatClock } from '@/lib/clock';
  *     de novo, porque o app não chuta serviço.
  *
  * CALENDÁRIO (24/09/2026): o escritório guarda os agendamentos num calendário secundário ("bot
- * venda"), então o app passou a LER e ESPELHAR o calendário escolhido pela organização — as duas
- * vias usam o mesmo id, guardado em `organizations.google_calendar_id`. O padrão continua sendo o
- * `primary` quando ninguém escolheu. Trocar de calendário é decisão consciente e avisada: o que já
- * foi espelhado fica no calendário antigo (o app não move nem apaga nada lá).
+ * venda"), então o app passou a LER o calendário escolhido pela organização — o id fica em
+ * `organizations.google_calendar_id`. O padrão continua sendo o `primary` quando ninguém escolheu.
+ * Trocar de calendário é decisão consciente e avisada: o app não move nem apaga nada no calendário
+ * antigo (nunca apagou — e desde 05/10/2026 não escreve nada em calendário nenhum).
  *
  * CORES (bug 56, 25/09/2026): o Google ampliou a paleta e o evento passou a carregar uma ETIQUETA
  * (`eventLabelId`) com hex próprio — o "Cobalto" (#4A86E8) do cliente. O cartão lê as etiquetas do
@@ -46,7 +53,6 @@ import { getCalendarLabels, listCalendars, type CalendarFetch } from './calendar
 import {
   corpoDaEscolha,
   DEFAULT_CALENDAR_ID,
-  ehSomenteLeitura,
   escolhaDaOrganizacao,
   explicarFalhaDeEtiquetas,
   explicarFalhaDeListagem,
@@ -54,19 +60,17 @@ import {
   ordenarCalendarios,
   rotuloDeAcesso,
   textoDeAvisoDeTroca,
-  TEXTO_SOMENTE_LEITURA,
   avisoDeTroca,
   type CalendarChoice,
   type GoogleCalendarEntry,
   type OrganizationCalendarRow,
 } from './calendarChoice';
-import type { LocalReservation } from './calendarSync';
 import { escolhaDaRevisao, supabaseImportPorts } from './importPorts';
 import { describeImport, describeImportFailure, kindOf, type BookingForImport, type DogForImport } from './importPlan';
 import { carregarSnapshotDaImportacao } from './importSnapshot';
 import { runCalendarImport, type ImportReviewItem, type ImportSummary } from './importService';
 import { JANELA_AUTO_MS, esquecerSincronizacao, lerUltimaSincronizacao, marcarSincronizacao, precisaSincronizar } from './lastSyncStore';
-import { describeSummary, describeSyncFailure, runCalendarSync } from './sync';
+import { ehFalhaDeCredencial } from './credentialFailure';
 import {
   enviarCredencialAoServidor,
   revogarCredencialDoServidor,
@@ -75,34 +79,16 @@ import {
 import { useCalendarConnection } from './useCalendarConnection';
 
 /**
- * Janela espelhada: de 30 dias atrás a 180 à frente. O recuo evita que o evento desapareça do
- * Google no dia seguinte ao do serviço; o limite à frente impede lista que cresce sem fim
- * (escala recorrente sem data de término é expandida até aqui).
- */
-export function janelaDeEspelho(hoje = todayLocalISO()): { timeMin: string; timeMax: string } {
-  return { timeMin: `${addDaysISO(hoje, -30)}T00:00:00Z`, timeMax: `${addDaysISO(hoje, 180)}T00:00:00Z` };
-}
-
-/**
  * Janela da IMPORTAÇÃO: de HOJE (data local) a 180 dias à frente.
  *
- * É independente da janela do espelho de propósito. O espelho continua recuando 30 dias porque o
- * recuo evita que um evento de ontem "suma" da consulta e volte como evento novo; a importação, ao
- * contrário, não pode trazer nada do passado (pedido do dono, 24/09/2026: "de hoje para frente").
- * Com o `from` em hoje, a própria janela é o que impede cancelar uma reserva de ontem que veio do
- * Google só porque ela não aparece mais na consulta — e o planCalendarImport ainda confere de novo.
+ * Não pode trazer nada do passado (pedido do dono, 24/09/2026: "de hoje para frente"). Com o `from`
+ * em hoje, a própria janela é o que impede cancelar uma reserva de ontem que veio do Google só porque
+ * ela não aparece mais na consulta — e o planCalendarImport ainda confere de novo.
  */
 export function janelaDeImportacao(hoje = todayLocalISO()): { from: string; to: string; timeMin: string; timeMax: string } {
   const from = hoje;
   const to = addDaysISO(hoje, 180);
   return { from, to, timeMin: `${from}T00:00:00Z`, timeMax: `${to}T00:00:00Z` };
-}
-
-/** Só o que cai na janela é espelhado (o passado distante e o futuro longe ficam fora). */
-export function dentroDaJanela(reservas: LocalReservation[], janela: { timeMin: string; timeMax: string }): LocalReservation[] {
-  const inicio = janela.timeMin.slice(0, 10);
-  const fim = janela.timeMax.slice(0, 10);
-  return reservas.filter((reserva) => (reserva.endDate ?? reserva.startDate) >= inicio && reserva.startDate <= fim);
 }
 
 /** Texto da lista de revisão, por motivo. */
@@ -120,7 +106,6 @@ export function motivoDaRevisao(reason: ImportReviewItem['reason']): string {
 const fetchReal: CalendarFetch = (url, init) => fetch(url, init);
 
 type Props = {
-  reservations: LocalReservation[];
   organizationId: string;
   /** Cães para casar o nome do título (e para o gestor escolher na revisão). */
   dogs: DogForImport[];
@@ -130,13 +115,13 @@ type Props = {
   onImported?: () => void;
   /**
    * Importa SOZINHO ao abrir o cartão (pedido do dono, áudio de 27/09/2026: "o cliente cancelou no
-   * dia, ou um dia antes… altera lá"). Roda só a IMPORTAÇÃO — o espelho escreve no calendário do
-   * cliente e continua no botão. Ligado pela tela da Agenda; desligado por padrão (testes e web).
+   * dia, ou um dia antes… altera lá"). Ligado pela tela da Agenda; desligado por padrão (testes e
+   * web) — o botão faz a mesma importação, na hora.
    */
   autoImport?: boolean;
 };
 
-export function CalendarConnectionCard({ reservations, organizationId, dogs, bookings, onImported, autoImport = false }: Props) {
+export function CalendarConnectionCard({ organizationId, dogs, bookings, onImported, autoImport = false }: Props) {
   const { status, email, connect, disconnect, getAccessToken, rememberEmail } = useCalendarConnection();
   const [ocupado, setOcupado] = useState<'conectando' | 'sincronizando' | 'desconectando' | 'escolhendo' | null>(null);
   const [resumo, setResumo] = useState<string | null>(null);
@@ -166,9 +151,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
   const [etiquetas, setEtiquetas] = useState<EventLabel[]>([]);
   const [erroEtiquetas, setErroEtiquetas] = useState<string | null>(null);
 
-  const janela = useMemo(() => janelaDeEspelho(), []);
   const janelaImport = useMemo(() => janelaDeImportacao(), []);
-  const paraEspelhar = useMemo(() => dentroDaJanela(reservations, janela), [reservations, janela]);
 
   /** O automático roda uma vez por abertura do cartão (a trava de tempo cuida das voltas seguintes). */
   const jaTentouAuto = useRef(false);
@@ -190,12 +173,6 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
   const coresDesconhecidas = useMemo(() => revisao.filter((item) => item.reason === 'unrecognized color'), [revisao]);
   /** ROXO num cão sem escala fixa: não há onde encaixar o dia — lista própria, o escritório resolve. */
   const alteracoesSemEscala = useMemo(() => revisao.filter((item) => item.reason === 'purple without schedule'), [revisao]);
-
-  /** Papel de acesso do calendário escolhido (a lista da conta é quem sabe). */
-  const acessoDoEscolhido = useMemo(
-    () => calendarios.find((item) => item.id === escolha.calendarId)?.accessRole ?? null,
-    [calendarios, escolha.calendarId],
-  );
 
   /** Escolha salva da organização — por organização, não por aparelho. */
   const carregarEscolha = useCallback(async () => {
@@ -321,62 +298,43 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
     [bookings, dogs, escolha.calendarId, janelaImport, organizationId],
   );
 
+  /**
+   * IMPORTAÇÃO manual (o botão "Sync now"): lê o calendário do escritório e aplica no app.
+   *
+   * Antes isto fazia DUAS coisas — espelhava as reservas do app no calendário e depois importava. O
+   * espelho foi REMOVIDO em 05/10/2026 por decisão do dono: este botão agora só LÊ o calendário. É o
+   * mesmo caminho do automático (`autoImport`), só que na hora.
+   */
   const sincronizar = useCallback(async () => {
     setOcupado('sincronizando');
     setErro(null);
     setResumo(null);
     try {
       const accessToken = await getAccessToken();
-      // As etiquetas saem daqui e servem às duas vias: o espelho pinta o evento com a etiqueta do
-      // serviço (quando existir) e a importação lê a cor do evento por ela (o caso do "Cobalto").
       const labels = await carregarEtiquetas();
-      const summary = await runCalendarSync({
-        accessToken,
-        reservations: paraEspelhar,
-        range: janela,
-        doFetch: fetchReal,
-        // Mesmo calendário dos dois lados: o espelho escreve onde a importação lê.
-        calendarId: escolha.calendarId,
-        labels,
-      });
-
-      let texto = describeSummary(summary);
-      try {
-        const importado = await rodarImportacao(accessToken, labels);
-        const daImportacao = describeImport({
+      const importado = await rodarImportacao(accessToken, labels);
+      setResumo(
+        describeImport({
           created: importado.created,
           already: importado.already,
           updated: importado.updated,
           cancelled: importado.cancelled,
           extraDays: importado.extraDays,
           review: importado.review.length,
-        });
-        if (daImportacao) texto = texto ? `${texto} · ${daImportacao}` : daImportacao;
-        setRevisao(importado.review);
-        if (importado.created + importado.updated + importado.cancelled + (importado.extraDays ?? 0) > 0) onImported?.();
-        if (importado.failures.length) setErro(describeImportFailure(importado.failures));
-      } catch (importError) {
-        // O espelho já passou: a importação falhando não esconde o que foi enviado.
-        setErro(mensagemDeFalha(importError, acessoDoEscolhido));
-      }
-
-      setResumo(texto);
-      if (summary.failures.length) {
-        setErro(
-          ehSomenteLeitura(summary.failures[0].error, acessoDoEscolhido)
-            ? TEXTO_SOMENTE_LEITURA
-            : describeSyncFailure(summary.failures),
-        );
-      }
+        }),
+      );
+      setRevisao(importado.review);
+      if (importado.created + importado.updated + importado.cancelled + (importado.extraDays ?? 0) > 0) onImported?.();
+      if (importado.failures.length) setErro(describeImportFailure(importado.failures));
       setUltimoEnvio(formatClock(new Date().toISOString()) ?? '');
       // Sincronizou agora: o automático guarda a hora para não repetir a cada volta na aba.
       await marcarSincronizacao();
     } catch (error) {
-      setErro(mensagemDeFalha(error, acessoDoEscolhido));
+      setErro(mensagemDeFalha(error));
     } finally {
       setOcupado(null);
     }
-  }, [acessoDoEscolhido, carregarEtiquetas, getAccessToken, janela, onImported, paraEspelhar, rodarImportacao]);
+  }, [carregarEtiquetas, getAccessToken, onImported, rodarImportacao]);
 
   /**
    * SINCRONIZA SOZINHO AO ABRIR (pedido do dono, áudio de 27/09/2026): o escritório cancela direto no
@@ -419,13 +377,13 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
         if (importado.created + importado.updated + importado.cancelled + (importado.extraDays ?? 0) > 0) onImported?.();
         if (importado.failures.length) setErro(describeImportFailure(importado.failures));
       } catch (error) {
-        setErro(mensagemDeFalha(error, acessoDoEscolhido));
+        setErro(mensagemDeFalha(error));
       } finally {
         setOcupado(null);
         await marcarSincronizacao();
       }
     })();
-  }, [acessoDoEscolhido, autoImport, carregarEtiquetas, getAccessToken, onImported, rodarImportacao, status]);
+  }, [autoImport, carregarEtiquetas, getAccessToken, onImported, rodarImportacao, status]);
 
   /** Liga o evento ao cão escolhido: aproveita reserva igual que já existe, senão cria. */
   const resolverRevisao = useCallback(async () => {
@@ -461,11 +419,11 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
       setResumo(`Saved from Google · ${escolhendo.parsed.dogName}`);
       onImported?.();
     } catch (error) {
-      setErro(mensagemDeFalha(error, acessoDoEscolhido));
+      setErro(mensagemDeFalha(error));
     } finally {
       setOcupado(null);
     }
-  }, [acessoDoEscolhido, bookings, caoEscolhido, escolhendo, onImported, organizationId]);
+  }, [bookings, caoEscolhido, escolhendo, onImported, organizationId]);
 
   const conectar = useCallback(async () => {
     setOcupado('conectando');
@@ -572,7 +530,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
       }
       setResumo(`Calendar in use: ${candidato.summary}. Sync now to mirror and import in it.`);
     } catch (error) {
-      setErro(mensagemDeFalha(error, null));
+      setErro(mensagemDeFalha(error));
     } finally {
       setOcupado(null);
     }
@@ -589,7 +547,7 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
       <View style={styles.card} testID="google-calendar-card">
         <Text style={styles.title}>Google Calendar</Text>
         <Text style={styles.body} testID="google-calendar-nao-configurado">
-          Google Calendar is not enabled in this build yet, so bookings cannot be mirrored here.
+          Google Calendar is not enabled in this build yet, so bookings cannot be imported from it.
         </Text>
       </View>
     );
@@ -602,7 +560,8 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
       {status === 'connected' ? (
         <>
           <Text style={styles.body} testID="google-calendar-status">
-            Connected{contaConectada ? ` as ${contaConectada}` : ''} — bookings travel both ways now.
+            Connected{contaConectada ? ` as ${contaConectada}` : ''} — the app only reads this calendar: it
+            imports bookings here and never creates or changes events in it.
           </Text>
 
           <View style={styles.calendario} testID="google-calendar-calendario">
@@ -610,11 +569,6 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
             <Text style={styles.calendarioNome} testID="google-calendar-escolhido">
               {nomeDoCalendario(escolha)}
             </Text>
-            {rotuloDeAcesso(acessoDoEscolhido) ? (
-              <Text style={styles.calendarioAlerta} testID="google-calendar-escolhido-acesso">
-                {TEXTO_SOMENTE_LEITURA}
-              </Text>
-            ) : null}
             {escolha.calendarId === DEFAULT_CALENDAR_ID ? (
               <Text style={styles.calendarioDica} testID="google-calendar-padrao">
                 Default — this is the main calendar of the connected account. Pick the office calendar if the
@@ -653,12 +607,12 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
           ) : null}
 
           <Text style={styles.hint}>
-            {paraEspelhar.length} booking(s) mirrored to Google. This is a business-only calendar, so every event
-            from today on comes back here — the title is the dog's name and the COLOR of the event says the
-            service: green or yellow is boarding, blue is daycare, red cancels that day. If the office paints the
-            event with one of Google's new color labels, its color tone is what counts. A dog that is not
-            registered in the app is never created from here: it waits in the list below for you to register it
-            and sync again.
+            Read-only: the app imports the bookings of this calendar and never creates or changes an event in it.
+            Every event from today on comes back here — the title is the dog's name and the COLOR of the event
+            says the service: green or yellow is boarding, blue is daycare, red cancels that day. If the office
+            paints the event with one of Google's new color labels, its color tone is what counts. A dog that is
+            not registered in the app is never created from here: it waits in the list below for you to register
+            it and sync again.
           </Text>
 
           <View style={styles.row}>
@@ -931,10 +885,20 @@ export function CalendarConnectionCard({ reservations, organizationId, dogs, boo
   );
 }
 
-/** Erro que o gestor entende: calendário de leitura vira a frase combinada, o resto fica como veio. */
-function mensagemDeFalha(error: unknown, accessRole: string | null): string {
+/**
+ * Erro que o gestor entende.
+ *
+ * Antes havia dois casos especiais aqui: "o calendário é somente leitura" (o espelho não conseguia
+ * gravar) e a credencial morta. Com o app apenas LENDO (05/10/2026), calendário de leitura deixou de
+ * ser problema — é exatamente o que queremos. Sobrou a credencial morta, que pede reconexão em vez de
+ * mostrar o erro cru do Google.
+ */
+function mensagemDeFalha(error: unknown): string {
   const mensagem = error instanceof Error ? error.message : String(error);
-  return ehSomenteLeitura(mensagem, accessRole) ? TEXTO_SOMENTE_LEITURA : mensagem;
+  if (ehFalhaDeCredencial(mensagem)) {
+    return 'The Google connection expired. Tap Disconnect and connect again to keep importing.';
+  }
+  return mensagem;
 }
 
 const styles = StyleSheet.create({

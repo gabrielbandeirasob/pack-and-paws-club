@@ -2,29 +2,26 @@
 // Edite o original no app (features/...) e rode o gerador: o teste importacao-compartilhada falha
 // se esta cópia ficar desatualizada.
 /**
- * Converte o que a tela do gestor já carrega (reservas + escalas recorrentes) no formato que o
- * espelhamento do Google Calendar consome.
+ * PAUSAS DE UMA ESCALA RECORRENTE — a única parte deste módulo que sobrou depois de 05/10/2026.
  *
- * Módulo PURO (sem rede, sem Supabase) — coberto por testes. Reutiliza `isSkipped` e
- * `weekdayOfISO` do calendário do app: assim o Google nunca mostra um dia que o app considera
- * cancelado, porque cada pausa vira um EXDATE no evento recorrente.
+ * O que existia aqui era o preparo da lista para o ESPELHO (`toLocalReservations`: reserva avulsa →
+ * evento no calendário do cliente), removido junto com o espelho por decisão do dono (*"quero que o
+ * aplicativo apenas importe do cliente"*). `diasPausados` ficou porque não é do espelho: é a regra de
+ * PAUSA de uma escala (férias/ausência do cão) usada pelos DOIS lados da importação —
+ *  * no app (`app/(tabs)/calendar.tsx`) para não mostrar o dia que o cão não vem;
+ *  * no robô do servidor (`supabase/functions/google-calendar-sync`) para não importar a série nos
+ *    dias pausados.
+ *
+ * Módulo PURO (sem rede, sem Supabase) — coberto por testes. Reutiliza `isSkipped` e `weekdayOfISO` do
+ * calendário do app: a mesma função que decide o dia no app decide aqui.
  */
 import { addDaysISO, weekdayOfISO } from './dates.ts';
-import { isSkipped, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from './dayMath.ts';
-
-import type { LocalReservation } from './calendarSync.ts';
-
-/**
- * Prefixos no appKey: dizem no Google de qual tabela o evento veio e evitam que o id de uma
- * reserva colida com o id de uma escala (as duas tabelas geram uuid próprio).
- */
-export const PREFIXO_RESERVA = 'res:';
-export const PREFIXO_RECORRENTE = 'rec:';
+import { isSkipped, type RecurringExceptionRecord, type RecurringScheduleRecord } from './dayMath.ts';
 
 /** Teto de expansão das pausas: uma exceção aberta não pode gerar uma lista infinita. */
 export const DIAS_MAXIMOS_DE_PAUSA = 730;
 
-/** Datas de pausa de uma escala, em ordem — viram EXDATE (o Google pula esses dias). */
+/** Datas de pausa de uma escala, em ordem. */
 export function diasPausados(
   schedule: RecurringScheduleRecord,
   exceptions: RecurringExceptionRecord[],
@@ -52,50 +49,4 @@ export function diasPausados(
   }
 
   return [...new Set(dias)].sort();
-}
-
-/**
- * Lista para espelhar: uma reserva avulsa vira um evento com data de início/fim; uma escala
- * recorrente vira um evento com RRULE (e EXDATE nas pausas).
- *
- * `horizonteISO` limita a expansão das pausas de uma escala sem data de término.
- */
-export function toLocalReservations(
-  reservations: ReservationRecord[] = [],
-  recurring: RecurringScheduleRecord[] = [],
-  exceptions: RecurringExceptionRecord[] = [],
-  opcoes?: { horizonteISO?: string | null },
-): LocalReservation[] {
-  const horizonte = opcoes?.horizonteISO ?? null;
-
-  const avulsas: LocalReservation[] = reservations.map((reserva) => ({
-    id: `${PREFIXO_RESERVA}${reserva.id}`,
-    dogName: reserva.dog.dogName,
-    clientName: reserva.dog.clientName,
-    serviceType: reserva.serviceType,
-    startDate: reserva.startDate,
-    endDate: reserva.endDate,
-    // Vínculo com o Google (reserva importada): sem isso o espelho criaria um evento NOVO para uma
-    // reserva que já tem evento — evento duplicado no calendário do cliente.
-    googleEventId: reserva.googleEventId ?? null,
-    ...(reserva.status === 'cancelled' ? { cancelled: true } : {}),
-    source: reserva.source ?? 'app',
-  }));
-
-  const series: LocalReservation[] = recurring
-    .filter((schedule) => schedule.active && schedule.weekdays.length > 0)
-    .map((schedule) => ({
-      id: `${PREFIXO_RECORRENTE}${schedule.id}`,
-      dogName: schedule.dog.dogName,
-      clientName: schedule.dog.clientName,
-      serviceType: 'daycare' as const,
-      startDate: schedule.startDate,
-      endDate: schedule.endDate ?? undefined,
-      weekdays: [...schedule.weekdays].sort((a, b) => a - b),
-      skipDates: diasPausados(schedule, exceptions, horizonte),
-      googleEventId: schedule.googleEventId ?? null,
-      source: schedule.source ?? 'app',
-    }));
-
-  return [...avulsas, ...series];
 }

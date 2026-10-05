@@ -18,7 +18,7 @@ import { buildDay, type ReservationRecord } from '@/features/calendar/dayMath';
 import { dayIndicatorsFrom, packRows, type DayDog } from '@/features/dashboard/dayOperation';
 import { dogsOfDaySummary } from '@/features/dashboard/dayService';
 import { planCalendarImport, type BookingForImport, type DogForImport } from '@/features/integrations/google/importPlan';
-import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
+import type { RemoteEvent } from '@/features/integrations/google/eventMarkers';
 
 const DIA_DE_EMBORA = '2026-09-10';
 const JANELA = { from: '2026-09-01', to: '2026-12-31' };

@@ -12,7 +12,7 @@
  *     um dia normal da escala.
  */
 import { planCalendarImport, type BookingForImport, type DogForImport } from '@/features/integrations/google/importPlan';
-import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
+import type { RemoteEvent } from '@/features/integrations/google/eventMarkers';
 import { buildDay, type RecurringExceptionRecord, type RecurringScheduleRecord } from '@/features/calendar/dayMath';
 
 /** 2026-10-06 é TERÇA (dia 2) — de propósito FORA dos dias da escala (seg/qua/sex) do teste. */

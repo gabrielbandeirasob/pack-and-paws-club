@@ -2,18 +2,16 @@
  * VETORES INDEPENDENTES DO AGENTE DE TESTES (agente2) — build 55 (24/09/2026): SERVIÇO PELA COR.
  *
  * Aqui eu passo pelo caminho REAL, como o app faz: recurso CRU da API do Google -> `parseEvent` ->
- * `planCalendarImport`; e no sentido inverso, `eventFor` (espelho) -> corpo do evento enviado.
+ * `planCalendarImport`. O sentido inverso (o espelho, que pintava o evento) saiu do app em 05/10/2026.
  *
  * Os vetores são exatamente os que o dono pediu:
  *  - título "Pietro", cor verde, cão cadastrado -> reserva BOARDING;
  *  - azul -> DAYCARE;
  *  - vermelho -> cancela a reserva daquele dia;
  *  - cão desconhecido -> NÃO importa e aparece em "not registered";
- *  - sem cor -> "color not recognized";
- *  - o espelho manda `colorId` e o que ele manda volta lendo o serviço certo (ida e volta).
+ *  - sem cor -> "color not recognized".
  */
-import { parseEvent, toEventBody } from '@/features/integrations/google/calendarApi';
-import { eventFor, type LocalReservation } from '@/features/integrations/google/calendarSync';
+import { parseEvent } from '@/features/integrations/google/calendarApi';
 import { meaningOfColor } from '@/features/calendar/googleColors';
 import { planCalendarImport, type DogForImport } from '@/features/integrations/google/importPlan';
 
@@ -90,30 +88,5 @@ describe('cor do evento -> serviço da reserva (caminho real: API -> parseEvent 
   it('o AMARELO (id 5) importa como boarding — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {
     const plano = planoDoRecurso(recurso('ev-amarelo', 'Pietro', '5'));
     expect(plano[0]).toMatchObject({ kind: 'create', parsed: { serviceType: 'boarding' } });
-  });
-});
-
-describe('o espelho manda a cor do serviço (app -> Google)', () => {
-  const daycare: LocalReservation = { id: 'res:d1', dogName: 'Pietro', clientName: 'Carlos', serviceType: 'daycare', startDate: '2026-09-25' };
-  const boarding: LocalReservation = { id: 'res:b1', dogName: 'Pietro', clientName: 'Carlos', serviceType: 'boarding', startDate: '2026-09-25' };
-
-  it('daycare sai azul e boarding sai verde, já no CORPO enviado à API', () => {
-    expect(toEventBody(eventFor(daycare)).colorId).toBe(AZUL);
-    // Hospedagem de UM dia = chegada E saída -> sai AMARELO (dono, 28/09/2026).
-    expect(toEventBody(eventFor(boarding)).colorId).toBe('5');
-  });
-
-  it('ida e volta: o que o espelho manda volta lendo o serviço certo', () => {
-    for (const [reserva, esperado] of [[daycare, 'daycare'], [boarding, 'boarding']] as const) {
-      const corpo = toEventBody(eventFor(reserva)) as Record<string, unknown>;
-      const voltou = parseEvent({ ...corpo, id: 'ev-volta' } as never);
-      expect(meaningOfColor(voltou.colorId)).toEqual({ kind: 'service', serviceType: esperado });
-    }
-  });
-
-  it('todo evento do espelho carrega a marca do app (a importação ignora o próprio espelho)', () => {
-    const corpo = toEventBody(eventFor(daycare)) as { extendedProperties?: { private?: Record<string, string> } };
-    expect(corpo.extendedProperties?.private?.packpawsMirror).toBe('v1');
-    expect(corpo.extendedProperties?.private?.appKey).toBe('res:d1');
   });
 });

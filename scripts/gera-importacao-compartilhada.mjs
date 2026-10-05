@@ -6,6 +6,7 @@
  * exceções, cancelamento) é a regra mais delicada do app. A função agendada precisa dela para rodar
  * com o app fechado — e duas implementações da mesma regra divergem em uma semana. Então o app
  * continua sendo a fonte, e este script COPIA os módulos puros para `supabase/functions/_shared/`
+ * (o espelho saiu em 05/10/2026: `calendarSync`/`googleEvents` não são mais copiados)
  * (que é o diretório que o deploy das Edge Functions publica), ajustando só os imports.
  *
  * Uso:  node scripts/gera-importacao-compartilhada.mjs
@@ -21,11 +22,12 @@ const DESTINO = join(RAIZ, 'supabase/functions/_shared/importacao');
 const MODULOS = [
   'features/calendar/dates.ts',
   'features/calendar/googleColors.ts',
-  'features/calendar/googleEvents.ts',
   'features/calendar/dayMath.ts',
   'features/integrations/google/calendarChoice.ts',
   'features/integrations/google/credentialFailure.ts',
-  'features/integrations/google/calendarSync.ts',
+  // eventMarkers: as marcas dos eventos (`appKey`) ficaram aqui quando o espelho foi removido
+  // (05/10/2026) — a importação do servidor continua precisando reconhecer evento criado pelo app.
+  'features/integrations/google/eventMarkers.ts',
   'features/integrations/google/localReservations.ts',
   'features/integrations/google/calendarApi.ts',
   'features/integrations/google/importPlan.ts',

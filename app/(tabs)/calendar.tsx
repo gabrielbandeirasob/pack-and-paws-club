@@ -12,7 +12,7 @@ import { addMonthsISO, monthLabel, monthMatrixISO, summarizeRange, weekDatesISO 
 import { NewReservationForm, type NewReservationPayload } from '@/features/calendar/NewReservationForm';
 import { CalendarConnectionCard } from '@/features/integrations/google/CalendarConnectionCard';
 import type { BookingForImport } from '@/features/integrations/google/importPlan';
-import { toLocalReservations, diasPausados } from '@/features/integrations/google/localReservations';
+import { diasPausados } from '@/features/integrations/google/localReservations';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
@@ -123,13 +123,6 @@ export default function CalendarScreen() {
   );
 
   const summary = useMemo(() => buildDay(selectedDay, reservations, recurring, exceptions), [selectedDay, reservations, recurring, exceptions]);
-
-  // Lista que o espelhamento do Google consome (módulo puro): reservas avulsas + escalas
-  // recorrentes, com as pausas do app já resolvidas em EXDATE.
-  const reservasParaEspelhar = useMemo(
-    () => toLocalReservations(reservations, recurring, exceptions, { horizonteISO: addDaysISO(todayLocalISO(), 180) }),
-    [reservations, recurring, exceptions],
-  );
 
   /**
    * O que a IMPORTACAO (Google → app) precisa saber: os cães do cadastro (para casar o nome do
@@ -245,7 +238,9 @@ export default function CalendarScreen() {
     setReservations((current) => current.map((reservation) =>
       reservation.id === item.reservationId ? { ...reservation, status: 'cancelled' } : reservation,
     ));
-    showAlert('Day cancelled', 'The client’s calendar event will turn Tomato on the next Sync.');
+    // O espelho foi removido em 05/10/2026: cancelar aqui NÃO muda mais o calendário do cliente
+    // (o app só lê o Google). A frase não pode prometer o que não acontece.
+    showAlert('Day cancelled', 'The booking is cancelled in the app. The client’s calendar is not changed by the app.');
     await load({ silent: true });
   };
 
@@ -446,7 +441,6 @@ export default function CalendarScreen() {
             ) : null}
 
             <CalendarConnectionCard
-              reservations={reservasParaEspelhar}
               organizationId={organizationId ?? ''}
               dogs={dogs.map((cao) => ({ id: cao.id, name: cao.dogName, clientName: cao.clientName }))}
               bookings={casosDaImportacao}

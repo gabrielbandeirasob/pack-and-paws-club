@@ -14,7 +14,6 @@ import {
   avisoDeTroca,
   corpoDaEscolha,
   DEFAULT_CALENDAR_ID,
-  ehSomenteLeitura,
   escolhaDaOrganizacao,
   explicarFalhaDeListagem,
   interpretarCalendarios,
@@ -25,7 +24,6 @@ import {
   rotuloDeAcesso,
   textoDeAvisoDeTroca,
   TEXTO_FALTA_DE_ESCOPO,
-  TEXTO_SOMENTE_LEITURA,
   type GoogleCalendarEntry,
 } from '@/features/integrations/google/calendarChoice';
 
@@ -134,17 +132,6 @@ describe('aviso de troca de calendário', () => {
 });
 
 describe('erro legível em vez do erro cru da API', () => {
-  it('reconhece calendário somente leitura pelo papel e pelo texto do erro', () => {
-    expect(ehSomenteLeitura('qualquer coisa', 'reader')).toBe(true);
-    expect(ehSomenteLeitura('qualquer coisa', 'writer')).toBe(false);
-    expect(ehSomenteLeitura('criar evento falhou (HTTP 403): The user does not have write access to this calendar.', null)).toBe(true);
-    expect(ehSomenteLeitura('criar evento falhou (HTTP 403): Insufficient Permission', null)).toBe(true);
-    expect(ehSomenteLeitura('criar evento falhou (HTTP 500): backend error', null)).toBe(false);
-    // Escopo é problema do APP (token antigo), não do calendário: não vira "read-only".
-    expect(ehSomenteLeitura('listar calendários falhou (HTTP 403): insufficient authentication scopes', null)).toBe(false);
-    expect(TEXTO_SOMENTE_LEITURA).toContain('read-only');
-  });
-
   it('traduz a falha de listar calendários (token antigo) em "reconecte"', () => {
     expect(explicarFalhaDeListagem('listar calendários falhou (HTTP 403): Request had insufficient authentication scopes.')).toBe(
       TEXTO_FALTA_DE_ESCOPO,

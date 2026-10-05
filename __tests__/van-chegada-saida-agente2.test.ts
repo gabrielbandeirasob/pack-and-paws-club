@@ -19,7 +19,7 @@
 import { movimentaOCao, readEventColor, tomDeMovimento } from '@/features/calendar/googleColors';
 import { supabaseImportPorts } from '@/features/integrations/google/importPorts';
 import { planCalendarImport, type BookingForImport, type DogForImport, type ParsedBooking } from '@/features/integrations/google/importPlan';
-import type { RemoteEvent } from '@/features/integrations/google/calendarSync';
+import type { RemoteEvent } from '@/features/integrations/google/eventMarkers';
 
 const JANELA = { from: '2026-09-01', to: '2026-12-31' };
 
