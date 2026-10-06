@@ -627,8 +627,16 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
               style={styles.naVanCabecalho}
             >
               {/* Item 12: linha discreta `Already in van  N  ⌄` — o bloco tracejado com
-                  "Boarding — already in the van (N) ▸ Show" saiu. */}
-              <Text style={styles.naVanTitulo}>Already in van</Text>
+                  "Boarding — already in the van (N) ▸ Show" saiu.
+                  Os NOMES entram aqui (05/10/2026): o dono reclamou que "adicionou cão no calendário e
+                  ele não apareceu no dispatch" e o cão de boarding ficava só como um número numa seção
+                  recolhida — parecia perdido. Com o nome à vista, a linha diz quem está na van. */}
+              <View style={styles.naVanRotulo}>
+                <Text style={styles.naVanTitulo}>Already in van</Text>
+                <Text numberOfLines={1} style={styles.naVanNomes}>
+                  {naVan.map((item) => item.dogName).join(' · ')}
+                </Text>
+              </View>
               <Text style={styles.naVanCount}>{naVan.length}</Text>
               <Text style={styles.naVanChevron}>{mostrarNaVan ? '⌃' : '⌄'}</Text>
             </Pressable>
@@ -1494,7 +1502,10 @@ const styles = StyleSheet.create({
    * O título era longo e empurrava o "Show" para fora da borda (dono, 04/10/2026); com `flex: 1` +
    * texto curto o affordance fica sempre dentro.
    */
-  naVanTitulo: { flex: 1, flexShrink: 1, color: colors.forest700, textTransform: 'uppercase', fontWeight: '900', fontSize: 12 },
+  naVanRotulo: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0 },
+  naVanTitulo: { flexShrink: 0, color: colors.forest700, textTransform: 'uppercase', fontWeight: '900', fontSize: 12 },
+  /** Nomes dos cães que já estão na van (05/10/2026): encolhem e truncam ANTES de empurrar a contagem. */
+  naVanNomes: { flexShrink: 1, minWidth: 0, color: colors.muted, fontSize: 12, fontWeight: '700' },
   naVanCount: { color: colors.muted, fontSize: 12, fontWeight: '800' },
   naVanChevron: { color: colors.forest700, fontSize: 14, fontWeight: '900' },
   /** Chips de motorista antigos (mantidos por compatibilidade de estilo). */
