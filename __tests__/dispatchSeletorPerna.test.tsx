@@ -93,29 +93,30 @@ it('Drop-offs mostra só entrega e reordena a rota de entrega', async () => {
 });
 
 it('Optimize e Publish usam o ID da perna selecionada, com cães distintos', async () => {
-  const alerta = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-  try {
-    const tela = await render(<DispatchScreen />);
-    await tela.findByTestId('dispatch-leg-pickup-motorista');
-    await fireEvent.press(tela.getByLabelText('Publish Rafael route'));
-    expect(rpc).toHaveBeenCalledWith('publish_route', { p_route_id: 'rota', p_esperado: 4 });
-    await act(async () => confirmar[0]({ data: null, error: null }));
-    await fireEvent.press(tela.getByLabelText('Drop-offs'));
-    // POLIMENTO (05/10/2026): o botão `Draft only` saiu — a entrega NÃO oferece ação de publicar.
-    expect(tela.queryByLabelText('Publish Rafael route')).toBeNull();
-    expect(rpc).toHaveBeenCalledTimes(1);
-    await fireEvent.press(tela.getByLabelText('Optimize Rafael route'));
-    const [, mensagem, botoes] = alerta.mock.calls[0];
-    expect(mensagem).toContain('Rex');
-    expect(mensagem).toContain('Bolt');
-    expect(mensagem).not.toContain('Luna');
-    await act(async () => botoes?.find(b => b.text === 'Apply')?.onPress?.());
-    expect(rpc).toHaveBeenLastCalledWith('apply_route_order', {
-      p_route_id: 'entrega', p_pickup_ids: null, p_dropoff_ids: ['Rex', 'Bolt'], p_esperado: 9,
-    });
-    await act(async () => confirmar[1]({ data: null, error: null }));
-  } finally { alerta.mockRestore(); }
+  const tela = await render(<DispatchScreen />);
+  await tela.findByTestId('dispatch-leg-pickup-motorista');
+  await fireEvent.press(tela.getByLabelText('Publish Rafael route'));
+  expect(rpc).toHaveBeenCalledWith('publish_route', { p_route_id: 'rota', p_esperado: 4 });
+  await act(async () => confirmar[0]({ data: null, error: null }));
+  await fireEvent.press(tela.getByLabelText('Drop-offs'));
+  // POLIMENTO (05/10/2026): o botão `Draft only` saiu — a entrega NÃO oferece ação de publicar.
+  expect(tela.queryByLabelText('Publish Rafael route')).toBeNull();
+  expect(rpc).toHaveBeenCalledTimes(1);
+  await fireEvent.press(tela.getByLabelText('Optimize Rafael route'));
+  /**
+   * O Optimize trabalha SÓ na perna selecionada, com os cães DELA: a rota que vai para a RPC é a de
+   * entrega (`entrega`) e as paradas são Rex e Bolt — nenhum cão da busca (Luna) entra. Até 05/10/2026
+   * isso era provado pelo TEXTO do alerta; agora a ordem é aplicada direto (e o Undo existe), então a
+   * prova é o que a RPC recebe.
+   */
+  await waitFor(() => expect(rpc).toHaveBeenLastCalledWith('apply_route_order', {
+    p_route_id: 'entrega', p_pickup_ids: null, p_dropoff_ids: ['Rex', 'Bolt'], p_esperado: 9,
+  }));
+  const ultima = (rpc as jest.Mock).mock.calls.at(-1)?.[1] as { p_dropoff_ids: string[] };
+  expect(ultima.p_dropoff_ids).not.toContain('Luna');
+  await act(async () => confirmar[1]({ data: null, error: null }));
 });
+
 
 it('Add any dog inclui apenas na fila da perna escolhida', async () => {
   const tela = await render(<DispatchScreen />);

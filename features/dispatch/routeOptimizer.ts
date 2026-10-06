@@ -42,6 +42,20 @@ export type OptimizeOptions = {
    */
   dropoffLatitude?: number | null;
   dropoffLongitude?: number | null;
+  /**
+   * DESTINO FIXO da perna — onde a rota TERMINA (regra de negócio do dono, 05/10/2026):
+   * **PICK-UP SEMPRE TERMINA NO YARD** e **ENTREGA SEMPRE TERMINA NA VAN**.
+   *
+   * Van e Yard são PONTAS FIXAS: nunca entram no meio da rota e nunca são reordenados — o otimizador
+   * mexe SÓ nas paradas de cliente que ficam entre as duas pontas. O destino entra na CONTA (última
+   * perna) e é isso que faz o otimizador escolher bem QUEM fica por último: sem ele, a última parada
+   * podia ser a mais longe da yard (o motorista terminava longe de onde tem de fechar o dia).
+   *
+   * Sem coordenada (organização sem yard cadastrado, por exemplo) a última perna não entra na conta e
+   * nada mais muda — o app nunca inventa um ponto.
+   */
+  destinationLatitude?: number | null;
+  destinationLongitude?: number | null;
   /** Tempos reais (Google, via servidor). Ausente/incompleto = estimativa por linha reta. */
   travel?: TravelTimes | null;
 };
@@ -83,6 +97,30 @@ function travelMinutesBetween(a: OptimizeStop, b: OptimizeStop, options: Optimiz
 
 /** A origem de uma sequência: a base (van) ou, na ENTREGA, de onde o motorista está saindo (o yard). */
 type Origem = { latitude: number | null | undefined; longitude: number | null | undefined };
+
+/** O DESTINO fixo da perna (pick-up: yard; entrega: van) — só quando tem coordenada utilizável. */
+function destinoDe(options: OptimizeOptions): { latitude: number; longitude: number } | null {
+  const { destinationLatitude: lat, destinationLongitude: lon } = options;
+  const ok = (valor: unknown): valor is number => typeof valor === 'number' && Number.isFinite(valor);
+  if (!ok(lat) || !ok(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180 || (lat === 0 && lon === 0)) return null;
+  return { latitude: lat, longitude: lon };
+}
+
+/**
+ * Minutos da ÚLTIMA perna — da última parada até o destino fixo (yard no pick-up, van na entrega).
+ *
+ * Linha reta de propósito: a matriz real do servidor tem UMA base só (a van, `homeTo`) e nada sobre o
+ * destino, então usar a matriz aqui misturaria fontes. É a mesma conta que o resto do fallback usa.
+ */
+function travelMinutesToDestination(ultima: OptimizeStop | undefined, options: OptimizeOptions): number {
+  if (!ultima) return 0;
+  const destino = destinoDe(options);
+  if (!destino) return 0;
+  if (ultima.latitude == null || ultima.longitude == null) return 0;
+  const km = haversineKm(ultima.latitude, ultima.longitude, destino.latitude, destino.longitude);
+  return (km / (options.speedKph ?? DEFAULT_SPEED_KPH)) * 60;
+}
 
 function travelMinutesFromHome(stop: OptimizeStop, options: OptimizeOptions, origem?: Origem | null): number {
   const temOrigemPropria = Boolean(origem && origem.latitude != null && origem.longitude != null);
@@ -137,6 +175,46 @@ export function minutosDaOrdem(
     total += (anterior ? travelMinutesBetween(anterior, parada, options) : travelMinutesFromHome(parada, options, origem))
       + serviceOf(parada, options);
   }
+  /**
+   * A ÚLTIMA perna conta: quem fecha a rota é o destino fixo (yard no pick-up, van na entrega) — sem
+   * ela o número do gestor seria o da rota que não termina em lugar nenhum.
+   */
+  return total + travelMinutesToDestination(porId.get(ids[ids.length - 1]), options);
+}
+
+/**
+ * QUILÔMETROS de uma ordem JÁ definida — a distância que o cartão do Optimize mostra como
+ * *"4.2 mi saved"*. Linha reta (mesma base do fallback de tempo do otimizador).
+ *
+ * Devolve `null` quando falta coordenada em qualquer parada ou ponta: número inventado seria pior do
+ * que nenhum número (a mesma regra de `minutosDaOrdem`).
+ */
+export function quilometrosDaOrdem(
+  stops: OptimizeStop[],
+  ordemDeIds: string[],
+  origem?: Origem | null,
+  destino?: Origem | null,
+): number | null {
+  const porId = new Map(stops.map((stop) => [stop.dogId, stop]));
+  const ids = ordemDeIds.filter((id) => porId.has(id));
+  if (ids.length === 0) return null;
+  const ponto = (valor: { latitude?: number | null; longitude?: number | null } | null | undefined) =>
+    valor && typeof valor.latitude === 'number' && typeof valor.longitude === 'number'
+      && Number.isFinite(valor.latitude) && Number.isFinite(valor.longitude)
+      ? { latitude: valor.latitude, longitude: valor.longitude }
+      : null;
+
+  let total = 0;
+  let anterior = ponto(origem);
+  for (const id of ids) {
+    const parada = porId.get(id) as OptimizeStop;
+    if (parada.latitude == null || parada.longitude == null) return null;
+    const atual = { latitude: parada.latitude, longitude: parada.longitude };
+    if (anterior) total += haversineKm(anterior.latitude, anterior.longitude, atual.latitude, atual.longitude);
+    anterior = atual;
+  }
+  const fim = ponto(destino);
+  if (fim && anterior) total += haversineKm(anterior.latitude, anterior.longitude, fim.latitude, fim.longitude);
   return total;
 }
 

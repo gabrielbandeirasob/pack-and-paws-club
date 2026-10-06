@@ -147,17 +147,20 @@ describe('B4 — Optimize não quebra por cão já resolvido sem endereço', () 
     }
   });
 
-  it('com uma só parada pendente, avisa "Nothing to optimize" em vez de voltar mudo', async () => {
+  it('com menos de 2 paradas elegíveis o botão fica desabilitado e o CARTÃO explica (não volta mudo)', async () => {
+    /**
+     * Mudança de 05/10/2026 (pedido do dono: *"Only enable optimization when there are at least 2
+     * eligible client stops"*): o aviso saiu do alerta e virou estado do cartão — o gestor lê no lugar
+     * onde ia tocar, e o botão nasce desabilitado.
+     */
     mockOrdem = [mockParada('Luna', COORD), mockParada('Max', COORD, 'completed'), mockParada('Filó', COORD, 'skipped')];
-    const alerta = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    try {
-      const tela = await montar();
-      await fireEvent.press(tela.getByRole('button', { name: 'Optimize Rafael route' }));
-      expect(titulosDeAlerta(alerta)).toContain('Nothing to optimize');
-      expect(optimizeRouteEspiao).not.toHaveBeenCalled();
-    } finally {
-      alerta.mockRestore();
-    }
+    const tela = await montar();
+    const botao = tela.getByRole('button', { name: 'Optimize Rafael route' });
+    expect(botao.props.accessibilityState?.disabled).toBe(true);
+    expect(tela.getByTestId('optimize-hint')).toBeTruthy();
+    expect(tela.getByText(/At least 2 stops/)).toBeTruthy();
+    await fireEvent.press(botao);
+    expect(optimizeRouteEspiao).not.toHaveBeenCalled();
   });
 });
 
