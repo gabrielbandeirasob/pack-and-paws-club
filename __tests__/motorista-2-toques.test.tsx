@@ -55,16 +55,20 @@ const mockEstado: {
 /** Sedes da organização (van/yard). Vazio por padrão: os testes antigos não precisam delas. */
 let mockLocais: unknown[] = [];
 let mockDuasPernas = false;
+/** Só a perna de ENTREGA publicada (o gestor não publicou a de busca) — caso do dono, 06/10/2026. */
+let mockSomenteEntrega = false;
 let mockDriverId = 'driver-1';
 let mockLeituraOffline = false;
 let mockSemColunaFase = false;
 let mockConsultas: { campos: string; filtros: Record<string, unknown>; limite?: number }[] = [];
 const mockRotasDoDia = () => {
   const pickup = { ...mockRota(), phase: 'pickup' };
-  if (!mockDuasPernas) return [pickup];
-  return [{ ...pickup, id: 'r2', phase: 'dropoff', end_location_id: 'van-1',
+  const entrega = { ...pickup, id: 'r2', phase: 'dropoff', end_location_id: 'van-1',
     route_stops: pickup.route_stops.map(stop => ({ ...stop, id: 's2', status: 'pending',
-      dog: { ...stop.dog, id: 'd2', name: 'Luna' } })) }, pickup];
+      dog: { ...stop.dog, id: 'd2', name: 'Luna' } })) };
+  if (mockSomenteEntrega) return [entrega];
+  if (!mockDuasPernas) return [pickup];
+  return [entrega, pickup];
 };
 
 const mockRota = () => ({
@@ -246,6 +250,7 @@ beforeEach(async () => {
   // "sem rede" de um teste suba a fila no seguinte.
   await AsyncStorage.clear();
   mockDuasPernas = false;
+  mockSomenteEntrega = false;
   mockDriverId = 'driver-1';
   mockLeituraOffline = false;
   mockSemColunaFase = false;
@@ -334,6 +339,30 @@ describe('2 toques: I arrived e Next', () => {
     await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Bob')).toBeTruthy());
     expect(tela.queryByText('Route finished')).toBeNull();
     expect(tela.queryByLabelText('Next stop: Next for Bob')).toBeNull();
+  });
+
+  it('perna de ENTREGA publicada SOZINHA aparece no celular (dono, 06/10/2026)', async () => {
+    /*
+     * Relato do dono: "tentei publicar uma rota de drop-off sem ter publicado uma de pick-up e a rota
+     * de drop-off não apareceu". O app tratava a BUSCA como porta de entrada do dia: sem a perna de
+     * busca, `route` ficava indefinido, a tela parava na fase 'pickup' e a rota publicada não aparecia
+     * em lugar nenhum. A entrega publicada tem de ser o dia.
+     */
+    mockSomenteEntrega = true;
+
+    const Tela = require('../app/(tabs)/driver').default;
+    const tela = await render(<Tela />);
+
+    // A rota publicada abre na ENTREGA: o cão dela é a próxima parada do dia (na entrega o toque é
+    // o "Delivered" — a tela força a ação da perna).
+    await waitFor(() => expect(tela.getByLabelText('Next stop: Delivered for Luna')).toBeTruthy());
+    expect(tela.getByText('Luna')).toBeTruthy();
+
+    // Sem perna de busca não há lista de pick-up para abrir: o chip fica desabilitado...
+    expect(tela.getByLabelText('Pick-ups').props.accessibilityState?.disabled).toBe(true);
+    // ...e a tela não pede um toque que não existe (nem o botão do yard, que só vale com busca).
+    expect(tela.queryByText('Tap Start Route to open the pick-up list.')).toBeNull();
+    expect(tela.queryByText('Use the yard button to start drop-offs.')).toBeNull();
   });
 
 /**

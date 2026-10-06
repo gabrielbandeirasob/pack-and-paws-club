@@ -145,6 +145,8 @@ export default function DriverTodayScreen() {
    * lá esperando — é a sequência do dia que o dono definiu.
    */
   const [entregasLiberadas, setEntregasLiberadas] = useState(false);
+  /** Existe perna de BUSCA publicada hoje? Sem ela não há lista de pick-ups para abrir (dono, 06/10/2026). */
+  const [temBuscaPublicada, setTemBuscaPublicada] = useState(true);
   const entregasLiberadasRef = useRef(false);
   const entregasPorDia = useRef(new Set<string>());
   // A busca ancora as duas pernas, mantendo inclusive a fase gravada por versões anteriores.
@@ -559,9 +561,18 @@ export default function DriverTodayScreen() {
             busca = await carregouABusca(key, usuarioId);
           }
           const fasePreferida = pernaVisivel.current ?? dia.fase;
-          const daTela: DayPhase = fasePreferida === 'dropoff' && Boolean(pickup) && !entregasPorDia.current.has(`${usuarioId}:${key}`)
-            && !entregaTerminou(((dropoff ?? pickup)?.route_stops ?? []).map(rowToStop)) ? 'pickup' : fasePreferida;
-          const route = daTela === 'dropoff' ? dropoff ?? pickup : pickup;
+          /*
+           * SEM PERNA DE BUSCA PUBLICADA, O DIA COMEÇA NA ENTREGA — achado do dono, 06/10/2026:
+           * "tentei publicar uma rota de drop-off sem ter publicado uma de pick-up e a rota de drop-off
+           * não apareceu". O app tratava a BUSCA como porta de entrada do dia: com só a entrega
+           * publicada, `pickup` ficava indefinido, `daTela` continuava 'pickup' e a linha virava
+           * `undefined` — a rota publicada não aparecia em lugar nenhum da tela.
+           */
+          const semBuscaPublicada = !pickup && Boolean(dropoff);
+          const baseDaTela: DayPhase = semBuscaPublicada ? 'dropoff' : fasePreferida;
+          const daTela: DayPhase = baseDaTela === 'dropoff' && Boolean(pickup) && !entregasPorDia.current.has(`${usuarioId}:${key}`)
+            && !entregaTerminou(((dropoff ?? pickup)?.route_stops ?? []).map(rowToStop)) ? 'pickup' : baseDaTela;
+          const route = daTela === 'dropoff' ? dropoff ?? pickup : pickup ?? dropoff;
           const org = route?.organization_id ?? (online ? await resolveDriverOrganizationId(supabase, usuarioId) : null);
           let locais = snapshot?.locations ?? [];
           let van: OrganizationLocation | null = null;
@@ -614,9 +625,11 @@ export default function DriverTodayScreen() {
           // retrato. Nenhuma consulta lenta publica metade de uma tela antiga.
           faseDoDia.current = dia;
           buscaIniciadaRef.current = busca;
-          const liberadas = entregasPorDia.current.has(`${usuarioId}:${key}`);
+          // Sem perna de BUSCA publicada não há o que "liberar" no yard: a entrega publicada é o dia.
+          const liberadas = entregasPorDia.current.has(`${usuarioId}:${key}`) || semBuscaPublicada;
           entregasLiberadasRef.current = liberadas;
           setEntregasLiberadas(liberadas);
+          setTemBuscaPublicada(Boolean(pickup));
           setBuscaIniciada(busca); setFase(daTela);
           setDriverId(usuarioId); setSessaoExpirada(false);
           setRouteId(route?.id ?? null); setRouteVersion(route?.lock_version ?? null); setOrganizationId(org);
@@ -1648,7 +1661,7 @@ export default function DriverTodayScreen() {
               {!mostrarRota || !proximaParada ? journeyCard : null}
               {mostrarRota && stops.length > 0 && etapaAtual !== 'to_van' ? <View style={styles.phaseSection}>
                 <View style={styles.phaseRow}>{(['pickup', 'dropoff'] as const).map(phase => {
-                  const disabled = phase === 'pickup' ? !buscaIniciada : !entregasLiberadas;
+                  const disabled = phase === 'pickup' ? (temBuscaPublicada ? !buscaIniciada : true) : !entregasLiberadas;
                   return <Pressable key={phase} accessibilityRole="button"
                     accessibilityLabel={phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'}
                     accessibilityState={{ selected: fase === phase, disabled }} disabled={disabled}
@@ -1657,7 +1670,7 @@ export default function DriverTodayScreen() {
                   </Pressable>;
                 })}</View>
                 {!entregasLiberadas ? <Text style={styles.phaseHint}>Use the yard button to start drop-offs.</Text> : null}
-                {!buscaIniciada ? <Text style={styles.phaseHint}>Tap Start Route to open the pick-up list.</Text> : null}
+                {!buscaIniciada && temBuscaPublicada ? <Text style={styles.phaseHint}>Tap Start Route to open the pick-up list.</Text> : null}
               </View> : null}
               {stops.length === 0 ? (
                 /*
