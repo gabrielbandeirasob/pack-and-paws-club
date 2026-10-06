@@ -126,8 +126,14 @@ const EH_PALAVRA_DE_SERVICO = /\b(boarding|hospedagem|pernoite|hotel|day\s*care|
  * `BOADING` (de "boarding") apareciam no cartão do Google Calendar como "cão não cadastrado", poluindo
  * a lista de pendências do gestor. Não é dado faltando: é evento que não representa cão.
  * `BOARDING 🐶` cai pela outra porta — depois de tirar a palavra de serviço não sobra LETRA.
+ *
+ * 06/10/2026: o print do cliente (dias 7-9/10) trouxe **`Inspeção building`** — barra vermelha de um
+ * compromisso do escritório, que caía em "não cadastrado" como se fosse um cão. Pedido do dono no mesmo
+ * dia: *"somar 'inspeção/inspection' à lista de marcadores (some sem virar pendência), com teste"*.
+ * Daí `inspe[çc][ãa]o|inspection|vistoria` (o `\b` funciona com a cedilha porque a palavra começa com
+ * letra ASCII).
  */
-const PALAVRAS_DE_OPERACAO = /\b(rotas?|rotas?\s+fixas?|mentoria|consulta|boading|bording|baording)\b/i;
+const PALAVRAS_DE_OPERACAO = /\b(rotas?|rotas?\s+fixas?|mentoria|consulta|boading|bording|baording|inspe[çc][ãa]o|inspection|vistoria)\b/i;
 
 /** Nome só é nome de cão se tiver LETRA: resto de "BOARDING 🐶" é emoji e não vira cão. */
 const TEM_LETRA = /[a-zA-ZÀ-ÿ]/;

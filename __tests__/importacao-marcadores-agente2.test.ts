@@ -50,6 +50,13 @@ describe('ehEventoDeOperacao — o que é marcador e o que é cão', () => {
     ['Rotas'],
     ['rotas'],
     ['Mentoria + Consulta'],
+    // 06/10/2026: o print do cliente (dias 7-9/10) tinha esta barra VERMELHA — compromisso do
+    // escritório, não cão — e ela caía em "não cadastrado". Pedido do dono: somar à lista.
+    ['Inspeção building'],
+    ['Inspeção'],
+    ['Inspecao'],
+    ['Inspection'],
+    ['Vistoria do prédio'],
     ['BOADING'],
     ['BOARDING 🐶'],
     ['BOARDING'],
