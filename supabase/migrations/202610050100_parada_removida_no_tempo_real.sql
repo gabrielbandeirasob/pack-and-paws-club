@@ -1,0 +1,15 @@
+-- A tela do MOTORISTA não atualizava quando o gestor removia uma parada no painel (defeito relatado pelo
+-- dono, 05/10/2026: *"ao mudar uma parada do driver pelo painel administrador a rota no driver não
+-- atualiza automaticamente, o que gera confusão"*).
+--
+-- MEDIDO (05/10/2026): `route_stops` estava com `relreplident = 'd'` (default) na publicação
+-- `supabase_realtime`, enquanto `organization_locations` já tinha 'f' — o conserto do MESMO tipo de
+-- defeito, na migração 202610010043. Com a identidade default, o payload de DELETE carrega SÓ a chave
+-- primária: o filtro `route_id=eq.<rota>` (tela do motorista) e o `organization_id=eq.<org>` (Dispatch)
+-- não têm coluna para casar, o evento não chega, e a parada removida fica na tela até o motorista puxar
+-- para atualizar. INSERT/UPDATE mandam a linha inteira, e por isso "adicionar" e "reordenar" sempre
+-- funcionaram — o furo era só o DELETE, que é exatamente o que o "Remove from route" do painel faz
+-- (`app/(tabs)/dispatch.tsx` -> `.from('route_stops').delete()`).
+--
+-- `routes` fica como está: nada no app apaga rota (cancelar é UPDATE, e UPDATE já carrega a linha).
+alter table public.route_stops replica identity full;

@@ -1,5 +1,6 @@
 import { agruparEmTarefas, posicoesDasParadas } from '@/features/driver/tasks';
 import { RouteSummary } from '@/features/driver/RouteSummary';
+import { useRelendoAoVoltarParaFrente } from '@/features/driver/useVoltaParaFrente';
 import { StartStateCard } from '@/features/driver/StartStateCard';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type AlertButton } from 'react-native';
@@ -698,6 +699,19 @@ export default function DriverTodayScreen() {
       void supabase.removeChannel(channel);
     };
   }, [routeId, organizationId, load]);
+
+  /**
+   * SEGUNDO PLANO (dono, 05/10/2026): *"ao mudar uma parada do driver pelo painel administrador a rota
+   * no driver não atualiza automaticamente, o que gera confusão"*. Em celular o canal de tempo real cai
+   * quando o app vai para segundo plano, então o que o gestor mexeu nesse meio-tempo não chega por
+   * evento. Ao VOLTAR para a frente, a tela relê por baixo (silencioso): não pisca, não pede
+   * "puxar para atualizar", e o motorista (que vive com o app no bolso) não fica com dado velho.
+   */
+  useRelendoAoVoltarParaFrente(
+    useCallback(() => {
+      void load(true);
+    }, [load]),
+  );
 
   // Location sharing only while a published route is active.
   useEffect(() => {
