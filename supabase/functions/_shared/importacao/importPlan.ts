@@ -407,6 +407,18 @@ export function kindOf(parsed: ParsedBooking): ExistingBookingKind {
   return parsed.weekdays.length > 0 ? 'recurring' : 'reservation';
 }
 
+/**
+ * Identidade de uma reserva **dentro de uma mesma rodada** de importação: cão + serviço + dia (na série,
+ * os dias da semana). É o que define "a mesma coisa" para não criar duas reservas iguais de uma vez só.
+ */
+function chaveDaMesmaReserva(kind: ExistingBookingKind, dogId: string, servico: ParsedBooking): string {
+  const quando =
+    kind === 'recurring'
+      ? `dias:${[...servico.weekdays].sort((a, b) => a - b).join(',')}`
+      : `${servico.startDate}..${servico.endDate}`;
+  return `${kind}|${dogId}|${servico.serviceType}|${quando}`;
+}
+
 /** Compara só o que a importação controla (e ignora pausas, que na série moram em outra tabela). */
 function precisaAtualizar(reserva: BookingForImport, parsed: ParsedBooking, dogId: string): boolean {
   const serie = reserva.kind === 'recurring';
@@ -586,6 +598,8 @@ export function planCalendarImport(
 
   const resultados: ImportOutcome[] = [];
   const vistos = new Set<string>();
+  /** Reservas que ESTA rodada já decidiu criar (chave = cão + serviço + dia/série). */
+  const criadasNaRodada = new Map<string, string>();
 
   for (const evento of [...events].sort((a, b) => a.id.localeCompare(b.id))) {
     // 1. Evento com marca do app é o nosso espelho: o espelho cuida dele, não a importação.
@@ -796,6 +810,24 @@ export function planCalendarImport(
         resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed: servico, reason: 'duplicate' });
         continue;
       }
+
+      /**
+       * 8.1 Repetido DENTRO desta mesma leitura — e não no banco ainda.
+       *
+       * Medido no calendário do cliente (print de 06/10/2026): `Sammy` aparece DUAS vezes no mesmo dia
+       * (3:30AM e 9AM) e `Penny` duas vezes também. A regra do dono é "o mesmo cão, mesmo serviço, mesmo
+       * dia aparece UMA vez", mas a única comparação era com as reservas JÁ GRAVADAS (`gemea`, acima) e o
+       * banco não tem índice único para (cão, serviço, dia) — só para `google_event_id`. Resultado medido
+       * no fixture: a rodada devolvia **2 `create` iguais** (o dia no app mostrava o cão uma vez e o banco
+       * ficava com duas linhas). Agora o PRIMEIRO evento cria e os seguintes viram pendência `duplicate`,
+       * do mesmo jeito que o evento repetido contra o banco — o gestor decide, nada é criado em dobro.
+       */
+      const chave = chaveDaMesmaReserva(tipo, dogId, servico);
+      if (criadasNaRodada.has(chave)) {
+        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed: servico, reason: 'duplicate' });
+        continue;
+      }
+      criadasNaRodada.set(chave, evento.id);
 
       resultados.push({ kind: 'create', eventId: evento.id, dogId, parsed: servico });
     }
