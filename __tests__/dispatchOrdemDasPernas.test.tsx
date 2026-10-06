@@ -195,48 +195,42 @@ it('Optimize mostra e grava só a perna escolhida, mantendo conflitos e tempos d
     ...stop, pickup_pin: stop.dog_id === 'Filó' ? 'first' : null,
     dropoff_pin: stop.dog_id !== 'Filó' ? 'first' : null,
   }));
-  const alerta = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-  try {
-    const tela = await montar();
-    await fireEvent.press(tela.getByRole('button', { name: 'Optimize Rafael route' }));
-    expect(fetchTravelTimes).toHaveBeenCalledTimes(1);
-    // 3 min por parada; cada Optimize trabalha somente na perna escolhida.
-    expect(optimizeRouteEspiao).toHaveBeenCalledTimes(1);
-    for (const [, opcoesDaChamada] of optimizeRouteEspiao.mock.calls) {
-      expect(opcoesDaChamada).toMatchObject({ serviceMinutes: 3 });
-    }
-    const [, mensagem, botoes] = alerta.mock.calls[0];
-    expect(mensagem).toContain('Pick-up:\n• 1. Filó');
-    expect(mensagem).not.toContain('Drop-off:');
-    // ANTES -> DEPOIS (dúvida do dono, 01/10/2026: "não consigo confirmar se está realmente fazendo a
-    // melhor rota"): o alerta passa a mostrar o número das duas ordens, com a MESMA conta de
-    // deslocamento + serviço. Aqui as três paradas têm a mesma coordenada, então o ganho é zero —
-    // o que se prova é que a linha sai com os números e o rótulo certo.
-    expect(mensagem).toMatch(/Pick-up: \d+ min -> \d+ min \(no change\)/);
+  const tela = await montar();
+  await fireEvent.press(tela.getByRole('button', { name: 'Optimize Rafael route' }));
+  expect(fetchTravelTimes).toHaveBeenCalledTimes(1);
+  // 3 min por parada; cada Optimize trabalha somente na perna escolhida.
+  expect(optimizeRouteEspiao).toHaveBeenCalledTimes(1);
+  for (const [, opcoesDaChamada] of optimizeRouteEspiao.mock.calls) {
+    expect(opcoesDaChamada).toMatchObject({ serviceMinutes: 3 });
+  }
+  /**
+   * APLICA NA HORA (mudança de 05/10/2026, pedido do dono: *"After optimization: Update the stop order
+   * immediately"* + *"Add an Undo Optimization action"*). O alerta de confirmação com "Apply" saiu; o
+   * que se prova aqui continua sendo o essencial: só a perna escolhida vai para a RPC.
+   */
+  await waitFor(() => expect(rpc).toHaveBeenCalledWith('apply_route_order', {
+    p_route_id: 'rota', p_pickup_ids: ['Filó', 'Luna', 'Max'], p_dropoff_ids: null, p_esperado: 4,
+  }));
+  // A releitura das rotas (que vem logo depois do ok) tem de encontrar a versão NOVA já no mock —
+  // senão ela devolve o `lock_version` velho e a escrita seguinte morre em stale_route.
+  mockVersao = 5;
+  await concluir(0);
+  // O ganho vai para o CARTÃO. As três paradas têm a mesma coordenada: não há tempo a economizar e o
+  // cartão diz isso em vez de comemorar número inventado.
+  await waitFor(() => expect(tela.getByTestId('optimize-result')).toBeTruthy());
+  expect(tela.getByText(/best order|faster|slower/)).toBeTruthy();
 
-    await act(async () => botoes?.find((botao) => botao.text === 'Apply')?.onPress?.());
-    expect(rpc).toHaveBeenCalledTimes(1);
-    expect(rpc).toHaveBeenCalledWith('apply_route_order', {
-      p_route_id: 'rota', p_pickup_ids: ['Filó', 'Luna', 'Max'],
-      p_dropoff_ids: null, p_esperado: 4,
-    });
-    mockVersao = 5;
-    await concluir(0);
-    await fireEvent.press(tela.getByLabelText('Drop-offs'));
-    await fireEvent.press(tela.getByLabelText('Optimize Rafael route'));
-    expect(optimizeRouteEspiao).toHaveBeenCalledTimes(2);
-    const [, entrega, botoesEntrega] = alerta.mock.calls[1];
-    expect(entrega).toContain('Drop-off:\n• 1. Max');
-    expect(entrega).toContain('Conflicting locks #1: Max, Luna');
-    expect(entrega).toMatch(/Drop-off: \d+ min -> \d+ min/);
-    expect(entrega).not.toContain('Pick-up:');
-    await act(async () => botoesEntrega?.find(b => b.text === 'Apply')?.onPress?.());
-    expect(rpc).toHaveBeenLastCalledWith('apply_route_order', {
-      p_route_id: 'rota', p_pickup_ids: null, p_dropoff_ids: ['Max', 'Filó', 'Luna'], p_esperado: 5,
-    });
-    await concluir(1);
-    expect(tela.queryByTestId('dispatch-loading')).toBeNull();
-  } finally { alerta.mockRestore(); }
+  await fireEvent.press(tela.getByLabelText('Drop-offs'));
+  await fireEvent.press(tela.getByLabelText('Optimize Rafael route'));
+  expect(optimizeRouteEspiao).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(rpc).toHaveBeenLastCalledWith('apply_route_order', {
+    p_route_id: 'rota', p_pickup_ids: null, p_dropoff_ids: ['Max', 'Filó', 'Luna'], p_esperado: 5,
+  }));
+  await concluir(1);
+  // Trava incompatível (duas "first" na mesma posição) é RELATADA no cartão, não engolida em silêncio.
+  await waitFor(() => expect(tela.getByTestId('optimize-error')).toBeTruthy());
+  expect(tela.getByText(/Conflicting locks #1: Max, Luna/)).toBeTruthy();
+  expect(tela.queryByTestId('dispatch-loading')).toBeNull();
 });
 
 it('Optimize mantém concluídas na frente e relata trava incompatível', async () => {
@@ -244,19 +238,16 @@ it('Optimize mantém concluídas na frente e relata trava incompatível', async 
     status: stop.dog_id === 'Max' ? 'completed' : 'pending',
     pickup_pin: stop.dog_id === 'Luna' ? 'first' : null,
   }));
-  const alerta = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-  try {
-    const tela = await montar();
-    await fireEvent.press(tela.getByRole('button', { name: 'Optimize Rafael route' }));
-    const [, mensagem, botoes] = alerta.mock.calls[0];
-    expect(mensagem).toContain('Pick-up:\n• 1. Max');
-    expect(mensagem).toContain('Conflicting locks #1: Max, Luna');
-    await act(async () => botoes?.find((botao) => botao.text === 'Apply')?.onPress?.());
-    expect(rpc).toHaveBeenCalledWith('apply_route_order', expect.objectContaining({
-      p_pickup_ids: ['Max', 'Luna', 'Filó'], p_esperado: 4,
-    }));
-    await concluir(0);
-  } finally { alerta.mockRestore(); }
+  const tela = await montar();
+  await fireEvent.press(tela.getByRole('button', { name: 'Optimize Rafael route' }));
+  // Concluída fica FIXA na frente, mesmo com a trava pedindo o contrário — e o conflito é relatado.
+  await waitFor(() => expect(rpc).toHaveBeenCalledWith('apply_route_order', expect.objectContaining({
+    p_pickup_ids: ['Max', 'Luna', 'Filó'], p_esperado: 4,
+  })));
+  await concluir(0);
+  await waitFor(() => expect(tela.getByTestId('optimize-error')).toBeTruthy());
+  expect(tela.getByText(/Conflicting locks #1: Max, Luna/)).toBeTruthy();
+  await concluir(0);
 });
 
 it('não perde intenções ao mexer nas duas pernas durante uma escrita pendente', async () => {

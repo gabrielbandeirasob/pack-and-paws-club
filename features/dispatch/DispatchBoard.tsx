@@ -14,6 +14,7 @@ import { STALE_ROUTE_MESSAGE, STALE_ROUTE_TITLE } from '@/features/dispatch/stal
 import { SELO_PARADA_FORA_DO_DIA, avisoDeParadasForaDoDia, paradasForaDoDia } from '@/features/dispatch/dayReconciliation';
 import { colors, radii } from '@/features/theme/tokens';
 import { StopProofChips } from '@/features/dispatch/ProofViewer';
+import { OptimizeRouteCard, type OptimizeCardState } from '@/features/dispatch/OptimizeRouteCard';
 import { showAlert } from '@/features/ui/alert';
 import { ordemDaBusca, ordemDaEntrega, pinDaParada, type Perna, type Travas } from '@/features/dispatch/orderPins';
 import { plural } from '@/lib/plural';
@@ -153,6 +154,12 @@ type Props = {
   onMoveDropoff?: Props['onMoveStop'];
   onSavePins?: (routeId: string, dogId: string, travas: Travas) => Promise<void>;
   onOptimize: (routeId: string) => Promise<void>;
+  /**
+   * Estado do cartão do Optimize POR ROTA + as PONTAS fixas da perna (a van daquela rota e o yard).
+   * Regra do dono (05/10/2026): pick-up = Van → paradas → Yard; entrega = Yard → paradas → Van.
+   */
+  optimizeInfo?: Record<string, { vanName: string; yardName: string; state: OptimizeCardState }>;
+  onUndoOptimize?: (routeId: string) => Promise<void>;
   onPublish: (routeId: string) => Promise<void>;
   onUnpublish: (routeId: string) => Promise<void>;
   onCancelRoute: (routeId: string) => Promise<void>;
@@ -213,7 +220,8 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseChange, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onCreateDropoffRoute, pickupDriverByDog, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList, avisoRotaMudou, onReloadRotas }: Props) {
+export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseChange, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onCreateDropoffRoute, pickupDriverByDog, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange,
+  optimizeInfo, onUndoOptimize, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList, avisoRotaMudou, onReloadRotas }: Props) {
   /**
    * Rota mudada em outro aparelho: enquanto o aviso está na tela, ele é o ÚNICO `Modal` renderizado
    * (os outros nem montam) — nunca dois modais nativos ao mesmo tempo.
@@ -415,6 +423,12 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
     busca: routesByDriver.get(`${motoristaVisivelObj.id}:pickup`),
     entrega: routesByDriver.get(`${motoristaVisivelObj.id}:dropoff`),
   } : null;
+  /** A rota da PERNA que está na tela — o cartão mostra uma perna por vez. */
+  const rotaVisivel = assignmentPhase === 'pickup'
+    ? rotaDoDia?.busca
+    : rotaDoDia?.entrega ?? (rotaDoDia?.busca?.phase === undefined ? rotaDoDia?.busca : undefined);
+  /** Pontas fixas + estado do Optimize desta rota (é o que o cartão do Optimize mostra). */
+  const optimizeVisivel = rotaVisivel?.routeId ? optimizeInfo?.[rotaVisivel.routeId] : undefined;
   /** Cães que a ação "Create drop-off route" levaria para o motorista visível (regra do dono: quem buscou, entrega). */
   const entregaveisVisiveis = motoristaVisivelObj ? entregaveisDoMotorista(motoristaVisivelObj.id) : [];
   /** O "Suggest routes" é ação do DIA e vive nas ações do cartão (ao lado do Optimize). */
@@ -570,7 +584,9 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
           <View>
             <CartaoMotorista
               driver={motoristaVisivelObj} leg={assignmentPhase}
-              route={assignmentPhase === 'pickup' ? rotaDoDia?.busca : rotaDoDia?.entrega ?? (rotaDoDia?.busca?.phase === undefined ? rotaDoDia?.busca : undefined)}
+              route={rotaVisivel}
+              optimize={optimizeVisivel}
+              onUndoOptimize={onUndoOptimize}
               location={driverLocations[motoristaVisivelObj.id]} working={working} setSheet={abrirSheet}
               onMoveStop={onMoveStop} onMoveDropoff={onMoveDropoff} onOptimize={onOptimize} onPublish={onPublish}
               onSuggest={podeSugerir ? pedirSugestao : undefined} suggestionBusy={sugestaoBusy}
@@ -993,6 +1009,9 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
   driver: DispatchDriver;
   route?: DispatchRoute;
   leg: Perna;
+  /** Nomes das PONTAS + estado do Optimize desta rota (cartão do Optimize, 05/10/2026). */
+  optimize?: { vanName: string; yardName: string; state: OptimizeCardState };
+  onUndoOptimize?: (routeId: string) => Promise<void>;
   /**
    * O cartão avisa o QUADRO quando um arrasto começa/termina (dono, 04/10/2026) — quem desliga o scroll é
    * o `ScrollView` do quadro, que vive fora deste cartão.
@@ -1017,7 +1036,7 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
 };
 
 const CartaoMotorista = memo(function CartaoMotorista({
-  driver, route, leg, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
+  driver, route, leg, optimize, onUndoOptimize, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
   onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy,
   vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList, diaDogIds,
   onOpenMenu, onOpenAddDog, onDraggingChange,
@@ -1029,6 +1048,12 @@ const CartaoMotorista = memo(function CartaoMotorista({
   const stops = grupos[0]?.stops ?? [];
   const totalParadas = stops.length;
   const semParadas = totalParadas === 0;
+  /**
+   * PARADAS ELEGÍVEIS ao otimizador: só as que ainda podem mudar de lugar. Concluídas e puladas ficam
+   * FIXAS no início (o otimizador não as move) e por isso não entram na contagem do cartão — é esse o
+   * número que o gestor lê em "Van → 7 pickups → Yard".
+   */
+  const paradasElegiveis = stops.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped').length;
   const [salvandoVan, setSalvandoVan] = useState(false);
   const [salvandoYard, setSalvandoYard] = useState(false);
   const avisoRota = avisoDeRotaInvisivel(route?.status);
@@ -1231,12 +1256,31 @@ const CartaoMotorista = memo(function CartaoMotorista({
             ) : null}
           </View>
         ) : null}
-        {/* AÇÕES (item 8): [Optimize route] [Suggest] [Publish/Republish changes?] [•••].
+        {/*
+          CARTÃO DO OPTIMIZE (pedido do dono, 05/10/2026): diz ANTES o que vai fazer (Van → 7 pickups →
+          Yard), mostra o estado enquanto roda, exibe tempo/distância ganhos depois e oferece o Undo.
+          Fica em BLOCO ACIMA da linha de ações (a linha segue com Suggest/Publish/⋯) — a hierarquia de
+          ações do item 8 continua a mesma, sem redesenhar o quadro.
+        */}
+        {!semParadas && route && optimize ? (
+          <OptimizeRouteCard
+            phase={leg}
+            driverName={driver.name}
+            paradas={paradasElegiveis}
+            vanName={optimize.vanName}
+            yardName={optimize.yardName}
+            state={optimize.state}
+            onOptimize={() => void onOptimize(route.routeId)}
+            onUndo={() => void onUndoOptimize?.(route.routeId)}
+          />
+        ) : null}
+        {/* AÇÕES (item 8): [Suggest] [Publish/Republish changes?] [•••].
             Nada escondido atrás de rolagem — quebra em linhas. */}
         {!semParadas && (route || onSuggest) ? (
           <View testID="dispatch-actions-scroll" style={styles.actionsWrap}>
             <View style={styles.driverActions} testID="driver-actions">
-              {route && stops.length >= 2 ? (
+              {/* Sem o estado do cartão (quadro usado fora da tela do Dispatch), o botão simples fica. */}
+              {route && !optimize && stops.length >= 2 ? (
                 <Pressable accessibilityRole="button" accessibilityLabel={`Optimize ${driver.name} route`} disabled={working} onPress={() => void onOptimize(route.routeId)} style={styles.primaryButton}>
                   <Text numberOfLines={1} style={styles.primaryText}>Optimize route</Text>
                 </Pressable>

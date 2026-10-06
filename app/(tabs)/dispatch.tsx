@@ -11,7 +11,8 @@ import { avisoDeFalhaParcial, type FalhaParcial } from '@/features/dispatch/part
 import { criarFilaDeEscrita, trocarNaOrdem } from '@/features/dispatch/reorderQueue';
 import { ordemDaBusca, ordemDaEntrega, ordenarComTravas, pinDaParada, type Travas, type Perna } from '@/features/dispatch/orderPins';
 import { avisoDeFechamento, paradasPendentes, type FechamentoDeRota } from '@/features/dispatch/routeClosing';
-import { minutosDaOrdem, optimizeRoute } from '@/features/dispatch/routeOptimizer';
+import { minutosDaOrdem, optimizeRoute, quilometrosDaOrdem } from '@/features/dispatch/routeOptimizer';
+import { OPTIMIZE_STATE_INITIAL, type OptimizeCardState } from '@/features/dispatch/OptimizeRouteCard';
 import { GRACE_MINUTES } from '@/features/driver/eta';
 import { STALE_ROUTE_TITLE, expectedVersion, isStaleRouteError, routeErrorMessage } from '@/features/dispatch/staleRoute';
 import { fetchTravelTimes } from '@/features/dispatch/trafficProvider';
@@ -19,7 +20,7 @@ import type { TravelTimes } from '@/features/dispatch/travelMatrix';
 import { showAlert } from '@/features/ui/alert';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
-import { loadOrganizationLocations, origemDaEntregaDaRota, vanDaRota, vanLocationForRoute, yardDaOrganizacao } from '@/features/organization/locations';
+import { loadOrganizationLocations, origemDaEntregaDaRota, vanDaRota, vanLocationForRoute, yardDaOrganizacao, type OrganizationLocation } from '@/features/organization/locations';
 import { motoristaDoPickupPorCao, sugerirRotas, type CaoParaSugerir } from '@/features/dispatch/routeSuggestion';
 
 type DriverRow = { user_id: string; role: 'manager' | 'driver'; profiles: { full_name: string | null } | null };
@@ -192,6 +193,22 @@ export default function DispatchScreen() {
   const diaCarregadoOk = useRef(false);
 
   /**
+   * AS SEDES DA ORGANIZAÇÃO em forma crua (com coordenada) — é delas que saem as PONTAS FIXAS da rota:
+   * a VAN da rota (pick-up começa nela e a entrega termina nela) e o YARD (pick-up termina nele e a
+   * entrega começa nele). Regra de negócio do dono, 05/10/2026.
+   */
+  const locaisDaOrganizacao = useRef<OrganizationLocation[]>([]);
+  /**
+   * ESTADO DO CARTÃO DO OPTIMIZE por rota (rodando / resultado / erro / pode desfazer) + a ORDEM ANTERIOR
+   * para o "Undo" restaurar. Pedido do dono (05/10/2026): botão que diz o que vai fazer, estado enquanto
+   * roda, ganho depois e a volta atrás.
+   */
+  const [otimizacoes, setOtimizacoes] = useState<Record<string, OptimizeCardState>>({});
+  const ordensAnteriores = useRef<Record<string, { pickup: string[]; dropoff: string[] | null }>>({});
+  /** Trava de toque repetido: uma otimização por rota de cada vez. */
+  const otimizandoAgora = useRef(new Set<string>());
+
+  /**
    * "Add any dog": o gestor puxa um cão do cadastro para a fila do dia mesmo sem reserva no dia
    * (chegou de última hora, ou o transporte não foi marcado). Pedido do dono, 23/09/2026.
    */
@@ -224,6 +241,9 @@ export default function DispatchScreen() {
   const carregarVans = useCallback(async (orgId: string) => {
     try {
       const carregadas = await loadOrganizationLocations(supabase, orgId);
+      // A lista CRUA (com coordenada) fica guardada: é dela que o Optimize tira as pontas fixas da rota
+      // (van de partida/chegada e yard) — o `vans` abaixo é só o que a tela mostra.
+      locaisDaOrganizacao.current = carregadas;
       /**
        * A VAN do dia (sede padrão) NUNCA pode ser o yard: `vanLocationForRoute` já filtra o yard (ele
        * não é van). O dono relatou (02/10/2026) que o yard aparecia "na lista de vans" — se ele fosse
@@ -1468,25 +1488,51 @@ export default function DispatchScreen() {
   const optimize = useCallback(async (routeId: string) => {
     const route = routesRef.current.find((candidate) => candidate.routeId === routeId);
     if (!route) return;
+    // Toque repetido não dispara duas otimizações na mesma rota (o botão também desabilita).
+    if (otimizandoAgora.current.has(routeId)) return;
     const phase = route.phase ?? planningPhase;
     const versao = versaoDe(routeId);
     const sorted = (phase === 'dropoff' ? ordemDaEntrega : ordemDaBusca)(route.stops);
     const finished = sorted.filter((stop) => stop.status === 'completed' || stop.status === 'skipped');
     const remaining = sorted.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped');
-    // "Não há o que otimizar" AVISA (auditoria 02/10/2026): antes a tela voltava muda e o gestor
-    // não sabia por que o botão não fez nada.
+    /**
+     * "Nada a otimizar" AVISA — desde 05/10/2026 no PRÓPRIO CARTÃO (antes era um alerta que o gestor
+     * tinha de fechar): com menos de 2 paradas elegíveis o botão fica desabilitado e o cartão diz por quê.
+     */
     if (remaining.length < 2) {
-      showAlert(
-        'Nothing to optimize',
-        remaining.length === 0
-          ? 'Every stop on this route is already done or skipped — there is nothing left to order.'
-          : 'There is only one stop left to order, so the route is already set.',
-      );
+      setOtimizacoes((atual) => ({
+        ...atual,
+        [routeId]: {
+          busy: false, result: null, canUndo: false,
+          error: remaining.length === 0
+            ? 'Every stop on this route is already done or skipped — there is nothing left to order.'
+            : 'There is only one stop left to order, so the route is already set.',
+        },
+      }));
       return;
     }
+    otimizandoAgora.current.add(routeId);
+    setOtimizacoes((atual) => ({ ...atual, [routeId]: { ...(atual[routeId] ?? OPTIMIZE_STATE_INITIAL), busy: true, result: null, error: null } }));
+
+    /**
+     * PONTAS FIXAS DA PERNA — regra de negócio do dono (05/10/2026):
+     *   PICK-UP: **Van → paradas → Yard**    ·    ENTREGA: **Yard → paradas → Van**
+     *
+     * Van e Yard NUNCA entram no meio da rota nem são reordenados: o otimizador mexe SÓ nas paradas de
+     * cliente. O destino entra na conta (última perna) e é isso que faz o motorista terminar o dia no
+     * lugar certo, em vez de na casa mais longe. Organização sem yard cadastrado: destino `null` e a
+     * última perna não entra — o app não inventa ponto.
+     */
+    const vanDaPerna = vanDaRota(locaisDaOrganizacao.current, route.startLocationId ?? null, sorted);
+    const yard = yardDaOrganizacao(locaisDaOrganizacao.current);
+    const pontoDe = (local: OrganizationLocation | null) =>
+      local ? { latitude: local.latitude, longitude: local.longitude } : null;
+    const origemDaPerna = phase === 'dropoff' ? pontoDe(yard) : pontoDe(vanDaPerna);
+    const destinoDaPerna = phase === 'dropoff' ? pontoDe(vanDaPerna) : pontoDe(yard);
 
     // Tempos reais de transito (servidor). Sem funcao/chave/internet, cai na estimativa de
     // linha reta e o gestor nem percebe atraso: a espera e limitada por timeout curto.
+    // A base da matriz é a ORIGEM desta perna (a van no pick-up, o yard na entrega).
     const traffic = await fetchTravelTimes(sorted.map((stop) => ({
       dogId: stop.dogId,
       clientName: stop.clientName,
@@ -1497,7 +1543,7 @@ export default function DispatchScreen() {
       windowEnd: stop.windowEnd,
       exactTime: stop.exactTime,
       priority: stop.priority,
-    })));
+    })), origemDaPerna);
 
     /**
      * As paradas que o otimizador vai ordenar (só as pendentes), no formato que ele entende. Guardadas
@@ -1520,23 +1566,31 @@ export default function DispatchScreen() {
       // 3 min de serviço por pick-up (pedido do cliente, 30/09/2026 "três minutinhos por pick-up"):
       // até aqui a tela NÃO passava nada e o otimizador usava o padrão de 8 min. O número é o MESMO
       // da tolerância de atraso do motorista (GRACE_MINUTES) — decisão do dono, um valor só.
-      { travel: traffic.travel, serviceMinutes: GRACE_MINUTES },
-      phase === 'dropoff' ? yardCoords.current : null,
+      {
+        travel: traffic.travel,
+        serviceMinutes: GRACE_MINUTES,
+        homeLatitude: origemDaPerna?.latitude ?? null,
+        homeLongitude: origemDaPerna?.longitude ?? null,
+        destinationLatitude: destinoDaPerna?.latitude ?? null,
+        destinationLongitude: destinoDaPerna?.longitude ?? null,
+      },
+      // A ENTREGA parte do YARD — pedido do CLIENTE (02/10/2026): *"Posição do driver inicia rota dos
+      // drop offs"*; no pick-up a origem já é a base da matriz (a van).
+      phase === 'dropoff' ? origemDaPerna : null,
     );
     if (!result.feasible) {
-      showAlert('Cannot optimize this route', result.reason ?? 'The schedule is infeasible.');
+      /**
+       * FALHA EXPLICADA NO CARTÃO (pedido do dono, 05/10/2026: *"If a stop has an invalid or missing
+       * address/coordinate, do not silently fail. Display which stop needs to be corrected."*). A frase
+       * do otimizador já traz os NOMES dos cães sem coordenada — vai para o cartão, não para o além.
+       */
+      setOtimizacoes((atual) => ({
+        ...atual,
+        [routeId]: { busy: false, result: null, error: result.reason ?? 'The schedule is infeasible.', canUndo: false },
+      }));
+      otimizandoAgora.current.delete(routeId);
       return;
     }
-    // As janelas existentes são de busca; a entrega usa a mesma matriz, sem janelas da manhã.
-    /**
-     * A ENTREGA parte do YARD — pedido do CLIENTE (02/10/2026): *"Posição do driver inicia rota dos drop
-     * offs"*; na prática o motorista sai do yard (é onde os cães passam o dia). O dono reforçou no áudio:
-     * *"ele otimiza a rota pra onde tá a van (...) o bagulho do yard tem que ser diferente"*. A origem
-     * vem de `origemDaEntregaDaRota` (o yard, e SÓ o yard): a VAN nunca entra aqui — ela inicia os
-     * pick-ups e finaliza o dia. Sem yard cadastrado isto é `null` e a 1ª perna não entra na conta; o app
-     * não "cai na van" por engano.
-     */
-    const origemDaEntrega = yardCoords.current;
     /**
      * 🪤 ACHADO DA AUDITORIA (02/10/2026): a perna de ENTREGA recebia TODAS as paradas — inclusive
      * concluídas/puladas, que podem não ter coordenada (o cão já saiu) e faziam o Optimize INTEIRO
@@ -1555,73 +1609,147 @@ export default function DispatchScreen() {
       ...finished.map((stop, i) => ({ dogId: stop.dogId, pin: { tipo: 'fixed' as const, posicao: i + 1 } })),
       ...travasEntrega,
     ], sorted.length);
-    const linhas = (ordem: { dogName: string }[]) => ordem.map((stop, i) => `• ${i + 1}. ${stop.dogName}`).join('\n');
-    const conflitos = (resultado: typeof busca, perna: string) => resultado.conflitos.map((conflito) =>
-      `${perna}: ${conflito.motivo === 'collision' ? 'Conflicting locks' : 'Position outside route'} #${conflito.posicao}: ${conflito.dogIds.map((id) => sorted.find((stop) => stop.dogId === id)?.dogName ?? id).join(', ')}`);
+
     /**
      * ANTES → DEPOIS (dúvida do dono, 01/10/2026: *"não consigo confirmar se está realmente fazendo a
-     * melhor rota"*). As DUAS ordens — a que estava na tela e a que o otimizador propõe — passam pela
-     * MESMA conta de deslocamento + serviço, e o alerta mostra a diferença. Só as paradas PENDENTES
-     * entram na conta (as concluídas ficam fixas no início das duas ordens e não mudam nada).
-     * Quando falta dado para a conta (matriz desligada e parada sem coordenada), a linha não aparece —
-     * número inventado seria pior que nenhum.
+     * melhor rota"*). Agora o número vai para o CARTÃO, não para um alerta: tempo E distância, com as
+     * DUAS ordens passando pela MESMA conta (deslocamento + serviço + última perna até a ponta fixa).
+     * Sem dado para a conta (parada sem coordenada) o número não aparece — inventar seria pior.
      */
     const pendentes = new Set(remaining.map((stop) => stop.dogId));
-    const opcoesDaConta = { travel: traffic.travel, serviceMinutes: GRACE_MINUTES };
-    const comparar = (rotulo: string, idsAntes: string[], idsDepois: string[]) => {
-      // A sequência da ENTREGA conta a partir do yard (a mesma origem do `optimizeRoute` da entrega).
-      const origem = rotulo === 'Drop-off' ? yardCoords.current : null;
-      const antes = minutosDaOrdem(paradasOtimizadas, idsAntes.filter((id) => pendentes.has(id)), opcoesDaConta, origem);
-      const depois = minutosDaOrdem(paradasOtimizadas, idsDepois.filter((id) => pendentes.has(id)), opcoesDaConta, origem);
-      if (antes == null || depois == null) return null;
-      const ganho = Math.round(antes) - Math.round(depois);
-      const diferenca = ganho > 0 ? `-${ganho} min` : ganho < 0 ? `+${-ganho} min` : 'no change';
-      return `${rotulo}: ${Math.round(antes)} min -> ${Math.round(depois)} min (${diferenca})`;
+    const opcoesDaConta = {
+      travel: traffic.travel,
+      serviceMinutes: GRACE_MINUTES,
+      homeLatitude: origemDaPerna?.latitude ?? null,
+      homeLongitude: origemDaPerna?.longitude ?? null,
+      destinationLatitude: destinoDaPerna?.latitude ?? null,
+      destinationLongitude: destinoDaPerna?.longitude ?? null,
     };
-    const ganhos = [
-      comparar('Pick-up', remaining.map((stop) => stop.dogId), busca.ordem.map((stop) => stop.dogId)),
-      comparar('Drop-off', ordemDaEntrega(sorted).map((stop) => stop.dogId), volta.ordem.map((stop) => stop.dogId)),
-    ].filter((linha): linha is string => Boolean(linha));
-    const mensagem = phase === 'dropoff'
-      ? `Drop-off:\n${linhas(volta.ordem)}\n\n${[...ganhos.filter(g => g.startsWith('Drop-off')), ...conflitos(volta, 'Drop-off')].join('\n')}`
-      : `Pick-up:\n${linhas(busca.ordem)}\n\n${[...ganhos.filter(g => g.startsWith('Pick-up')), ...conflitos(busca, 'Pick-up')].join('\n')}`;
-    const origem = traffic.source === 'live' ? 'live traffic' : 'estimated times';
-    showAlert(`Optimized route (${origem})`, mensagem, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Apply',
-        onPress: () => {
-          gravandoOrdens.current.add(routeId);
-          // A ordem da ENTREGA é calculada uma vez: serve para gravar a ordem (RPC) e para gravar as
-          // pernas da tarde logo depois do ok.
-          const entregaIds = ordemDaEntrega(volta.ordem.map((stop, i) => ({ ...stop, dropoffSequence: i + 1 }))).map((stop) => stop.dogId);
-          void Promise.resolve(supabase.rpc('apply_route_order', {
-            p_route_id: routeId, p_pickup_ids: phase === 'dropoff' ? null : busca.ordem.map((stop) => stop.dogId),
-            p_dropoff_ids: phase === 'dropoff' ? entregaIds : null,
-            p_esperado: versao,
-          })).then(({ error }) => {
-            if (!error) {
-              versoes.current[routeId] = (versao ?? 1) + 1;
-              revisoes.current[routeId] = (revisoes.current[routeId] ?? 0) + 1;
-              /*
-               * PERNAS DE VIAGEM (item 5 da conferência, 01/10/2026): com a ordem aplicada, grava por
-               * parada o tempo da perna que chega nela (busca e entrega). É o dado que o ETA do
-               * motorista lê para seguir a ROTA — a matriz do Google já foi paga aqui, nenhuma
-               * chamada nova. Best-effort: falhar aqui não desfaz a ordem.
-               */
-              void gravarPernasDaRota(routeId, busca.ordem, volta.ordem, traffic.travel, phase);
-            }
-            if (error) showAlert(isStaleRouteError(error) ? STALE_ROUTE_TITLE : 'Unable to apply the route', routeErrorMessage(error));
-          }).catch((erro: { message: string }) => {
-            showAlert('Unable to apply the route', routeErrorMessage(erro));
-          }).finally(() => {
-            gravandoOrdens.current.delete(routeId);
-            void carregarRotas();
-          });
-        },
-      },
-    ]);
+    const origemDaConta = phase === 'dropoff' ? origemDaPerna : null;
+    const idsBusca = busca.ordem.map((stop) => stop.dogId).filter((id) => pendentes.has(id));
+    const idsEntrega = ordemDaEntrega(volta.ordem.map((stop, i) => ({ ...stop, dropoffSequence: i + 1 })))
+      .map((stop) => stop.dogId).filter((id) => pendentes.has(id));
+    const idsAntes = phase === 'dropoff'
+      ? ordemDaEntrega(sorted).map((stop) => stop.dogId).filter((id) => pendentes.has(id))
+      : remaining.map((stop) => stop.dogId);
+    const idsDepois = phase === 'dropoff' ? idsEntrega : idsBusca;
+    const minutosAntes = minutosDaOrdem(paradasOtimizadas, idsAntes, opcoesDaConta, origemDaConta);
+    const minutosDepois = minutosDaOrdem(paradasOtimizadas, idsDepois, opcoesDaConta, origemDaConta);
+    const kmAntes = quilometrosDaOrdem(paradasOtimizadas, idsAntes, origemDaPerna, destinoDaPerna);
+    const kmDepois = quilometrosDaOrdem(paradasOtimizadas, idsDepois, origemDaPerna, destinoDaPerna);
+    const resultado = minutosAntes == null || minutosDepois == null
+      ? null
+      : {
+        minutesBefore: Math.round(minutosAntes),
+        minutesAfter: Math.round(minutosDepois),
+        kmBefore: kmAntes,
+        kmAfter: kmDepois,
+      };
+    const conflitos = (resultadoPernas: typeof busca, perna: string) => resultadoPernas.conflitos.map((conflito) =>
+      `${perna}: ${conflito.motivo === 'collision' ? 'Conflicting locks' : 'Position outside route'} #${conflito.posicao}: ${conflito.dogIds.map((id) => sorted.find((stop) => stop.dogId === id)?.dogName ?? id).join(', ')}`);
+    const avisos = [
+      ...conflitos(busca, 'Pick-up'),
+      ...conflitos(volta, 'Drop-off'),
+    ];
+    // A ordem anterior fica guardada para o UNDO restaurar as duas pernas de uma vez.
+    const anteriorBusca = ordemDaBusca(sorted).map((stop) => stop.dogId);
+    const anteriorEntrega = ordemDaEntrega(sorted).map((stop) => stop.dogId);
+    const tinhaDropoff = (route.stops ?? []).some((stop) => stop.dropoffSequence != null);
+
+    gravandoOrdens.current.add(routeId);
+    setOtimizacoes((atual) => ({ ...atual, [routeId]: { busy: true, result: null, error: null, canUndo: false } }));
+    // A ordem da ENTREGA é calculada uma vez: serve para gravar a ordem (RPC) e para gravar as
+    // pernas da tarde logo depois do ok.
+    void Promise.resolve(supabase.rpc('apply_route_order', {
+      p_route_id: routeId, p_pickup_ids: phase === 'dropoff' ? null : busca.ordem.map((stop) => stop.dogId),
+      p_dropoff_ids: phase === 'dropoff' ? idsEntrega : null,
+      p_esperado: versao,
+    })).then(({ error }) => {
+      if (!error) {
+        versoes.current[routeId] = (versao ?? 1) + 1;
+        revisoes.current[routeId] = (revisoes.current[routeId] ?? 0) + 1;
+        ordensAnteriores.current[routeId] = {
+          pickup: anteriorBusca,
+          dropoff: tinhaDropoff ? anteriorEntrega : null,
+        };
+        setOtimizacoes((atual) => ({
+          ...atual,
+          [routeId]: { busy: false, result: resultado, error: avisos.length > 0 ? avisos.join('\n') : null, canUndo: true },
+        }));
+        /*
+         * PERNAS DE VIAGEM (item 5 da conferência, 01/10/2026): com a ordem aplicada, grava por
+         * parada o tempo da perna que chega nela (busca e entrega). É o dado que o ETA do
+         * motorista lê para seguir a ROTA — a matriz do Google já foi paga aqui, nenhuma
+         * chamada nova. Best-effort: falhar aqui não desfaz a ordem.
+         */
+        void gravarPernasDaRota(routeId, busca.ordem, volta.ordem, traffic.travel, phase);
+      }
+      if (error) {
+        const mensagem = routeErrorMessage(error);
+        setOtimizacoes((atual) => ({ ...atual, [routeId]: { busy: false, result: null, error: mensagem, canUndo: false } }));
+        showAlert(isStaleRouteError(error) ? STALE_ROUTE_TITLE : 'Unable to apply the route', mensagem);
+      }
+    }).catch((erro: { message: string }) => {
+      const mensagem = routeErrorMessage(erro);
+      setOtimizacoes((atual) => ({ ...atual, [routeId]: { busy: false, result: null, error: mensagem, canUndo: false } }));
+      showAlert('Unable to apply the route', mensagem);
+    }).finally(() => {
+      gravandoOrdens.current.delete(routeId);
+      otimizandoAgora.current.delete(routeId);
+      void carregarRotas();
+    });
   }, [planningPhase, versaoDe, carregarRotas, gravarPernasDaRota]);
+
+  /**
+   * DESFAZER O OPTIMIZE (pedido do dono, 05/10/2026 — *"Add an Undo Optimization action so the
+   * dispatcher can restore the previous stop order"*): volta a ordem que estava na tela antes do toque.
+   * Restaura AS DUAS pernas de uma vez (a RPC aceita as duas) e limpa o estado do cartão.
+   */
+  const desfazerOtimizacao = useCallback(async (routeId: string) => {
+    const anterior = ordensAnteriores.current[routeId];
+    if (!anterior) return;
+    const versao = versaoDe(routeId);
+    gravandoOrdens.current.add(routeId);
+    setOtimizacoes((atual) => ({ ...atual, [routeId]: { ...(atual[routeId] ?? OPTIMIZE_STATE_INITIAL), busy: true } }));
+    const { error } = await supabase.rpc('apply_route_order', {
+      p_route_id: routeId,
+      p_pickup_ids: anterior.pickup,
+      p_dropoff_ids: anterior.dropoff,
+      p_esperado: versao,
+    });
+    if (error) {
+      const mensagem = routeErrorMessage(error);
+      setOtimizacoes((atual) => ({ ...atual, [routeId]: { busy: false, result: null, error: mensagem, canUndo: true } }));
+      showAlert(isStaleRouteError(error) ? STALE_ROUTE_TITLE : 'Unable to restore the previous order', mensagem);
+    } else {
+      versoes.current[routeId] = (versao ?? 1) + 1;
+      revisoes.current[routeId] = (revisoes.current[routeId] ?? 0) + 1;
+      delete ordensAnteriores.current[routeId];
+      setOtimizacoes((atual) => ({ ...atual, [routeId]: { ...OPTIMIZE_STATE_INITIAL } }));
+    }
+    gravandoOrdens.current.delete(routeId);
+    void carregarRotas();
+  }, [versaoDe, carregarRotas]);
+
+  /**
+   * O que o cartão do Optimize mostra, POR ROTA: as PONTAS fixas (a van daquela rota e o yard da
+   * organização) e o estado (rodando / resultado com tempo e distância / erro / pode desfazer).
+   */
+  const optimizeInfo = useMemo(() => {
+    const yard = yardDaOrganizacao(locaisDaOrganizacao.current);
+    const info: Record<string, { vanName: string; yardName: string; state: OptimizeCardState }> = {};
+    for (const rota of routes) {
+      const paradas = (rota.stops ?? []).map((stop) => ({ latitude: stop.latitude, longitude: stop.longitude }));
+      const van = vanDaRota(locaisDaOrganizacao.current, rota.startLocationId ?? null, paradas);
+      info[rota.routeId] = {
+        vanName: van?.name ?? 'Van',
+        yardName: yard?.name ?? 'Yard',
+        state: otimizacoes[rota.routeId] ?? OPTIMIZE_STATE_INITIAL,
+      };
+    }
+    return info;
+    // `vans` entra para o cartão refazer os nomes quando as sedes chegam do banco (o ref não re-renderiza).
+  }, [routes, otimizacoes, vans]);
 
   const summary = useMemo(() => ({ date, drivers, dayItems, routes, dogs: caesCadastro, onAddExtraDog: adicionarCaoForaDoCalendario }), [date, drivers, dayItems, routes, caesCadastro, adicionarCaoForaDoCalendario]);
 
@@ -1661,6 +1789,8 @@ export default function DispatchScreen() {
           onMoveDropoff={moveDropoff}
           onSavePins={savePins}
           onOptimize={optimize}
+          optimizeInfo={optimizeInfo}
+          onUndoOptimize={desfazerOtimizacao}
           onPublish={publish}
           onUnpublish={unpublish}
           onCancelRoute={cancelRoute}
