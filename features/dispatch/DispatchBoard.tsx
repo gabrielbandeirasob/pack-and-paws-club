@@ -735,9 +735,11 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
               })}
             </View>
             <Text style={styles.muted}>
-              Geographic estimate, not road mileage or traffic. Same-house dogs stay together.
-              New dogs are appended in the suggested order for each phase; existing stops stay unchanged.
-              Only draft routes without order locks or started stops can receive dogs.
+              Balanced by ESTIMATED ROUTE TIME — the same WORK per van, not the same number of dogs (traffic
+              data when the route service answers, otherwise a straight-line estimate). Same-house dogs stay
+              together. Pick-ups run van → dogs → yard; drop-offs run yard → dogs → van, so both ends are
+              part of the time. New dogs are appended in the suggested order for each phase; existing stops
+              stay unchanged. Only draft routes without order locks or started stops can receive dogs.
               Published and closed routes stay unchanged. Nothing is published by Apply.
             </Text>
             {sugestao?.pernas ? [assignmentPhase].map(phase => <View key={phase}>
@@ -751,6 +753,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
               <View key={`${bloco.driverId}:${bloco.phase ?? 'pickup'}`} testID={`sugestao-${bloco.driverId}${bloco.phase === 'dropoff' ? '-dropoff' : ''}`} style={styles.sugestaoBloco}>
                 <Text style={styles.sugestaoMotorista}>
                   {bloco.phase ? `${bloco.phase === 'pickup' ? 'Pick-ups' : 'Drop-offs'} · ` : ''}{bloco.driverName} · {plural(bloco.caes.length, 'dog', 'dogs')}
+                  {bloco.minutos ? ` · ~${Math.round(bloco.minutos)} min` : ''}
                   {bloco.km > 0 ? ` · ${Math.round(bloco.km / KM_PER_MILE)} mi` : ''}
                 </Text>
                 {bloco.caes.map((cao, indice) => (
