@@ -1340,10 +1340,16 @@ export default function DispatchScreen() {
   const moveDropoff = useCallback((routeId: string, dogId: string, direction: -1 | 1) => moverNaPerna(routeId, dogId, direction, 'dropoff'), [moverNaPerna]);
 
   const publish = useCallback(async (routeId: string) => {
-    if (routesRef.current.find(r => r.routeId === routeId)?.phase === 'dropoff') {
-      showAlert('Drop-offs are draft only', 'Publishing drop-offs will be available with the driver update.');
-      return;
-    }
+    /*
+     * PERNA DE ENTREGA PASSOU A PUBLICAR (dono, 05/10/2026). Antes havia aqui uma recusa fixa —
+     * `Drop-offs are draft only` / "Publishing drop-offs will be available with the driver update" — e
+     * era ela que fazia a reordenação do Drop-offs NÃO chegar ao motorista: o painel salvava a ordem na
+     * rota de entrega (rascunho, `published_at` nulo) enquanto a tela do motorista, que só lê rota
+     * publicada, caía na lista da perna de pick-up. Medido no dia 06/10: entrega gravada
+     * `Enso > Chip > Levi M > Rani` (rascunho) e o motorista mostrando `Rani` primeiro (ordem de entrega
+     * da rota de pick-up). A espera acabou: o app do motorista já lê as DUAS pernas e tem o seletor
+     * Pick-ups/Drop-offs — publicar a entrega é o que faz a ordem dela valer para ele.
+     */
     const versao = versaoDe(routeId);
     const { error } = await supabase.rpc('publish_route', { p_route_id: routeId, p_esperado: versao });
     falhaDeEscrita(error);

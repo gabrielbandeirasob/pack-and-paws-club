@@ -79,9 +79,12 @@ it('Drop-offs mostra só entrega e reordena a rota de entrega', async () => {
   const entrega = within(tela.getByTestId('dispatch-leg-dropoff-motorista'));
   expect(entrega.getByText('Rex')).toBeTruthy();
   expect(entrega.queryByText('Luna')).toBeNull();
-  // POLIMENTO (05/10/2026): a ação falsa `Draft only` saiu; a entrega não tem ação de publicar.
+  // DONO (05/10/2026): a entrega PASSOU a publicar — é o que faz a ordem dela chegar ao motorista
+  // (antes ficava presa no rascunho e ele via a ordem da perna de pick-up). O botão FALSO `Draft only`
+  // continua fora: ele só repetia o estado.
   expect(tela.queryByText('Draft only')).toBeNull();
-  expect(tela.queryByLabelText('Publish Rafael route')).toBeNull();
+  expect(tela.getByLabelText('Publish Rafael route')).toBeTruthy();
+  expect(tela.getByText('Publish route')).toBeTruthy();
   await fireEvent(entrega.getByTestId('reorder-dropoff-Rex'), 'accessibilityAction', { nativeEvent: { actionName: 'moveDown' } });
   expect(rpc).toHaveBeenCalledWith('apply_route_order', {
     p_route_id: 'entrega', p_pickup_ids: null, p_dropoff_ids: ['Bolt', 'Rex'], p_esperado: 9,
@@ -99,9 +102,12 @@ it('Optimize e Publish usam o ID da perna selecionada, com cães distintos', asy
   expect(rpc).toHaveBeenCalledWith('publish_route', { p_route_id: 'rota', p_esperado: 4 });
   await act(async () => confirmar[0]({ data: null, error: null }));
   await fireEvent.press(tela.getByLabelText('Drop-offs'));
-  // POLIMENTO (05/10/2026): o botão `Draft only` saiu — a entrega NÃO oferece ação de publicar.
-  expect(tela.queryByLabelText('Publish Rafael route')).toBeNull();
-  expect(rpc).toHaveBeenCalledTimes(1);
+  // DONO (05/10/2026): a entrega publica, e a RPC leva o ID DA PERNA DELA (`entrega`, versão 9) — não o
+  // da pick-up. Era essa publicação que faltava para a ordem da entrega valer no motorista.
+  await fireEvent.press(tela.getByLabelText('Publish Rafael route'));
+  expect(rpc).toHaveBeenLastCalledWith('publish_route', { p_route_id: 'entrega', p_esperado: 9 });
+  expect(rpc).toHaveBeenCalledTimes(2);
+  await act(async () => confirmar[1]({ data: null, error: null }));
   await fireEvent.press(tela.getByLabelText('Optimize Rafael route'));
   /**
    * O Optimize trabalha SÓ na perna selecionada, com os cães DELA: a rota que vai para a RPC é a de

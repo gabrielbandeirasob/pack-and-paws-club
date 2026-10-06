@@ -5,7 +5,8 @@
  * A seção "Drop-offs · <motorista>" era TEXTO PURO ("No drop-off route.") sem nenhuma ação: num dia em
  * que a perna de entrega não nasceu, o gestor não tinha caminho nenhum para criá-la. A ação nova cria a
  * perna do jeito que `assign(…, 'dropoff')` já cria (`routeIdForDriver`), com os cães elegíveis do dia
- * como paradas pendentes — e NÃO publica nada ("Drop-offs are draft only" continua).
+ * como paradas pendentes — e NÃO publica nada (adicionar cão não é publicar; a PERNA de entrega virou
+ * publicável em 05/10/2026, mas por ação própria, no botão Publish).
  */
 jest.mock('expo-router', () => {
   const { useEffect } = require('react');
@@ -153,7 +154,7 @@ describe('Dispatch — a ação cria a perna de verdade (tela com Supabase falsi
     });
     expect(mockRpcs.some((c) => c.nome === 'assign_stop_to_route' && c.args.p_dog_id === 'dog-billy'
       && c.args.p_route_id === 'rota-dropoff')).toBe(true);
-    // "Drop-offs are draft only": a ação NUNCA publica.
+    // Adicionar cão NUNCA publica — publicar é ação própria (e, desde 05/10/2026, existe nas duas pernas).
     expect(mockRpcs.some((c) => c.nome === 'publish_route')).toBe(false);
   });
 });

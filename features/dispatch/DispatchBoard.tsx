@@ -1131,7 +1131,12 @@ const CartaoMotorista = memo(function CartaoMotorista({
   // HIERARQUIA DE AÇÕES (item 8): primário = Optimize route; secundário = Suggest; overflow = ⋯.
   // POLIMENTO (05/10/2026): o botão desabilitado `Draft only` SAIU — ele repetia o estado (`Draft`) e
   // parecia uma ação. Publicar só existe onde existe ação de publicar (perna de pick-up).
-  const mostrarPublicar = Boolean(route && stops.length > 0 && leg === 'pickup' && route.status === 'draft');
+  /**
+   * Publish aparece para RASCUNHO nas DUAS pernas (dono, 05/10/2026). Antes era só `leg === 'pickup'`
+   * porque a entrega era "draft only" — e era isso que deixava a ordem da entrega presa no rascunho,
+   * sem chegar ao motorista, que só lê rota publicada.
+   */
+  const mostrarPublicar = Boolean(route && stops.length > 0 && route.status === 'draft');
   return (
     <View key={driver.id} testID={`dispatch-route-${driver.id}-${route?.phase ?? 'pickup'}`} style={styles.driverCard}>
       <View style={styles.driverHeader}>
