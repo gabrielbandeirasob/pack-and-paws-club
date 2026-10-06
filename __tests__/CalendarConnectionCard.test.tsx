@@ -173,7 +173,9 @@ describe('CalendarConnectionCard', () => {
    * conferido com uma leitura de volta (`servidorTemCredencial`).
    */
   it('Connect confere no servidor: credencial que NÃO chegou avisa na tela', async () => {
+    // Envio recusado E o servidor respondendo que não tem: é o caso legítimo do aviso.
     (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(false);
+    (servidorTemCredencial as jest.Mock).mockResolvedValue(false);
     const ctx = conexao('disconnected');
     useCalendarConnection.mockReturnValue(ctx);
     const screen = await render(<CalendarConnectionCard {...props()} />);
@@ -186,7 +188,14 @@ describe('CalendarConnectionCard', () => {
     await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
   });
 
-  it('Connect: envio com "ok" mas leitura de volta NEGATIVA também avisa (não confia só no ok)', async () => {
+  /**
+   * ⚠️ AJUSTE DE 06/10/2026 (aviso falso medido em produção): o envio que volta `ok` já é prova de
+   * gravação — a leitura de volta só serve para o caso de o ENVIO ter falhado. Antes, uma leitura que
+   * não respondia (`null`: sem rede / função fora do ar por um instante) acendia o aviso vermelho com a
+   * importação automática funcionando (o robô do n8n importava a cada 15 min e a credencial estava no
+   * servidor).
+   */
+  it('Connect: envio com "ok" NÃO alarma, mesmo com a leitura de volta negativa', async () => {
     (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(true);
     (servidorTemCredencial as jest.Mock).mockResolvedValue(false);
     const ctx = conexao('disconnected');
@@ -195,8 +204,50 @@ describe('CalendarConnectionCard', () => {
 
     await fireEvent.press(screen.getByTestId('google-calendar-connect'));
 
-    await waitFor(() => expect(servidorTemCredencial).toHaveBeenCalled());
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('google-calendar-aviso-servidor')).toBeNull();
+  });
+
+  it('Connect: leitura de volta indisponível (null) também NÃO alarma quando o envio foi ok', async () => {
+    (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(true);
+    (servidorTemCredencial as jest.Mock).mockResolvedValue(null);
+    const ctx = conexao('disconnected');
+    useCalendarConnection.mockReturnValue(ctx);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-connect'));
+
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('google-calendar-aviso-servidor')).toBeNull();
+  });
+
+  it('Connect: envio falhou mas o servidor JÁ tem a credencial → sem aviso (a importação está ligada)', async () => {
+    (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(false);
+    (servidorTemCredencial as jest.Mock).mockResolvedValue(true);
+    const ctx = conexao('disconnected');
+    useCalendarConnection.mockReturnValue(ctx);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await fireEvent.press(screen.getByTestId('google-calendar-connect'));
+
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('google-calendar-aviso-servidor')).toBeNull();
+  });
+
+  it('aviso velho some sozinho quando o cartão reabre e o servidor TEM a credencial', async () => {
+    // 1) Connect com envio e leitura negativos: o aviso aparece (é o caso legítimo).
+    (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(false);
+    (servidorTemCredencial as jest.Mock).mockResolvedValue(false);
+    useCalendarConnection.mockReturnValue(conexao('disconnected'));
+    const screen = await render(<CalendarConnectionCard {...props()} autoImport />);
+    await fireEvent.press(screen.getByTestId('google-calendar-connect'));
     await waitFor(() => expect(screen.getByTestId('google-calendar-aviso-servidor')).toBeTruthy());
+
+    // 2) A conexão passa a valer e o servidor responde que TEM: o aviso não pode ficar na tela.
+    (servidorTemCredencial as jest.Mock).mockResolvedValue(true);
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    screen.rerender(<CalendarConnectionCard {...props()} autoImport />);
+    await waitFor(() => expect(screen.queryByTestId('google-calendar-aviso-servidor')).toBeNull());
   });
 
   it('Connect com credencial CONFIRMADA no servidor não mostra aviso', async () => {

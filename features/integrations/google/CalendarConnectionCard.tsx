@@ -352,9 +352,15 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
       // vez. O app não consegue ler a tabela (é o desenho), então ele PERGUNTA para a função — só
       // envia quando o servidor responde que não tem (`false`; `null` = não deu para saber).
       try {
-        if ((await servidorTemCredencial()) === false) {
-          await enviarCredencialAoServidor(escolha.calendarId);
-        }
+        /**
+         * ⚠️ AJUSTE DE 06/10/2026: resposta POSITIVA da leitura também LIMPA um aviso velho de
+         * "o servidor não recebeu a credencial". Antes, só o Connect apagava esse aviso — o cartão
+         * ficava com o vermelho na tela enquanto a importação automática rodava normalmente (medido:
+         * robô do n8n ok a cada 15 min com a credencial no servidor).
+         */
+        const noServidor = await servidorTemCredencial();
+        if (noServidor === true) setAvisoServidor(null);
+        else if (noServidor === false) await enviarCredencialAoServidor(escolha.calendarId);
       } catch {
         // silencioso de propósito: é migração de credencial, não pode atrapalhar a importação abaixo.
       }
@@ -437,11 +443,18 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
       //
       // CONFERÊNCIA (auditoria de integrações, 02/10/2026): enviar não basta — o cartão podia dizer
       // "Connected" com a importação automática DESLIGADA porque o envio falhava em silêncio (função
-      // fora do ar, sem sessão, conta sem refresh token). Aqui o envio é CONFERIDO: manda e depois
-      // PERGUNTA ao servidor se ele tem a credencial. Só os dois positivos contam como "chegou".
+      // fora do ar, sem sessão, conta sem refresh token).
+      //
+      // ⚠️ AJUSTE DE 06/10/2026 (aviso falso no cartão): a leitura de volta só faz sentido quando o
+      // ENVIO falhou. Um envio que voltou `ok` já é prova de gravação (a função só responde `ok` depois
+      // do upsert); tratar "não deu para perguntar" (`null` — sem rede, função fora do ar por um
+      // instante) como "o servidor não recebeu" acendia o aviso vermelho com a importação automática
+      // funcionando. Medido em 06/10/2026: o robô do n8n importava a cada 15 min, a credencial estava
+      // no servidor (refresh OK no Google) e a tela dizia que não. O aviso agora fica reservado para o
+      // caso em que o envio falha E o servidor responde que não tem.
       const enviado = await enviarCredencialAoServidor(escolha.calendarId);
-      const confirmado = enviado && (await servidorTemCredencial()) === true;
-      if (!confirmado) {
+      const noServidor = enviado || (await servidorTemCredencial()) === true;
+      if (!noServidor) {
         setAvisoServidor(
           'Connected on this device, but the server did not receive the Google credential — automatic import (with the app closed) stays OFF until it does. Check your connection and tap Disconnect, then connect again.',
         );
