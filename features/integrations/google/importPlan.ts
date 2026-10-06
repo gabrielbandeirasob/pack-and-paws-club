@@ -122,6 +122,18 @@ const PALAVRAS_DE_OPERACAO = /\b(rotas?|rotas?\s+fixas?|mentoria|consulta|boadin
 const TEM_LETRA = /[a-zA-ZÀ-ÿ]/;
 
 /**
+ * SIMBOLO que o escritório escreve JUNTO do nome, colado nas pontas — e que **não é nome de cão**.
+ *
+ * Pedido do dono (06/10/2026), na simulação do print do cliente: *"o emoji tem um significado para o
+ * cliente"*. O significado (ex.: `🏠` = o cão NÃO vai ser entregue na casa) já é lido da COR e das
+ * reservas do dia — o que o emoji **não** pode fazer é virar parte do NOME: com ele, `"Scarlet 🏠"` não
+ * casava com o cadastro da `Scarlet` e o dia da chegada/saída dela caía em "não cadastrado" (medido no
+ * fixture do print de 06/10/2026). Aqui só as PONTAS são limpas: o miolo continua intacto para não
+ * destruir separador de nome ("Kona — Leigh Ann" é tratado antes, por `nomeEntreDois`).
+ */
+const SIMBOLO_DE_FORA = /^[^0-9A-Za-zÀ-ÿ]+|[^0-9A-Za-zÀ-ÿ]+$/g;
+
+/**
  * Evento de marcador/operação do escritório — não é cão e **não é pendência** para o gestor.
  *
  * Duas portas, as duas MEDIDAS no calendário do cliente (26/09/2026):
@@ -203,8 +215,9 @@ export function dogNamesFromTitle(title: string): string[] {
     const parenteses = parte.match(/^(.*?)[\s]*\(([^)]+)\)\s*$/);
     const resto = limpar(parenteses ? parenteses[1] ?? '' : parte);
     if (!resto) continue;
-    const nome = nomeEntreDois(resto) ?? resto;
-    // "BOARDING 🐶" sobra emoji: emoji não é nome de cão.
+    const nome = limpar((nomeEntreDois(resto) ?? resto).replace(SIMBOLO_DE_FORA, ''));
+    // "BOARDING 🐶" sobra emoji: emoji não é nome de cão. O emoji pode vir COLADO no nome ("Scarlet 🏠",
+    // print de 06/10/2026): a ponta é limpa acima e o que sobra é o nome do cadastro.
     if (!TEM_LETRA.test(nome)) continue;
     if (!nomes.some((ja) => normalizar(ja) === normalizar(nome))) nomes.push(nome);
   }
