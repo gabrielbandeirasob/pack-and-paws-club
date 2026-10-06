@@ -41,10 +41,24 @@ export default function WeekSummaryScreen() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [recarregando, setRecarregando] = useState(false);
+  /** Dia escolhido pelo toque num chip (null = semana inteira). */
+  const [diaSelecionado, setDiaSelecionado] = useState<string | null>(null);
 
   const dias = useMemo(() => weekDays(ancora), [ancora]);
   const resumo = useMemo(() => buildWeeklySummary(dias, caesPorDia), [caesPorDia, dias]);
   const semanaAtual = useMemo(() => weekStart(todayLocalISO()), []);
+
+  /**
+   * Os cães mostrados na lista: a semana inteira, ou só os que vieram no dia escolhido.
+   * (O gestor toca no chip do dia para conferir quem veio NAQUELE dia; tocar de novo volta.)
+   */
+  const caesDoDia = useMemo(
+    () =>
+      diaSelecionado
+        ? resumo.dogs.filter((cao) => cao.days.some((visita) => visita.date === diaSelecionado))
+        : resumo.dogs,
+    [diaSelecionado, resumo.dogs],
+  );
 
   const carregar = useCallback(async () => {
     setErro(null);
@@ -81,6 +95,8 @@ export default function WeekSummaryScreen() {
   );
 
   const irParaSemana = useCallback((passo: number) => {
+    // Trocar de semana larga o dia escolhido: o dia selecionado é da semana que estava na tela.
+    setDiaSelecionado(null);
     setAncora((atual) => addDaysISO(weekStart(atual), passo * 7));
   }, []);
 
@@ -129,7 +145,10 @@ export default function WeekSummaryScreen() {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Back to this week"
-                onPress={() => setAncora(hoje)}
+                onPress={() => {
+                  setDiaSelecionado(null);
+                  setAncora(hoje);
+                }}
                 style={styles.pilula}
               >
                 <Text style={styles.pilulaTexto}>This week</Text>
@@ -155,33 +174,79 @@ export default function WeekSummaryScreen() {
         ) : (
           <>
             <View style={styles.diasLinha}>
-              {dias.map((dia, indice) => (
-                <View key={dia} style={[styles.chipDia, dia === hoje && styles.chipHoje]}>
-                  <Text numberOfLines={1} style={[styles.chipDiaTexto, dia === hoje && styles.chipDiaTextoHoje]}>
-                    {dayChipLabel(dia)}
-                  </Text>
-                  <Text style={[styles.chipNumero, dia === hoje && styles.chipDiaTextoHoje]}>
-                    {resumo.perDay[indice] ?? 0}
-                  </Text>
-                </View>
-              ))}
+              {dias.map((dia, indice) => {
+                const ehHoje = dia === hoje;
+                const selecionado = dia === diaSelecionado;
+                const algumSelecionado = diaSelecionado !== null;
+                // Só UM chip fica preenchido: o dia escolhido; sem escolha, o de hoje.
+                const destacado = selecionado || (ehHoje && !algumSelecionado);
+                const contorno = ehHoje && algumSelecionado;
+                const doDia = resumo.perDay[indice] ?? 0;
+                return (
+                  <Pressable
+                    key={dia}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${dayChipLabel(dia)}${ehHoje ? ' (today)' : ''} — ${doDia === 1 ? '1 dog' : `${doDia} dogs`}`}
+                    accessibilityHint="Shows only the dogs that came on this day"
+                    accessibilityState={{ selected: selecionado }}
+                    onPress={() => setDiaSelecionado((atual) => (atual === dia ? null : dia))}
+                    style={[
+                      styles.chipDia,
+                      destacado && styles.chipHoje,
+                      selecionado && styles.chipSelecionado,
+                      contorno && styles.chipHojeVazio,
+                    ]}
+                  >
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.chipDiaTexto, destacado && styles.chipDiaTextoHoje, contorno && styles.chipHojeVazioTexto]}
+                    >
+                      {dayChipLabel(dia)}
+                    </Text>
+                    <Text style={[styles.chipNumero, destacado && styles.chipDiaTextoHoje, contorno && styles.chipHojeVazioTexto]}>
+                      {doDia}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
 
             <View style={styles.cartao}>
-              <Text style={styles.total}>
-                {resumo.totalDogs === 1 ? '1 dog this week' : `${resumo.totalDogs} dogs this week`}
-              </Text>
-              <Text style={styles.muted}>
-                {resumo.totalDogDays === 1 ? '1 visit in total' : `${resumo.totalDogDays} visits in total`}
-              </Text>
+              {diaSelecionado ? (
+                <>
+                  <Text style={styles.total}>
+                    {dayChipLabel(diaSelecionado)} — {caesDoDia.length === 1 ? '1 dog' : `${caesDoDia.length} dogs`}
+                  </Text>
+                  <Text style={styles.muted}>Showing only this day of the week.</Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Show whole week"
+                    onPress={() => setDiaSelecionado(null)}
+                    style={styles.limpar}
+                  >
+                    <Text style={styles.limparTexto}>Show whole week</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.total}>
+                    {resumo.totalDogs === 1 ? '1 dog this week' : `${resumo.totalDogs} dogs this week`}
+                  </Text>
+                  <Text style={styles.muted}>
+                    {resumo.totalDogDays === 1 ? '1 visit in total' : `${resumo.totalDogDays} visits in total`}
+                  </Text>
+                </>
+              )}
             </View>
 
-            {resumo.dogs.length === 0 ? (
+            {caesDoDia.length === 0 ? (
               <View style={styles.cartao}>
-                <Text style={styles.vazio}>No dogs came this week.</Text>
+                <Text style={styles.vazio}>
+                  {diaSelecionado ? `No dogs came on ${dayChipLabel(diaSelecionado)}.` : 'No dogs came this week.'}
+                </Text>
               </View>
             ) : (
-              resumo.dogs.map((cao) => (
+              caesDoDia.map((cao) => (
                 <View key={cao.dogId} style={styles.cartao}>
                   <View style={styles.caoTopo}>
                     <Text style={styles.caoNome}>{cao.dogName}</Text>
@@ -192,7 +257,10 @@ export default function WeekSummaryScreen() {
                   <Text style={styles.muted}>{cao.clientName}</Text>
                   <View style={styles.visitas}>
                     {cao.days.map((visita) => (
-                      <View key={visita.date} style={styles.visita}>
+                      <View
+                        key={visita.date}
+                        style={[styles.visita, visita.date === diaSelecionado && styles.visitaSelecionada]}
+                      >
                         <Text style={styles.visitaDia}>{dayChipLabel(visita.date)}</Text>
                         <Text style={styles.visitaServico}>
                           {visita.serviceType === 'boarding' ? 'Boarding' : 'Daycare'}
@@ -227,11 +295,18 @@ const styles = StyleSheet.create({
   // A semana passou de 6 para 7 dias em 06/10/2026 (domingo→sábado): o vão caiu de 6 para 4 px para os
   // sete chips caberem nos 393 px do iPhone sem apertar o rótulo ("Sun 13" no maior, 12 pt).
   diasLinha: { flexDirection: 'row', gap: 4, marginHorizontal: 18, marginTop: 16 },
-  chipDia: { flex: 1, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, paddingVertical: 8, alignItems: 'center' },
+  chipDia: { flex: 1, minHeight: 44, justifyContent: 'center', backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, paddingVertical: 6, alignItems: 'center' },
   chipHoje: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
+  // Dia ESCOLHIDO pelo gestor: mais escuro que o "hoje", para os dois não se confundirem.
+  chipSelecionado: { backgroundColor: colors.forest900, borderColor: colors.forest900 },
+  // Quando há um dia escolhido, o "hoje" deixa de ser o preenchido e fica só contornado.
+  chipHojeVazio: { backgroundColor: colors.paper, borderColor: colors.forest700 },
+  chipHojeVazioTexto: { color: colors.forest700 },
   chipDiaTexto: { color: colors.muted, fontSize: 12, fontWeight: '700' },
   chipDiaTextoHoje: { color: 'white' },
   chipNumero: { color: colors.forest700, fontFamily: 'serif', fontWeight: '800', fontSize: 16, marginTop: 2 },
+  limpar: { marginTop: 10, alignSelf: 'flex-start', borderWidth: 1, borderColor: colors.forest700, borderRadius: 20, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center' },
+  limparTexto: { color: colors.forest700, fontSize: 12, fontWeight: '800' },
   cartao: { backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.large, padding: 16, marginHorizontal: 18, marginTop: 12 },
   total: { fontFamily: 'serif', fontWeight: '800', fontSize: 16, color: colors.ink },
   // M5 da auditoria (02/10/2026): legendas do resumo semanal com pelo menos 12 pt.
@@ -243,6 +318,7 @@ const styles = StyleSheet.create({
   caoDias: { color: colors.forest700, fontSize: 12, fontWeight: '800' },
   visitas: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   visita: { borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, paddingHorizontal: 9, paddingVertical: 6, backgroundColor: colors.cream },
+  visitaSelecionada: { borderColor: colors.forest900, backgroundColor: colors.sage },
   visitaDia: { color: colors.ink, fontSize: 12, fontWeight: '800' },
   visitaServico: { color: colors.muted, fontSize: 12, marginTop: 1 },
 });

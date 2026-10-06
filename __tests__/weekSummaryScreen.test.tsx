@@ -171,4 +171,52 @@ describe('tela Weekly summary (gestor)', () => {
     await waitFor(() => expect(tela.getByText('SEPTEMBER 13 – 19')).toBeTruthy());
     expect(tela.getByText('1 dog this week')).toBeTruthy();
   });
+
+  it('tocar num chip de dia filtra a lista daquele dia, e tocar de novo volta à semana', async () => {
+    mockDados = {
+      '2026-09-14': [milo],
+      '2026-09-16': [milo, luna],
+      '2026-09-18': [milo],
+    };
+
+    const tela = await renderTela();
+    await waitFor(() => expect(tela.getByText('2 dogs this week')).toBeTruthy());
+
+    // semana inteira: os dois cães aparecem
+    expect(tela.getByText('Milo')).toBeTruthy();
+    expect(tela.getByText('Luna')).toBeTruthy();
+
+    // toca no chip do MON 14 — só o Milo veio nesse dia
+    await fireEvent.press(tela.getByLabelText('Mon 14 — 1 dog'));
+    await waitFor(() => expect(tela.getByText('Showing only this day of the week.')).toBeTruthy());
+    expect(tela.getByText('Mon 14 — 1 dog')).toBeTruthy();
+    expect(tela.getByText('Milo')).toBeTruthy();
+    expect(tela.queryByText('Luna')).toBeNull();
+    expect(tela.queryByText('2 dogs this week')).toBeNull();
+
+    // o chip do dia escolhido fica marcado como selecionado
+    expect(tela.getByLabelText('Mon 14 — 1 dog').props.accessibilityState?.selected).toBe(true);
+
+    // toca DE NOVO no mesmo chip: volta para a semana inteira
+    await fireEvent.press(tela.getByLabelText('Mon 14 — 1 dog'));
+    await waitFor(() => expect(tela.getByText('2 dogs this week')).toBeTruthy());
+    expect(tela.getByText('Luna')).toBeTruthy();
+  });
+
+  it('dia escolhido sem cão diz que ninguém veio naquele dia (não fica em branco)', async () => {
+    mockDados = { '2026-09-16': [milo] };
+
+    const tela = await renderTela();
+    await waitFor(() => expect(tela.getByText('1 dog this week')).toBeTruthy());
+
+    // THU 17 não teve cão; o chip mostra 0 e o toque diz isso por extenso
+    await fireEvent.press(tela.getByLabelText('Thu 17 — 0 dogs'));
+    await waitFor(() => expect(tela.getByText('No dogs came on Thu 17.')).toBeTruthy());
+    expect(tela.queryByText('Milo')).toBeNull();
+
+    // o botão "Show whole week" devolve a semana e o cão volta à lista
+    await fireEvent.press(tela.getByLabelText('Show whole week'));
+    await waitFor(() => expect(tela.getByText('1 dog this week')).toBeTruthy());
+    expect(tela.getByText('Milo')).toBeTruthy();
+  });
 });
