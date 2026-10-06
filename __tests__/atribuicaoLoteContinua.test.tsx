@@ -73,8 +73,13 @@ it('RPC que "dá certo" sem gravar nada NÃO fecha a folha em silêncio — a te
    * RECARGA: sem a parada na rota, a folha fala em vez de fechar.
    */
   mockParadasDaRota = [{
-    dogId: 'outro-cao', clientName: 'Outro', dogName: 'Outro cão', sequence: 1, status: 'pending',
-    latitude: null, longitude: null, windowStart: null, windowEnd: null, exactTime: null, priority: 'normal',
+    // Formato CRU do banco (é o que `routes.select(...)` devolve): `dog_id` + `dog: { name, client }`.
+    // O teste montava o formato já convertido (`dogId`/`clientName`), o que só passava por acaso de
+    // corrida: a conversão da tela lê `stop.dog.client` (05/10/2026).
+    dog_id: 'outro-cao', sequence: 1, status: 'pending', priority: 'normal',
+    window_start: null, window_end: null, exact_time: null,
+    pickup_pin: null, dropoff_pin: null,
+    dog: { id: 'outro-cao', name: 'Outro cão', client: { id: 'casa-outro', name: 'Outro', latitude: null, longitude: null } },
   }] as never;
 
   const tela = await render(<DispatchScreen />);

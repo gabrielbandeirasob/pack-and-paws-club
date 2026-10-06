@@ -184,6 +184,12 @@ export default function DispatchScreen() {
    */
   const ultimaCargaDoDia = useRef(0);
   const JANELA_DO_DIA = 120_000;
+  /**
+   * "A fila do dia já foi lida uma vez?" — usado pelo `useFocusEffect`. Sem isso, a volta para a tela
+   * dispararia uma SEGUNDA carga completa (o `useEffect` da data já carrega na montagem), e cada volta
+   * custa 5 consultas.
+   */
+  const diaCarregadoOk = useRef(false);
 
   /**
    * "Add any dog": o gestor puxa um cão do cadastro para a fila do dia mesmo sem reserva no dia
@@ -343,6 +349,7 @@ export default function DispatchScreen() {
     ]);
     itensDoDia.current = itens;
     setDayItems(itens);
+    diaCarregadoOk.current = true;
     return true;
 
   }, [carregarVans]);
@@ -385,12 +392,18 @@ export default function DispatchScreen() {
         dropoffSequence: stop.dropoff_sequence,
         sequence: stop.sequence,
         status: stop.status,
-        clientName: stop.dog.client.name,
-        clientId: stop.dog.client.id,
-        dogName: stop.dog.name,
+        /**
+         * 🪤 BLINDAGEM (05/10/2026): a parada vem do banco com `dog`/`client` em JOIN — se o cliente do
+         * cão não vier (cadastro apagado, ou a leitura da linha não traz o join), `stop.dog.client.name`
+         * derrubava a leitura INTEIRA do dia e a tela ficava sem rotas nenhuma. Um dado faltando em UMA
+         * parada não pode levar o dia embora.
+         */
+        clientName: stop.dog?.client?.name ?? '',
+        clientId: stop.dog?.client?.id ?? null,
+        dogName: stop.dog?.name ?? '',
         reservationKind: undefined,
-        latitude: stop.dog.client.latitude,
-        longitude: stop.dog.client.longitude,
+        latitude: stop.dog?.client?.latitude ?? null,
+        longitude: stop.dog?.client?.longitude ?? null,
         windowStart: stop.window_start ? stop.window_start.slice(0, 5) : null,
         windowEnd: stop.window_end ? stop.window_end.slice(0, 5) : null,
         exactTime: stop.exact_time ? stop.exact_time.slice(0, 5) : null,
@@ -486,6 +499,15 @@ export default function DispatchScreen() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'routes', filter: `organization_id=eq.${organizationId}` }, refresh)
       // Filtro por organização (auditoria 02/10/2026): sem ele, o tempo real recebia as paradas de QUALQUER org.
       .on('postgres_changes', { event: '*', schema: 'public', table: 'route_stops', filter: `organization_id=eq.${organizationId}` }, refresh)
+      /**
+       * 🪤 ACHADO DE 05/10/2026 (mesmo relato do dono): o canal escutava rota e van, mas NÃO escutava a
+       * RESERVA — cão criado em outro aparelho, ou trazido pelo robô do Google (roda a cada 15 min),
+       * não chegava na fila de um Dispatch já aberto. Agora reserva, escala e exceção de escala disparam
+       * a mesma releitura do dia (a trava de 2 min evita refazer 5 consultas a cada ajuste no Calendário).
+       */
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations', filter: `organization_id=eq.${organizationId}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'recurring_schedules', filter: `organization_id=eq.${organizationId}` }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'recurring_exceptions', filter: `organization_id=eq.${organizationId}` }, refresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'driver_locations', filter: `organization_id=eq.${organizationId}` }, atualizarPosicoes)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'organization_locations', filter: `organization_id=eq.${organizationId}` }, atualizarVans)
       .subscribe();
@@ -500,11 +522,23 @@ export default function DispatchScreen() {
    * AO VOLTAR PARA ESTA TELA as vans são relidas (defeito de 01/10/2026: o dono cadastrou a Van 2, voltou
    * para o Dispatch e o seletor não aparecia — a lista só era lida dentro do "dia", com trava de 2 min).
    * É o caminho humano normal: Van & yard → cadastrar → voltar para o Dispatch.
+   *
+   * 🪤 MESMA FAMÍLIA DE DEFEITO, AGORA NA FILA DO DIA (achado do dono em 05/10/2026: *"adicionei mais uns
+   * cachorros no calendário e eles não apareceram no dispatch, esse erro já aconteceu outras vezes"*): a
+   * fila do dia só era lida no `useEffect` da DATA — voltar do Calendário para o Dispatch NÃO relia nada,
+   * e o cão recém-criado ficava invisível até trocar o dia ou reabrir o aplicativo. O Calendário já se
+   * recarrega a cada foco (`app/(tabs)/calendar.tsx`); aqui faltava o par. Recarrega dia + rotas, e a
+   * trava de 2 minutos da fila é zerada porque um foco é ação do usuário, não evento de tempo real.
    */
   useFocusEffect(
     useCallback(() => {
-      if (organizationId) void carregarVans(organizationId);
-    }, [organizationId, carregarVans]),
+      if (!organizationId) return;
+      void carregarVans(organizationId);
+      if (!diaCarregadoOk.current) return;
+      ultimaCargaDoDia.current = Date.now();
+      void carregarDia();
+      void carregarRotas();
+    }, [organizationId, carregarVans, carregarDia, carregarRotas]),
   );
 
   /**
