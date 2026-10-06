@@ -349,7 +349,7 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
           </Pressable>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Weekly summary — Monday to Saturday"
+            accessibilityLabel="Weekly summary — Sunday to Saturday"
             style={[styles.secondaryRow, styles.secondaryRowLast]}
             onPress={onOpenWeekSummary}
           >

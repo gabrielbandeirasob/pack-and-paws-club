@@ -71,7 +71,7 @@ async function setup(overrides: Partial<React.ComponentProps<typeof ManagerDashb
       onNewReservation={onNewReservation}
       onOpenDriverHours={onOpenDriverHours}
       onOpenWeekSummary={onOpenWeekSummary}
-      weekSummaryHint="Monday to Saturday — who came day by day"
+      weekSummaryHint="Sunday to Saturday — who came day by day"
       {...overrides}
     />,
   );
@@ -313,7 +313,7 @@ describe('ManagerDashboard', () => {
     expect(screen.getByText('Weekly summary')).toBeTruthy();
     expect(screen.getByText('The week is closed — check who came')).toBeTruthy();
 
-    await fireEvent.press(screen.getByRole('button', { name: 'Weekly summary — Monday to Saturday' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Weekly summary — Sunday to Saturday' }));
     expect(onOpenWeekSummary).toHaveBeenCalledTimes(1);
   });
 

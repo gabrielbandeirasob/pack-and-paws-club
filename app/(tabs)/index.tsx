@@ -699,7 +699,9 @@ export default function HomeScreen() {
           weekSummaryHint={
             // Copy CURTA (dono, 05/10/2026): a antiga ("Monday to Saturday — who came day by day", 48
             // caracteres) era cortada em 320 px; esta é a frase que o próprio dono sugeriu.
-            ehSabado ? 'The week is closed' : 'Monday–Saturday overview'
+            // A semana virou domingo→sábado em 06/10/2026 (o dono viu 6 dias no TestFlight); a frase
+            // segue curta pelo mesmo motivo de antes (cortava em 320 px).
+            ehSabado ? 'The week is closed' : 'Sunday–Saturday overview'
           }
         />
       )}

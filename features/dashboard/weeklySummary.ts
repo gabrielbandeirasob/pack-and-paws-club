@@ -8,11 +8,12 @@
  * checagem da semana, tipo assim, resumo semanal."
  *
  * Decisões dele no mesmo dia: o serviço mostrado em cada dia é o **daycare** (era o "take care" do
- * áudio) e a **semana vai de segunda a sábado**.
+ * áudio).
  *
- * Por que domingo fica de fora: ele definiu a semana como segunda→sábado. Um domingo então NÃO abre
- * semana nova — ele pertence à semana que acabou de fechar (sábado foi ontem), que é justamente a
- * que o gestor quer conferir nesse dia. Na segunda-feira a semana vira.
+ * ⚠️ **A SEMANA MUDOU EM 06/10/2026**: era segunda→sábado (6 dias, a decisão de 27/09) e o dono viu no
+ * TestFlight que faltava um dia — *"na aba weekly summary tá mostrando 6 dias da semana ao invés da
+ * semana completa"* — e escolheu a semana do calendário do escritório (EUA): **domingo→sábado, 7 dias**.
+ * Domingo agora ABRE a semana (antes ele fechava a anterior); a semana fecha no sábado.
  *
  * Tudo puro aqui: a tela só carrega os dados e chama estas funções (mesma conta do calendário).
  */
@@ -30,10 +31,10 @@ export type WeekDog = {
 };
 
 export type WeeklySummary = {
-  /** Segunda e sábado da semana (ISO). */
+  /** Domingo e sábado da semana (ISO) — a semana do escritório (decisão do dono, 06/10/2026). */
   from: string;
   to: string;
-  /** Os seis dias, de segunda a sábado. */
+  /** Os sete dias, de domingo a sábado. */
   days: string[];
   dogs: WeekDog[];
   /** Quantos cães diferentes vieram na semana. */
@@ -64,17 +65,18 @@ function emUTC(iso: string): Date {
   return new Date(Date.UTC(ano, mes - 1, dia));
 }
 
-/** A segunda-feira da semana de `iso` (semana = segunda→sábado; domingo fecha a semana anterior). */
+/**
+ * O DOMINGO da semana de `iso` — a semana é domingo→sábado, igual ao calendário do escritório nos EUA
+ * (dono, 06/10/2026). Domingo é o PRIMEIRO dia: `weekStart('2026-10-06')` (terça) devolve `2026-10-04`.
+ */
 export function weekStart(iso: string): string {
-  const dow = weekdayOfISO(iso); // 0 = domingo
-  const recuo = dow === 0 ? 6 : dow - 1;
-  return addDaysISO(iso, -recuo);
+  return addDaysISO(iso, -weekdayOfISO(iso)); // 0 = domingo → o próprio domingo
 }
 
-/** Os seis dias da semana: segunda, terça, quarta, quinta, sexta e sábado. */
+/** Os SETE dias da semana: domingo, segunda, terça, quarta, quinta, sexta e sábado. */
 export function weekDays(iso: string): string[] {
   const inicio = weekStart(iso);
-  return [0, 1, 2, 3, 4, 5].map((passo) => addDaysISO(inicio, passo));
+  return [0, 1, 2, 3, 4, 5, 6].map((passo) => addDaysISO(inicio, passo));
 }
 
 /** "Mon 21" — o rótulo curto do dia (usado nos chips de cada dia). */

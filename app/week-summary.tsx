@@ -99,7 +99,7 @@ export default function WeekSummaryScreen() {
       <BackHeader
         tone="light"
         title="Weekly summary"
-        subtitle="Monday to Saturday — who came, day by day."
+        subtitle="Sunday to Saturday — who came, day by day."
       />
       <ScrollView
         contentContainerStyle={styles.conteudo}
@@ -157,7 +157,7 @@ export default function WeekSummaryScreen() {
             <View style={styles.diasLinha}>
               {dias.map((dia, indice) => (
                 <View key={dia} style={[styles.chipDia, dia === hoje && styles.chipHoje]}>
-                  <Text style={[styles.chipDiaTexto, dia === hoje && styles.chipDiaTextoHoje]}>
+                  <Text numberOfLines={1} style={[styles.chipDiaTexto, dia === hoje && styles.chipDiaTextoHoje]}>
                     {dayChipLabel(dia)}
                   </Text>
                   <Text style={[styles.chipNumero, dia === hoje && styles.chipDiaTextoHoje]}>
@@ -224,7 +224,9 @@ const styles = StyleSheet.create({
   // M5 da auditoria (02/10/2026): a pílula "This week" tinha ~23 pt de alvo; sobe para 44 pt.
   pilula: { marginTop: 4, borderWidth: 1, borderColor: colors.forest700, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 4, minHeight: 44, justifyContent: 'center' },
   pilulaTexto: { color: colors.forest700, fontSize: 12, fontWeight: '800' },
-  diasLinha: { flexDirection: 'row', gap: 6, marginHorizontal: 18, marginTop: 16 },
+  // A semana passou de 6 para 7 dias em 06/10/2026 (domingo→sábado): o vão caiu de 6 para 4 px para os
+  // sete chips caberem nos 393 px do iPhone sem apertar o rótulo ("Sun 13" no maior, 12 pt).
+  diasLinha: { flexDirection: 'row', gap: 4, marginHorizontal: 18, marginTop: 16 },
   chipDia: { flex: 1, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, paddingVertical: 8, alignItems: 'center' },
   chipHoje: { backgroundColor: colors.forest700, borderColor: colors.forest700 },
   chipDiaTexto: { color: colors.muted, fontSize: 12, fontWeight: '700' },
