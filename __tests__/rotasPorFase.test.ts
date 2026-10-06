@@ -9,17 +9,29 @@ const dog = (id: string, lat = 37): CaoDoDiaParaSugerir => ({
 });
 const ids = (proposal: ReturnType<typeof sugerirRotas>) => proposal.blocos.flatMap(b => b.caes.map(c => c.dogId)).sort();
 
-test('20 dogs in one cluster and 6 in another become 13 + 13', () => {
+test('dois clusters a 111 km: ninguém cruza a cidade para igualar a contagem (20 + 6)', () => {
   const dogs = Array.from({ length: 26 }, (_, i) => dog(`${i}`, i < 20 ? 37 + i / 10000 : 38 + i / 10000));
   const result = sugerirRotas(dogs, drivers);
-  expect(result.blocos.map(b => b.caes.length)).toEqual([13, 13]);
+  // O rateio aritmético dava 13 + 13 — e obrigava um motorista a atravessar 111 km por 7 cães que moram
+  // no MEIO do caminho. Por TEMPO, o cluster do norte inteiro fica com um motorista só.
+  expect(result.blocos.map(b => b.caes.length).sort((a, b) => a - b)).toEqual([6, 20]);
   expect(new Set(ids(result)).size).toBe(26);
+  for (const bloco of result.blocos) {
+    const latitudes = bloco.caes.map(b => b.latitude as number);
+    expect(latitudes.every(l => l < 37.5) || latitudes.every(l => l > 37.5)).toBe(true);
+  }
 });
 
-test('three drivers get floor/ceil counts, not just an upper limit', () => {
+test('o cão isolado ao sul não é misturado no cluster do norte só para igualar a contagem', () => {
   const result = sugerirRotas(Array.from({ length: 7 }, (_, i) => dog(`${i}`, i < 1 ? 37 : 38 + i / 10000)),
     [...drivers, { driverId: 'c', driverName: 'C' }]);
-  expect(result.blocos.map(b => b.caes.length).sort()).toEqual([2, 2, 3]);
+  // 1 + 3 + 3: o cão do sul fica sozinho com um motorista (rota curta) e o cluster do norte se divide em
+  // dois. O antigo 2 + 2 + 3 obrigava um dos motoristas a atravessar 111 km por UM cão.
+  expect(result.blocos.map(b => b.caes.length).sort()).toEqual([1, 3, 3]);
+  for (const bloco of result.blocos) {
+    const latitudes = bloco.caes.map(b => b.latitude as number);
+    expect(latitudes.every(l => l < 37.5) || latitudes.every(l => l > 37.5)).toBe(true);
+  }
 });
 
 test('house weights follow the geographic tour and non-contiguous fair partitions are found', () => {

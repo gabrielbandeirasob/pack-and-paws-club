@@ -21,7 +21,9 @@ import { showAlert } from '@/features/ui/alert';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 import { loadOrganizationLocations, origemDaEntregaDaRota, vanDaRota, vanLocationForRoute, yardDaOrganizacao, type OrganizationLocation } from '@/features/organization/locations';
-import { motoristaDoPickupPorCao, sugerirRotas, type CaoParaSugerir } from '@/features/dispatch/routeSuggestion';
+import { MAX_MATRIX_SIZE } from '@/features/dispatch/travelMatrix';
+import { ordenarEMedirRota, pontoBalanceavel, stopsDaRota } from '@/features/dispatch/routeBalancer';
+import { motoristaDoPickupPorCao, sugerirRotas, type CaoParaSugerir, type OpcoesDaSugestao } from '@/features/dispatch/routeSuggestion';
 
 type DriverRow = { user_id: string; role: 'manager' | 'driver'; profiles: { full_name: string | null } | null };
 type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; goes_to_daycare: boolean | null; dog: { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } } };
@@ -1066,13 +1068,33 @@ export default function DispatchScreen() {
       });
       if (dia !== contexto.current.date || assinatura !== assinaturaDaSugestao()) return null;
       /*
-       * De onde a sugestão parte: a van do motorista escolhido (ou a padrão) — e, com MAIS DE UMA van
-       * cadastrada e nenhuma escolha, a MAIS PRÓXIMA dos cães do dia (pergunta do dono, 01/10/2026:
-       * organização com várias vans não pode ter todas as rotas saindo sempre da mesma).
+       * AS PONTAS DE CADA ROTA (regra do dono, 05/10/2026): o PICK-UP sai da VAN e TERMINA no YARD; a
+       * ENTREGA sai do YARD e TERMINA na VAN. A van aqui é a ESCOLHIDA para aquele motorista e, sem
+       * escolha, a padrão — ou, com mais de uma cadastrada, a MAIS PRÓXIMA dos cães do dia (pergunta do
+       * dono, 01/10/2026: organização com várias vans não pode ter todas as rotas saindo sempre da mesma).
+       * As pontas entram na CONTA do balanceamento: sem elas o tempo medido seria o de uma rota que não
+       * termina em lugar nenhum.
        */
-      const van = vanDaRota(sedes, disponiveis[0] ? vanPorMotorista.current.get(disponiveis[0].user_id) ?? null : null, caes);
-      const inicio = phase === 'dropoff' ? yardCoords.current : van ? { latitude: van.latitude, longitude: van.longitude } : null;
+      const vanBase = vanDaRota(sedes, disponiveis[0] ? vanPorMotorista.current.get(disponiveis[0].user_id) ?? null : null, caes);
+      const ponteiro = (van: OrganizationLocation | null) => (van ? { latitude: van.latitude, longitude: van.longitude } : null);
+      const vanDoMotorista = (userId: string) => vanDaRota(sedes, vanPorMotorista.current.get(userId) ?? null, caes) ?? vanBase;
+      const inicioPorMotorista = new Map(disponiveis.map(driver => [driver.user_id,
+        phase === 'dropoff' ? yardCoords.current : ponteiro(vanDoMotorista(driver.user_id))]));
+      const fimPorMotorista = new Map(disponiveis.map(driver => [driver.user_id,
+        phase === 'pickup' ? yardCoords.current : ponteiro(vanDoMotorista(driver.user_id))]));
+      const inicio = phase === 'dropoff' ? yardCoords.current : ponteiro(vanBase);
+      const fim = phase === 'pickup' ? yardCoords.current : null;
       const motoristas = disponiveis.map(driver => ({ driverId: driver.user_id, driverName: driver.profiles?.full_name?.trim() || 'Driver' }));
+      /**
+       * TEMPOS REAIS (Google, via servidor): UMA chamada por perna, para os cães do dia inteiro. A matriz
+       * vale para todos os pares e o balanceador reaproveita os mesmos números em TODAS as avaliações da
+       * busca local — é o que evita dezenas de chamadas. Acima do limite da matriz (ou sem função
+       * implantada, sem rede), a sugestão segue na estimativa de linha reta, como sempre.
+       */
+      const comPonto = caes.filter((cao) => pontoBalanceavel(cao.latitude, cao.longitude));
+      const trafego = comPonto.length >= 2 && comPonto.length + 1 <= MAX_MATRIX_SIZE
+        ? await fetchTravelTimes(stopsDaRota(comPonto), phase === 'dropoff' ? yardCoords.current : ponteiro(vanBase), { timeoutMs: 3000 })
+        : null;
       const motoristaDaCasa = new Map<string, Set<string>>();
       for (const rota of routesRef.current.filter(r => (r.phase ?? 'pickup') === phase)) for (const stop of rota.stops) {
         if (!stop.clientId) continue;
@@ -1103,12 +1125,38 @@ export default function DispatchScreen() {
         }
       }
       const livres = caes.filter(c => !presos.has(c.dogId) && (!c.clientId || !motoristaDaCasa.has(c.clientId)));
-      const proposta = sugerirRotas(
-        livres, motoristas, inicio,
-      );
       // Casa parcialmente atribuída não é repartida para preencher outro carro. Respeitamos também
       // separações manuais já existentes: se há dois motoristas na casa, o restante fica para revisão.
       const fixos = caes.filter(c => !presos.has(c.dogId) && c.clientId && motoristaDaCasa.has(c.clientId));
+      /**
+       * O que cada motorista JÁ leva entra na conta do balanceamento como carga FIXA: a rota que existe no
+       * dia (com a coordenada, para o tempo poder ser medido), os cães presos da ENTREGA e os irmãos de
+       * casa já atribuídos. Sem isso o rateio por TEMPO acharia que aquele motorista está de mãos vazias e
+       * mandaria tudo para ele — era exatamente aí que o equilíbrio voltava a ser por NÚMERO de cães.
+       */
+      const paradaParaCao = (parada: DispatchStopItem): CaoParaSugerir => ({
+        dogId: parada.dogId, clientId: parada.clientId ?? null, clientName: parada.clientName ?? '',
+        dogName: parada.dogName ?? '', latitude: parada.latitude ?? null, longitude: parada.longitude ?? null,
+      });
+      const rotasDaFase = routesRef.current.filter(r => (r.phase ?? 'pickup') === phase);
+      const fixosPorMotorista = new Map(motoristas.map(motorista => [motorista.driverId, [
+        ...(rotasDaFase.find(r => r.driverId === motorista.driverId)?.stops.map(paradaParaCao) ?? []),
+        ...caes.filter(cao => presos.get(cao.dogId) === motorista.driverId),
+        ...fixos.filter(cao => motoristaDaCasa.get(cao.clientId ?? '')?.has(motorista.driverId)),
+      ]]));
+      /** Pontas + tempos reais + log de DEBUG: as MESMAS opções distribuem e reordenam cada bloco. */
+      const opcoesDaPerna: OpcoesDaSugestao = {
+        travel: trafego?.travel ?? null,
+        matrizBase: phase === 'dropoff' ? yardCoords.current : ponteiro(vanBase),
+        inicio,
+        fim,
+        inicioPorMotorista,
+        fimPorMotorista,
+        debug: process.env.NODE_ENV === 'development',
+      };
+      const opcoesDaDistribuicao: OpcoesDaSugestao = { ...opcoesDaPerna, fixosPorMotorista };
+      const proposta = sugerirRotas(livres, motoristas, inicio, opcoesDaDistribuicao);
+      if (proposta.debug?.length) console.debug(proposta.debug.join('\n'));
       for (const cao of fixos) {
         const ids = motoristaDaCasa.get(cao.clientId!)!;
         const motorista = motoristas.find(m => ids.size === 1 && ids.has(m.driverId));
@@ -1117,56 +1165,34 @@ export default function DispatchScreen() {
         if (!bloco) { bloco = { ...motorista, caes: [], km: 0 }; proposta.blocos.push(bloco); }
         bloco.caes.push(cao);
       }
-      // Blocos dos cães presos: um bloco por motorista que buscou alguém. Motorista indisponível na
-      // perna → o cão vai para revisão (a regra não deixa outro levar).
-      const blocosPresos = motoristas.map(m => ({ ...m, caes: [] as CaoParaSugerir[], km: 0 }));
+      // Cães presos da ENTREGA: entram no bloco de quem já os buscou (e, se esse motorista não está
+      // disponível nesta perna, vão para revisão — a regra não deixa outro levar).
       for (const cao of caes) {
         const dono = presos.get(cao.dogId);
         if (!dono) continue;
-        const bloco = blocosPresos.find(b => b.driverId === dono);
-        if (!bloco) { proposta.semLugar.push(cao); continue; }
+        let bloco = proposta.blocos.find(b => b.driverId === dono);
+        if (!bloco) {
+          const motorista = motoristas.find(m => m.driverId === dono);
+          if (!motorista) { proposta.semLugar.push(cao); continue; }
+          bloco = { ...motorista, caes: [], km: 0 };
+          proposta.blocos.push(bloco);
+        }
         bloco.caes.push(cao);
       }
-      const temPresos = blocosPresos.some(b => b.caes.length > 0);
-      // Existing assignments and fixed housemates count toward the same dog workload.
-      // Keep the geographic/count-balanced proposal for a fresh phase; only distribute the
-      // remaining houses against current loads when some dogs already have a driver.
-      const rotasDaFase = routesRef.current.filter(r => (r.phase ?? 'pickup') === phase);
-      if (rotasDaFase.some(r => r.stops.length > 0) || temPresos) {
-        // O bloco nasce com os cães presos e a carga conta rota atual + presos: é isso que mantém o
-        // equilíbrio por NÚMERO DE CÃES (decisão do dono, 02/10/2026) com a trava ligada.
-        const blocos = motoristas.map(m => ({ ...m, caes: [...(blocosPresos.find(b => b.driverId === m.driverId)?.caes ?? [])], km: 0 }));
-        const cargas = new Map(motoristas.map(m => [m.driverId,
-          (rotasDaFase.find(r => r.driverId === m.driverId)?.stops.length ?? 0)
-          + (blocos.find(b => b.driverId === m.driverId)?.caes.length ?? 0)]));
-        const casas = new Map<string, { caes: CaoParaSugerir[]; preferido: string }>();
-        for (const bloco of proposta.blocos) for (const cao of bloco.caes) {
-          if (cao.clientId && motoristaDaCasa.has(cao.clientId)) {
-            blocos.find(b => b.driverId === bloco.driverId)!.caes.push(cao);
-            cargas.set(bloco.driverId, cargas.get(bloco.driverId)! + 1);
-          } else {
-            const key = cao.clientId ? `house:${cao.clientId}` : `dog:${cao.dogId}`;
-            const casa = casas.get(key) ?? { caes: [], preferido: bloco.driverId };
-            casa.caes.push(cao);
-            casas.set(key, casa);
-          }
-        }
-        for (const casa of [...casas.values()].sort((a, b) => b.caes.length - a.caes.length)) {
-          const destino = [...blocos].sort((a, b) => cargas.get(a.driverId)! - cargas.get(b.driverId)!
-            || Number(b.driverId === casa.preferido) - Number(a.driverId === casa.preferido))[0];
-          destino.caes.push(...casa.caes);
-          cargas.set(destino.driverId, cargas.get(destino.driverId)! + casa.caes.length);
-        }
-        proposta.blocos = blocos.filter(b => b.caes.length > 0);
-      }
-      if (fixos.length || temPresos || rotasDaFase.some(r => r.stops.length > 0)) {
-        proposta.blocos = proposta.blocos.flatMap(bloco => {
-          const ordenada = sugerirRotas(bloco.caes, [bloco], inicio);
-          proposta.semLugar.push(...ordenada.semLugar);
-          return ordenada.blocos;
-        });
-        proposta.kmTotal = proposta.blocos.reduce((soma, bloco) => soma + bloco.km, 0);
-      }
+
+      /**
+       * ORDEM e MEDIDA finais de cada bloco — o que a folha mostra e o que o Apply grava. É a MESMA conta
+       * do balanceador (vizinho mais próximo saindo da ponta, 2-opt olhando a última perna e o serviço de
+       * cada cão) e ela vem com as PONTAS: a lista aqui dentro já inclui os cães presos e os irmãos de casa
+       * atribuídos, e o tempo mostrado é o da rota INTEIRA daquele motorista.
+       * `fixosPorMotorista` fica FORA desta chamada de propósito: esses cães já estão nesta lista e entrar
+       * de novo na conta contaria o mesmo cão duas vezes.
+       */
+      proposta.blocos = proposta.blocos.map(bloco => {
+        const ordem = ordenarEMedirRota(bloco.caes, { ...opcoesDaPerna, motoristaId: bloco.driverId });
+        return { ...bloco, caes: ordem.caes, km: ordem.km, minutos: ordem.minutos };
+      });
+      proposta.kmTotal = proposta.blocos.reduce((soma, bloco) => soma + bloco.km, 0);
       if (propostas.pernas) propostas.pernas[phase] = { ...proposta, phase };
       propostas.blocos.push(...proposta.blocos.map(bloco => ({ ...bloco, phase })));
       propostas.semLugar.push(...proposta.semLugar);

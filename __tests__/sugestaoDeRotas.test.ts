@@ -27,42 +27,66 @@ const LISTA = [
 ];
 
 /**
- * Menor distância total possível testando TODAS as divisões contíguas (n pequeno).
- * `limite` = teto de cães por bloco (o rateio justo). Sem ele, é o ótimo geográfico puro — que pode
- * ser injusto (1 cão para um motorista e 5 para o outro) e por isso deixou de ser a regra em 01/10/2026.
+ * A antiga força bruta da "menor distância total dentro do rateio justo de cães" morava aqui. Ela saiu
+ * com a regra que provava (06/10/2026): a prova do rateio por CONTAGEM não faz sentido num algoritmo que
+ * minimiza TEMPO. No lugar dela, `menorDesequilibrioPorForcaBruta` (abaixo) prova o critério novo.
  */
-function minimoPorForcaBruta(caes: CaoParaSugerir[], pedacos: number, inicio: { latitude: number; longitude: number } | null, limite?: number): number {
-  const ordem = [...caes];
-  // Na força bruta todos os cães têm coordenada (a lista do teste é montada assim).
-  const lat = (item: CaoParaSugerir) => item.latitude as number;
-  const lng = (item: CaoParaSugerir) => item.longitude as number;
-  const custo = (bloco: CaoParaSugerir[]) => {
-    let km = inicio ? haversineKm(inicio.latitude, inicio.longitude, lat(bloco[0]), lng(bloco[0])) : 0;
-    for (let t = 1; t < bloco.length; t += 1) {
-      km += haversineKm(lat(bloco[t - 1]), lng(bloco[t - 1]), lat(bloco[t]), lng(bloco[t]));
+
+/**
+ * Menor DESEQUILÍBRIO DE TEMPO possível entre TODAS as divisões das casas (força bruta, n pequeno).
+ *
+ * É o novo critério (substitui a antiga "menor distância dentro do rateio"): o tempo de um grupo é a
+ * trilha por vizinho mais próximo saindo da van mais 8 min de serviço por cão — a MESMA conta que o
+ * balanceador usa (linha reta a 25 km/h, sem ponta final). Cada cão do teste é uma casa.
+ */
+function menorDesequilibrioPorForcaBruta(
+  caes: CaoParaSugerir[],
+  pedacos: number,
+  inicio: { latitude: number; longitude: number },
+): number {
+  const distancia = (aLat: number, aLng: number, bLat: number, bLng: number) => haversineKm(aLat, aLng, bLat, bLng);
+  const tempoDoGrupo = (grupo: CaoParaSugerir[]) => {
+    const restantes = [...grupo];
+    let lat = inicio.latitude;
+    let lng = inicio.longitude;
+    let minutos = grupo.length * 8;
+    while (restantes.length > 0) {
+      let melhor = 0;
+      for (let i = 1; i < restantes.length; i += 1) {
+        const atual = distancia(lat, lng, restantes[i].latitude as number, restantes[i].longitude as number);
+        const campeao = distancia(lat, lng, restantes[melhor].latitude as number, restantes[melhor].longitude as number);
+        if (atual < campeao) melhor = i;
+      }
+      const [escolhido] = restantes.splice(melhor, 1);
+      minutos += (distancia(lat, lng, escolhido.latitude as number, escolhido.longitude as number) / 25) * 60;
+      lat = escolhido.latitude as number;
+      lng = escolhido.longitude as number;
     }
-    return km;
+    return minutos;
   };
   let melhor = Infinity;
-  const n = ordem.length;
-  const cortes = (k: number, de: number, escolhidos: number[]): void => {
-    if (k === 1) {
-      const blocos: CaoParaSugerir[][] = [];
-      let anterior = 0;
-      for (const corte of escolhidos) {
-        blocos.push(ordem.slice(anterior, corte));
-        anterior = corte;
-      }
-      blocos.push(ordem.slice(anterior));
-      if (limite !== undefined && blocos.some((bloco) => bloco.length > limite)) return;
-      melhor = Math.min(melhor, blocos.reduce((soma, bloco) => soma + custo(bloco), 0));
+  const distribuir = (indice: number, grupos: CaoParaSugerir[][]): void => {
+    if (indice === caes.length) {
+      if (grupos.some((grupo) => grupo.length === 0)) return;
+      const tempos = grupos.map(tempoDoGrupo);
+      melhor = Math.min(melhor, Math.max(...tempos) - Math.min(...tempos));
       return;
     }
-    for (let i = de; i <= n - k; i += 1) cortes(k - 1, i + 1, [...escolhidos, i]);
+    for (const grupo of grupos) {
+      grupo.push(caes[indice]);
+      distribuir(indice + 1, grupos);
+      grupo.pop();
+    }
   };
-  cortes(pedacos, 1, []);
+  distribuir(0, Array.from({ length: pedacos }, () => []));
   return melhor;
 }
+
+/** Diferença entre a rota mais longa e a mais curta da sugestão (o número que o dono quer pequeno). */
+const desequilibrioDaSugestao = (blocos: { minutos?: number }[]): number => {
+  const tempos = blocos.map((bloco) => bloco.minutos ?? 0);
+  return Math.max(...tempos) - Math.min(...tempos);
+};
 
 describe('sugerirRotas — divisão por geografia', () => {
   it('um motorista leva todos os cães, na ordem da trilha a partir da van', () => {
@@ -72,22 +96,22 @@ describe('sugerirRotas — divisão por geografia', () => {
     expect(sugestao.semLugar).toEqual([]);
   });
 
-  it('dois motoristas: rateio justo (2 + 2) e a MENOR distância DENTRO do rateio (força bruta)', () => {
-    // O ótimo geográfico puro deste caso é 1 + 3 (medido: 5,56 km contra 6,67 km do 2 + 2), mas deixar
-    // um motorista com um cão só e o outro com três é o que o dono chamou de "pesado para um driver"
-    // (01/10/2026). A regra agora: geografia dentro do rateio justo — e o teto de 2 cães é provado aqui.
+  it('dois motoristas: a DIFERENÇA DE TEMPO é a menor possível (força bruta)', () => {
+    // O rateio aritmético de cães saiu de cena (pedido do dono, 06/10/2026): o que a sugestão minimiza é
+    // a diferença de TEMPO entre as rotas. Aqui o 2 + 2 continua acontecendo porque é o melhor em tempo —
+    // mas quem manda é a conta dos minutos, não `total ÷ motoristas`.
     const sugestao = sugerirRotas(LISTA, [motorista('m1'), motorista('m2')], VAN);
     expect(sugestao.blocos.map((bloco) => bloco.caes.length).sort()).toEqual([2, 2]);
-    const bruto = minimoPorForcaBruta(LISTA, 2, VAN, 2);
-    expect(sugestao.blocos.reduce((soma, bloco) => soma + bloco.km, 0)).toBeCloseTo(bruto, 6);
-    expect(sugestao.kmTotal).toBeCloseTo(bruto, 6);
+    const bruto = menorDesequilibrioPorForcaBruta(LISTA, 2, VAN);
+    expect(desequilibrioDaSugestao(sugestao.blocos)).toBeLessThanOrEqual(bruto + 1);
   });
 
-  it('três motoristas com cinco cães: 2 + 2 + 1 e a menor distância dentro do rateio (força bruta k=3)', () => {
+  it('três motoristas com cinco cães: nenhum cão some e o tempo fica o mais próximo possível', () => {
     const cinco = [...LISTA, cao('e', 37.44, LON)];
     const sugestao = sugerirRotas(cinco, [motorista('m1'), motorista('m2'), motorista('m3')], VAN);
     expect(sugestao.blocos.map((bloco) => bloco.caes.length).sort()).toEqual([1, 2, 2]);
-    expect(sugestao.kmTotal).toBeCloseTo(minimoPorForcaBruta(cinco, 3, VAN, 2), 6);
+    const bruto = menorDesequilibrioPorForcaBruta(cinco, 3, VAN);
+    expect(desequilibrioDaSugestao(sugestao.blocos)).toBeLessThanOrEqual(bruto + 1);
     expect(sugestao.blocos.flatMap((bloco) => bloco.caes).map((item) => item.dogId).sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 
@@ -200,13 +224,17 @@ describe('sugerirRotas — equilíbrio do peso', () => {
     expect(sugestao.blocos.flatMap((bloco) => bloco.caes)).toHaveLength(6);
   });
 
-  it('cinco cães na mesma casa: o teto nunca separa irmãos (2 + 3)', () => {
+  it('cinco cães: a casa dos irmãos nunca se parte e a carga fica equilibrada em TEMPO', () => {
     const casa = [0, 1].map((i) => ({ ...cao(`irmao${i}`, 37.5, LON), clientId: 'jose' }));
     const vizinhos = [0, 1, 2].map((i) => ({ ...cao(`vizinho${i}`, 37.55 + i * 0.001, LON), clientId: `c${i}` }));
     const sugestao = sugerirRotas([...casa, ...vizinhos], [motorista('m1'), motorista('m2')], VAN);
     const blocoDosIrmaos = sugestao.blocos.find((bloco) => bloco.caes.some((c) => c.dogId === 'irmao0'));
-    expect(blocoDosIrmaos?.caes.map((c) => c.dogId).sort()).toEqual(['irmao0', 'irmao1']);
-    for (const bloco of sugestao.blocos) expect(bloco.caes.length).toBeLessThanOrEqual(3);
+    // Irmãos no MESMO carro (a casa não se reparte) e nenhum cão perdido — não há mais teto aritmético.
+    expect(blocoDosIrmaos?.caes.filter((c) => c.clientId === 'jose').map((c) => c.dogId).sort())
+      .toEqual(['irmao0', 'irmao1']);
+    expect(sugestao.blocos.flatMap((bloco) => bloco.caes)).toHaveLength(5);
+    // O que passou a mandar: a diferença de TEMPO entre os dois carros.
+    expect(desequilibrioDaSugestao(sugestao.blocos)).toBeLessThan(20);
   });
 
   it('caso já equilibrado não muda (2 + 2 continua 2 + 2)', () => {
