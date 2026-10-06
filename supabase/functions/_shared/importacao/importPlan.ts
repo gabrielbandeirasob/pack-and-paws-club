@@ -81,6 +81,17 @@ export type ParsedBooking = {
    * marcada na janela (calendario que ainda nao usa a convencao continua entrando na van).
    */
   transportRequired?: boolean;
+  /**
+   * O dia da HOSPEDAGEM é o dia de CHEGADA/SAÍDA (o "avocado" do escritório — verde-claro/amarelo)?
+   *
+   * É o dia em que o cão ANDA: na chegada ele está na casa e quem busca é o motorista; na saída ele vai
+   * para casa. O `transport_required` dos dois dias de hospedagem era igual (no dia de hotel o app
+   * restaura a van quando o calendário não marca chegada/saída), então o Dispatch não conseguia separar
+   * "o cão já está lá dentro" de "o cão precisa ser buscado" — e a chegada ficava fora da fila de pickup
+   * (print do cliente de 06/10/2026, Scarlet). Decisão do dono (06/10/2026): guardar a marca na reserva
+   * (`movement_day`) e o dia de movimento entra como parada normal da rota, sem entrega.
+   */
+  movementDay?: boolean;
 };
 
 const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
@@ -315,7 +326,8 @@ export function parseBookingEvents(event: RemoteEvent, labels: EventLabel[] = []
   const recorrencia = parseRecurrence(event.recurrence, event.startDate, event.endDate);
   // Chegada/saida de hospedagem manda na van; day care sempre pede (`movimentaOCao` devolve null fora
   // de hospedagem, e aí vale `true`).
-  const transportRequired = movimentaOCao(color) ?? true;
+  const movimenta = movimentaOCao(color);
+  const transportRequired = movimenta ?? true;
 
   return nomes.map((dogName) => ({
     serviceType: serviceTypeOfMeaning(color.meaning),
@@ -325,6 +337,8 @@ export function parseBookingEvents(event: RemoteEvent, labels: EventLabel[] = []
     color,
     cancels: color.meaning?.kind === 'cancel',
     transportRequired,
+    // Dia de chegada/saída da hospedagem (avocado/amarelo): o cão está na casa — é parada de rota.
+    movementDay: movimenta === true,
     dogName,
     startDate: event.startDate,
     ...recorrencia,
@@ -352,6 +366,8 @@ export type BookingForImport = {
   id: string;
   /** O cão passa pelo daycare nesse dia (Total Pack/van). `false` só na chegada fora do horário. */
   goesToDaycare?: boolean;
+  /** Aquele dia da hospedagem é o de CHEGADA/SAÍDA (avocado) — o cão está na casa, é parada de rota. */
+  movementDay?: boolean | null;
   /**
    * 'reservation' = data avulsa (`reservations`); 'recurring' = série de dias da semana
    * (`recurring_schedules`). O Google não distingue os dois: quem distingue é o RRULE do evento e
@@ -439,6 +455,9 @@ function precisaAtualizar(reserva: BookingForImport, parsed: ParsedBooking, dogI
     reserva.dogId !== dogId ||
     reserva.serviceType !== parsed.serviceType ||
     (reserva.goesToDaycare ?? true) !== parsed.goesToDaycare ||
+    // O dia de MOVIMENTO é o que o evento diz (avocado = chegada/saída): quando o escritório repinta o
+    // dia, a reserva tem de acompanhar — é ele que decide se o cão entra na fila de pickup.
+    (reserva.movementDay ?? false) !== (parsed.movementDay ?? false) ||
     reserva.startDate !== parsed.startDate ||
     (serie ? (reserva.endDate ?? null) !== (parsed.openEnded ? null : parsed.endDate) : reserva.endDate !== parsed.endDate) ||
     (serie ? !mesmosDias(reserva.weekdays, parsed.weekdays) : false) ||

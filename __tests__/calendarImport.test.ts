@@ -195,6 +195,9 @@ describe('formato do evento do ESCRITÓRIO (o app só lê — não há mais ida)
       // (amarelo/verde-claro). Como a reserva já existe no app, o `updateBooking` não mexe no
       // transporte — o que o gestor marcou fica.
       transportRequired: false,
+      // VERDE = dia de HOTEL, não dia de movimento (dono, 06/10/2026): a marca `movementDay` só é
+      // verdadeira no dia de CHEGADA/SAÍDA (avocado/amarelo), que é o que entra na fila de pickup.
+      movementDay: false,
       // Todo dia de boarding passa pelo daycare por regra (contrato do cliente, 28/09/2026).
       goesToDaycare: true,
       dogName: 'Filó',

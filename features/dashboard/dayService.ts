@@ -217,7 +217,7 @@ type ReservationRow = {
   start_date: string;
   end_date: string;
   transport_required: boolean;
-  goes_to_daycare?: boolean | null;
+  goes_to_daycare?: boolean | null; movement_day?: boolean | null;
   dog: { id: string; name: string; client: { name: string } };
 };
 type RecurringRow = {
@@ -239,7 +239,7 @@ export async function loadDayDogs(client: SupabaseClient, organizationId: string
   const [reservas, series, excecoes] = await Promise.all([
     client
       .from('reservations')
-      .select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, dog:dogs(id, name, client:clients(name))')
+      .select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
       .eq('status', 'confirmed')
       .lte('start_date', isoDay)
@@ -278,7 +278,7 @@ export async function loadWeekDogs(
   const [reservas, series, excecoes] = await Promise.all([
     client
       .from('reservations')
-      .select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, dog:dogs(id, name, client:clients(name))')
+      .select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
       .eq('status', 'confirmed')
       .lte('start_date', fim)
@@ -314,6 +314,7 @@ function paraRegistros(
     endDate: row.end_date,
     transportRequired: row.transport_required,
     goesToDaycare: row.goes_to_daycare ?? true,
+    movementDay: row.movement_day ?? false,
   }));
   const seriesMapeadas: RecurringScheduleRecord[] = ((series as RecurringRow[] | null) ?? []).map((row) => ({
     id: row.id,

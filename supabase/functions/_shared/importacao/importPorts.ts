@@ -187,6 +187,9 @@ export function supabaseImportPorts(
         // Contrato do cliente (28/09/2026): "todo boarding vai pro daycare" — a importação marca FALSE
         // só na chegada fora do horário (Cocoa no pick-up), quando o cão não passa pelo daycare.
         goes_to_daycare: parsed.goesToDaycare ?? true,
+        // Dia de CHEGADA/SAIDA da hospedagem (avocado): o cao esta na casa — parada normal da rota,
+        // nunca "ja esta na van" (dono, 06/10/2026).
+        movement_day: parsed.movementDay ?? false,
         /**
          * CASA COM DOIS CÃES (26/09/2026): cada cão tem a SUA reserva no mesmo dia, mas o
          * `google_event_id` é único por organização. Só a PRIMEIRA reserva do evento fica com o vínculo;
@@ -229,6 +232,13 @@ export function supabaseImportPorts(
           start_date: parsed.startDate,
           end_date: parsed.endDate,
           status: 'confirmed',
+          /**
+           * `movement_day` SEGUE o evento — ao contrário de `transport_required` e `goes_to_daycare`, que
+           * são decisão do gestor no app (por isso não são regravados aqui): quem pinta o dia de
+           * chegada/saída (avocado) ou o dia de hotel (verde) é o escritório, e é essa pintura que diz
+           * se o cão entra na fila de pickup do dia.
+           */
+          movement_day: parsed.movementDay ?? false,
           /**
            * 🪤 ACHADO DA VISTORIA (02/10/2026): NÃO regrave `transport_required` nem `goes_to_daycare`
            * numa reserva que JÁ existe. Os dois são DECISÃO DO GESTOR no app — "precisa de transporte"

@@ -32,6 +32,13 @@ export type ReservationRecord = {
    * não estará no day care"*. Omitido = `true` (reserva antiga/criada no app, série de daycare).
    */
   goesToDaycare?: boolean;
+  /**
+   * Aquele dia da hospedagem é o de CHEGADA/SAÍDA (avocado no calendário do escritório): o cão está na
+   * casa e quem busca/entrega é o motorista — parada normal da rota, NUNCA "já está na van". Omitido =
+   * `false` (dia de hotel/estadia, o cão já está lá dentro). Ver migração
+   * `202610060041_dia_de_movimento_na_reserva.sql` e a decisão do dono de 06/10/2026.
+   */
+  movementDay?: boolean;
   /** Evento do Google que originou a reserva (reserva importada) — ver migration 025. */
   googleEventId?: string | null;
   /** 'google' = nasceu no Google Calendar (lá manda); 'app' = nasceu no aplicativo. */
@@ -82,6 +89,8 @@ export type DayItem = {
   dropoffRequired?: boolean;
   /** O cão passa pelo daycare hoje (ver `ReservationRecord.goesToDaycare`). */
   goesToDaycare: boolean;
+  /** Dia de CHEGADA/SAÍDA da hospedagem (avocado) — ver `ReservationRecord.movementDay`. */
+  movementDay?: boolean;
   // True when this recurring occurrence is currently overridden to skip (paused) on the built day.
   paused?: boolean;
 };
@@ -105,6 +114,13 @@ export type DaySummary = { daycare: DayItem[]; boarding: DayItem[] };
  * A chegada fora do horário (Cocoa no pick-up) fica de fora: `goesToDaycare = false` ("o cão não estará
  * no day care"). Dia de movimento (avocado, chegada ou saída com o driver) também fica de fora — ele
  * ENTRA como parada normal da rota.
+ *
+ * ✅ Implementado em 06/10/2026 com a marca `movement_day` da reserva (migração `202610060041`): o dia de
+ * CHEGADA/SAÍDA da hospedagem (avocado) é `movement_day = true` e sai daqui — o cão está na casa e o
+ * motorista busca. Antes o filtro só olhava `goesToDaycare` e o cão de chegada ficava preso em "já está
+ * na van" (caso Scarlet do print do cliente de 06/10/2026), porque o `transport_required` do dia de
+ * chegada e o do dia de hotel são iguais. Quem NÃO tem a marca (reserva antiga, dia de hotel/verde)
+ * continua com o comportamento de sempre.
  */
 export function dogsJaNaVan(day: DaySummary): Set<string> {
   return new Set(
@@ -122,7 +138,7 @@ export function dogsJaNaVan(day: DaySummary): Set<string> {
        * tiver de voltar para casa. Quem NÃO vai pro daycare (`goesToDaycare = false`, chegada fora do
        * horário) continua sendo parada normal da rota.
        */
-      .filter((item) => item.goesToDaycare)
+      .filter((item) => item.goesToDaycare && item.movementDay !== true)
       .map((item) => item.dogId),
   );
 }
@@ -200,6 +216,7 @@ function itemize(kind: DayItem['kind'], reservation: ReservationRecord | null, s
     pickupRequired: source.pickupRequired,
     dropoffRequired: source.dropoffRequired,
     goesToDaycare: reservation?.goesToDaycare ?? true,
+    movementDay: reservation?.movementDay ?? false,
   };
 }
 

@@ -58,7 +58,7 @@ type ReservationRow = {
   start_date: string;
   end_date: string;
   transport_required: boolean;
-  goes_to_daycare: boolean | null;
+  goes_to_daycare: boolean | null; movement_day: boolean | null;
   dog: { id: string; name: string; client: { name: string } };
 };
 type RecurringRow = {
@@ -290,7 +290,7 @@ export default function HomeScreen() {
       supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).eq('role', 'driver').eq('status', 'active'),
       // Quem pode CAMINHAR com um cão (operação, 26/09): qualquer membro ativo, não só o motorista da rota.
       supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).eq('status', 'active'),
-      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte),
+      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', organizationId).gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase
@@ -344,6 +344,7 @@ export default function HomeScreen() {
       endDate: row.end_date,
       transportRequired: row.transport_required,
       goesToDaycare: row.goes_to_daycare ?? true,
+      movementDay: row.movement_day ?? false,
     }));
     const recurring: RecurringScheduleRecord[] = ((recurringResult.data as unknown as RecurringRow[]) ?? []).map((row) => ({
       id: row.id,
