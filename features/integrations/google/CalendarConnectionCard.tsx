@@ -54,6 +54,7 @@ import {
   corpoDaEscolha,
   DEFAULT_CALENDAR_ID,
   escolhaDaOrganizacao,
+  escolhaParaContaAtual,
   explicarFalhaDeEtiquetas,
   explicarFalhaDeListagem,
   nomeDoCalendario,
@@ -61,6 +62,7 @@ import {
   rotuloDeAcesso,
   textoDeAvisoDeTroca,
   avisoDeTroca,
+  TEXTO_CONTA_TROCADA,
   type CalendarChoice,
   type GoogleCalendarEntry,
   type OrganizationCalendarRow,
@@ -142,6 +144,16 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
 
   // Calendário: escolha da ORGANIZAÇÃO (o escritório inteiro usa o mesmo) + a lista da conta.
   const [escolha, setEscolha] = useState<CalendarChoice>(() => escolhaDaOrganizacao(null));
+  /**
+   * Espelho da escolha para os efeitos que NÃO podem depender dela: se `carregarCalendarios`
+   * dependesse de `escolha`, cada gravação recarregaria a lista da API (laço).
+   */
+  const escolhaRef = useRef(escolha);
+  useEffect(() => {
+    escolhaRef.current = escolha;
+  }, [escolha]);
+  /** virou true quando a escolha da ORGANIZAÇÃO foi lida — só então a validação da conta roda. */
+  const [escolhaCarregada, setEscolhaCarregada] = useState(false);
   const [calendarios, setCalendarios] = useState<GoogleCalendarEntry[]>([]);
   const [seletorAberto, setSeletorAberto] = useState(false);
   const [candidato, setCandidato] = useState<GoogleCalendarEntry | null>(null);
@@ -187,6 +199,14 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
       // comportamento antigo, e o gestor ainda pode escolher e ver o erro na hora de salvar.
       if (error) return;
       setEscolha(escolhaDaOrganizacao(data as OrganizationCalendarRow));
+      /**
+       * Só depois de LER a escolha da organização é que a validação da conta pode rodar
+       * (07/10/2026): validar antes de a leitura chegar fazia a tela "corrigir" a escolha para o
+       * `primary` e sobrescrever a escolha certa — foi o que quebrou 7 testes quando a regra entrou.
+       * Sem leitura (erro/RLS/sem organização), a validação NÃO roda: melhor não mexer do que apagar
+       * a escolha de alguém por não ter conseguido ler.
+       */
+      setEscolhaCarregada(true);
     } catch {
       // Consulta que estoura (coluna que ainda não existe, cliente de teste sem `maybeSingle`)
       // também não pode derrubar a aba: o cartão segue no padrão.
@@ -210,12 +230,6 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
       const accessToken = await getAccessToken();
       const lista = ordenarCalendarios(await listCalendars(accessToken, fetchReal));
       setCalendarios(lista);
-      // A escolha gravada só tinha o id? Completa o nome com o que o Google devolveu.
-      setEscolha((atual) => {
-        if (atual.summary) return atual;
-        const achado = lista.find((item) => item.id === atual.calendarId);
-        return achado ? { ...atual, summary: achado.summary } : atual;
-      });
     } catch (error) {
       setErroCalendarios(explicarFalhaDeListagem(error instanceof Error ? error.message : String(error)));
     } finally {
@@ -228,6 +242,45 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
   }, [carregarCalendarios]);
 
   /**
+   * A ESCOLHA VALE SÓ DENTRO DA CONTA QUE A ESCOLHEU (bug do dono, 07/10/2026): conectar outra conta
+   * Google deixava valendo o calendário da conta ANTERIOR — o app seguia lendo e mostrando o nome do
+   * calendário da conta que estava logada antes.
+   *
+   * A regra vive em `escolhaParaContaAtual` (pura, testada). Aqui só se aplica: escolha de outra
+   * conta, ou id concreto que não existe nesta conta, volta para o `primary` desta conta; aí grava na
+   * ORGANIZAÇÃO (o escritório inteiro usa a mesma escolha) e reenvia ao servidor — sem isso o robô dos
+   * 15 min continuaria sincronizando o calendário antigo.
+   *
+   * Roda só DEPOIS de a escolha da organização ser lida (`escolhaCarregada`) e com a lista em mãos:
+   * validar antes era o que sobrescrevia a escolha certa com o `primary`.
+   */
+  useEffect(() => {
+    if (!escolhaCarregada || calendarios.length === 0) return;
+    const avaliada = escolhaParaContaAtual(escolhaRef.current, calendarios, email);
+    if (!avaliada.mudou && !avaliada.contaTrocada) return;
+    void (async () => {
+      try {
+        if (avaliada.mudou) {
+          escolhaRef.current = avaliada.escolha;
+          setEscolha(avaliada.escolha);
+          if (organizationId) {
+            const { error } = await supabase
+              .from('organizations')
+              .update(corpoDaEscolha(avaliada.escolha))
+              .eq('id', organizationId)
+              .select('id');
+            if (error) setErroCalendarios(`Could not save the calendar of this account: ${error.message}`);
+          }
+          await enviarCredencialAoServidor(avaliada.escolha.calendarId);
+        }
+        if (avaliada.contaTrocada) setAvisoCalendario(TEXTO_CONTA_TROCADA);
+      } catch {
+        // silencioso: a escolha corrigida vale na hora na tela; gravar é o passo seguinte.
+      }
+    })();
+  }, [calendarios, email, escolhaCarregada, organizationId]);
+
+  /**
    * IDENTIDADE DA CONTA (achado da auditoria de integrações, 02/10/2026): o token OAuth do app não
    * pede escopo de e-mail, então `connected_email` nunca era gravado e o cartão caía no nome do
    * calendário. O `id` do calendário PRINCIPAL é o e-mail da conta — assim que a lista chega, ele é
@@ -235,15 +288,26 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
    */
   useEffect(() => {
     const principal = calendarios.find((item) => item.primary);
-    if (email || !principal?.id) return;
+    if (!principal?.id) return;
     void (async () => {
       try {
-        if (await rememberEmail(principal.id)) await enviarCredencialAoServidor(escolha.calendarId);
+        /**
+         * A identidade é REESCRITA quando muda (bug do dono, 07/10/2026): o guarda `email ||` só
+         * gravava a PRIMEIRA conta — depois de conectar outra, o app continuava exibindo o e-mail
+         * (e tratando como conta conectada) a que estava logada antes. `rememberEmail` já é
+         * idempotente: devolve `false` quando o e-mail é o mesmo, então nada acontece na conta certa.
+         *
+         * A credencial do servidor vai com o calendário da conta ATUAL (mesma validação do
+         * `carregarCalendarios`): o servidor nunca pode receber conta nova + calendário antigo.
+         */
+        if (await rememberEmail(principal.id)) {
+          await enviarCredencialAoServidor(escolhaParaContaAtual(escolhaRef.current, calendarios, email).escolha.calendarId);
+        }
       } catch {
         // silencioso de propósito: é identidade para exibir, não pode atrapalhar a sincronização.
       }
     })();
-  }, [calendarios, email, escolha.calendarId, rememberEmail]);
+  }, [calendarios, email, rememberEmail]);
 
   /**
    * Cores do calendário escolhido (etiquetas da paleta NOVA do Google).

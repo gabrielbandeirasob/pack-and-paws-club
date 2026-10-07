@@ -164,3 +164,62 @@ export function explicarFalhaDeEtiquetas(mensagem: string): string {
   }
   return `Could not read the colors of this calendar: ${mensagem}`;
 }
+
+/** Aviso quando a conta conectada mudou: a escolha antiga é de OUTRA conta e não vale aqui. */
+export const TEXTO_CONTA_TROCADA =
+  'You are connected to another Google account. The calendar went back to the primary of this account — pick the calendar you use in "Change calendar".';
+
+export type ResultadoDaEscolhaNaConta = {
+  escolha: CalendarChoice;
+  /** true quando algo mudou e precisa ser gravado na organização. */
+  mudou: boolean;
+  /** true quando a conta conectada não é mais a mesma que escolheu o calendário. */
+  contaTrocada: boolean;
+};
+
+/**
+ * A escolha do calendário vale só DENTRO da conta que a escolheu — id de calendário é da conta.
+ *
+ * Achado em 07/10/2026 (bug do dono): ao conectar OUTRA conta Google, a escolha antiga continuava
+ * valendo e o app seguia lendo (e mostrando) o calendário da conta que estava logada antes.
+ *
+ * Regras:
+ * - não há lista (ainda carregando) -> não julga nada, devolve o que veio;
+ * - a conta conectada não é a que escolheu (`identidadeDaContaAnterior`), OU o id concreto não
+ *   aparece na lista desta conta -> volta para o `primary` desta conta;
+ * - mesma conta -> mantém a escolha e só atualiza o NOME com o que o Google devolveu agora
+ *   (o nome exibido não pode continuar sendo o da conta antiga).
+ */
+export function escolhaParaContaAtual(
+  escolha: CalendarChoice,
+  lista: GoogleCalendarEntry[],
+  identidadeDaContaAnterior: string | null,
+): ResultadoDaEscolhaNaConta {
+  if (lista.length === 0) return { escolha, mudou: false, contaTrocada: false };
+
+  const principal = lista.find((item) => item.primary) ?? null;
+  const id = normalizarCalendarId(escolha.calendarId);
+  const achado = id === DEFAULT_CALENDAR_ID ? principal : lista.find((item) => item.id === id) ?? null;
+  const contaTrocada = Boolean(
+    identidadeDaContaAnterior && principal?.id && identidadeDaContaAnterior !== principal.id,
+  );
+
+  /**
+   * NINGUÉM escolheu ainda (`primary`) e a conta é a mesma: não há o que corrigir e nada é gravado.
+   * A tela mostra "Primary calendar" nesse caso — preencher o nome aqui mudaria o rótulo e escreveria
+   * na organização sem o gestor ter escolhido nada (foi o que quebrou 2 testes na primeira versão).
+   */
+  if (id === DEFAULT_CALENDAR_ID && !contaTrocada) return { escolha, mudou: false, contaTrocada: false };
+
+  if (!achado || contaTrocada) {
+    const nova: CalendarChoice = { calendarId: DEFAULT_CALENDAR_ID, summary: limpo(principal?.summary) };
+    return {
+      escolha: nova,
+      mudou: id !== nova.calendarId || limpo(escolha.summary) !== nova.summary,
+      contaTrocada: true,
+    };
+  }
+
+  const atualizada: CalendarChoice = { calendarId: escolha.calendarId, summary: limpo(achado.summary) };
+  return { escolha: atualizada, mudou: limpo(escolha.summary) !== atualizada.summary, contaTrocada: false };
+}

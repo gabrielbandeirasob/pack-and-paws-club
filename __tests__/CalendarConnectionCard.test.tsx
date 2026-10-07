@@ -823,4 +823,61 @@ describe('CalendarConnectionCard', () => {
 
     expect(runCalendarImport.mock.calls[0][0].labels).toEqual([{ id: 'lab-azul', name: 'Cobalto', backgroundColor: '#4A86E8' }]);
   });
+
+  // ------------------------------------------ conectar OUTRA conta Google (bug do dono, 07/10/2026)
+
+  it('conectar outra conta: o calendário da conta antiga sai de cena, é gravado e avisa o gestor', async () => {
+    /**
+     * Cenário do dono: o aparelho tem a conta antiga guardada e a escolha da ORGANIZAÇÃO é o
+     * calendário secundário dela (`bot venda`). Agora a conta conectada é OUTRA — e a escolha antiga
+     * não pode continuar valendo (era o defeito: o app seguia lendo/mostrando o calendário de antes).
+     */
+    const ctx = conexao('connected', { email: 'raphael@packandpawsclub.com' });
+    useCalendarConnection.mockReturnValue(ctx);
+    mockOrganizacao = { google_calendar_id: CAL_BOT_VENDA, google_calendar_summary: 'bot venda' };
+    listCalendars.mockResolvedValue([
+      { id: 'contato@cliente.com', summary: 'contato@cliente.com', primary: true, accessRole: 'owner' },
+      { id: 'feriados@cliente.com', summary: 'Feriados do cliente', primary: false, accessRole: 'reader' },
+    ]);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    // A escolha volta para o primary DESTA conta e é gravada na organização...
+    await waitFor(() => expect(atualizacoes.length).toBe(1));
+    expect(atualizacoes[0]).toEqual({
+      tabela: 'organizations',
+      valores: { google_calendar_id: 'primary', google_calendar_summary: 'contato@cliente.com' },
+    });
+    // ...e o SERVIDOR passa a sincronizar o calendário da conta nova (o robô dos 15 min).
+    expect(enviarCredencialAoServidor).toHaveBeenCalledWith('primary');
+    // A identidade é reescrita: o app não continua exibindo a conta antiga.
+    expect(ctx.rememberEmail).toHaveBeenCalledWith('contato@cliente.com');
+    // E o gestor é avisado com a frase que diz o que fazer.
+    await waitFor(() =>
+      expect(screen.getByTestId('google-calendar-aviso-troca')).toHaveTextContent(/another Google account/),
+    );
+  });
+
+  it('conectar outra conta: o Sync passa a ler o calendário da conta NOVA, não o da antiga', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected', { email: 'raphael@packandpawsclub.com' }));
+    mockOrganizacao = { google_calendar_id: CAL_BOT_VENDA, google_calendar_summary: 'bot venda' };
+    listCalendars.mockResolvedValue([
+      { id: 'contato@cliente.com', summary: 'contato@cliente.com', primary: true, accessRole: 'owner' },
+    ]);
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+    await waitFor(() => expect(atualizacoes.length).toBe(1));
+
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+    expect(runCalendarImport.mock.calls[0][0].calendarId).toBe('primary');
+  });
+
+  it('mesma conta: a escolha gravada não é mexida (nem grava nada por conta própria)', async () => {
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    mockOrganizacao = { google_calendar_id: CAL_BOT_VENDA, google_calendar_summary: 'bot venda' };
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+
+    await esperandoEscolha(screen, 'bot venda');
+    expect(atualizacoes.length).toBe(0);
+    expect(screen.queryByTestId('google-calendar-aviso-troca')).toBeNull();
+  });
 });

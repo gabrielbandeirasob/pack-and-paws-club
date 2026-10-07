@@ -15,6 +15,7 @@ import {
   corpoDaEscolha,
   DEFAULT_CALENDAR_ID,
   escolhaDaOrganizacao,
+  escolhaParaContaAtual,
   explicarFalhaDeListagem,
   interpretarCalendarios,
   nomeDoCalendario,
@@ -23,6 +24,7 @@ import {
   podeEscrever,
   rotuloDeAcesso,
   textoDeAvisoDeTroca,
+  TEXTO_CONTA_TROCADA,
   TEXTO_FALTA_DE_ESCOPO,
   type GoogleCalendarEntry,
 } from '@/features/integrations/google/calendarChoice';
@@ -139,5 +141,77 @@ describe('erro legível em vez do erro cru da API', () => {
     expect(TEXTO_FALTA_DE_ESCOPO).toMatch(/Disconnect and connect/);
     // Erro que não é de permissão: mantém o detalhe, para não esconder o problema de verdade.
     expect(explicarFalhaDeListagem('fetch failed')).toContain('fetch failed');
+  });
+});
+
+/**
+ * BUG DO DONO (07/10/2026): conectando OUTRA conta Google, o calendário da conta que estava logada
+ * antes continuava valendo — o app seguia lendo e mostrando o nome dele.
+ */
+describe('a escolha vale só dentro da conta que a escolheu', () => {
+  const CONTA_A: GoogleCalendarEntry[] = [
+    { id: PRINCIPAL, summary: PRINCIPAL, primary: true, accessRole: 'owner' },
+    { id: BOT_VENDA, summary: 'bot venda', primary: false, accessRole: 'writer' },
+  ];
+  const CONTA_B: GoogleCalendarEntry[] = [
+    { id: 'contato@cliente.com', summary: 'contato@cliente.com', primary: true, accessRole: 'owner' },
+    { id: 'feriados@cliente.com', summary: 'Feriados do cliente', primary: false, accessRole: 'reader' },
+  ];
+  const ESCOLHIDO = { calendarId: BOT_VENDA, summary: 'bot venda' };
+
+  it('conta DIFERENTE: o calendário da conta antiga não continua valendo', () => {
+    const r = escolhaParaContaAtual(ESCOLHIDO, CONTA_B, PRINCIPAL);
+    expect(r.contaTrocada).toBe(true);
+    expect(r.mudou).toBe(true);
+    expect(r.escolha).toEqual({ calendarId: DEFAULT_CALENDAR_ID, summary: 'contato@cliente.com' });
+  });
+
+  it('mesma conta, calendário que não existe mais nela: volta para o primary', () => {
+    const r = escolhaParaContaAtual(
+      { calendarId: 'sumiu@group.calendar.google.com', summary: 'sumiu' },
+      CONTA_A,
+      PRINCIPAL,
+    );
+    expect(r.contaTrocada).toBe(true);
+    expect(r.escolha.calendarId).toBe(DEFAULT_CALENDAR_ID);
+  });
+
+  it('mesma conta: mantém a escolha e não manda gravar nada', () => {
+    expect(escolhaParaContaAtual(ESCOLHIDO, CONTA_A, PRINCIPAL)).toEqual({
+      escolha: ESCOLHIDO,
+      mudou: false,
+      contaTrocada: false,
+    });
+  });
+
+  it('mesma conta com o nome desatualizado: mantém o id e só corrige o nome', () => {
+    const r = escolhaParaContaAtual({ calendarId: BOT_VENDA, summary: 'nome antigo' }, CONTA_A, PRINCIPAL);
+    expect(r.contaTrocada).toBe(false);
+    expect(r.mudou).toBe(true);
+    expect(r.escolha).toEqual({ calendarId: BOT_VENDA, summary: 'bot venda' });
+  });
+
+  it('ninguém escolheu ainda (primary): não mexe em nada — a tela mostra "Primary calendar"', () => {
+    const escolha = { calendarId: DEFAULT_CALENDAR_ID, summary: null };
+    expect(escolhaParaContaAtual(escolha, CONTA_A, null)).toEqual({ escolha, mudou: false, contaTrocada: false });
+  });
+
+  it('primary guardado + conta trocada: o nome passa a ser o da conta nova (e avisa)', () => {
+    const r = escolhaParaContaAtual({ calendarId: DEFAULT_CALENDAR_ID, summary: PRINCIPAL }, CONTA_B, PRINCIPAL);
+    expect(r.contaTrocada).toBe(true);
+    expect(r.escolha).toEqual({ calendarId: DEFAULT_CALENDAR_ID, summary: 'contato@cliente.com' });
+  });
+
+  it('lista ainda vazia: não julga — não apaga a escolha de ninguém', () => {
+    expect(escolhaParaContaAtual(ESCOLHIDO, [], PRINCIPAL)).toEqual({
+      escolha: ESCOLHIDO,
+      mudou: false,
+      contaTrocada: false,
+    });
+  });
+
+  it('a frase da conta trocada diz o que fazer', () => {
+    expect(TEXTO_CONTA_TROCADA).toMatch(/another Google account/);
+    expect(TEXTO_CONTA_TROCADA).toMatch(/Change calendar/);
   });
 });
