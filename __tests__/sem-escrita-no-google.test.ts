@@ -49,7 +49,7 @@ function falaComOCalendar(texto: string): boolean {
 describe('o app não escreve no calendário do cliente', () => {
   it('nenhum arquivo que fala com o Calendar usa POST/PATCH/PUT/DELETE', () => {
     const infratores: string[] = [];
-    for (const pasta of ['features', 'app']) {
+    for (const pasta of ['features', 'app', 'supabase/functions']) {
       for (const arquivo of arquivosDeCodigo(join(RAIZ, pasta))) {
         const texto = readFileSync(arquivo, 'utf8');
         if (!falaComOCalendar(texto)) continue;

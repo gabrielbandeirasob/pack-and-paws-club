@@ -58,6 +58,8 @@ beforeEach(() => {
 
 async function remove(tela: Awaited<ReturnType<typeof render>>) {
   await fireEvent.press(tela.getByLabelText('Options Kona'));
+  expect(mockAlert.mock.calls.at(-1)?.[1]).toContain('the next Sync will bring the dog back');
+  expect(mockAlert.mock.calls.at(-1)?.[1]).toContain('color the event red (Tomato or Flamingo) in Google Calendar');
   const buttons = mockAlert.mock.calls.at(-1)?.[2] as { text: string; onPress?: () => void }[];
   await act(async () => { buttons.find((button) => button.text === 'Remove')?.onPress?.(); });
 }

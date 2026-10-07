@@ -460,7 +460,9 @@ function precisaAtualizar(reserva: BookingForImport, parsed: ParsedBooking, dogI
   return (
     reserva.dogId !== dogId ||
     reserva.serviceType !== parsed.serviceType ||
-    (reserva.goesToDaycare ?? true) !== parsed.goesToDaycare ||
+    // A porta preserva goes_to_daycare nas reservas existentes: comparar aqui
+    // pediria a mesma atualização em todo Sync, sem jamais mudar esse campo.
+    (serie && (reserva.goesToDaycare ?? true) !== parsed.goesToDaycare) ||
     // O dia de MOVIMENTO é o que o evento diz (avocado = chegada/saída): quando o escritório repinta o
     // dia, a reserva tem de acompanhar — é ele que decide se o cão entra na fila de pickup.
     (reserva.movementDay ?? false) !== (parsed.movementDay ?? false) ||
@@ -510,7 +512,7 @@ function alvoDoCancelamento(
     if (ligada.kind === 'recurring') {
       return (ligada.skipDates ?? []).includes(date) ? null : { kind: 'skip', eventId, scheduleId: ligada.id, date };
     }
-    return { kind: 'cancel', eventId, bookingKind: ligada.kind, bookingId: ligada.id };
+    return ligada.status === 'cancelled' ? null : { kind: 'cancel', eventId, bookingKind: ligada.kind, bookingId: ligada.id };
   }
   if (!dogId) return null;
 
@@ -768,9 +770,10 @@ export function planCalendarImport(
         item.kind === kindOf(parsed) && item.startDate === parsed.startDate &&
         (item.kind === 'recurring' ? mesmosDias(item.weekdays, parsed.weekdays) : item.endDate === parsed.endDate)) : null) ?? null;
 
-      // Uma reserva cancelada conserva o vínculo: a leitura automática não pode desfazer
-      // o cancelamento enquanto o gestor ainda não tocou no Sync para pintar Tomato.
-      if (ligada?.kind === 'reservation' && ligada.status === 'cancelled') {
+      // 07/10/2026: a agenda governa o status. Evento de serviço presente restaura
+      // a reserva cancelada na mesma linha; vermelho é decidido antes da atualização.
+      // Roxo mantém a regra existente de alteração de escala.
+      if (cor.kind === 'schedule_change' && ligada?.kind === 'reservation' && ligada.status === 'cancelled') {
         vistos.add(evento.id);
         continue;
       }
@@ -834,7 +837,7 @@ export function planCalendarImport(
         vistos.add(evento.id);
         const dogId = dogDoTitulo ?? ligada.dogId;
         const servico: ParsedBooking = { ...parsed, ...leituraDoDia(cor, parsed, hospedagem, alvo) };
-        if (ligada.source === 'google' && (precisaAtualizar(ligada, servico, dogId) || recuperadas.has(ligada.id))) {
+        if ((ligada.source === 'google' || (ligada.kind === 'reservation' && ligada.status === 'cancelled')) && (precisaAtualizar(ligada, servico, dogId) || recuperadas.has(ligada.id))) {
           resultados.push({
             kind: 'update',
             eventId: evento.id,

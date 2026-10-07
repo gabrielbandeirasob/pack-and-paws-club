@@ -242,7 +242,7 @@ export default function CalendarScreen() {
     ));
     // O espelho foi removido em 05/10/2026: cancelar aqui NÃO muda mais o calendário do cliente
     // (o app só lê o Google). A frase não pode prometer o que não acontece.
-    showAlert('Day cancelled', 'The booking is cancelled in the app. The client’s calendar is not changed by the app.');
+    showAlert('Day cancelled', 'The booking is cancelled in the app. The client’s calendar is not changed by the app. Google Calendar is the source of truth. If the event remains there and is not red, the next Sync will bring the dog back. To keep the booking cancelled, color the event red (Tomato or Flamingo) in Google Calendar.');
     await load({ silent: true });
   };
 
@@ -344,7 +344,7 @@ export default function CalendarScreen() {
   const openReservationActions = (item: DayItem) => {
     if (!item.reservationId) { confirmRemoveReservation(item); return; }
     const label = `${item.dogName}`;
-    showAlert(label, 'What do you want to do with this reservation?', [
+    showAlert(label, 'What do you want to do with this reservation? Removing it only cancels it in the app. Google Calendar is the source of truth. If the event remains there and is not red, the next Sync will bring the dog back. To keep the booking cancelled, color the event red (Tomato or Flamingo) in Google Calendar.', [
       { text: 'Edit reservation', onPress: () => router.push({ pathname: '/reservation-edit', params: { id: item.reservationId as string } }) },
       { text: 'Remove', style: 'destructive', onPress: () => void removeReservation(item) },
       { text: 'Cancel', style: 'cancel' },
@@ -353,7 +353,7 @@ export default function CalendarScreen() {
 
   const confirmRemoveReservation = (item: DayItem) => {
     const label = `${item.dogName}`;
-    showAlert('Remove reservation', `Remove ${label} from the calendar?`, [
+    showAlert('Remove reservation', `Remove ${label} from the app? Google Calendar is the source of truth. If the event remains there and is not red, the next Sync will bring the dog back. To keep the booking cancelled, color the event red (Tomato or Flamingo) in Google Calendar.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => void removeReservation(item) },
     ]);
