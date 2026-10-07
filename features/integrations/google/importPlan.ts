@@ -361,6 +361,8 @@ export type DogForImport = {
   name: string;
   /** Nome do tutor — só informativo (o casamento é pelo nome do cão, como o dono decidiu). */
   clientName?: string | null;
+  /** Identidade do tutor para recuperar o vínculo legado; nome igual não prova mesma casa. */
+  clientId?: string | null;
 };
 
 /** O que já existe no app e pode estar ligado a um evento do Google. */
@@ -406,13 +408,8 @@ export type ReviewReason =
 
 export type ImportOutcome =
   | { kind: 'create'; eventId: string; dogId: string; parsed: ParsedBooking }
-  /**
-   * `semVinculo` = NÃO escrever o `google_event_id` nesta linha. Vale para a reserva do SEGUNDO cão de
-   * um evento de dois cães: o vínculo do evento é único por organização e já é da outra linha — escrever
-   * aqui batia no índice único (`reservations_google_event_unico`) e a rodada do relógio devolvia
-   * *"1 falhas"* todo dia 15 min (medido em 28/09/2026 no evento `Sylvie/Agnes`).
-   */
-  | { kind: 'update'; eventId: string; bookingKind: ExistingBookingKind; bookingId: string; dogId: string; parsed: ParsedBooking; semVinculo?: boolean }
+  /** `calendarId` só é preenchido no reparo legado com origem conhecida. */
+  | { kind: 'update'; eventId: string; bookingKind: ExistingBookingKind; bookingId: string; dogId: string; parsed: ParsedBooking; semVinculo?: boolean; calendarId?: string }
   | { kind: 'cancel'; eventId: string; bookingKind: ExistingBookingKind; bookingId: string }
   /** Dia de uma série pulado (evento vermelho sobre uma escala: não se desativa a série inteira). */
   | { kind: 'skip'; eventId: string; scheduleId: string; date: string }
@@ -610,7 +607,34 @@ export function planCalendarImport(
 ): ImportOutcome[] {
   const labels = options.labels ?? [];
   const calendarId = options.calendarId === undefined ? DEFAULT_CALENDAR_ID : options.calendarId;
-  const porEvento = new Map<string, BookingForImport>();
+  const porEvento = new Map<string, BookingForImport[]>();
+  const recuperadas = new Set<string>();
+  // Medido em 07/10/2026: Teddy tinha vínculo e Billy não. Só recuperamos uma linha Google
+  // quando há UM evento possível na mesma casa (ID, nunca nome), período e agenda conhecida.
+  // A busca usa o período ANTIGO da reserva: mover/apagar o evento não perde o segundo cão.
+  // Não escolhemos entre eventos concorrentes nem tocamos em reservas criadas no app.
+  reservations = reservations.map((reserva) => {
+    if (reserva.googleEventId || reserva.source !== 'google' || reserva.status !== 'confirmed' ||
+        antesDaJanela(reserva.startDate, window) || reserva.startDate > window.to) return reserva;
+    const tutor = dogs.find((cao) => cao.id === reserva.dogId)?.clientId;
+    if (!tutor) return reserva;
+    const candidatas = reservations.filter((outra) =>
+      outra.googleEventId && outra.source === 'google' && outra.status === 'confirmed' &&
+      outra.googleCalendarId === calendarId && Boolean(calendarId) && calendarId !== DEFAULT_CALENDAR_ID &&
+      (!reserva.googleCalendarId || reserva.googleCalendarId === calendarId) &&
+      outra.dogId !== reserva.dogId && outra.kind === reserva.kind &&
+      outra.startDate === reserva.startDate && outra.endDate === reserva.endDate &&
+      mesmosDias(outra.weekdays, reserva.weekdays) &&
+      dogs.find((cao) => cao.id === outra.dogId)?.clientId === tutor);
+    const eventosPossiveis = new Set(candidatas.map((item) => item.googleEventId));
+    const origem = candidatas[0];
+    if (eventosPossiveis.size !== 1 || !origem || reservations.some((outra) =>
+      outra.id !== reserva.id && outra.dogId === reserva.dogId && outra.kind === reserva.kind &&
+      (outra.googleEventId === origem.googleEventId || (!outra.googleEventId &&
+        outra.source === 'google' && outra.startDate === reserva.startDate && outra.endDate === reserva.endDate)))) return reserva;
+    recuperadas.add(reserva.id);
+    return { ...reserva, googleEventId: origem.googleEventId, googleCalendarId: origem.googleCalendarId };
+  });
 
   // GUARDA DA CONVENCAO NOVA (escritorio, 27/09/2026): dia de hotel (verde) perde a van SOMENTE quando
   // aquele cao tem um dia de CHEGADA/SAIDA (amarelo/verde-claro) na janela. Calendario que ainda nao
@@ -629,7 +653,11 @@ export function planCalendarImport(
     }
   }
   for (const reserva of reservations) {
-    if (reserva.googleEventId && (!reserva.googleCalendarId || reserva.googleCalendarId === calendarId)) porEvento.set(reserva.googleEventId, reserva);
+    if (reserva.googleEventId && (!reserva.googleCalendarId || reserva.googleCalendarId === calendarId)) {
+      const grupo = porEvento.get(reserva.googleEventId) ?? [];
+      grupo.push(reserva);
+      porEvento.set(reserva.googleEventId, grupo);
+    }
   }
 
   // Lado do dia para o COCOA (marrom, fora do horário): chegada de hospedagem x saída/dia de daycare.
@@ -694,11 +722,24 @@ export function planCalendarImport(
       continue;
     }
 
-    // 4 a 8 valem POR CÃO: um evento com dois nomes gera uma decisão (e uma reserva) para cada um — é
-    // pedido da operação (26/09/2026: "ele tem que identificar que são os dois cachorros… é só uma
-    // parada"). O vínculo com o evento (`google_event_id`) é único por organização, então quem cuida de
-    // NÃO repetir o vínculo é o executor: a 2ª reserva do mesmo evento nasce sem o vínculo (ver
-    // `semVinculo` em importService/importPorts).
+    // Um vínculo por evento E cão. Medido em 28/09: reutilizar a linha do primeiro cão
+    // para o segundo alternava dog_id e deixava 7 cães no dia em vez de 8.
+    const grupo = porEvento.get(evento.id) ?? [];
+    const nomesDoEvento = new Set(parsedTodos.map((item) => normalizar(item.dogName)));
+    // Um vínculo cancelado do antigo segundo cão não torna ambíguo o único cão ainda ativo.
+    const ativas = grupo.filter((item) => item.status === 'confirmed' || item.status === 'active');
+    const referenciaUnica = ativas.length === 1 ? ativas[0] : grupo.length === 1 ? grupo[0] : null;
+    const renomeado = parsedTodos.length === 1 && Boolean(referenciaUnica) &&
+      !dogs.some((cao) => normalizar(cao.name) === normalizar(primeiro.dogName));
+    for (const reserva of grupo) {
+      const nome = dogs.find((cao) => cao.id === reserva.dogId)?.name;
+      if (!renomeado && nome && !nomesDoEvento.has(normalizar(nome)) &&
+          reserva.source === 'google' && Boolean(calendarId) && reserva.googleCalendarId === calendarId &&
+          !antesDaJanela(reserva.startDate, window) && reserva.startDate <= window.to &&
+          (reserva.status === 'confirmed' || reserva.status === 'active')) {
+        resultados.push({ kind: 'cancel', eventId: evento.id, bookingKind: reserva.kind, bookingId: reserva.id });
+      }
+    }
     for (const parsed of parsedTodos) {
       // 4. Casa o cao pelo NOME do titulo (normalizado). Nome repetido em dois cadastros nao e
       //    desempatado por tutor: a regra nova nao traz tutor no titulo, entao isso e pendencia.
@@ -713,30 +754,16 @@ export function planCalendarImport(
         parsed.transportRequired = true;
       }
 
-      // 5. Vínculo por EVENTO (não por nome): se o evento já tem reserva no app, ela é a referência.
-      //    Título que não aponta para nenhum cão do cadastro (o caso do cão RENOMEADO no app depois da
-      //    importação) NÃO cria cadastro novo: a reserva segue com o cão dela, que é o mesmo evento.
-      //
-      //    🐞 Evento com DOIS cães tem UMA reserva por cão: o vínculo do evento serve a UM deles — o
-      //    cão da reserva vinculada. Sem isto os dois cães achavam a MESMA reserva e cada um propunha
-      //    `update` nela, então o `dog_id` **trocava de cão a cada sincronização** (medido no banco em
-      //    28/09/2026: toda rodada devolvia "4 atualizados", sempre em eventos de dois cães, e o dia
-      //    ficava com 7 cães em vez de 8 — o outro cão perdia a reserva). O segundo cão passa a usar a
-      //    reserva DELE (mesmo dia/serviço/série, sem vínculo) ou cria a dele — o serviço remove o
-      //    vínculo na criação porque o índice do banco é único por evento.
-      const vinculada = porEvento.get(evento.id) ?? null;
-      const usaVinculo = !vinculada || parsedTodos.length === 1 || !dogDoTitulo || vinculada.dogId === dogDoTitulo;
-      const ligada = usaVinculo
-        ? vinculada
-        : (reservations.find(
-            (item) =>
-              item.source === 'google' &&
-              item.status === 'confirmed' &&
-              item.dogId === dogDoTitulo &&
-              item.kind === kindOf(parsed) &&
-              item.startDate === parsed.startDate &&
-              (item.kind === 'recurring' ? mesmosDias(item.weekdays, parsed.weekdays) : item.endDate === parsed.endDate),
-          ) ?? null);
+      // Um nome desconhecido em A/B precisa aparecer na revisão. Só UM nome e UMA
+      // reserva permitem o caso do cão renomeado no app, sem inventar cadastro.
+      const vinculada = grupo.find((item) => item.dogId === dogDoTitulo) ??
+        (renomeado ? referenciaUnica : null);
+      const ligada = vinculada ?? (dogDoTitulo && grupo.length > 0 ? reservations.find((item) =>
+        item.source === 'google' && !item.googleEventId &&
+        (!item.googleCalendarId || item.googleCalendarId === calendarId) &&
+        item.status === 'confirmed' && item.dogId === dogDoTitulo &&
+        item.kind === kindOf(parsed) && item.startDate === parsed.startDate &&
+        (item.kind === 'recurring' ? mesmosDias(item.weekdays, parsed.weekdays) : item.endDate === parsed.endDate)) : null) ?? null;
 
       // Uma reserva cancelada conserva o vínculo: a leitura automática não pode desfazer
       // o cancelamento enquanto o gestor ainda não tocou no Sync para pintar Tomato.
@@ -804,7 +831,7 @@ export function planCalendarImport(
         vistos.add(evento.id);
         const dogId = dogDoTitulo ?? ligada.dogId;
         const servico: ParsedBooking = { ...parsed, ...leituraDoDia(cor, parsed, hospedagem, alvo) };
-        if (ligada.source === 'google' && precisaAtualizar(ligada, servico, dogId)) {
+        if (ligada.source === 'google' && (precisaAtualizar(ligada, servico, dogId) || recuperadas.has(ligada.id))) {
           resultados.push({
             kind: 'update',
             eventId: evento.id,
@@ -812,8 +839,9 @@ export function planCalendarImport(
             bookingId: ligada.id,
             dogId,
             parsed: servico,
-            // A linha é a do OUTRO cão do evento? Então o vínculo não é dela: atualiza sem mexer nele.
-            semVinculo: ligada.googleEventId !== evento.id,
+            // O reparo herda a origem da única âncora compatível; âncora sem origem continua protegida.
+            ...(recuperadas.has(ligada.id) ? { calendarId: ligada.googleCalendarId! } : {}),
+            semVinculo: false,
           });
         }
         continue;

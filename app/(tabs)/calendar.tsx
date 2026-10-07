@@ -477,7 +477,7 @@ export default function CalendarScreen() {
 
             <CalendarConnectionCard
               organizationId={organizationId ?? ''}
-              dogs={dogs.map((cao) => ({ id: cao.id, name: cao.dogName, clientName: cao.clientName }))}
+              dogs={dogs.map((cao) => ({ id: cao.id, name: cao.dogName, clientName: cao.clientName, clientId: cao.clientId }))}
               bookings={casosDaImportacao}
               onImported={() => void load({ silent: true })}
               autoImport

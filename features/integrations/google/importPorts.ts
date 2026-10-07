@@ -129,7 +129,7 @@ export function supabaseImportPorts(
    */
   /**
    * `true` quando o banco recusou por VIOLAÇÃO DE ÚNICO — em `reservations` isso só acontece no índice
-   * `reservations_google_event_unico (organization_id, google_event_id)`: quer dizer que aquele EVENTO do
+   * `reservations_google_event_unico (organization_id, google_event_id, dog_id)`: quer dizer que aquele EVENTO do
    * Google já tem reserva no app.
    *
    * Por que isso virou caso tratado (produção, 27/09/2026): o escritório tocou em "Sync now" e a tela
@@ -146,7 +146,7 @@ export function supabaseImportPorts(
     error.code === '23505' || /duplicate key value/i.test(error.message ?? '');
 
   return {
-    createBooking: async ({ calendarId, eventId, dogId, kind, parsed, semVinculo = false }) => {
+    createBooking: async ({ calendarId, eventId, dogId, kind, parsed }) => {
       if (kind === 'recurring') {
         const { data, error } = await client
           .from('recurring_schedules')
@@ -159,8 +159,9 @@ export function supabaseImportPorts(
             end_date: fimDaSerie(parsed),
             active: true,
             transport_required: parsed.transportRequired ?? true,
-            // Mesma razão da reserva: o vínculo do evento é único por organização (casa com dois cães).
-            ...(semVinculo ? {} : { google_event_id: eventId, google_calendar_id: calendarId && calendarId !== DEFAULT_CALENDAR_ID ? calendarId : null }),
+            // O evento pode ter vários cães, cada um com seu vínculo.
+            google_event_id: eventId,
+            google_calendar_id: calendarId && calendarId !== DEFAULT_CALENDAR_ID ? calendarId : null,
             source: 'google',
           })
           .select('id')
@@ -188,12 +189,10 @@ export function supabaseImportPorts(
         // Dia de CHEGADA/SAIDA da hospedagem (avocado): o cao esta na casa — parada normal da rota,
         // nunca "ja esta na van" (dono, 06/10/2026).
         movement_day: parsed.movementDay ?? false,
-        /**
-         * CASA COM DOIS CÃES (26/09/2026): cada cão tem a SUA reserva no mesmo dia, mas o
-         * `google_event_id` é único por organização. Só a PRIMEIRA reserva do evento fica com o vínculo;
-         * a segunda nasce sem ele (a reserva existe do mesmo jeito e o dia do cão não se perde).
-         */
-        ...(semVinculo ? {} : { google_event_id: eventId, google_calendar_id: calendarId && calendarId !== DEFAULT_CALENDAR_ID ? calendarId : null }),
+        // Medido em 07/10/2026: omitir o vínculo deixava Billy vivo ao apagar Teddy/Billy.
+        // O índice evento+cão permite que cada reserva acompanhe o calendário.
+        google_event_id: eventId,
+        google_calendar_id: calendarId && calendarId !== DEFAULT_CALENDAR_ID ? calendarId : null,
         source: 'google',
       });
       if (error) {
@@ -204,8 +203,8 @@ export function supabaseImportPorts(
     },
 
     // Origem desconhecida não é preenchida por update: ver o incidente de 07/10/2026.
-    // Só a criação ou a ligação explícita pelo gestor comprova de onde veio o vínculo.
-    updateBooking: async ({ bookingId, kind, eventId, dogId, parsed, semVinculo = false }) => {
+    // Exceção: o plano passa a origem no reparo do segundo cão, pela única âncora da mesma casa.
+    updateBooking: async ({ calendarId, bookingId, kind, eventId, dogId, parsed }) => {
       if (kind === 'recurring') {
         const { error } = await client
           .from('recurring_schedules')
@@ -215,7 +214,8 @@ export function supabaseImportPorts(
             start_date: parsed.startDate,
             end_date: fimDaSerie(parsed),
             active: true,
-            ...(semVinculo ? {} : { google_event_id: eventId }),
+            google_event_id: eventId,
+            ...(calendarId ? { google_calendar_id: calendarId } : {}),
             source: 'google',
           })
           .eq('id', bookingId);
@@ -247,9 +247,9 @@ export function supabaseImportPorts(
            * pra van / saía do pack sozinho). A importação só marca os dois quando a reserva NASCE
            * (`createBooking`); aqui manda o que o evento de fato governa: serviço, datas e status.
            */
-          // O vínculo do evento é único: a linha do SEGUNDO cão de um evento de dois cães atualiza sem
-          // mexer nele (senão bate no índice único e a rodada inteira registra falha).
-          ...(semVinculo ? {} : { google_event_id: eventId }),
+          // Nunca omitir o vínculo do segundo cão: a unicidade agora inclui dog_id.
+          google_event_id: eventId,
+          ...(calendarId ? { google_calendar_id: calendarId } : {}),
           source: 'google',
         })
         .eq('id', bookingId);

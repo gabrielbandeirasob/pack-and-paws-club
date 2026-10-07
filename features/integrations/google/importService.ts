@@ -57,14 +57,12 @@ export type ImportPorts = {
   /**
    * Cria a reserva (data avulsa) ou a série (dias da semana) conforme o formato do evento.
    *
-   * `semVinculo` = o evento JÁ ficou ligado a outra reserva desta mesma rodada (casa com dois cães:
-   * cada um tem a sua reserva). O banco só aceita UM `google_event_id` por organização
-   * (`reservations_google_event_unico`), então a partir da segunda reserva o vínculo não é repetido —
-   * sem isso, a segunda tentativa virava o erro "this event already has a reservation" na tela.
+   * `semVinculo` permanece no diagnóstico por compatibilidade, mas não omite mais o vínculo:
+   * o índice inclui o cão desde 07/10/2026, para os dois acompanharem o calendário.
    * `calendarId` é a origem real do vínculo; null = não comprovada (nunca o alias `primary`).
    */
   createBooking: (input: { calendarId?: string | null; eventId: string; dogId: string; kind: ExistingBookingKind; parsed: ParsedBooking; semVinculo?: boolean }) => Promise<'created' | 'already'>;
-  updateBooking: (input: { bookingId: string; kind: ExistingBookingKind; eventId: string; dogId: string; parsed: ParsedBooking; semVinculo?: boolean }) => Promise<void>;
+  updateBooking: (input: { calendarId?: string; bookingId: string; kind: ExistingBookingKind; eventId: string; dogId: string; parsed: ParsedBooking; semVinculo?: boolean }) => Promise<void>;
   /** Cancela a reserva (marca cancelada) ou desativa a série — o cliente desmarcou no Google. */
   cancelBooking: (input: { bookingId: string; kind: ExistingBookingKind; eventId: string }) => Promise<void>;
   /**
@@ -115,28 +113,13 @@ export async function runCalendarImport({
 
   const resumo: ImportSummary = { created: 0, already: 0, updated: 0, cancelled: 0, extraDays: 0, review: [], failures: [] };
 
-  /**
-   * Eventos que JÁ ganharam reserva nesta rodada: a segunda reserva do mesmo evento (casa com dois cães)
-   * nasce sem o vínculo do evento, porque o índice do banco é único por evento.
-   *
-   * Começa com os eventos que JÁ têm uma reserva vinculada no app: o vínculo daquele evento está
-   * tomado, então qualquer reserva NOVA para ele (o segundo cão do mesmo evento) precisa nascer sem o
-   * vínculo. Sem esta semente o insert do segundo cão batia no índice único, a rodada respondia
-   * "already in the app" e **o segundo cão ficava sem reserva nenhuma** (medido em 28/09/2026).
-   */
-  const eventosComReserva = new Set<string>(
-    reservations.map((reserva) => reserva.googleEventId).filter((id): id is string => Boolean(id)),
-  );
-
   for (const item of plano) {
     if (item.kind === 'review') {
       resumo.review.push({ eventId: item.eventId, title: item.title, date: item.date, reason: item.reason, parsed: item.parsed });
       continue;
     }
-    // O vínculo do evento já está tomado (por uma reserva que existe ou por outra criação desta
-    // rodada)? Então a reserva NOVA nasce sem ele — e o mesmo valor vai para o registro da falha.
-    const semVinculo =
-      item.kind === 'create' ? eventosComReserva.has(item.eventId) : item.kind === 'update' ? Boolean(item.semVinculo) : false;
+    // 07/10/2026: o índice agora é evento+cão; os dois precisam seguir a agenda.
+    const semVinculo = false;
     try {
       const resultado = await aplicar(item, ports, { semVinculo, calendarId: origem });
       if (item.kind === 'create') {
@@ -145,7 +128,6 @@ export async function runCalendarImport({
           resumo.already += 1;
         } else {
           resumo.created += 1;
-          eventosComReserva.add(item.eventId);
         }
       }
       else if (item.kind === 'update') resumo.updated += 1;
@@ -177,6 +159,7 @@ async function aplicar(
   }
   if (item.kind === 'update') {
     await ports.updateBooking({
+      calendarId: item.calendarId,
       bookingId: item.bookingId,
       kind: item.bookingKind,
       eventId: item.eventId,

@@ -189,8 +189,8 @@ describe('violação de único = "já está no app", não falha', () => {
   });
 });
 
-describe('casa com dois cães: duas reservas, um vínculo só', () => {
-  it('a 2ª reserva do MESMO evento nasce sem o vínculo (era o erro do índice único)', async () => {
+describe('casa com dois cães: duas reservas, um vínculo por cão', () => {
+  it('a 2ª reserva do MESMO evento nasce com o vínculo por cão (índice revisto em 07/10/2026)', async () => {
     const doFetch: CalendarFetch = async () => resposta([
       { id: 'ev-dois', summary: 'Bella / Pietro', colorId: AZUL, start: { date: '2026-09-28' }, end: { date: '2026-09-29' } },
     ]);
@@ -219,12 +219,10 @@ describe('casa com dois cães: duas reservas, um vínculo só', () => {
       ports: portas,
     });
 
-    // A operação quer as DUAS reservas ("é só uma parada": os dois cães vão juntos), e só a primeira
-    // fica ligada ao evento — o banco só aceita um vínculo por evento, e era aí que morria com
-    // "this event already has a reservation".
+    // As DUAS reservas precisam do vínculo para seguir a data e a exclusão do evento.
     expect(criadas).toEqual([
       { dogId: 'dog-bella', semVinculo: false },
-      { dogId: 'dog-pietro', semVinculo: true },
+      { dogId: 'dog-pietro', semVinculo: false },
     ]);
     expect(resumo.created).toBe(2);
     expect(resumo.failures).toEqual([]);

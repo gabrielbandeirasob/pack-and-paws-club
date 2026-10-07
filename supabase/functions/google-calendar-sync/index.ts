@@ -139,7 +139,7 @@ async function carregarDadosDaOrganizacao(
       .from('recurring_exceptions')
       .select('id, recurring_schedule_id, action, start_date, end_date, reason')
       .eq('organization_id', organizationId),
-    admin.from('dogs').select('id, name, client:clients(name)').eq('organization_id', organizationId).eq('active', true),
+    admin.from('dogs').select('id, name, client_id, client:clients(name)').eq('organization_id', organizationId).eq('active', true),
   ]);
   const erro = reservas.error ?? series.error ?? excecoes.error ?? caes.error;
   if (erro) throw new Error(`nao foi possivel carregar os dados da organizacao (${erro.message})`);
@@ -221,8 +221,8 @@ async function carregarDadosDaOrganizacao(
       status: 'active' as const,
     }));
 
-  const dogs: DogForImport[] = ((caes.data as unknown as { id: string; name: string; client: { name: string } }[]) ?? []).map(
-    (row) => ({ id: row.id, name: row.name, clientName: row.client?.name ?? '' }),
+  const dogs: DogForImport[] = ((caes.data as unknown as { id: string; name: string; client_id: string; client: { name: string } }[]) ?? []).map(
+    (row) => ({ id: row.id, name: row.name, clientId: row.client_id, clientName: row.client?.name ?? '' }),
   );
 
   return { dogs, bookings: [...listaReservas, ...listaSeries] };

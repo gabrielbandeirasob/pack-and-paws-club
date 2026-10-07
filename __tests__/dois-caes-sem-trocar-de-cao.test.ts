@@ -8,7 +8,7 @@
  * sete em algum momento, como ele fica atualizando aí"* e *"ele publicou só a Kona… voltava os dois"*.
  *
  * O certo: o vínculo do evento pertence a UM cão; o outro cão usa a reserva DELE (mesmo dia/serviço) ou
- * cria a dele — sem o vínculo, porque o índice do banco é único por evento.
+ * cria a dele — com vínculo próprio por evento+cão (índice revisto em 07/10/2026).
  */
 import { planCalendarImport, type BookingForImport } from '@/features/integrations/google/importPlan';
 import { supabaseImportPorts } from '@/features/integrations/google/importPorts';
@@ -48,7 +48,7 @@ type Linha = {
   transport_required: boolean;
 };
 
-/** Banco falso que reproduz o índice único por organização/evento (`reservations_google_event_unico`). */
+/** Banco falso que reproduz o índice único por organização/evento/cão (`reservations_google_event_unico`). */
 function banco() {
   const linhas: Linha[] = [];
   const ports = supabaseImportPorts(
@@ -57,7 +57,7 @@ function banco() {
         insert: async (linha: Linha) => {
           if (
             linha.google_event_id &&
-            linhas.some((salva) => salva.organization_id === linha.organization_id && salva.google_event_id === linha.google_event_id)
+            linhas.some((salva) => salva.organization_id === linha.organization_id && salva.google_event_id === linha.google_event_id && salva.dog_id === linha.dog_id)
           ) {
             return { error: { code: '23505', message: 'duplicate key value violates unique constraint "reservations_google_event_unico"' } };
           }
@@ -73,7 +73,7 @@ function banco() {
             if (
               linha.google_event_id &&
               linha.google_event_id !== alvo.google_event_id &&
-              linhas.some((salva) => salva !== alvo && salva.google_event_id === linha.google_event_id)
+              linhas.some((salva) => salva !== alvo && salva.google_event_id === linha.google_event_id && salva.dog_id === linha.dog_id)
             ) {
               return { error: { code: '23505', message: 'duplicate key value violates unique constraint "reservations_google_event_unico"' } };
             }
@@ -99,7 +99,7 @@ it('na rodada seguinte, com as DUAS reservas no app, o plano devolve vazio (fim 
   expect(planCalendarImport([evento], dogs, [vinculada, doAgnes], window)).toEqual([]);
 });
 
-it('a segunda reserva nasce SEM o vínculo do evento e a rodada seguinte não atualiza nada', async () => {
+it('a segunda reserva nasce COM o vínculo por cão do evento e a rodada seguinte não atualiza nada', async () => {
   const { linhas, ports } = banco();
   const criar = jest.spyOn(ports, 'createBooking');
   const entrada = {
@@ -119,21 +119,21 @@ it('a segunda reserva nasce SEM o vínculo do evento e a rodada seguinte não at
   };
 
   const resumo = await runCalendarImport(entrada);
-  expect(criar.mock.calls.map(([chamada]) => [chamada.dogId, chamada.semVinculo])).toEqual([['agnes', true]]);
+  expect(criar.mock.calls.map(([chamada]) => [chamada.dogId, chamada.semVinculo])).toEqual([['agnes', false]]);
   expect(linhas).toHaveLength(1);
   expect(linhas[0]).toMatchObject({ dog_id: 'agnes' });
-  expect(linhas[0]).not.toHaveProperty('google_event_id');
+  expect(linhas[0]).toHaveProperty('google_event_id', evento.id);
   expect(resumo).toMatchObject({ created: 1, updated: 0, already: 0, failures: [], review: [] });
 
   // Segunda rodada com o app já no estado certo: nada para criar, nada para atualizar (era aqui que o
   // cão trocava de identidade em toda sincronização).
-  const segunda = { ...entrada, reservations: [...([vinculada] as BookingForImport[]), { ...vinculada, id: 'res-agnes', dogId: 'agnes', googleEventId: null } as BookingForImport] };
+  const segunda = { ...entrada, reservations: [...([vinculada] as BookingForImport[]), { ...vinculada, id: 'res-agnes', dogId: 'agnes', googleEventId: evento.id } as BookingForImport] };
   const resumo2 = await runCalendarImport(segunda);
   expect(resumo2).toMatchObject({ created: 0, updated: 0, already: 0, failures: [], review: [] });
   expect(linhas).toHaveLength(1);
 });
 
-it('segundo cão com reserva própria (sem vínculo) é ATUALIZADO sem reescrever o vínculo', async () => {
+it('segundo cão com reserva própria (sem vínculo) é ATUALIZADO com seu vínculo por cão', async () => {
   // Caso real do relógio (28/09/2026): o evento é de UM dia, a Agnes segura o vínculo e a Sylvie tem a
   // reserva dela sem vínculo. O plano atualizava a linha da Sylvie gravando o vínculo do evento nela —
   // o banco recusava (índice único) e a rodada registrava "1 falhas" a cada 15 minutos.
@@ -142,14 +142,14 @@ it('segundo cão com reserva própria (sem vínculo) é ATUALIZADO sem reescreve
   // Nada a fazer: a linha da Agnes casa com o evento (vínculo) e a da Sylvie já está igual.
   expect(plano).toEqual([]);
 
-  // Agora com a linha da Sylvie DESATUALIZADA (serviço diferente): o plano manda atualizar SEM o vínculo.
+  // Com a linha da Agnes DESATUALIZADA, o plano atualiza a linha DELA e grava seu vínculo.
   const desatualizada: BookingForImport = { ...doAgnes, serviceType: 'boarding' };
-  // A linha da Sylvie casa com o evento (é ela que segura o vínculo); a da Agnes está desatualizada.
+  // O vínculo da Sylvie não pode fazer a Agnes atualizar a reserva da Sylvie.
   const comUpdate = planCalendarImport([evento], dogs, [vinculada, desatualizada], window);
   expect(comUpdate).toMatchObject([
-    { kind: 'update', bookingId: 'res-agnes', dogId: 'agnes', semVinculo: true },
+    { kind: 'update', bookingId: 'res-agnes', dogId: 'agnes', semVinculo: false },
   ]);
-  expect(comUpdate.every((item) => item.kind !== 'update' || item.semVinculo === true)).toBe(true);
+  expect(comUpdate.every((item) => item.kind !== 'update' || item.semVinculo === false)).toBe(true);
   const item = comUpdate[0];
   if (item.kind !== 'update') throw new Error('Esperava um update');
 
@@ -164,8 +164,9 @@ it('segundo cão com reserva própria (sem vínculo) é ATUALIZADO sem reescreve
     eventId: evento.id,
     dogId: 'agnes',
     parsed: { ...item.parsed, serviceType: 'daycare' },
-    semVinculo: true,
+    semVinculo: false,
   });
   expect(linhas[1]).toMatchObject({ dog_id: 'agnes', service_type: 'daycare' });
-  expect(linhas[1]).not.toHaveProperty('google_event_id');
+  expect(linhas[1]).toHaveProperty('google_event_id', evento.id);
+  expect(linhas[0]).toMatchObject({ dog_id: 'sylvie', google_event_id: evento.id });
 });
