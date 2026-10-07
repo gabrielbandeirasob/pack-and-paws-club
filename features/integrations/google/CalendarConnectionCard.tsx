@@ -119,9 +119,11 @@ type Props = {
    * web) — o botão faz a mesma importação, na hora.
    */
   autoImport?: boolean;
+  /** Quando fornecido, a revisão é apresentada fora do cartão, no rodapé da agenda. */
+  onReviewChange?: (review: GoogleReviewState | null) => void;
 };
 
-export function CalendarConnectionCard({ organizationId, dogs, bookings, onImported, autoImport = false }: Props) {
+export function CalendarConnectionCard({ organizationId, dogs, bookings, onImported, autoImport = false, onReviewChange }: Props) {
   const { status, email, connect, disconnect, getAccessToken, rememberEmail } = useCalendarConnection();
   const [ocupado, setOcupado] = useState<'conectando' | 'sincronizando' | 'desconectando' | 'escolhendo' | null>(null);
   const [resumo, setResumo] = useState<string | null>(null);
@@ -161,18 +163,16 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
     [dogs],
   );
 
-  /**
-   * As pendências em DUAS listas (regra nova): o que o escritório resolve cadastrando o cão — e o
-   * gestor até pode ligar o evento a um cão daqui — e o que só se resolve PINTANDO o evento no
-   * Google. Na segunda o app nem oferece botão: sem cor não existe serviço para gravar.
-   */
-  const naoCadastrados = useMemo(
-    () => revisao.filter((item) => item.reason !== 'unrecognized color' && item.reason !== 'purple without schedule'),
-    [revisao],
-  );
-  const coresDesconhecidas = useMemo(() => revisao.filter((item) => item.reason === 'unrecognized color'), [revisao]);
-  /** ROXO num cão sem escala fixa: não há onde encaixar o dia — lista própria, o escritório resolve. */
-  const alteracoesSemEscala = useMemo(() => revisao.filter((item) => item.reason === 'purple without schedule'), [revisao]);
+  const escolherCao = useCallback((item: ImportReviewItem) => {
+    setEscolhendo(item);
+    setCaoEscolhido(null);
+  }, []);
+
+  // A tela recebe os mesmos itens e a mesma ação, sem duplicar a conexão/importação.
+  useEffect(() => {
+    onReviewChange?.({ items: status === 'connected' ? revisao : [], onChoose: escolherCao });
+  }, [onReviewChange, revisao, status, escolherCao]);
+  useEffect(() => () => onReviewChange?.(null), [onReviewChange]);
 
   /** Escolha salva da organização — por organização, não por aparelho. */
   const carregarEscolha = useCallback(async () => {
@@ -667,92 +667,7 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
             </Text>
           ) : null}
 
-          {naoCadastrados.length > 0 ? (
-            <View style={styles.revisao} testID="google-calendar-revisao">
-              <Text style={styles.revisaoTitulo}>From Google — not registered in the app</Text>
-              <Text style={styles.revisaoDica}>
-                Register the dog in the app and sync again — nothing is created from a Google event.
-              </Text>
-              {naoCadastrados.map((item) => (
-                <View key={`${item.eventId}:${item.parsed.dogName}`} style={styles.revisaoItem}>
-                  <View style={styles.revisaoTexto}>
-                    <Text style={styles.revisaoTituloEvento}>{tituloDaRevisao(item)}</Text>
-                    <Text style={styles.revisaoData}>
-                      {item.date} · {motivoDaRevisao(item.reason)}
-                    </Text>
-                    {/* O que foi LIDO na cor: é o que o suporte precisa para não adivinhar. */}
-                    <Text style={styles.revisaoCor} testID={`google-calendar-cor-${item.eventId}`}>
-                      {describeEventColor(item.parsed.color)}
-                    </Text>
-                  </View>
-                  {/* Só oferece o botão quando o serviço é conhecido (a cor diz o serviço): sem isso a
-                      escolha do cão não teria o que gravar. */}
-                  {item.parsed.serviceType ? (
-                    <Pressable
-                      accessibilityLabel={`Choose dog for ${item.title.includes('/') ? tituloDaRevisao(item) : item.title.trim()}`}
-                      accessibilityRole="button"
-                      onPress={() => {
-                        setEscolhendo(item);
-                        setCaoEscolhido(null);
-                      }}
-                      style={styles.revisaoBotao}
-                    >
-                      <Text style={styles.revisaoBotaoTexto}>Choose dog</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              ))}
-            </View>
-          ) : null}
-
-          {alteracoesSemEscala.length > 0 ? (
-            <View style={styles.revisao} testID="google-calendar-revisao-escala">
-              <Text style={styles.revisaoTitulo}>From Google — changed day without a fixed schedule</Text>
-              <Text style={styles.revisaoDica}>
-                Purple means this fixed-day client changed the day. This dog has no weekly schedule in the app, so
-                nothing is linked: set the dog&apos;s fixed days in the app and sync again.
-              </Text>
-              {alteracoesSemEscala.map((item) => (
-                <View key={`${item.eventId}:${item.parsed.dogName}`} style={styles.revisaoItem}>
-                  <View style={styles.revisaoTexto}>
-                    <Text style={styles.revisaoTituloEvento}>{tituloDaRevisao(item)}</Text>
-                    <Text style={styles.revisaoData}>
-                      {item.date} · {motivoDaRevisao(item.reason)}
-                    </Text>
-                    <Text style={styles.revisaoCor} testID={`google-calendar-cor-${item.eventId}`}>
-                      {describeEventColor(item.parsed.color)}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          ) : null}
-
-          {coresDesconhecidas.length > 0 ? (
-            <View style={styles.revisao} testID="google-calendar-cor-desconhecida">
-              <Text style={styles.revisaoTitulo}>From Google — color not recognized</Text>
-              <Text style={styles.revisaoDica}>
-                Paint the event green (boarding), blue (daycare), purple (changed day) or red (cancel that day) in
-                Google Calendar and sync again. The app does not guess the service from the title.
-              </Text>
-              {coresDesconhecidas.map((item) => (
-                <View key={`${item.eventId}:${item.parsed.dogName}`} style={styles.revisaoItem}>
-                  <View style={styles.revisaoTexto}>
-                    <Text style={styles.revisaoTituloEvento}>{tituloDaRevisao(item)}</Text>
-                    <Text style={styles.revisaoData}>
-                      {item.date} · {motivoDaRevisao(item.reason)}
-                    </Text>
-                    {/* É AQUI que o suporte para de adivinhar: sem esta linha, "cor não reconhecida" não
-                        dizia QUAL cor o Google mandou (o "Cobalto" #4A86E8 do cliente aparecia como se
-                        o evento não tivesse cor nenhuma). */}
-                    <Text style={styles.revisaoCor} testID={`google-calendar-cor-${item.eventId}`}>
-                      {describeEventColor(item.parsed.color)}
-                    </Text>
-                  </View>
-                </View>
-              ))}
-            </View>
-          ) : null}
+          {onReviewChange ? null : <ReviewItems items={revisao} onChoose={escolherCao} />}
         </>
       ) : status === 'expired' ? (
         /**
@@ -905,6 +820,102 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
       </Modal>
     </View>
   );
+}
+
+export type GoogleReviewState = {
+  items: ImportReviewItem[];
+  onChoose: (item: ImportReviewItem) => void;
+};
+
+export function ReviewItems({ items, onChoose }: GoogleReviewState) {
+  const naoCadastrados = items.filter((item) => item.reason !== 'unrecognized color' && item.reason !== 'purple without schedule');
+  const coresDesconhecidas = items.filter((item) => item.reason === 'unrecognized color');
+  const alteracoesSemEscala = items.filter((item) => item.reason === 'purple without schedule');
+  return (<>
+          {naoCadastrados.length > 0 ? (
+            <View style={styles.revisao} testID="google-calendar-revisao">
+              <Text style={styles.revisaoTitulo}>From Google — not registered in the app</Text>
+              <Text style={styles.revisaoDica}>
+                Register the dog in the app and sync again — nothing is created from a Google event.
+              </Text>
+              {naoCadastrados.map((item) => (
+                <View key={`${item.eventId}:${item.parsed.dogName}`} style={styles.revisaoItem}>
+                  <View style={styles.revisaoTexto}>
+                    <Text style={styles.revisaoTituloEvento}>{tituloDaRevisao(item)}</Text>
+                    <Text style={styles.revisaoData}>
+                      {item.date} · {motivoDaRevisao(item.reason)}
+                    </Text>
+                    {/* O que foi LIDO na cor: é o que o suporte precisa para não adivinhar. */}
+                    <Text style={styles.revisaoCor} testID={`google-calendar-cor-${item.eventId}`}>
+                      {describeEventColor(item.parsed.color)}
+                    </Text>
+                  </View>
+                  {/* Só oferece o botão quando o serviço é conhecido (a cor diz o serviço): sem isso a
+                      escolha do cão não teria o que gravar. */}
+                  {item.parsed.serviceType ? (
+                    <Pressable
+                      accessibilityLabel={`Choose dog for ${item.title.includes('/') ? tituloDaRevisao(item) : item.title.trim()}`}
+                      accessibilityRole="button"
+                      onPress={() => onChoose(item)}
+                      style={styles.revisaoBotao}
+                    >
+                      <Text style={styles.revisaoBotaoTexto}>Choose dog</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {alteracoesSemEscala.length > 0 ? (
+            <View style={styles.revisao} testID="google-calendar-revisao-escala">
+              <Text style={styles.revisaoTitulo}>From Google — changed day without a fixed schedule</Text>
+              <Text style={styles.revisaoDica}>
+                Purple means this fixed-day client changed the day. This dog has no weekly schedule in the app, so
+                nothing is linked: set the dog&apos;s fixed days in the app and sync again.
+              </Text>
+              {alteracoesSemEscala.map((item) => (
+                <View key={`${item.eventId}:${item.parsed.dogName}`} style={styles.revisaoItem}>
+                  <View style={styles.revisaoTexto}>
+                    <Text style={styles.revisaoTituloEvento}>{tituloDaRevisao(item)}</Text>
+                    <Text style={styles.revisaoData}>
+                      {item.date} · {motivoDaRevisao(item.reason)}
+                    </Text>
+                    <Text style={styles.revisaoCor} testID={`google-calendar-cor-${item.eventId}`}>
+                      {describeEventColor(item.parsed.color)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          {coresDesconhecidas.length > 0 ? (
+            <View style={styles.revisao} testID="google-calendar-cor-desconhecida">
+              <Text style={styles.revisaoTitulo}>From Google — color not recognized</Text>
+              <Text style={styles.revisaoDica}>
+                Paint the event green (boarding), blue (daycare), purple (changed day) or red (cancel that day) in
+                Google Calendar and sync again. The app does not guess the service from the title.
+              </Text>
+              {coresDesconhecidas.map((item) => (
+                <View key={`${item.eventId}:${item.parsed.dogName}`} style={styles.revisaoItem}>
+                  <View style={styles.revisaoTexto}>
+                    <Text style={styles.revisaoTituloEvento}>{tituloDaRevisao(item)}</Text>
+                    <Text style={styles.revisaoData}>
+                      {item.date} · {motivoDaRevisao(item.reason)}
+                    </Text>
+                    {/* É AQUI que o suporte para de adivinhar: sem esta linha, "cor não reconhecida" não
+                        dizia QUAL cor o Google mandou (o "Cobalto" #4A86E8 do cliente aparecia como se
+                        o evento não tivesse cor nenhuma). */}
+                    <Text style={styles.revisaoCor} testID={`google-calendar-cor-${item.eventId}`}>
+                      {describeEventColor(item.parsed.color)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : null}
+  </>);
 }
 
 /** 07/10/2026: Cooper/Dora aparecia duas vezes igual; a decisão cobra UM nome por linha. */

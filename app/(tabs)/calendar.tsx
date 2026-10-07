@@ -11,7 +11,8 @@ import { addDaysISO, formatDayLabel, todayLocalISO } from '@/features/calendar/d
 import { buildDay, isSkipped, type DayItem, type DogRef, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { addMonthsISO, monthLabel, monthMatrixISO, summarizeRange, weekDatesISO } from '@/features/calendar/gridMath';
 import { NewReservationForm, type NewReservationPayload } from '@/features/calendar/NewReservationForm';
-import { CalendarConnectionCard } from '@/features/integrations/google/CalendarConnectionCard';
+import { CalendarConnectionCard, type GoogleReviewState } from '@/features/integrations/google/CalendarConnectionCard';
+import { GoogleReviewPanel } from '@/features/integrations/google/GoogleReviewPanel';
 import type { BookingForImport } from '@/features/integrations/google/importPlan';
 import { diasPausados } from '@/features/integrations/google/localReservations';
 import { colors, radii } from '@/features/theme/tokens';
@@ -38,6 +39,7 @@ export default function CalendarScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [googleReview, setGoogleReview] = useState<GoogleReviewState | null>(null);
 
   // Mesma armadilha da aba de clientes: a tela fica montada, entao um cao recem-cadastrado
   // nao aparecia no seletor do agendamento ate fechar e abrir o app. Recarrega a cada foco,
@@ -432,7 +434,7 @@ export default function CalendarScreen() {
 
       <View style={styles.body}>
         {loading ? <ActivityIndicator style={styles.marginTop} color={colors.gold} size="large" /> : error ? <Text style={styles.errorText}>{error}</Text> : (
-          <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" showsVerticalScrollIndicator={false} contentContainerStyle={styles.list}>
+          <ScrollView testID="calendar-day-list" automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" showsVerticalScrollIndicator={false} contentContainerStyle={styles.list}>
             {grid && view !== 'day' ? (
               <View style={styles.gridCard}>
                 <CalendarGrid rows={grid.rows} counts={grid.counts} selectedDate={selectedDay} onSelectDate={setSelectedDay} />
@@ -481,10 +483,13 @@ export default function CalendarScreen() {
               bookings={casosDaImportacao}
               onImported={() => void load({ silent: true })}
               autoImport
+              onReviewChange={setGoogleReview}
             />
           </ScrollView>
         )}
       </View>
+
+      <GoogleReviewPanel key={selectedDay} review={googleReview} selectedDay={selectedDay} />
 
       <Modal visible={adding} animationType="slide" presentationStyle="fullScreen" onRequestClose={() => setAdding(false)}>
         <ModalScreen>
