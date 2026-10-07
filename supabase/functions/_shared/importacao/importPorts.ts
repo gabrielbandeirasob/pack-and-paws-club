@@ -17,6 +17,7 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
 import type { ImportPorts } from './importService.ts';
+import { DEFAULT_CALENDAR_ID } from './calendarChoice.ts';
 import { kindOf, type BookingForImport, type ExistingBookingKind, type ParsedBooking } from './importPlan.ts';
 
 /** O que já existe no app e casa com o evento — usado quando o gestor liga o evento a um cão. */
@@ -148,7 +149,7 @@ export function supabaseImportPorts(
     error.code === '23505' || /duplicate key value/i.test(error.message ?? '');
 
   return {
-    createBooking: async ({ eventId, dogId, kind, parsed, semVinculo = false }) => {
+    createBooking: async ({ calendarId, eventId, dogId, kind, parsed, semVinculo = false }) => {
       if (kind === 'recurring') {
         const { data, error } = await client
           .from('recurring_schedules')
@@ -162,7 +163,7 @@ export function supabaseImportPorts(
             active: true,
             transport_required: parsed.transportRequired ?? true,
             // Mesma razão da reserva: o vínculo do evento é único por organização (casa com dois cães).
-            ...(semVinculo ? {} : { google_event_id: eventId }),
+            ...(semVinculo ? {} : { google_event_id: eventId, google_calendar_id: calendarId && calendarId !== DEFAULT_CALENDAR_ID ? calendarId : null }),
             source: 'google',
           })
           .select('id')
@@ -195,7 +196,7 @@ export function supabaseImportPorts(
          * `google_event_id` é único por organização. Só a PRIMEIRA reserva do evento fica com o vínculo;
          * a segunda nasce sem ele (a reserva existe do mesmo jeito e o dia do cão não se perde).
          */
-        ...(semVinculo ? {} : { google_event_id: eventId }),
+        ...(semVinculo ? {} : { google_event_id: eventId, google_calendar_id: calendarId && calendarId !== DEFAULT_CALENDAR_ID ? calendarId : null }),
         source: 'google',
       });
       if (error) {
@@ -205,6 +206,8 @@ export function supabaseImportPorts(
       return 'created';
     },
 
+    // Origem desconhecida não é preenchida por update: ver o incidente de 07/10/2026.
+    // Só a criação ou a ligação explícita pelo gestor comprova de onde veio o vínculo.
     updateBooking: async ({ bookingId, kind, eventId, dogId, parsed, semVinculo = false }) => {
       if (kind === 'recurring') {
         const { error } = await client

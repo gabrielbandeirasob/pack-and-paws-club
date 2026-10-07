@@ -136,6 +136,23 @@ export async function listCalendars(accessToken: string, doFetch: CalendarFetch)
 }
 
 /**
+ * 07/10/2026: `primary` muda ao trocar de conta; não é uma origem estável para cancelar reservas.
+ * Usa o MESMO token da leitura dos eventos, nunca a identidade antiga em cache no aparelho.
+ * Sem resposta, a origem fica desconhecida e a importação preserva reservas por ausência.
+ */
+export async function calendarIdDaOrigem(accessToken: string, doFetch: CalendarFetch, calendarId: string): Promise<string | null> {
+  const id = normalizarCalendarId(calendarId);
+  if (id !== DEFAULT_CALENDAR_ID) return id;
+  try {
+    const response = await doFetch(`${CALENDAR_API}/calendars/primary`, { method: 'GET', headers: authHeaders(accessToken) });
+    const payload = await handle<{ id?: unknown }>(response, 'identificar o calendário principal');
+    return typeof payload?.id === 'string' && payload.id.trim() && payload.id !== DEFAULT_CALENDAR_ID ? payload.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Etiquetas de cor do calendário (`labelProperties.eventLabels`) — a paleta NOVA do Google.
  *
  * Escopo: `GET /calendars/{id}` (Calendars.get) NÃO aceita `calendar.events` nem

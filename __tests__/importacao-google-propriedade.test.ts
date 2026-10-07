@@ -187,7 +187,7 @@ describe('importação — nada do PASSADO entra no plano', () => {
 
   it('reserva do Google com evento SUMIDO só é cancelada dentro da janela', () => {
     const dentro: BookingForImport = {
-      id: 'res-dentro', kind: 'reservation', dogId: 'd1', googleEventId: 'ev-sumiu', source: 'google',
+      id: 'res-dentro', kind: 'reservation', dogId: 'd1', googleEventId: 'ev-sumiu', googleCalendarId: 'primary', source: 'google',
       serviceType: 'daycare', startDate: '2026-10-05', endDate: '2026-10-05', weekdays: null, skipDates: null, status: 'confirmed',
     };
     const fora: BookingForImport = { ...dentro, id: 'res-fora', googleEventId: 'ev-velho', startDate: '2020-01-01', endDate: '2020-01-01' };

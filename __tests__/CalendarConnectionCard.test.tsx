@@ -1,9 +1,9 @@
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
 import { CalendarConnectionCard, janelaDeImportacao } from '@/features/integrations/google/CalendarConnectionCard';
 import { TEXTO_FALTA_DE_ESCOPO, TEXTO_FALTA_DE_ESCOPO_CORES } from '@/features/integrations/google/calendarChoice';
-import type { BookingForImport, DogForImport } from '@/features/integrations/google/importPlan';
+import { planCalendarImport, type BookingForImport, type DogForImport } from '@/features/integrations/google/importPlan';
 import { esquecerSincronizacao, lerUltimaSincronizacao, marcarSincronizacao } from '@/features/integrations/google/lastSyncStore';
 
 import { enviarCredencialAoServidor, revogarCredencialDoServidor, servidorTemCredencial } from '@/features/integrations/google/serverCredential';
@@ -34,6 +34,7 @@ jest.mock('@/features/integrations/google/serverCredential', () => ({
 // chamada de rede).
 jest.mock('@/features/integrations/google/calendarApi', () => ({
   listCalendars: jest.fn(),
+  calendarIdDaOrigem: jest.fn(async () => CAL_PRINCIPAL),
   getCalendarLabels: jest.fn(),
   CalendarApiError: jest.requireActual('@/features/integrations/google/calendarApi').CalendarApiError,
 }));
@@ -173,6 +174,8 @@ describe('CalendarConnectionCard', () => {
    * conferido com uma leitura de volta (`servidorTemCredencial`).
    */
   it('Connect confere no servidor: credencial que NÃO chegou avisa na tela', async () => {
+    // Sem sync bem-sucedido: este teste isola a prova negativa/positiva do servidor.
+    runCalendarImport.mockRejectedValue(new Error('Sem rede para sincronizar'));
     // Envio recusado E o servidor respondendo que não tem: é o caso legítimo do aviso.
     (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(false);
     (servidorTemCredencial as jest.Mock).mockResolvedValue(false);
@@ -235,6 +238,8 @@ describe('CalendarConnectionCard', () => {
   });
 
   it('aviso velho some sozinho quando o cartão reabre e o servidor TEM a credencial', async () => {
+    // Sem sync bem-sucedido: este teste isola a prova negativa/positiva do servidor.
+    runCalendarImport.mockRejectedValue(new Error('Sem rede para sincronizar'));
     // 1) Connect com envio e leitura negativos: o aviso aparece (é o caso legítimo).
     (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(false);
     (servidorTemCredencial as jest.Mock).mockResolvedValue(false);
@@ -248,6 +253,72 @@ describe('CalendarConnectionCard', () => {
     useCalendarConnection.mockReturnValue(conexao('connected'));
     screen.rerender(<CalendarConnectionCard {...props()} autoImport />);
     await waitFor(() => expect(screen.queryByTestId('google-calendar-aviso-servidor')).toBeNull());
+  });
+
+  it.each(['null', 'erro'])('envio falho e conferência %s não acendem faixa vermelha', async (resposta) => {
+    (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(false);
+    if (resposta === 'erro') (servidorTemCredencial as jest.Mock).mockRejectedValue(new Error('Sem rede'));
+    else (servidorTemCredencial as jest.Mock).mockResolvedValue(null);
+    // A importação também falha: não pode mascarar o falso aviso limpando-o por sucesso.
+    runCalendarImport.mockRejectedValue(new Error('Sem rede para sincronizar'));
+    useCalendarConnection.mockReturnValue(conexao('disconnected'));
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+    await fireEvent.press(screen.getByTestId('google-calendar-connect'));
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('google-calendar-aviso-servidor')).toBeNull();
+  });
+
+  it('sincronização bem-sucedida limpa a faixa antiga após prova negativa', async () => {
+    (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(false);
+    (servidorTemCredencial as jest.Mock).mockResolvedValue(false);
+    let concluir!: (resumo: object) => void;
+    runCalendarImport.mockReturnValue(new Promise((resolve) => { concluir = resolve; }));
+    useCalendarConnection.mockReturnValue(conexao('disconnected'));
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+    await fireEvent.press(screen.getByTestId('google-calendar-connect'));
+    await waitFor(() => expect(screen.getByTestId('google-calendar-aviso-servidor')).toBeTruthy());
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+    await act(async () => concluir({ created: 52, updated: 0, cancelled: 0, review: [], failures: [] }));
+    await waitFor(() => expect(screen.queryByTestId('google-calendar-aviso-servidor')).toBeNull());
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    await screen.rerender(<CalendarConnectionCard {...props()} />);
+    expect(screen.getByTestId('google-calendar-resumo')).toHaveTextContent(/52 from Google/);
+  });
+
+  it('importação automática bem-sucedida também limpa a faixa, mesmo sem conferência positiva', async () => {
+    (enviarCredencialAoServidor as jest.Mock).mockResolvedValue(false);
+    (servidorTemCredencial as jest.Mock).mockResolvedValue(false);
+    runCalendarImport.mockRejectedValueOnce(new Error('Falha no primeiro Sync'));
+    useCalendarConnection.mockReturnValue(conexao('disconnected'));
+    const screen = await render(<CalendarConnectionCard {...props()} autoImport />);
+    await fireEvent.press(screen.getByTestId('google-calendar-connect'));
+    await waitFor(() => expect(screen.getByTestId('google-calendar-aviso-servidor')).toBeTruthy());
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(1));
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    await screen.rerender(<CalendarConnectionCard {...props()} autoImport />);
+    await waitFor(() => expect(runCalendarImport).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByTestId('google-calendar-aviso-servidor')).toBeNull());
+  });
+
+  it.each([
+    ['Cooper/Dora 🏠', '3', ['Cooper', 'Dora'], false],
+    ['Mav/Storm', '2', ['Mav', 'Storm'], true],
+  ] as const)('revisão de %s identifica cada cão e conserva o botão conforme a cor', async (title, colorId, nomes, permiteEscolha) => {
+    // Usa as decisões reais: antes as duas linhas tinham o mesmo título e a mesma chave React.
+    const review = planCalendarImport([{
+      id: 'dois-caes', summary: title, colorId, startDate: '2026-10-08', endDate: '2026-10-09', appKey: null,
+    }], [], [], { from: '2026-10-07', to: '2026-10-10' }).filter((item) => item.kind === 'review');
+    expect(review).toHaveLength(2);
+    runCalendarImport.mockResolvedValue({ created: 0, updated: 0, cancelled: 0, review, failures: [] });
+    useCalendarConnection.mockReturnValue(conexao('connected'));
+    const screen = await render(<CalendarConnectionCard {...props()} />);
+    await fireEvent.press(screen.getByTestId('google-calendar-sync'));
+    for (const nome of nomes) {
+      expect(screen.getByText(`${title} → ${nome}`)).toBeTruthy();
+      expect(Boolean(screen.queryByLabelText(`Choose dog for ${title} → ${nome}`))).toBe(permiteEscolha);
+    }
+    expect(screen.getAllByText('2026-10-08 · No dog with this name in the app — register the dog and sync again')).toHaveLength(2);
+    expect(screen.queryByText(title)).toBeNull();
   });
 
   it('Connect com credencial CONFIRMADA no servidor não mostra aviso', async () => {

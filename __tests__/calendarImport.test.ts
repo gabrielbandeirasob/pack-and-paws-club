@@ -53,6 +53,7 @@ function reservaExistente(over: Partial<BookingForImport> = {}): BookingForImpor
     kind: 'reservation',
     dogId: 'dog-bella',
     googleEventId: null,
+    googleCalendarId: 'primary',
     source: 'app',
     serviceType: 'boarding',
     startDate: '2026-10-05',

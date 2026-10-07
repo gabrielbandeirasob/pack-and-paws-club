@@ -31,7 +31,9 @@ export async function servidorTemCredencial(): Promise<boolean | null> {
       body: { check: true },
     });
     if (error) return null;
-    return Boolean((data as RespostaDaFuncao | null)?.has_credential);
+    // 07/10/2026: a faixa exige prova negativa; payload incompleto também é indeterminado.
+    const temCredencial = (data as RespostaDaFuncao | null)?.has_credential;
+    return typeof temCredencial === 'boolean' ? temCredencial : null;
   } catch {
     return null;
   }

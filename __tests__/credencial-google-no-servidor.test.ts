@@ -36,6 +36,13 @@ describe('servidorTemCredencial', () => {
     expect(invoke).toHaveBeenCalledWith('google-calendar-token', { body: { check: true } });
   });
 
+  it.each([null, {}, { ok: true }, { has_credential: null }, { has_credential: 'false' }])(
+    'resposta incompleta ou malformada %j não prova ausência de credencial', async (data) => {
+      invoke.mockResolvedValue({ data, error: null });
+      await expect(servidorTemCredencial()).resolves.toBeNull();
+    },
+  );
+
   it('sem credencial no servidor, devolve false', async () => {
     invoke.mockResolvedValue({ data: { ok: true, has_credential: false }, error: null });
     await expect(servidorTemCredencial()).resolves.toBe(false);

@@ -12,7 +12,7 @@
  * sincronizando de novo.
  */
 import type { CalendarFetch } from './calendarApi';
-import { listAllEvents } from './calendarApi';
+import { calendarIdDaOrigem, listAllEvents } from './calendarApi';
 import { DEFAULT_CALENDAR_ID } from './calendarChoice';
 import type { EventLabel } from '@/features/calendar/googleColors';
 import {
@@ -61,8 +61,9 @@ export type ImportPorts = {
    * cada um tem a sua reserva). O banco só aceita UM `google_event_id` por organização
    * (`reservations_google_event_unico`), então a partir da segunda reserva o vínculo não é repetido —
    * sem isso, a segunda tentativa virava o erro "this event already has a reservation" na tela.
+   * `calendarId` é a origem real do vínculo; null = não comprovada (nunca o alias `primary`).
    */
-  createBooking: (input: { eventId: string; dogId: string; kind: ExistingBookingKind; parsed: ParsedBooking; semVinculo?: boolean }) => Promise<'created' | 'already'>;
+  createBooking: (input: { calendarId?: string | null; eventId: string; dogId: string; kind: ExistingBookingKind; parsed: ParsedBooking; semVinculo?: boolean }) => Promise<'created' | 'already'>;
   updateBooking: (input: { bookingId: string; kind: ExistingBookingKind; eventId: string; dogId: string; parsed: ParsedBooking; semVinculo?: boolean }) => Promise<void>;
   /** Cancela a reserva (marca cancelada) ou desativa a série — o cliente desmarcou no Google. */
   cancelBooking: (input: { bookingId: string; kind: ExistingBookingKind; eventId: string }) => Promise<void>;
@@ -109,7 +110,8 @@ export async function runCalendarImport({
   labels = [],
 }: ImportParams): Promise<ImportSummary> {
   const eventos = await listAllEvents(accessToken, range, doFetch, calendarId);
-  const plano = planCalendarImport(eventos, dogs, reservations, window, { labels });
+  const origem = await calendarIdDaOrigem(accessToken, doFetch, calendarId);
+  const plano = planCalendarImport(eventos, dogs, reservations, window, { labels, calendarId: origem });
 
   const resumo: ImportSummary = { created: 0, already: 0, updated: 0, cancelled: 0, extraDays: 0, review: [], failures: [] };
 
@@ -136,7 +138,7 @@ export async function runCalendarImport({
     const semVinculo =
       item.kind === 'create' ? eventosComReserva.has(item.eventId) : item.kind === 'update' ? Boolean(item.semVinculo) : false;
     try {
-      const resultado = await aplicar(item, ports, { semVinculo });
+      const resultado = await aplicar(item, ports, { semVinculo, calendarId: origem });
       if (item.kind === 'create') {
         // Evento que já tinha reserva não é erro nem criação: é o app confirmando o que já existe.
         if (resultado === 'already') {
@@ -168,10 +170,10 @@ export async function runCalendarImport({
 async function aplicar(
   item: Exclude<ImportOutcome, { kind: 'review' }>,
   ports: ImportPorts,
-  opcoes: { semVinculo?: boolean } = {},
+  opcoes: { semVinculo?: boolean; calendarId?: string | null } = {},
 ): Promise<'created' | 'already' | null> {
   if (item.kind === 'create') {
-    return ports.createBooking({ eventId: item.eventId, dogId: item.dogId, kind: kindOf(item.parsed), parsed: item.parsed, semVinculo: opcoes.semVinculo });
+    return ports.createBooking({ calendarId: opcoes.calendarId, eventId: item.eventId, dogId: item.dogId, kind: kindOf(item.parsed), parsed: item.parsed, semVinculo: opcoes.semVinculo });
   }
   if (item.kind === 'update') {
     await ports.updateBooking({

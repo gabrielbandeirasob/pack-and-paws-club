@@ -28,6 +28,7 @@ export type ReservaParaImportar = {
   start_date: string;
   end_date: string | null;
   google_event_id: string | null;
+  google_calendar_id?: string | null;
   source: string | null;
   status: string;
   goes_to_daycare?: boolean | null; movement_day?: boolean | null;
@@ -41,6 +42,7 @@ export type SerieParaImportar = {
   start_date: string;
   end_date: string | null;
   google_event_id: string | null;
+  google_calendar_id?: string | null;
   source: string | null;
 };
 
@@ -55,6 +57,7 @@ export function montarCasosDaImportacao(
       kind: 'reservation' as ExistingBookingKind,
       dogId: reserva.dog_id,
       googleEventId: reserva.google_event_id ?? null,
+      googleCalendarId: reserva.google_calendar_id ?? null,
       source: (reserva.source ?? 'app') as 'app' | 'google',
       serviceType: reserva.service_type as BookingForImport['serviceType'],
       startDate: reserva.start_date,
@@ -70,6 +73,7 @@ export function montarCasosDaImportacao(
       kind: 'recurring' as ExistingBookingKind,
       dogId: serie.dog_id,
       googleEventId: serie.google_event_id ?? null,
+      googleCalendarId: serie.google_calendar_id ?? null,
       source: (serie.source ?? 'app') as 'app' | 'google',
       serviceType: 'daycare' as BookingForImport['serviceType'],
       startDate: serie.start_date,
@@ -92,12 +96,12 @@ export async function carregarSnapshotDaImportacao(
   const [reservas, series] = await Promise.all([
     client
       .from('reservations')
-      .select('id, dog_id, service_type, start_date, end_date, google_event_id, source, status, goes_to_daycare, movement_day')
+      .select('id, dog_id, service_type, start_date, end_date, google_event_id, google_calendar_id, source, status, goes_to_daycare, movement_day')
       .eq('organization_id', organizationId)
       .in('status', ['confirmed', 'cancelled']),
     client
       .from('recurring_schedules')
-      .select('id, dog_id, weekdays, start_date, end_date, google_event_id, source')
+      .select('id, dog_id, weekdays, start_date, end_date, google_event_id, google_calendar_id, source')
       .eq('organization_id', organizationId)
       .eq('active', true),
   ]);

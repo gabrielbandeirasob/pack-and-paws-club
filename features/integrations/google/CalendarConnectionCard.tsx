@@ -49,7 +49,7 @@ import type { DogRef } from '@/features/calendar/dayMath';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 
-import { getCalendarLabels, listCalendars, type CalendarFetch } from './calendarApi';
+import { calendarIdDaOrigem, getCalendarLabels, listCalendars, type CalendarFetch } from './calendarApi';
 import {
   corpoDaEscolha,
   DEFAULT_CALENDAR_ID,
@@ -323,6 +323,9 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
           review: importado.review.length,
         }),
       );
+      // Medição de 07/10/2026: 52 reservas importadas e o aviso continuava vermelho.
+      // Uma rodada sem falhas encerra o aviso antigo; falha parcial não confirma sucesso.
+      if (importado.failures.length === 0) setAvisoServidor(null);
       setRevisao(importado.review);
       if (importado.created + importado.updated + importado.cancelled + (importado.extraDays ?? 0) > 0) onImported?.();
       if (importado.failures.length) setErro(describeImportFailure(importado.failures));
@@ -379,6 +382,8 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
           review: importado.review.length,
         });
         setResumo(daImportacao ? `Auto · ${daImportacao}` : 'Auto · checked, nothing new');
+        // Mesmo critério do Sync manual: sucesso limpa o falso aviso medido em 07/10.
+        if (importado.failures.length === 0) setAvisoServidor(null);
         setRevisao(importado.review);
         if (importado.created + importado.updated + importado.cancelled + (importado.extraDays ?? 0) > 0) onImported?.();
         if (importado.failures.length) setErro(describeImportFailure(importado.failures));
@@ -399,9 +404,11 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
     setOcupado('sincronizando');
     setErro(null);
     try {
+      const origem = await calendarIdDaOrigem(await getAccessToken(), fetchReal, escolha.calendarId);
       const escolha2 = escolhaDaRevisao({ parsed: escolhendo.parsed, dogId: caoEscolhido.id, bookings });
       if ('criar' in escolha2) {
         await supabaseImportPorts(supabase, organizationId).createBooking({
+          calendarId: origem,
           eventId: escolhendo.eventId,
           dogId: caoEscolhido.id,
           kind: kindOf(escolhendo.parsed),
@@ -413,7 +420,7 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
         // tela e solto no banco.
         const { data: ligados, error } = await supabase
           .from(tabela)
-          .update({ google_event_id: escolhendo.eventId, source: 'google' })
+          .update({ google_event_id: escolhendo.eventId, google_calendar_id: origem, source: 'google' })
           .eq('id', escolha2.id)
           .select('id');
         if (error) throw new Error(error.message);
@@ -429,7 +436,7 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
     } finally {
       setOcupado(null);
     }
-  }, [bookings, caoEscolhido, escolhendo, onImported, organizationId]);
+  }, [bookings, caoEscolhido, escolha.calendarId, escolhendo, getAccessToken, onImported, organizationId]);
 
   const conectar = useCallback(async () => {
     setOcupado('conectando');
@@ -453,10 +460,12 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
       // no servidor (refresh OK no Google) e a tela dizia que não. O aviso agora fica reservado para o
       // caso em que o envio falha E o servidor responde que não tem.
       const enviado = await enviarCredencialAoServidor(escolha.calendarId);
-      const noServidor = enviado || (await servidorTemCredencial()) === true;
-      if (!noServidor) {
+      // 07/10/2026: credencial gravada às 12:50:44, mas faixa vermelha às 12:53.
+      // Falta de resposta não é prova de falta de credencial (inclusive rejeição da chamada).
+      const noServidor = enviado ? true : await servidorTemCredencial().catch(() => null);
+      if (noServidor === false) {
         setAvisoServidor(
-          'Connected on this device, but the server did not receive the Google credential — automatic import (with the app closed) stays OFF until it does. Check your connection and tap Disconnect, then connect again.',
+          'Connected on this device, but the server did not receive the Google credential — automatic import (with the app closed) stays OFF until it does. Check your connection and sync again.',
         );
       }
       void sincronizar();
@@ -665,9 +674,9 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
                 Register the dog in the app and sync again — nothing is created from a Google event.
               </Text>
               {naoCadastrados.map((item) => (
-                <View key={item.eventId} style={styles.revisaoItem}>
+                <View key={`${item.eventId}:${item.parsed.dogName}`} style={styles.revisaoItem}>
                   <View style={styles.revisaoTexto}>
-                    <Text style={styles.revisaoTituloEvento}>{item.title.trim() || '(no title)'}</Text>
+                    <Text style={styles.revisaoTituloEvento}>{tituloDaRevisao(item)}</Text>
                     <Text style={styles.revisaoData}>
                       {item.date} · {motivoDaRevisao(item.reason)}
                     </Text>
@@ -680,7 +689,7 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
                       escolha do cão não teria o que gravar. */}
                   {item.parsed.serviceType ? (
                     <Pressable
-                      accessibilityLabel={`Choose dog for ${item.title.trim()}`}
+                      accessibilityLabel={`Choose dog for ${item.title.includes('/') ? tituloDaRevisao(item) : item.title.trim()}`}
                       accessibilityRole="button"
                       onPress={() => {
                         setEscolhendo(item);
@@ -704,9 +713,9 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
                 nothing is linked: set the dog&apos;s fixed days in the app and sync again.
               </Text>
               {alteracoesSemEscala.map((item) => (
-                <View key={item.eventId} style={styles.revisaoItem}>
+                <View key={`${item.eventId}:${item.parsed.dogName}`} style={styles.revisaoItem}>
                   <View style={styles.revisaoTexto}>
-                    <Text style={styles.revisaoTituloEvento}>{item.title.trim() || '(no title)'}</Text>
+                    <Text style={styles.revisaoTituloEvento}>{tituloDaRevisao(item)}</Text>
                     <Text style={styles.revisaoData}>
                       {item.date} · {motivoDaRevisao(item.reason)}
                     </Text>
@@ -727,9 +736,9 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
                 Google Calendar and sync again. The app does not guess the service from the title.
               </Text>
               {coresDesconhecidas.map((item) => (
-                <View key={item.eventId} style={styles.revisaoItem}>
+                <View key={`${item.eventId}:${item.parsed.dogName}`} style={styles.revisaoItem}>
                   <View style={styles.revisaoTexto}>
-                    <Text style={styles.revisaoTituloEvento}>{item.title.trim() || '(no title)'}</Text>
+                    <Text style={styles.revisaoTituloEvento}>{tituloDaRevisao(item)}</Text>
                     <Text style={styles.revisaoData}>
                       {item.date} · {motivoDaRevisao(item.reason)}
                     </Text>
@@ -874,7 +883,7 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
             <ScrollView showsVerticalScrollIndicator={false}>
               <Text style={styles.folhaTitulo}>Which dog is this?</Text>
               <Text style={styles.folhaSub}>
-                {escolhendo?.title} · {escolhendo?.date}
+                {escolhendo ? tituloDaRevisao(escolhendo) : ''} · {escolhendo?.date}
               </Text>
               <DogPicker dogs={refsDeCao} selected={caoEscolhido} onSelect={setCaoEscolhido} hint={`${refsDeCao.length} dogs registered`} />
               <Pressable
@@ -896,6 +905,12 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
       </Modal>
     </View>
   );
+}
+
+/** 07/10/2026: Cooper/Dora aparecia duas vezes igual; a decisão cobra UM nome por linha. */
+function tituloDaRevisao(item: ImportReviewItem): string {
+  const titulo = item.title.trim() || '(no title)';
+  return item.title.includes('/') ? `${titulo} → ${item.parsed.dogName}` : titulo;
 }
 
 /**

@@ -217,6 +217,7 @@ describe('runCalendarImport', () => {
     const registro: string[] = [];
     const resumo = await runCalendarImport({
       accessToken: 'tok',
+      calendarId: 'A',
       range: JANELA,
       window: DESDE_HOJE,
       dogs: CAES,
@@ -227,6 +228,7 @@ describe('runCalendarImport', () => {
           kind: 'reservation',
           dogId: 'dog-bella',
           googleEventId: 'e-sumiu-ontem',
+          googleCalendarId: 'A',
           source: 'google',
           serviceType: 'daycare',
           startDate: '2026-09-23',
@@ -273,6 +275,7 @@ describe('runCalendarImport', () => {
     const canceladas: string[] = [];
     const resumo = await runCalendarImport({
       accessToken: 'tok',
+      calendarId: 'A',
       range: JANELA,
       window: DESDE_HOJE,
       dogs: CAES,
@@ -282,6 +285,7 @@ describe('runCalendarImport', () => {
           kind: 'reservation',
           dogId: 'dog-bella',
           googleEventId: 'e-sumiu',
+          googleCalendarId: 'A',
           source: 'google',
           serviceType: 'boarding',
           startDate: '2026-10-05',
@@ -334,6 +338,7 @@ describe('runCalendarImport', () => {
     const doFetch: CalendarFetch = async () => resposta([]);
     const resumo = await runCalendarImport({
       accessToken: 'tok',
+      calendarId: 'A',
       range: JANELA,
       window: DESDE_HOJE,
       dogs: CAES,
@@ -343,6 +348,7 @@ describe('runCalendarImport', () => {
           kind: 'reservation',
           dogId: 'dog-bella',
           googleEventId: 'e-sumiu',
+          googleCalendarId: 'A',
           source: 'google',
           serviceType: 'boarding',
           startDate: '2026-10-05',
@@ -508,6 +514,7 @@ describe('runCalendarImport', () => {
     const doFetch: CalendarFetch = async () => resposta([]);
     const resumo = await runCalendarImport({
       accessToken: 'tok',
+      calendarId: 'A',
       range: JANELA,
       window: DESDE_HOJE,
       dogs: CAES,
@@ -517,6 +524,7 @@ describe('runCalendarImport', () => {
           kind: 'reservation' as const,
           dogId: 'dog-bella' as string,
           googleEventId: 'e-sumiu',
+          googleCalendarId: 'A',
           source: 'google' as const,
           serviceType: 'daycare' as const,
           startDate: '2026-10-05',

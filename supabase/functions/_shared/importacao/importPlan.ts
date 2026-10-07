@@ -28,7 +28,7 @@
  *     de novo, e renomear o cao no app tambem nao faz o proximo Sync criar outro cadastro.
  *  5. Reserva que nasceu no Google: se o evento mudar, a reserva muda; se o evento sumir, a reserva
  *     e CANCELADA — mas so dentro da janela consultada (evento fora da janela nao conta como
- *     "apagado").
+ *     "apagado") e quando a origem do vínculo é o MESMO calendário consultado.
  *  6. NADA DO PASSADO: a janela da importacao comeca em HOJE (quem chama passa `from` = data local
  *     de hoje), e nenhum evento/data anterior a `window.from` e criado, alterado ou cancelado.
  *  7. Evento igual a uma reserva que ja existe no app nao duplica: vai para revisao para o gestor
@@ -41,6 +41,7 @@
 import { addDaysISO, weekdayOfISO } from './dates.ts';
 import { movimentaOCao, readEventColor, serviceTypeOfMeaning, type BookingServiceType, type ColorMeaning, type EventColorRead, type EventLabel } from './googleColors.ts';
 import type { RemoteEvent } from './eventMarkers.ts';
+import { DEFAULT_CALENDAR_ID } from './calendarChoice.ts';
 
 export type { BookingServiceType };
 
@@ -382,6 +383,8 @@ export type BookingForImport = {
   kind: ExistingBookingKind;
   dogId: string;
   googleEventId: string | null;
+  /** Agenda de origem do vínculo; legado sem origem não prova que um evento foi apagado. */
+  googleCalendarId?: string | null;
   source: 'app' | 'google';
   serviceType: BookingServiceType;
   startDate: string;
@@ -606,9 +609,10 @@ export function planCalendarImport(
   dogs: DogForImport[],
   reservations: BookingForImport[],
   window: ImportWindow,
-  options: { labels?: EventLabel[] } = {},
+  options: { labels?: EventLabel[]; calendarId?: string | null } = {},
 ): ImportOutcome[] {
   const labels = options.labels ?? [];
+  const calendarId = options.calendarId === undefined ? DEFAULT_CALENDAR_ID : options.calendarId;
   const porEvento = new Map<string, BookingForImport>();
 
   // GUARDA DA CONVENCAO NOVA (escritorio, 27/09/2026): dia de hotel (verde) perde a van SOMENTE quando
@@ -628,7 +632,7 @@ export function planCalendarImport(
     }
   }
   for (const reserva of reservations) {
-    if (reserva.googleEventId) porEvento.set(reserva.googleEventId, reserva);
+    if (reserva.googleEventId && (!reserva.googleCalendarId || reserva.googleCalendarId === calendarId)) porEvento.set(reserva.googleEventId, reserva);
   }
 
   // Lado do dia para o COCOA (marrom, fora do horário): chegada de hospedagem x saída/dia de daycare.
@@ -874,6 +878,10 @@ export function planCalendarImport(
   // 9. Reserva vinda do Google cujo evento sumiu: cancelar — so dentro da janela consultada.
   for (const reserva of reservations) {
     if (reserva.source !== 'google' || !reserva.googleEventId) continue;
+    // Medido em 07/10/2026, 12:50 UTC: trocar a agenda cancelou Enso, Oreo e Rani.
+    // Ausência só prova exclusão na MESMA agenda. Legado sem origem fica protegido:
+    // atribuir a agenda atual retroativamente repetiria o defeito na segunda rodada.
+    if (!reserva.googleCalendarId || reserva.googleCalendarId !== calendarId) continue;
     if (reserva.status !== 'confirmed') continue;
     if (vistos.has(reserva.googleEventId)) continue;
     const dentroDaJanela = !antesDaJanela(reserva.startDate, window) && reserva.startDate <= window.to;

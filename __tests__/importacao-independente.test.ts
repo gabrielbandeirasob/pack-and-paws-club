@@ -41,6 +41,7 @@ function reservaLigada(over: Partial<BookingForImport> = {}): BookingForImport {
     kind: 'reservation',
     dogId: 'dog-pietro',
     googleEventId: 'ev-pietro',
+    googleCalendarId: 'primary',
     source: 'google',
     serviceType: 'daycare',
     startDate: '2026-09-30',

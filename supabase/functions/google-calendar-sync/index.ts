@@ -127,12 +127,12 @@ async function carregarDadosDaOrganizacao(
   const [reservas, series, excecoes, caes] = await Promise.all([
     admin
       .from('reservations')
-      .select('id, status, service_type, start_date, end_date, google_event_id, source, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))')
+      .select('id, status, service_type, start_date, end_date, google_event_id, google_calendar_id, source, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
       .in('status', ['confirmed', 'cancelled']),
     admin
       .from('recurring_schedules')
-      .select('id, weekdays, start_date, end_date, active, google_event_id, source, dog:dogs(id, name, client:clients(name))')
+      .select('id, weekdays, start_date, end_date, active, google_event_id, google_calendar_id, source, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
       .eq('active', true),
     admin
@@ -151,6 +151,7 @@ async function carregarDadosDaOrganizacao(
     start_date: string;
     end_date: string | null;
     google_event_id: string | null;
+    google_calendar_id: string | null;
     source: string | null;
     goes_to_daycare: boolean | null; movement_day: boolean | null;
     dog: { id: string; name: string; client: { name: string } };
@@ -170,6 +171,7 @@ async function carregarDadosDaOrganizacao(
     kind: 'reservation' as const,
     dogId: row.dog.id,
     googleEventId: row.google_event_id ?? null,
+    googleCalendarId: row.google_calendar_id ?? null,
     source: (row.source ?? 'app') as 'app' | 'google',
     serviceType: row.service_type as BookingForImport['serviceType'],
     startDate: row.start_date,
@@ -199,6 +201,7 @@ async function carregarDadosDaOrganizacao(
       kind: 'recurring' as const,
       dogId: row.dog.id,
       googleEventId: row.google_event_id ?? null,
+      googleCalendarId: row.google_calendar_id ?? null,
       source: (row.source ?? 'app') as 'app' | 'google',
       serviceType: 'daycare' as const,
       startDate: row.start_date,
