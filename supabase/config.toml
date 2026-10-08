@@ -1,0 +1,7 @@
+project_id = "bhuexxjcrjdhkmsvagdw"
+
+# O robô do n8n chama esta função sem JWT (usa o header x-cron-secret), então `verify_jwt` é FALSE —
+# é o que está publicado hoje. Sem esta linha o CLI publicaria com o padrão dele (true) e derrubaria
+# a importação de 15 em 15 minutos.
+[functions.google-calendar-sync]
+verify_jwt = false
