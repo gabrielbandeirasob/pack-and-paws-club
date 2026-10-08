@@ -53,7 +53,22 @@ describe('cliente do Google Calendar (leitura)', () => {
       colorId: '2',
       eventLabelId: null,
       recurrence: null,
+      // Organizador do evento (08/10/2026): último recurso para a origem da agenda quando a chamada
+      // do calendário não responde. Sem organizador no recurso, fica nulo.
+      organizerEmail: null,
     });
+  });
+
+  it('lê o ORGANIZADOR do evento — último recurso para saber a origem da agenda', () => {
+    const parsed = parseEvent({
+      id: 'g-3',
+      summary: 'Mowgli',
+      start: { date: '2026-09-10' },
+      end: { date: '2026-09-11' },
+      organizer: { email: '  dono@exemplo.com  ' },
+    });
+
+    expect(parsed.organizerEmail).toBe('dono@exemplo.com');
   });
 
   it('lê a ETIQUETA do evento (paleta nova): o "Cobalto" do cliente chega como colorId nulo', () => {

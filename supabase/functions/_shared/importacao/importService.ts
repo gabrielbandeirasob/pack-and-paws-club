@@ -17,6 +17,7 @@
 import type { CalendarFetch } from './calendarApi.ts';
 import { calendarIdDaOrigem, listAllEvents } from './calendarApi.ts';
 import { DEFAULT_CALENDAR_ID } from './calendarChoice.ts';
+import type { RemoteEvent } from './eventMarkers.ts';
 import type { EventLabel } from './googleColors.ts';
 import {
   kindOf,
@@ -99,6 +100,21 @@ export type ImportParams = {
   labels?: EventLabel[];
 };
 
+/**
+ * Último recurso para saber a ORIGEM da agenda quando `calendarIdDaOrigem` não responde.
+ *
+ * Num calendário principal o id do calendário É o e-mail do dono, e os eventos criados nele levam esse
+ * mesmo e-mail em `organizer.email`. Só vale quando TODOS os eventos lidos concordam: organizadores
+ * diferentes (calendário compartilhado, evento de convite) não são origem, e aí a importação segue sem
+ * origem — o comportamento antigo, em que a linha nasce protegida contra cancelamento automático.
+ */
+function organizadorDoLote(eventos: RemoteEvent[]): string | null {
+  const emails = new Set(
+    eventos.map((evento) => evento.organizerEmail).filter((email): email is string => Boolean(email)),
+  );
+  return emails.size === 1 ? [...emails][0] : null;
+}
+
 export async function runCalendarImport({
   accessToken,
   range,
@@ -111,7 +127,12 @@ export async function runCalendarImport({
   labels = [],
 }: ImportParams): Promise<ImportSummary> {
   const eventos = await listAllEvents(accessToken, range, doFetch, calendarId);
-  const origem = await calendarIdDaOrigem(accessToken, doFetch, calendarId);
+  // A origem da agenda decide se uma reserva pode ser cancelada depois (evento apagado na MESMA
+  // agenda). A chamada própria manda; se ela falhar (token sem o escopo de calendário, rede), o
+  // ORGANIZADOR dos eventos lidos é o último recurso — sem isso a importação grava reserva sem
+  // `google_calendar_id`, que fica protegida contra cancelamento automático para sempre (as linhas
+  // presas de 08/10/2026, que o evento vermelho não conseguia tirar).
+  const origem = (await calendarIdDaOrigem(accessToken, doFetch, calendarId)) ?? organizadorDoLote(eventos);
   const plano = planCalendarImport(eventos, dogs, reservations, window, { labels, calendarId: origem });
 
   const resumo: ImportSummary = { created: 0, already: 0, updated: 0, cancelled: 0, extraDays: 0, review: [], failures: [] };
