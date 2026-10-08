@@ -1,11 +1,9 @@
 import { formatTimeOfDay } from '@/lib/clock';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { addDaysISO, formatDayLabel } from '@/features/calendar/dates';
-import { agruparPorCliente, filtrarCaes, resumoDaBusca } from '@/features/calendar/dogPickerSearch';
 import type { BlocoSugerido, SugestaoDeRotas, SugestoesDoDia } from '@/features/dispatch/routeSuggestion';
-import type { DogRef } from '@/features/calendar/dayMath';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver/eta';
 import { ReorderableStops } from '@/features/dispatch/ReorderableStops';
 import { TimeWheel } from '@/features/dispatch/TimeWheel';
@@ -51,12 +49,6 @@ export type DispatchStopItem = {
    * casa (áudio do cliente, 23/09/2026).
    */
   inVan?: boolean;
-  /**
-   * Cão que o gestor adicionou À MÃO, fora do calendário do dia ("Add any dog"). O app não inventa
-   * reserva — a parada existe só na rota. Pedido do dono (23/09/2026): o admin tem de conseguir
-   * puxar qualquer cão do cadastro para o Total Pack, mesmo sem reserva no dia.
-   */
-  extra?: boolean;
   /**
    * Nomes dos cães que moram na MESMA CASA (mesmo cliente) e estão na fila do dia. A folha de
    * atribuição avisa com eles e a atribuição leva todos juntos num clique só — áudio do dono
@@ -165,9 +157,6 @@ type Props = {
   onCancelRoute: (routeId: string) => Promise<void>;
   onCompleteRoute: (routeId: string) => Promise<void>;
   onDateChange: (date: string) => void;
-  /** Cães do cadastro, para o gestor adicionar um que não está no calendário do dia. */
-  dogs?: DogRef[];
-  onAddExtraDog?: (dog: DogRef) => void;
   /**
    * SUGESTÃO DE ROTA (cliente, áudio de 01/10/2026): o app propõe quem leva quais cães e em que ordem,
    * por geografia, e o gestor confirma antes de qualquer escrita. A conta mora na TELA
@@ -221,7 +210,7 @@ function validTime(value: string): boolean {
 }
 
 export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseChange, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onCreateDropoffRoute, pickupDriverByDog, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange,
-  optimizeInfo, onUndoOptimize, dogs = [], onAddExtraDog, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList, avisoRotaMudou, onReloadRotas }: Props) {
+  optimizeInfo, onUndoOptimize, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList, avisoRotaMudou, onReloadRotas }: Props) {
   /**
    * Rota mudada em outro aparelho: enquanto o aviso está na tela, ele é o ÚNICO `Modal` renderizado
    * (os outros nem montam) — nunca dois modais nativos ao mesmo tempo.
@@ -306,20 +295,19 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
     }
   };
 
-  const [buscaCao, setBuscaCao] = useState(false);
   /**
    * OVERFLOW do cartão (dono, 05/10/2026 — item 8). As ações menos frequentes (Edit times,
    * Publish/Republish quando NÃO precisa subir, Unpublish, ✓ Done, Cancel route) vivem num menu
    * próprio, para o cartão não competir com o primário (`Optimize route`).
    *
-   * 🪤 SÓ UM `Modal` NATIVO POR VEZ (foi o que travou o app no "Add any dog", 05/10/2026): abrir o
-   * overflow FECHA a folha de atribuição e a busca de cão, e vice-versa — nunca empilha.
+   * 🪤 SÓ UM `Modal` NATIVO POR VEZ: abrir o overflow FECHA a folha de atribuição e a sugestão de rota,
+   * e vice-versa — nunca empilha. (Era a regra que a busca "Add any dog" precisava respeitar; a busca
+   * saiu a pedido do dono, 07/10/2026, e a regra continua valendo para os modais que ficaram.)
    */
   type MenuState = { driverName: string; route: DispatchRoute; leg: Perna };
   const [menuRota, setMenuRota] = useState<MenuState | null>(null);
-  const abrirOverflow = (estado: MenuState) => { setSheet(null); setBuscaCao(false); setSugestao(null); setMenuRota(estado); };
-  const abrirSheet = (estado: SheetState) => { setBuscaCao(false); setSugestao(null); setMenuRota(null); setSheet(estado); };
-  const abrirBuscaCao = () => { setSheet(null); setSugestao(null); setMenuRota(null); setBuscaCao(true); };
+  const abrirOverflow = (estado: MenuState) => { setSheet(null); setSugestao(null); setMenuRota(estado); };
+  const abrirSheet = (estado: SheetState) => { setSugestao(null); setMenuRota(null); setSheet(estado); };
   const [driverId, setDriverId] = useState<string | null>(null);
   const [kind, setKind] = useState<ConstraintKind>('none');
   const [windowStart, setWindowStart] = useState('');
@@ -529,9 +517,13 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
         {/*
           * LINHA DE ATRIBUIÇÃO (dono, 05/10/2026 — item 3 do redesenho): a antiga faixa com BORDA
           * TRACEJADA e a frase `Every transport dog is assigned. 🎉` viraram UMA LINHA de status.
-          * Tudo atribuído: `✓ All dogs assigned` + `+ Add dog`. Com pendência: o título
-          * `N unassigned` (que já existia) + os chips dos cães + `+ Add dog`. Sem borda tracejada,
-          * sem cartão grande. O `testID="unassigned-pool"` continua e a contagem fica FORA dele.
+          * Tudo atribuído: `✓ All dogs assigned`; com pendência: o título `N unassigned` (que já
+          * existia) + os chips dos cães. Sem borda tracejada, sem cartão grande. O
+          * `testID="unassigned-pool"` continua e a contagem fica FORA dele.
+          *
+          * O `+ Add dog` (adição MANUAL de um cão fora do calendário do dia) foi REMOVIDO a pedido do
+          * dono (07/10/2026): a fila do Dispatch passa a ser só o que o calendário do dia oferece —
+          * nada entra na rota sem reserva/exceção. (`extra` e o sufixo `· manual` saíram junto.)
           */}
         <View style={styles.assignmentLine}>
           {unassigned.length > 0 ? <Text style={styles.unassignedTitle}>{unassigned.length} unassigned</Text> : null}
@@ -544,14 +536,9 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
             ) : null}
             {unassigned.map((item) => (
               <Pressable key={item.dogId} accessibilityRole="button" accessibilityLabel={`Assign ${item.dogName}`} onPress={() => abrirSheet({ mode: 'assign', item, phase: assignmentPhase === 'dropoff' ? 'dropoff' : undefined })} style={[styles.chip, styles.poolChip]}>
-                <Text numberOfLines={1} style={styles.chipText}>{item.dogName}{item.extra ? ' · manual' : ''}</Text>
+                <Text numberOfLines={1} style={styles.chipText}>{item.dogName}</Text>
               </Pressable>
             ))}
-            {onAddExtraDog ? (
-              <Pressable accessibilityRole="button" accessibilityLabel="Add any dog" onPress={() => abrirBuscaCao()} style={styles.addDog}>
-                <Text numberOfLines={1} style={styles.addDogText}>+ Add dog</Text>
-              </Pressable>
-            ) : null}
           </View>
         </View>
         {/* CHIPS DE MOTORISTA (dono, 05/10/2026 — item 4): compactos (`Raphael 3` / `Gabriel 0`), SEM
@@ -594,7 +581,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
               onChooseYard={assignmentPhase === 'pickup' ? onChooseYard : undefined}
               vanDoMotorista={vanDoMotorista} onOpenStopList={onOpenStopList}
               diaDogIds={diaDogIds}
-              onOpenMenu={abrirOverflow} onOpenAddDog={onAddExtraDog ? abrirBuscaCao : undefined}
+              onOpenMenu={abrirOverflow}
               onDraggingChange={setArrastando}
               onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
             {/* DEFEITO B (03/10/2026): cria a perna que nunca nasceu — draft, sem publicar. Fica FORA do
@@ -676,31 +663,6 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
           </View>
         ) : null}
       </ScrollView>
-
-      {/*
-        "Add any dog": o gestor puxa um cão do cadastro que NÃO está no calendário do dia (chegou de
-        última hora, ou o transporte não foi marcado na reserva). Não inventa reserva: a parada vive
-        só na rota. Pedido do dono (23/09/2026) — controle do Total Pack sem depender do calendário.
-      */}
-      <Modal visible={buscaCao && !avisoRotaMudou} transparent animationType="fade" onRequestClose={() => setBuscaCao(false)}>
-        <KeyboardAvoidingView style={styles.backdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <View style={[styles.sheet, styles.manualDogSheet]}>
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Add any dog</Text>
-              <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={() => setBuscaCao(false)} hitSlop={10}>
-                <Text style={styles.sheetClose}>✕</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.muted}>
-              Straight from the registry — no reservation needed today. The stop is created only on the route.
-            </Text>
-            {buscaCao ? <ManualDogSearch
-              dogs={dogs}
-              onSelect={(dog) => { onAddExtraDog?.(dog); setBuscaCao(false); }}
-            /> : null}
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
 
       {/*
         SUGESTÃO DE ROTA — a proposta por geografia (cliente, áudio 01/10/2026). Mostra os blocos por
@@ -968,46 +930,6 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
   );
 });
 
-/**
- * Search INSIDE the Dispatch sheet, not a second native Modal. The shared calendar picker owns a
- * Modal; nesting it here dismissed child and parent together after selection. On iOS that is a
- * risky native presentation transition even though the manual dog has already reached the pool.
- * Keep the shared search rules, but only one presenter/backdrop for this workflow.
- */
-function ManualDogSearch({ dogs, onSelect }: { dogs: DogRef[]; onSelect: (dog: DogRef) => void }) {
-  const [open, setOpen] = useState(false);
-  const [term, setTerm] = useState('');
-  const found = useMemo(() => filtrarCaes(dogs, term), [dogs, term]);
-  const groups = useMemo(() => agruparPorCliente(found), [found]);
-  if (!open) return (
-    <Pressable accessibilityRole="button" accessibilityLabel="Select dog" onPress={() => setOpen(true)} style={styles.driverOption}>
-      <Text style={styles.driverOptionText}>Select dog…</Text>
-    </Pressable>
-  );
-  return <View style={{ flexShrink: 1 }}>
-    <Text style={styles.muted}>{resumoDaBusca(dogs.length, found.length, term)}</Text>
-    <TextInput accessibilityLabel="Search dog or client" placeholder="Search dog or client…"
-      placeholderTextColor={colors.muted} value={term} onChangeText={setTerm}
-      autoCorrect={false} autoCapitalize="none" style={styles.manualDogSearch} />
-    <ScrollView style={styles.sugestaoLista} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
-      {groups.length === 0 ? <Text style={styles.muted}>No dogs found for “{term}”.</Text> : groups.map(group => (
-        <View key={group.cliente}>
-          <Text style={styles.fieldLabel}>{group.cliente}</Text>
-          {group.caes.map(dog => <Pressable key={dog.id} accessibilityRole="button"
-            accessibilityLabel={`Select ${dog.dogName} of ${dog.clientName}`}
-            onPress={() => onSelect(dog)} style={styles.driverOption}>
-            <Text style={styles.driverOptionText}>{dog.dogName}</Text>
-          </Pressable>)}
-        </View>
-      ))}
-    </ScrollView>
-    <Pressable accessibilityRole="button" accessibilityLabel="Cancel dog selection"
-      onPress={() => { setTerm(''); setOpen(false); }} style={styles.sheetCancel}>
-      <Text style={styles.sheetCancelText}>Cancel</Text>
-    </Pressable>
-  </View>;
-}
-
 type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | 'onPublish' | 'onUnpublish' | 'onCancelRoute' | 'onCompleteRoute'> & {
   driver: DispatchDriver;
   route?: DispatchRoute;
@@ -1034,15 +956,13 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
   diaDogIds?: ReadonlySet<string>;
   /** Abre o menu de overflow do cartão (item 8). */
   onOpenMenu?: (estado: { driverName: string; route: DispatchRoute; leg: Perna }) => void;
-  /** Abre a busca "Add any dog" do quadro (estado vazio do motorista, item 13). */
-  onOpenAddDog?: () => void;
 };
 
 const CartaoMotorista = memo(function CartaoMotorista({
   driver, route, leg, optimize, onUndoOptimize, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
   onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy,
   vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList, diaDogIds,
-  onOpenMenu, onOpenAddDog, onDraggingChange,
+  onOpenMenu, onDraggingChange,
 }: PropsCartao) {
   // A rota e as ações pertencem somente à perna selecionada.
   const grupos = useMemo(() => route ? [{ leg, route,
@@ -1313,18 +1233,11 @@ const CartaoMotorista = memo(function CartaoMotorista({
           </View>
         ) : null}
         {/* ESTADO VAZIO (item 13): `No stops assigned` + offer to assign (só quando existe). */}
-        {semParadas && (onSuggest || onOpenAddDog) ? (
+        {semParadas && onSuggest ? (
           <View style={styles.emptyActions}>
-            {onSuggest ? (
-              <Pressable accessibilityRole="button" accessibilityLabel="Suggest routes" disabled={working || suggestionBusy} onPress={() => void onSuggest()} style={styles.emptyCta}>
-                <Text numberOfLines={1} style={styles.emptyCtaText}>{suggestionBusy ? 'Thinking…' : 'Suggest assignments'}</Text>
-              </Pressable>
-            ) : null}
-            {onOpenAddDog ? (
-              <Pressable accessibilityRole="button" accessibilityLabel="Add a dog by hand" onPress={onOpenAddDog} style={styles.emptyAdd}>
-                <Text numberOfLines={1} style={styles.emptyAddText}>+ Add dog</Text>
-              </Pressable>
-            ) : null}
+            <Pressable accessibilityRole="button" accessibilityLabel="Suggest routes" disabled={working || suggestionBusy} onPress={() => void onSuggest()} style={styles.emptyCta}>
+              <Text numberOfLines={1} style={styles.emptyCtaText}>{suggestionBusy ? 'Thinking…' : 'Suggest assignments'}</Text>
+            </Pressable>
           </View>
         ) : null}
       </View>
@@ -1403,8 +1316,6 @@ function TimeTargetButton({ label, accessibilityLabel, value, active, onPress, h
 }
 
 const styles = StyleSheet.create({
-  manualDogSheet: { maxHeight: '90%' },
-  manualDogSearch: { borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, padding: 12, color: colors.ink, marginVertical: 8 },
   pinRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 4 },
   /** Rótulo do seletor de perna — separa "PLANNING" dos chips de motorista logo abaixo. */
   faseRotulo: { color: '#B9C7B6', fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 4, marginLeft: 14, marginBottom: 4 },
@@ -1532,13 +1443,11 @@ const styles = StyleSheet.create({
   createDropoffText: { color: colors.forest700, fontWeight: '900', fontSize: 12 },
   /**
    * LINHA DE ATRIBUIÇÃO (item 3): uma linha de status, SEM borda tracejada nem cartão grande.
-   * Tudo atribuído → `✓ All dogs assigned`; com pendência → o título + os chips dos cães. O `+ Add dog`
-   * é um botão compacto de contorno (antes era o chip tracejado `＋ Add any dog`).
+   * Tudo atribuído → `✓ All dogs assigned`; com pendência → o título `N unassigned` + os chips dos cães.
+   * O `+ Add dog` (adição manual, fora do calendário) saiu a pedido do dono (07/10/2026).
    */
   assignmentLine: { marginBottom: 6 },
   assignedOk: { color: colors.success, fontSize: 12, fontWeight: '800', lineHeight: 16 },
-  addDog: { borderWidth: 1, borderColor: colors.forest500, backgroundColor: 'white', borderRadius: 999, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center' },
-  addDogText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
   /** "Already in van" (item 12): linha discreta, sem moldura tracejada. */
   jaNaVan: { marginBottom: 4 },
   naVanCabecalho: {
@@ -1607,9 +1516,6 @@ const styles = StyleSheet.create({
   poolChip: { marginBottom: 0, maxWidth: 180 },
   chip: { backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, marginBottom: 7, borderWidth: 1, borderColor: colors.line, minHeight: 44, justifyContent: 'center' },
   chipText: { color: colors.ink, fontWeight: '800', fontSize: 13 },
-  /** Botão "Add any dog": pontilhado como a moldura da fila, para não parecer um cão já listado. */
-  chipAdd: { borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#B9C4B9', borderRadius: radii.medium, paddingVertical: 9, paddingHorizontal: 8, minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start', backgroundColor: '#FFFFFF' },
-  chipAddText: { color: colors.muted, fontWeight: '800', fontSize: 12 },
   /** Chip dos cães que já estão na van: fundo mais claro para não confundir com a fila principal. */
   chipVan: { backgroundColor: colors.sage, borderColor: colors.sage },
   backdrop: { flex: 1, backgroundColor: '#0D1B12AA', justifyContent: 'flex-end' },
@@ -1670,8 +1576,6 @@ const styles = StyleSheet.create({
   emptyActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, rowGap: 6, marginTop: 2, marginBottom: 4 },
   emptyCta: { backgroundColor: colors.forest700, borderRadius: 10, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' },
   emptyCtaText: { color: 'white', fontWeight: '900', fontSize: 12 },
-  emptyAdd: { borderWidth: 1, borderColor: colors.forest500, backgroundColor: 'white', borderRadius: 10, paddingHorizontal: 12, minHeight: 44, justifyContent: 'center' },
-  emptyAddText: { color: colors.forest700, fontWeight: '800', fontSize: 12 },
   /** LINHA DE PARADA (item 10): número · nome · hora · deslocamento numa linha, separador sutil. */
   stopLine: { flexDirection: 'row', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' },
   stopTravel: { color: colors.muted, fontSize: 12, lineHeight: 16 },

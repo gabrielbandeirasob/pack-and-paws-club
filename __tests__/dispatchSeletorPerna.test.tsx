@@ -124,17 +124,13 @@ it('Optimize e Publish usam o ID da perna selecionada, com cães distintos', asy
 });
 
 
-it('Add any dog inclui apenas na fila da perna escolhida', async () => {
+it('a ADICAO MANUAL de cao saiu do Dispatch (pedido do dono, 07/10/2026)', async () => {
   const tela = await render(<DispatchScreen />);
   await tela.findByTestId('dispatch-leg-pickup-motorista');
   await fireEvent.press(tela.getByLabelText('Drop-offs'));
-  await fireEvent.press(tela.getByLabelText('Add any dog'));
-  await fireEvent.press(tela.getByLabelText('Select dog'));
-  await fireEvent.press(tela.getByLabelText('Select Milo of Taylor'));
-  expect(tela.getByLabelText('Assign Milo')).toBeTruthy();
+  expect(tela.queryByLabelText('Add any dog')).toBeNull();
+  expect(tela.queryByLabelText('Add a dog by hand')).toBeNull();
+  expect(tela.queryByLabelText('Select dog')).toBeNull();
   await fireEvent.press(tela.getByLabelText('Pick-ups'));
-  expect(tela.queryByLabelText('Assign Milo')).toBeNull();
-  await fireEvent.press(tela.getByLabelText('Drop-offs'));
-  expect(tela.getByLabelText('Assign Milo')).toBeTruthy();
-  expect(rpc).not.toHaveBeenCalled();
+  expect(tela.queryByLabelText('Add any dog')).toBeNull();
 });

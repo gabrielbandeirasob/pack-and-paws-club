@@ -3,7 +3,7 @@ import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 
-import { buildDay, transportPool, transportPoolForPhase, vanPool, type DogRef, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
+import { buildDay, transportPool, transportPoolForPhase, vanPool, type RecurringExceptionRecord, type RecurringScheduleRecord, type ReservationRecord } from '@/features/calendar/dayMath';
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
 import { DispatchBoard, type DispatchSuggestion, type DispatchSuggestionBlock, type DispatchConstraint, type DispatchDriver, type DispatchRoute, type DispatchStopItem, type DispatchVan } from '@/features/dispatch/DispatchBoard';
 import { juntarIrmaosDeCasa, vaoJunto } from '@/features/dispatch/houseMates';
@@ -49,7 +49,6 @@ type StopRow = {
   dog: { id: string; name: string; client: { id?: string; name: string; latitude: number | null; longitude: number | null } };
 };
 type RouteRow = { phase?: Perna; id: string; driver_id: string; status: DispatchRoute['status']; lock_version: number | null; start_location_id?: string | null; end_location_id?: string | null; route_stops: StopRow[] | null };
-type DogRow = { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } };
 
 /** Coordenada do endereço do cliente por cão — é o que a sugestão de rota usa (geografia). */
 type Coordenada = { latitude: number | null; longitude: number | null };
@@ -88,8 +87,6 @@ export default function DispatchScreen() {
   const fasesDisponiveis = useRef(false);
   const itensDropoff = useRef<DispatchStopItem[]>([]);
   const [dropoffItems, setDropoffItems] = useState<DispatchStopItem[]>([]);
-  /** Cães do cadastro (para o gestor adicionar um que não está no calendário do dia). */
-  const [caesCadastro, setCaesCadastro] = useState<DogRef[]>([]);
   /**
    * ENDEREÇO DE CADA CÃO (por `dogId`) — a sugestão de rota é geográfica, e a fila do dia montada pelo
    * calendário não carrega coordenada. O mapa sai da MESMA consulta do dia, sem ida extra ao banco.
@@ -115,13 +112,7 @@ export default function DispatchScreen() {
    */
   const [vans, setVans] = useState<DispatchVan[]>([]);
   const vanPorMotorista = useRef<Map<string, string>>(new Map());
-  /**
-   * Cães adicionados À MÃO pelo gestor. Guardados num ref (e não no estado) para sobreviverem ao
-   * recarregamento: o carregamento reconstrói a fila a partir do calendário, e sem isso o cão manual
-   * sumiria da tela a cada atualização. Pedido do dono (23/09/2026).
-   */
   const [planningPhase, setPlanningPhase] = useState<Perna>('pickup');
-  const extrasRef = useRef<Record<Perna, DogRef[]>>({ pickup: [], dropoff: [] });
   const [routes, setRoutes] = useState<DispatchRoute[]>([]);
   // Versao de cada rota (lock otimista): o aparelho guarda o que leu; se outro gestor
   // escrever antes, o banco recusa a escrita velha com 'stale_route' em vez de sobrescrever.
@@ -211,27 +202,6 @@ export default function DispatchScreen() {
   const otimizandoAgora = useRef(new Set<string>());
 
   /**
-   * "Add any dog": o gestor puxa um cão do cadastro para a fila do dia mesmo sem reserva no dia
-   * (chegou de última hora, ou o transporte não foi marcado). Pedido do dono, 23/09/2026.
-   */
-  const adicionarCaoForaDoCalendario = useCallback((dog: DogRef) => {
-    if (planningPhase === 'dropoff' && itensDoDia.current.some(item => item.dogId === dog.id && (item.inVan || item.reservationKind === 'boarding'))) {
-      showAlert('No drop-off for boarding', 'Boarding dogs finish the day in the van.');
-      return;
-    }
-    if (!extrasRef.current[planningPhase].some((item) => item.id === dog.id)) extrasRef.current[planningPhase] = [...extrasRef.current[planningPhase], dog];
-    const setItems = planningPhase === 'pickup' ? setDayItems : setDropoffItems;
-    setItems((prev) => {
-      if (prev.some((item) => item.dogId === dog.id)) return prev;
-      const novo = { dogId: dog.id, clientName: dog.clientName, dogName: dog.dogName, inVan: false, extra: true, clientId: dog.clientId ?? null };
-      const novos = juntarIrmaosDeCasa([...prev, novo]);
-      if (planningPhase === 'pickup') itensDoDia.current = novos;
-      else itensDropoff.current = novos;
-      return novos;
-    });
-  }, [planningPhase]);
-
-  /**
    * AS VANS DA ORGANIZAÇÃO (id, rótulo e qual é a padrão).
    *
    * ⚠️ Nasceu separada do `carregarDia` por um defeito real (01/10/2026): o dono cadastrou a **Van 2** e
@@ -285,7 +255,7 @@ export default function DispatchScreen() {
      */
     const janelaDe = addDaysISO(dia, -30);
     const janelaAte = addDaysISO(dia, 180);
-    const [driverResult, reservationResult, recurringResult, exceptionResult, dogResult] = await Promise.all([
+    const [driverResult, reservationResult, recurringResult, exceptionResult] = await Promise.all([
       /**
        * Quem pode receber rota: motoristas E gestores. O gestor também faz pick-up/drop-off (áudio do
        * dono, 27/09/2026) e precisa aparecer aqui para pegar uma rota — sem conta nova e sem
@@ -295,8 +265,6 @@ export default function DispatchScreen() {
       supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId).gte('end_date', janelaDe).lte('start_date', janelaAte),
-      // Cadastro completo (cão ativo): alimenta o "Add any dog" do Dispatch.
-      supabase.from('dogs').select('id, name, client:clients(id, name, latitude, longitude)').eq('organization_id', orgId).eq('active', true),
     ]);
     if (dia !== contexto.current.date) return;
     /*
@@ -306,7 +274,7 @@ export default function DispatchScreen() {
      * NULL — que era o defeito original (item 1/3 da conferência, 01/10/2026).
      */
     void carregarVans(orgId);
-    const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error ?? dogResult.error;
+    const firstError = driverResult.error ?? reservationResult.error ?? recurringResult.error ?? exceptionResult.error;
     if (firstError) { falhou('dia', firstError.message); return; }
     falhou('dia', null);
 
@@ -330,8 +298,6 @@ export default function DispatchScreen() {
       id: row.id, scheduleId: row.recurring_schedule_id, action: row.action, startDate: row.start_date, endDate: row.end_date,
     }));
 
-    setCaesCadastro(((dogResult.data as unknown as DogRow[]) ?? []).map((row) => toDogRef(row)));
-
     /**
      * ENDEREÇO POR CÃO (para a sugestão de rota): sai das mesmas linhas que acabaram de chegar — sem
      * consulta nova. Cão sem coordenada simplesmente não entra no mapa (a sugestão avisa e o deixa fora).
@@ -343,22 +309,17 @@ export default function DispatchScreen() {
     };
     for (const row of ((reservationResult.data as unknown as ReservationRow[]) ?? [])) guardarCoordenada(row.dog);
     for (const row of ((recurringResult.data as unknown as RecurringRow[]) ?? [])) guardarCoordenada(row.dog);
-    for (const row of ((dogResult.data as unknown as DogRow[]) ?? [])) guardarCoordenada(row);
     coordenadasPorCao.current = coordenadas;
 
     const day = buildDay(dia, reservations, recurring, exceptions);
     const poolEntrega = transportPoolForPhase(day, 'dropoff');
-    const boardingIds = new Set(day.boarding.map(item => item.dogId));
     const entregas = juntarIrmaosDeCasa([
       ...poolEntrega.map(item => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, clientId: item.clientId, reservationKind: item.kind })),
-      ...extrasRef.current.dropoff.filter(dog => !boardingIds.has(dog.id) && !poolEntrega.some(item => item.dogId === dog.id))
-        .map(dog => ({ dogId: dog.id, dogName: dog.dogName, clientName: dog.clientName, clientId: dog.clientId, extra: true })),
     ]);
     itensDropoff.current = entregas;
     setDropoffItems(entregas);
     const fila = transportPool(day);
     const naVan = vanPool(day);
-    const jaNoDia = new Set([...fila, ...naVan].map((item) => item.dogId));
     // Fila principal: quem precisa de transporte e NÃO está já na van (deduplicado por cão).
     // Seção separada: cão em boarding que também faz daycare no dia — ele acorda dentro da van (sem
     // pickup), mas o gestor pode incluir à mão quando precisar dele de volta em casa. Pedido do
@@ -366,8 +327,6 @@ export default function DispatchScreen() {
     const itens = juntarIrmaosDeCasa([
       ...fila.map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind, inVan: false, clientId: item.clientId ?? null })),
       ...naVan.map((item) => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, reservationKind: item.kind, inVan: true, clientId: item.clientId ?? null })),
-      // Cães que o gestor adicionou à mão (fora do calendário do dia) — pedido do dono, 23/09/2026.
-      ...extrasRef.current.pickup.filter((extra) => !jaNoDia.has(extra.id)).map((extra) => ({ dogId: extra.id, clientName: extra.clientName, dogName: extra.dogName, inVan: false, extra: true, clientId: extra.clientId ?? null })),
     ]);
     itensDoDia.current = itens;
     setDayItems(itens);
@@ -1783,7 +1742,7 @@ export default function DispatchScreen() {
     // `vans` entra para o cartão refazer os nomes quando as sedes chegam do banco (o ref não re-renderiza).
   }, [routes, otimizacoes, vans]);
 
-  const summary = useMemo(() => ({ date, drivers, dayItems, routes, dogs: caesCadastro, onAddExtraDog: adicionarCaoForaDoCalendario }), [date, drivers, dayItems, routes, caesCadastro, adicionarCaoForaDoCalendario]);
+  const summary = useMemo(() => ({ date, drivers, dayItems, routes }), [date, drivers, dayItems, routes]);
 
   /**
    * Motorista do pick-up de cada cão (trava da entrega, 03/10/2026) — vai para o quadro para a folha
@@ -1828,8 +1787,6 @@ export default function DispatchScreen() {
           onCancelRoute={cancelRoute}
           onCompleteRoute={completeRoute}
           onDateChange={setDate}
-          dogs={summary.dogs}
-          onAddExtraDog={summary.onAddExtraDog}
         />
       )}
     </SafeAreaView>
