@@ -9,8 +9,9 @@
  * Estes testes travam o contrato novo:
  *  - a etiqueta é classificada pelo TOM do hex: verde = boarding, azul **e roxo/lavanda/uva** = daycare,
  *    vermelho = cancela;
- *  - tom fora de verde/azul-roxo/vermelho (amarelo, laranja, marrom, rosa/magenta, cinza) NÃO vira
- *    serviço — o app não chuta;
+ *  - o CINZA (acromático, sem tom nenhum) é **DAYCARE** desde 08/10/2026 (dono) — ver o teste dele;
+ *  - tom fora de verde/amarelo/azul-roxo/vermelho (laranja, rosa/magenta) NÃO vira serviço — o app não
+ *    chuta;
  *  - a etiqueta MANDA quando existe; o `colorId` legado é o fallback (paleta velha);
  *  - a tela recebe o que foi lido: nome da etiqueta + hex + `colorId` legado (`Cobalto (#4A86E8)`).
  */
@@ -88,13 +89,28 @@ describe('tom (hue) do hex da etiqueta', () => {
 
   it('tom fora de verde/amarelo/azul-roxo/vermelho NÃO vira serviço (o app não chuta)', () => {
     // laranja (Tangerine #f4511e ≈ 14° e Pumpkin #ef6c00 ≈ 27°, de propósito FORA do vermelho E do
-    // amarelo), marrom, rosa/vinho e cinza. O ROXO saiu desta lista em 24/09/2026 (virou daycare) e o
-    // AMARELO em 27/09/2026 (virou boarding) — ver os testes acima.
+    // amarelo) e rosa/vinho. O ROXO saiu desta lista em 24/09/2026 (virou daycare), o AMARELO em
+    // 27/09/2026 (virou boarding) e o CINZA em 08/10/2026 (virou daycare) — ver os testes acima.
     // O MARROM (Cocoa) saiu desta lista em 28/09/2026 (áudio do dono): virou "fora de horário".
-    for (const hex of ['#f4511e', '#ef6c00', '#ad1457', '#808080']) {
+    for (const hex of ['#f4511e', '#ef6c00', '#ad1457']) {
       expect([hex, meaningOfLabelColor(hex)]).toEqual([hex, null]);
     }
     expect(meaningOfLabelColor('#795548')).toEqual({ kind: 'out_of_hours' });
+  });
+
+  it('CINZA (sem tom) = DAYCARE — (dono, 08/10/2026: "a cor cinza também é daycare")', () => {
+    // O corte é o CROMA, e não a luminosidade: qualquer cinza da faixa média conta (o Graphite do
+    // Google é o #808080 da paleta nova e o #e1e1e1 do `colorId` 8). O TOM continua nulo — o que mudou
+    // foi o SIGNIFICADO da cor sem tom.
+    for (const hex of ['#808080', '#e1e1e1', '#616161', '#333333', '#f0f0f0']) {
+      expect([hex, meaningOfLabelColor(hex)]).toEqual([hex, { kind: 'service', serviceType: 'daycare' }]);
+      expect(hueOfHex(hex)).toBeNull();
+    }
+    // Os extremos NÃO são o cinza do escritório: quase branco (no Google, branco = evento sem cor) e
+    // quase preto seguem "cor não reconhecida".
+    for (const hex of ['#ffffff', '#fdfdfd', '#000000', '#0a0a0a']) {
+      expect([hex, meaningOfLabelColor(hex)]).toEqual([hex, null]);
+    }
   });
 
   it('AMARELO (Banana #ffd666 ≈ 44°) vira BOARDING — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {
