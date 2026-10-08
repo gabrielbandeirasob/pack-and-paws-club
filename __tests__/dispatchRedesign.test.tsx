@@ -11,7 +11,6 @@ jest.mock('@/lib/supabase', () => ({ supabase: { storage: { from: jest.fn() } } 
 
 import { fireEvent, render } from '@testing-library/react-native';
 import { DispatchBoard, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
-import type { DogRef } from '@/features/calendar/dayMath';
 import { colors } from '@/features/theme/tokens';
 
 const RAFAEL: DispatchDriver = { id: 'm-rafael', name: 'Rafael', alsoManager: true };
@@ -46,11 +45,12 @@ const rota = (over: Partial<DispatchRoute> = {}): DispatchRoute => ({
 
 /* ---------------------------------- item 3 ---------------------------------- */
 describe('item 3 — linha de status de atribuição', () => {
-  it('tudo atribuído: `✓ All dogs assigned` + `+ Add dog`', async () => {
+  it('tudo atribuído: `✓ All dogs assigned`, e NENHUM `+ Add dog` (adição manual removida em 07/10/2026)', async () => {
     const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={[dog]}
-      routes={[rota({ stops: [parada('d-rani', 'Rani')] })]} {...noops} onAddExtraDog={jest.fn()} />);
+      routes={[rota({ stops: [parada('d-rani', 'Rani')] })]} {...noops} />);
     expect(screen.getByText('✓ All dogs assigned')).toBeTruthy();
-    expect(screen.getByText('+ Add dog')).toBeTruthy();
+    expect(screen.queryByText('+ Add dog')).toBeNull();
+    expect(screen.queryByLabelText('Add any dog')).toBeNull();
     expect(screen.queryByText('Every transport dog is assigned. 🎉')).toBeNull();
   });
 
@@ -264,13 +264,12 @@ describe('item 12 — "Already in van" recolhível', () => {
 
 /* ---------------------------------- item 13 -------------------------------- */
 describe('item 13 — estado vazio do motorista', () => {
-  it('sem paradas: `No stops assigned` + `Suggest assignments` + atribuir à mão', async () => {
+  it('sem paradas: `No stops assigned` + `Suggest assignments` — e NENHUMA porta de adição manual', async () => {
     const screen = await render(<DispatchBoard date="2026-10-05" drivers={[RAFAEL]} dayItems={[dog]} routes={[]}
-      {...noops} onSuggestRoutes={jest.fn()} onApplySuggestion={jest.fn()} onAddExtraDog={jest.fn()}
-      dogs={[{ id: 'd', dogName: 'Rani', clientName: 'Amy' } as DogRef]} />);
+      {...noops} onSuggestRoutes={jest.fn()} onApplySuggestion={jest.fn()} />);
     expect(screen.getByText('No stops assigned')).toBeTruthy();
     expect(screen.getByText('Suggest assignments')).toBeTruthy();
-    expect(screen.getByLabelText('Add a dog by hand')).toBeTruthy();
+    expect(screen.queryByLabelText('Add a dog by hand')).toBeNull();
     expect(screen.getByTestId('dispatch-route-m-rafael-pickup')).toBeTruthy();
   });
 });

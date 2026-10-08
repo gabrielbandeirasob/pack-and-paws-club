@@ -1,5 +1,5 @@
 // Pedido do cliente (04/10/2026): calendário e Dispatch identificam apenas o cão; as asserções permanecem.
-import { fireEvent, render, within } from '@testing-library/react-native';
+import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { DispatchBoard, type DispatchDriver, type DispatchRoute, type DispatchStopItem } from '@/features/dispatch/DispatchBoard';
 
@@ -92,6 +92,30 @@ describe('DispatchBoard', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Driver Rafael' }));
     await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
     expect(onAssign).toHaveBeenCalledWith('dog-bob', 'driver-rafael', { windowStart: null, windowEnd: null, exactTime: null, priority: 'normal' });
+  });
+
+  /**
+   * RECUSA ASSÍNCRONA (herdado da suíte do "Add any dog", que saiu em 07/10/2026): a mensagem do banco
+   * aparece e o botão VOLTA a funcionar — o gestor tenta de novo sem reabrir a folha. É comportamento da
+   * folha de atribuição, não da adição manual; a cobertura mudou de casa com a remoção.
+   */
+  it('mostra a recusa do banco e libera o `Save stop` para tentar de novo', async () => {
+    let reject!: (error: Error) => void;
+    const pendente = new Promise<void>((_resolve, fail) => { reject = fail; });
+    const onAssign = jest.fn().mockImplementationOnce(() => pendente).mockResolvedValue(undefined);
+    const screen = await render(<DispatchBoard date="2026-09-09" drivers={drivers} dayItems={dayItems} routes={[]} {...noops} onAssign={onAssign} />);
+    await fireEvent.press(screen.getByRole('button', { name: 'Assign Bob' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Driver Rafael' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
+    expect(screen.getByRole('button', { name: 'Save stop' })).toBeDisabled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
+    expect(onAssign).toHaveBeenCalledTimes(1);
+    await act(async () => { reject(new Error('Network unavailable. Try again.')); await pendente.catch(() => {}); });
+    expect(screen.getByText('Network unavailable. Try again.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save stop' })).toBeEnabled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Save stop' }));
+    expect(onAssign).toHaveBeenLastCalledWith('dog-bob', 'driver-rafael', expect.anything());
+    expect(screen.queryByRole('button', { name: 'Save stop' })).toBeNull();
   });
 
   /**
