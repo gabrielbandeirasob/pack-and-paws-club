@@ -549,7 +549,7 @@ describe('CalendarConnectionCard', () => {
 
     await waitFor(() => expect(screen.getByTestId('google-calendar-cor-desconhecida')).toBeTruthy());
     expect(screen.getByText('From Google — color not recognized')).toBeTruthy();
-    expect(screen.getByText(/No service in this color — green is boarding, blue is daycare/)).toBeTruthy();
+    expect(screen.getByText(/No service in this color — green is boarding, blue or gray is daycare/)).toBeTruthy();
     // Sem cor o serviço é indefinido: nada de botão para gravar uma reserva sem `service_type`.
     expect(screen.queryByTestId('google-calendar-revisao')).toBeNull();
     expect(screen.queryByLabelText('Choose dog for Pietro')).toBeNull();

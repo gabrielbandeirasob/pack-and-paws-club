@@ -98,7 +98,7 @@ export function motivoDaRevisao(reason: ImportReviewItem['reason']): string {
   if (reason === 'unknown dog') return 'No dog with this name in the app — register the dog and sync again';
   if (reason === 'ambiguous dog') return 'More than one dog with this name — the app does not guess which one';
   if (reason === 'duplicate') return 'A booking like this already exists in the app';
-  if (reason === 'unrecognized color') return 'No service in this color — green is boarding, blue is daycare, purple is a changed day';
+  if (reason === 'unrecognized color') return 'No service in this color — green is boarding, blue or gray is daycare, purple is a changed day';
   if (reason === 'purple without schedule')
     return 'Purple is a changed day for a fixed-day dog — this dog has no weekly schedule in the app';
   // Único caso que sobra sem nome: título sem nome nenhum (o resto o escritório resolve cadastrando).
@@ -958,8 +958,8 @@ export function ReviewItems({ items, onChoose }: GoogleReviewState) {
             <View style={styles.revisao} testID="google-calendar-cor-desconhecida">
               <Text style={styles.revisaoTitulo}>From Google — color not recognized</Text>
               <Text style={styles.revisaoDica}>
-                Paint the event green (boarding), blue (daycare), purple (changed day) or red (cancel that day) in
-                Google Calendar and sync again. The app does not guess the service from the title.
+                Paint the event green (boarding), blue or gray (daycare), purple (changed day) or red (cancel that
+                day) in Google Calendar and sync again. The app does not guess the service from the title.
               </Text>
               {coresDesconhecidas.map((item) => (
                 <View key={`${item.eventId}:${item.parsed.dogName}`} style={styles.revisaoItem}>

@@ -101,7 +101,7 @@ it('abre os mesmos textos e itens do dia, e um segundo toque recolhe', async () 
   expect(list.getByText('From Google — color not recognized')).toBeTruthy();
   expect(list.getByText(/No dog with this name in the app — register the dog and sync again/)).toBeTruthy();
   expect(list.getByText(/A booking like this already exists in the app/)).toBeTruthy();
-  expect(list.getByText(/No service in this color — green is boarding, blue is daycare, purple is a changed day/)).toBeTruthy();
+  expect(list.getByText(/No service in this color — green is boarding, blue or gray is daycare, purple is a changed day/)).toBeTruthy();
   expect(list.queryByText('Tomorrow')).toBeNull();
   await fireEvent.press(screen.getByTestId('google-review-toggle'));
   expect(screen.queryByTestId('google-review-list')).toBeNull();

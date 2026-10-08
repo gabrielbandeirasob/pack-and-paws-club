@@ -24,7 +24,7 @@ import type { RemoteEvent } from '@/features/integrations/google/eventMarkers';
 const AZUL = '7';
 const VERDE = '2';
 const VERMELHO = '11';
-const CINZA = '8'; // Graphite — o app NÃO chuta serviço
+const CINZA = '8'; // Graphite (cinza) = DAYCARE desde 08/10/2026 (dono)
 const JANELA = { from: '2026-09-24', to: '2027-03-23' };
 
 const cao = (id: string, name: string): DogForImport => ({ id, name, clientName: 'Tutor' });
@@ -113,8 +113,15 @@ describe('importação — título com DOIS cães e cão fora do cadastro', () =
 });
 
 describe('importação — cores: desconhecida vira pendência, vermelha cancela', () => {
-  it('cor CINZA (pintada de propósito) NÃO é importada — review "unrecognized color"', () => {
+  it('cor CINZA importa como DAYCARE — (dono, 08/10/2026: "a cor cinza também é daycare")', () => {
     const plano = planCalendarImport([evento({ id: 'ev-cinza', colorId: CINZA })], [cao('d1', 'Pietro')], [], JANELA);
+    expect(cria(plano)).toHaveLength(1);
+    expect(cria(plano)[0]).toMatchObject({ dogId: 'd1', parsed: { serviceType: 'daycare' } });
+    expect(revisoes(plano)).toHaveLength(0);
+  });
+
+  it('cor de laranja (id 6) continua "unrecognized color" — o app não chuta', () => {
+    const plano = planCalendarImport([evento({ id: 'ev-laranja', colorId: '6' })], [cao('d1', 'Pietro')], [], JANELA);
     expect(cria(plano)).toHaveLength(0);
     expect(revisoes(plano)[0]).toMatchObject({ reason: 'unrecognized color' });
   });

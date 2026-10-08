@@ -25,8 +25,12 @@
  * traz `colorId` nenhum. O mapa antigo continua valendo como **fallback** (evento sem etiqueta, ou
  * etiqueta que não está na lista do calendário — lá o `colorId` legado ainda diz o serviço).
  *
- * O que NÃO é mapeado (amarelo, laranja, marrom, cinza, rosa/magenta — e qualquer tom fora de
- * verde/azul-roxo/vermelho) e o evento SEM cor não viram serviço nenhum: o app não chuta — o evento
+ * O **CINZA** é DAYCARE (dono, 08/10/2026): *"quero que a cor cinza também seja reconhecida como
+ * daycare"* — vale para o `colorId` 8 (Graphite) e para a etiqueta **acromática** da paleta nova, que
+ * chega só como hex e por isso não tem tom nenhum (ver `ehCinza`).
+ *
+ * O que NÃO é mapeado (laranja, rosa/magenta — e qualquer tom fora de verde/amarelo/azul-roxo/vermelho
+ * que não seja acromático) e o evento SEM cor não viram serviço nenhum: o app não chuta — o evento
  * entra na lista "color not recognized" do cartão, que agora **mostra o que foi lido** (nome da
  * etiqueta + hex + `colorId` legado) para o escritório pintar e o suporte não adivinhar.
  */
@@ -49,8 +53,8 @@ export type ColorMeaning =
   | { kind: 'out_of_hours' };
 
 /**
- * Ids da paleta do Google que o app reconhece. Verde = boarding, azul = daycare, **roxo = alteração de
- * dia (cliente de dia fixo)**, vermelho = cancelar.
+ * Ids da paleta do Google que o app reconhece. Verde = boarding, azul **e cinza** = daycare, **roxo =
+ * alteração de dia (cliente de dia fixo)**, vermelho = cancelar.
  *
  * Os ids `1` (Lavender — lavanda, azul-claro, tom ≈ 223°) e `7`/`9` (azuis) ficam em daycare; o id `3`
  * (Grape — "uva", roxo, tom ≈ 288°) entrou em `schedule_change` na decisão do dono de 24/09/2026:
@@ -61,7 +65,10 @@ export const GOOGLE_COLOR_IDS = {
   // 2 Sage (verde), 10 Basil (verde) e **5 Banana (amarelo)** — o dono confirmou em 27/09/2026:
   // *"a cor amarela e os tons que lembram ela é boarding"*.
   boarding: ['2', '5', '10'],
-  daycare: ['1', '7', '9'],
+  // 8 Graphite (cinza) entrou aqui em 08/10/2026 (dono): *"quero que a cor cinza também seja
+  // reconhecida como daycare"*. É o MESMO critério da etiqueta: o acromático (ver `ehCinza`), que na
+  // escrita do app continua sendo Peacock (`COLOR_OF_SERVICE.daycare`).
+  daycare: ['1', '7', '8', '9'],
   schedule_change: ['3'],
   // 11 Tomato e **4 Flamingo** (vermelho brando): o dono confirmou em 27/09/2026 que *"vermelho é
   // cancelamento mesmo"*, e o levantamento do calendario dele lista Flamingo entre os vermelhos de
@@ -196,7 +203,8 @@ export type EventLabel = {
  * O teto em 300° é de propósito: daí para cima já é rosa/magenta (o magenta puro #ff00ff dá exatamente
  * 300° e fica FORA), que o dono não citou.
  * Fora disso o app NÃO chuta serviço: **laranja/marrom entre 12° e 35°** (Tangerine #f4511e ≈ 14,
- * Pumpkin #ef6c00 ≈ 27, Cocoa #795548 ≈ 16, Birch #a79b8e ≈ 31 — este é bege), rosa/magenta e cinza.
+ * Pumpkin #ef6c00 ≈ 27, Cocoa #795548 ≈ 16, Birch #a79b8e ≈ 31 — este é bege) e rosa/magenta. O
+ * **CINZA** saiu desta lista em 08/10/2026: o acromático é daycare (ver `ehCinza`).
  * O limite do vermelho é estreito de propósito: laranja não cancela. O do amarelo também: quem está
  * entre 12° e 35° é laranja, não amarelo — se o escritório disser que laranja também é boarding, é só
  * baixar `TOM_AMARELO.de`.
@@ -233,16 +241,31 @@ export function serviceTypeOfMeaning(meaning: ColorMeaning | null | undefined): 
 const SATURACAO_MINIMA = 0.08;
 
 /**
- * Tom (matiz) em graus de um hex (`#RRGGBB` ou `#RGB`). `null` = sem tom legível (cinza, branco,
- * preto ou hex inválido) — melhor dizer "não reconhecida" do que inventar serviço.
+ * Canais (R, G, B) de um hex em 0..1, aceitando `#RRGGBB`, `#RGB` ou sem `#`. `null` = hex inválido.
+ * É a leitura crua que `hueOfHex` (tom) e `ehCinza` (acromático) compartilham.
  */
-export function hueOfHex(hex?: string | null): number | null {
+function canaisDeHex(hex?: string | null): { r: number; g: number; b: number } | null {
   const bruto = limpo(hex)?.replace(/^#/, '') ?? '';
   const completo = bruto.length === 3 ? bruto.split('').map((c) => c + c).join('') : bruto;
   if (!/^[0-9a-fA-F]{6}$/.test(completo)) return null;
-  const r = parseInt(completo.slice(0, 2), 16) / 255;
-  const g = parseInt(completo.slice(2, 4), 16) / 255;
-  const b = parseInt(completo.slice(4, 6), 16) / 255;
+  return {
+    r: parseInt(completo.slice(0, 2), 16) / 255,
+    g: parseInt(completo.slice(2, 4), 16) / 255,
+    b: parseInt(completo.slice(4, 6), 16) / 255,
+  };
+}
+
+/**
+ * Tom (matiz) em graus de um hex (`#RRGGBB` ou `#RGB`). `null` = sem tom legível (cinza, branco,
+ * preto ou hex inválido) — melhor dizer "não reconhecida" do que inventar serviço.
+ *
+ * Obs.: o CINZA continua sem tom nenhum (é o que este `null` diz). O que mudou em 08/10/2026 é o
+ * SIGNIFICADO dele: quem traduz a cor passa pelo cinza ANTES do tom (ver `ehCinza`).
+ */
+export function hueOfHex(hex?: string | null): number | null {
+  const canais = canaisDeHex(hex);
+  if (!canais) return null;
+  const { r, g, b } = canais;
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
   const delta = max - min;
@@ -254,12 +277,43 @@ export function hueOfHex(hex?: string | null): number | null {
   return tom < 0 ? tom + 360 : tom;
 }
 
-/** Traduz o HEX de uma etiqueta pelo TOM. `null` = tom fora de verde/azul/roxo/vermelho (não se chuta). */
+/** Piso da faixa do cinza: abaixo disso é quase PRETO (não é o cinza do escritório). */
+const CINZA_MAX_ESCURO = 0.1;
+/** Teto da faixa do cinza: acima disso é quase BRANCO (e "branco" no Google é o evento SEM cor). */
+const CINZA_MAX_CLARO = 0.97;
+
+/**
+ * O hex é **CINZA** (acromático)? — dono, 08/10/2026: *"quero que a cor cinza também seja reconhecida
+ * como daycare"*.
+ *
+ * O corte é o **CROMA** (`delta / max`, o MESMO `SATURACAO_MINIMA` que faz `hueOfHex` devolver `null`),
+ * e não a luminosidade: o cinza que o escritório usa é o acromático da faixa média (Graphite
+ * `#808080`/`#e1e1e1`, `#616161`). Ficam de FORA os extremos: quase branco (`> 0.97`) e quase preto
+ * (`<= 0.10`) — no Google o branco quer dizer "sem cor" (que já é daycare por outra regra) e o preto
+ * não é cor que o escritório use; melhor seguir "cor não reconhecida" do que inventar serviço.
+ */
+export function ehCinza(hex?: string | null): boolean {
+  const canais = canaisDeHex(hex);
+  if (!canais) return false;
+  const max = Math.max(canais.r, canais.g, canais.b);
+  const min = Math.min(canais.r, canais.g, canais.b);
+  // Preto puro: `max` é 0 e a divisão pelo croma não existe — o teste da faixa abaixo já o rejeita.
+  if (max > 0 && (max - min) / max >= SATURACAO_MINIMA) return false;
+  return max > CINZA_MAX_ESCURO && max < CINZA_MAX_CLARO;
+}
+
+/**
+ * Traduz o HEX de uma etiqueta em significado: **CINZA = daycare** (acromático), depois o TOM — verde/
+ * amarelo = boarding, azul/roxo = daycare, roxo profundo = alteração de dia, vermelho = cancelar.
+ * `null` = cor fora do mapa (não se chuta).
+ */
 export function meaningOfLabelColor(hex?: string | null): ColorMeaning | null {
   // COCOA (marrom) PRIMEIRO: o tom dele (~16°) cai na faixa do laranja/bege, e por tom não dá para
   // separá-lo de Tangerine/Pumpkin/Birch — o dono disse (28/09/2026) que cocoa é o marrom dele, então
   // a cor é reconhecida pelo HEX exato da paleta.
   if ((limpo(hex)?.toLowerCase() ?? '') === HEX_COCOA) return { kind: 'out_of_hours' };
+  // CINZA = day care (dono, 08/10/2026) — vem ANTES do tom porque o acromático não tem tom nenhum.
+  if (ehCinza(hex)) return { kind: 'service', serviceType: 'daycare' };
   const tom = hueOfHex(hex);
   if (tom === null) return null;
   if (tom >= TOM_AMARELO.de && tom < TOM_AMARELO.ate) return { kind: 'service', serviceType: 'boarding' };
@@ -311,6 +365,10 @@ export function labelForService(labels: EventLabel[] | null | undefined, service
       // Hospedagem: a etiqueta do tom AMARELO (avocado/banana) é do dia de CHEGADA/SAÍDA, não da estadia
       // — quem a usa é `labelForMovimento`. Sem este corte, o dia de estadia saía avocado (dono, 28/09/2026).
       if (serviceType === 'boarding' && tomDeMovimento(label.backgroundColor)) return false;
+      // O CINZA é regra de LEITURA (o escritório pinta cinza = daycare), não cor de escrita: quem pinta
+      // o daycare do app continua sendo o AZUL (`COLOR_OF_SERVICE.daycare` = Peacock). Sem este corte a
+      // etiqueta cinza, sendo a de menor id, viraria a cor com que o app pinta daycare.
+      if (serviceType === 'daycare' && ehCinza(label.backgroundColor)) return false;
       return true;
     })
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -351,8 +409,8 @@ export function readEventColor(
   const lido = etiqueta ? meaningOfLabelColor(etiqueta.backgroundColor) : meaningOfColor(colorId);
   // SEM COR NENHUMA = day care (dono, 28/09/2026): *"as cores de Daycare é a cor chamada default do
   // Google calendario ou Peacock"* — o escritório não pinta os dias de day care, deixa no padrão.
-  // Só vale quando não há cor alguma: etiqueta de cor desconhecida (cinza, rosa) continua "não
-  // reconhecida", porque aí o escritório pintou de propósito.
+  // Só vale quando não há cor alguma: etiqueta de cor desconhecida (laranja, rosa/magenta) continua
+  // "não reconhecida", porque aí o escritório pintou de propósito.
   const semNada = !labelId && !colorId;
   const significado = lido ?? (semNada ? { kind: 'service' as const, serviceType: 'daycare' as const } : null);
   return {

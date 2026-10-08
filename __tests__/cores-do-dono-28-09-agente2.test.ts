@@ -46,7 +46,8 @@ describe('evento SEM COR = day care (a cor "default" do Google)', () => {
   });
 
   it('cor pintada e desconhecida continua na lista de revisão (o escritório pintou de propósito)', () => {
-    const lido = readEventColor({ eventLabelId: 'lab-cinza' }, [{ id: 'lab-cinza', name: 'Graphite', backgroundColor: '#808080' }]);
+    // O CINZA saiu desta lista em 08/10/2026 (virou daycare): quem continua desconhecido é o rosa/vinho.
+    const lido = readEventColor({ eventLabelId: 'lab-rosa' }, [{ id: 'lab-rosa', name: 'Rosa', backgroundColor: '#ad1457' }]);
     expect(lido.meaning).toBeNull();
   });
 });

@@ -41,7 +41,7 @@ describe('TOM da cor -> servico (o caso real: azul Cobalto = daycare)', () => {
     ['#e67c73', 'Tomate (vermelho)', 'cancel'],
     ['#fbd75b', 'Banana (amarelo) -> boarding', 'boarding'],
     ['#ff7537', 'Tangerina (laranja)', null],
-    ['#e1e1e1', 'Grafite (cinza)', null],
+    ['#e1e1e1', 'Grafite (cinza) -> daycare (dono, 08/10/2026)', 'daycare'],
     ['', 'vazio', null],
     ['#zzzzzz', 'hex invalido', null],
   ];

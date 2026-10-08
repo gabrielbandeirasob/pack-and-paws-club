@@ -17,8 +17,10 @@
  *     TOM do hex — o "Cobalto" #4A86E8 do cliente) manda, e o `colorId` legado (1..11) e o fallback
  *     (ver `features/calendar/googleColors`). **Sem cor NENHUMA = day care** (palavra do dono,
  *     28/09/2026: "as cores de Daycare e a cor chamada default do Google calendario ou Peacock");
- *     cor pintada que o app nao conhece (cinza, rosa, laranja) continua indo para
- *     "color not recognized" — ai o escritorio pintou de proposito. **Cocoa (marrom) = fora do horario
+ *     cor pintada que o app nao conhece (rosa, laranja) continua indo para
+ *     "color not recognized" — ai o escritorio pintou de proposito. **CINZA = day care** (dono,
+ *     08/10/2026: *"quero que a cor cinza também seja reconhecida como daycare"*): vale para a etiqueta
+ *     acromatica (hex sem tom, ex.: Graphite #808080) e para o `colorId` 8. **Cocoa (marrom) = fora do horario
  *     de funcionamento**: o cao conta no dia (lista de day care) mas NAO pede van (o administrador
  *     busca/entrega).
  *  4. O vinculo com o Google e por EVENTO (`googleEventId`), nunca por nome: o segundo Sync nao cria
