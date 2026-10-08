@@ -31,6 +31,8 @@ type GoogleEventResource = {
   /** Etiqueta de cor do evento (paleta NOVA). */
   eventLabelId?: string;
   recurrence?: string[];
+  /** Organizador do evento — último recurso para a origem da agenda (ver `RemoteEvent`). */
+  organizer?: { email?: string };
   extendedProperties?: { private?: Record<string, string> };
 };
 
@@ -77,6 +79,7 @@ export function parseEvent(resource: GoogleEventResource): RemoteEvent {
     // Paleta NOVA: a etiqueta já faz parte do recurso Event devolvido pela leitura.
     eventLabelId: resource.eventLabelId ?? null,
     recurrence: resource.recurrence ?? null,
+    organizerEmail: resource.organizer?.email?.trim() || null,
   };
 }
 

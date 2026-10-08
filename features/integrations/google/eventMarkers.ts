@@ -65,4 +65,14 @@ export type RemoteEvent = {
    */
   eventLabelId?: string | null;
   recurrence?: string[] | null;
+  /**
+   * E-mail do ORGANIZADOR do evento (`organizer.email`).
+   *
+   * Existe por um motivo só (08/10/2026): quando a importação não consegue identificar a agenda
+   * escolhida (`calendarIdDaOrigem` falha — token sem o escopo de calendário, rede), a reserva que
+   * nascia ficava SEM origem e continuava protegida contra cancelamento automático para sempre (linha
+   * "presa", que o vermelho não conseguia tirar). O organizador dos eventos lidos é o último recurso
+   * para saber de QUE agenda veio — a regra está em `importService.organizadorDoLote`.
+   */
+  organizerEmail?: string | null;
 };

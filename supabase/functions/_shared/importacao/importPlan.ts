@@ -495,45 +495,64 @@ function cobreODia(item: BookingForImport, date: string): boolean {
 }
 
 /**
- * O que o evento VERMELHO cancela: a reserva daquele cão NAQUELE dia, se existir.
+ * O que o evento VERMELHO cancela: **tudo** o que mantém aquele cão naquele dia.
  *
- * Ordem: o que já está ligado ao evento (o vínculo manda), depois uma reserva avulsa que cobre o dia
- * e, por último, uma série ativa que cai naquele dia. Quando o alvo é uma SÉRIE — ligada ou não — o
- * certo é PULAR o dia (uma exceção `skip`, a mesma que a tela do app usa): desativar a escala inteira
- * por causa de um dia marcado de vermelho destruiria o agendamento do cliente.
+ * Ordem: o que já está ligado ao evento (o vínculo manda) e — SEM parar por causa dele — todas as
+ * outras reservas CONFIRMADAS daquele cão que cobrem o dia e toda série ATIVA que cai no dia. Quando o
+ * alvo é uma SÉRIE, ligada ou não, o certo é PULAR o dia (uma exceção `skip`, a mesma que a tela do app
+ * usa): desativar a escala inteira por causa de um dia marcado de vermelho destruiria o agendamento do
+ * cliente.
+ *
+ * ⚠️ Medido em 08/10/2026 (queixa do dono: *"marquei de vermelho para cancelar e continuo ativo"*): o
+ * Mowgli tinha TRÊS reservas no mesmo dia; o vínculo do evento vermelho apontava para uma delas **já
+ * cancelada** e a função antiga parava ali (`return null`), deixando outra linha confirmada segurando o
+ * cão no dia. O mesmo valia para linhas duplicadas da importação antiga. Por isso a varredura não para
+ * no vínculo: **linha já cancelada não protege o resto**. Cada alvo sai UMA vez (dedup por id).
+ *
  * Nada encontrado = nada a fazer (o escritório marcou vermelho num dia sem agendamento).
  */
-function alvoDoCancelamento(
+function alvosDoCancelamento(
   eventId: string,
   ligada: BookingForImport | null,
   dogId: string | null,
   date: string,
   reservations: BookingForImport[],
-): ImportOutcome | null {
+): ImportOutcome[] {
+  const alvos: ImportOutcome[] = [];
+  const usados = new Set<string>();
+  const cancelar = (item: BookingForImport): void => {
+    usados.add(item.id);
+    alvos.push({ kind: 'cancel', eventId, bookingKind: item.kind, bookingId: item.id });
+  };
+  const pular = (item: BookingForImport): void => {
+    usados.add(item.id);
+    alvos.push({ kind: 'skip', eventId, scheduleId: item.id, date });
+  };
+
   if (ligada) {
     if (ligada.kind === 'recurring') {
-      return (ligada.skipDates ?? []).includes(date) ? null : { kind: 'skip', eventId, scheduleId: ligada.id, date };
+      if (!(ligada.skipDates ?? []).includes(date)) pular(ligada);
+    } else if (ligada.status !== 'cancelled') {
+      cancelar(ligada);
     }
-    return ligada.status === 'cancelled' ? null : { kind: 'cancel', eventId, bookingKind: ligada.kind, bookingId: ligada.id };
+    // O vínculo NÃO encerra a busca: uma linha já cancelada não pode segurar o resto (ver o ⚠️).
   }
-  if (!dogId) return null;
+  if (!dogId) return alvos;
 
-  const avulsa = reservations.find(
-    (item) => item.kind === 'reservation' && item.dogId === dogId && item.status === 'confirmed' && cobreODia(item, date),
-  );
-  if (avulsa) return { kind: 'cancel', eventId, bookingKind: 'reservation', bookingId: avulsa.id };
-
-  const serie = reservations.find(
-    (item) =>
+  for (const item of reservations) {
+    if (usados.has(item.id) || item.dogId !== dogId) continue;
+    if (item.kind === 'reservation' && item.status === 'confirmed' && cobreODia(item, date)) cancelar(item);
+    if (
       item.kind === 'recurring' &&
-      item.dogId === dogId &&
       item.status === 'active' &&
       cobreODia(item, date) &&
-      !(item.skipDates ?? []).includes(date),
-  );
-  if (serie) return { kind: 'skip', eventId, scheduleId: serie.id, date };
+      !(item.skipDates ?? []).includes(date)
+    ) {
+      pular(item);
+    }
+  }
 
-  return null;
+  return alvos;
 }
 
 /**
@@ -783,10 +802,9 @@ export function planCalendarImport(
       // 6. Evento VERMELHO = cancelamento do dia daquele cão.
       if (cor.kind === 'cancel') {
         vistos.add(evento.id);
-        const alvo2 = alvoDoCancelamento(evento.id, ligada, dogDoTitulo, evento.startDate, reservations);
-        if (alvo2) {
-          resultados.push(alvo2);
-        } else if (!dogDoTitulo) {
+        const alvos = alvosDoCancelamento(evento.id, ligada, dogDoTitulo, evento.startDate, reservations);
+        for (const alvo of alvos) resultados.push(alvo);
+        if (alvos.length === 0 && !dogDoTitulo) {
           // Não há o que cancelar E o cão não está no cadastro: o escritório precisa saber disso.
           resultados.push({
             kind: 'review',
