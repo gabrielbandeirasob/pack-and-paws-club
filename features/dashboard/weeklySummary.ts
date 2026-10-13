@@ -16,11 +16,22 @@
  * Domingo agora ABRE a semana (antes ele fechava a anterior); a semana fecha no sábado.
  *
  * Tudo puro aqui: a tela só carrega os dados e chama estas funções (mesma conta do calendário).
+ *
+ * ⚠️ **CANCELADO ENTROU EM 13/10/2026** — pedido do dono: *"quero que quando esteja vermelho do Google
+ * calendário cancele como já fazia antes mas agora apareça no weekly summary que foi cancelado"*. O dia
+ * cancelado (ver `cancelledDays`) aparece na lista daquele cão marcado como cancelado, e NÃO conta como
+ * visita: "dogs this week"/"visits in total" continuam sendo quem veio.
  */
 import { addDaysISO, shortWeekday, weekdayOfISO } from '@/features/calendar/dates';
 import type { DayDog } from './dayOperation';
+import type { CancelledVisit } from './cancelledDays';
 
-export type WeekDogDay = { date: string; serviceType: 'daycare' | 'boarding' };
+export type WeekDogDay = {
+  date: string;
+  serviceType: 'daycare' | 'boarding';
+  /** O dia foi CANCELADO (vermelho no Google / "Day cancelled" no calendário): o cão não veio. */
+  cancelled?: boolean;
+};
 
 export type WeekDog = {
   dogId: string;
@@ -43,6 +54,10 @@ export type WeeklySummary = {
   totalDogDays: number;
   /** Quantos cães vieram em cada dia (mesma ordem de `days`). */
   perDay: number[];
+  /** Quantos dias foram CANCELADOS no total (cão × dia) — os que o vermelho do Google tirou. */
+  cancelledDogDays: number;
+  /** Quantos dias foram cancelados em cada dia da semana (mesma ordem de `days`). */
+  perDayCancelled: number[];
 };
 
 const LONG_MONTHS = [
@@ -101,28 +116,48 @@ export function weekLabel(from: string, to: string): string {
  *
  * Ordem: cães por nome (é uma lista de conferência, o gestor procura pelo nome) e, dentro do cão,
  * os dias por data. Serviço repetido no mesmo dia não duplica.
+ *
+ * `cancelledByDay` (opcional; quem monta é `cancelledDays.cancelledVisitsOfDay`) acrescenta os dias
+ * cancelados na lista do cão. Cão que teve TODOS os dias da semana cancelados aparece na lista mesmo
+ * assim — é justamente o que o gestor quer conferir depois —, com os dias marcados como cancelados.
+ * Se o cão está confirmado E cancelado no mesmo dia (o escritório repintou o evento e a rodada trouxe o
+ * cão de volta), vale o que o banco diz HOJE: quem veio, veio, e o dia não é cancelado.
  */
-export function buildWeeklySummary(days: string[], dogsByDay: Record<string, DayDog[]>): WeeklySummary {
+export function buildWeeklySummary(
+  days: string[],
+  dogsByDay: Record<string, DayDog[]>,
+  cancelledByDay: Record<string, CancelledVisit[]> = {},
+): WeeklySummary {
   const porCao = new Map<string, WeekDog>();
   const perDay: number[] = [];
+  const perDayCancelled: number[] = [];
+
+  const entrar = (
+    cao: { dogId: string; dogName: string; clientName: string },
+    dia: string,
+    serviceType: 'daycare' | 'boarding',
+    cancelled: boolean,
+  ): void => {
+    const visita: WeekDogDay = { date: dia, serviceType, ...(cancelled ? { cancelled: true } : {}) };
+    const atual = porCao.get(cao.dogId);
+    if (atual) {
+      if (!atual.days.some((item) => item.date === dia)) atual.days.push(visita);
+      return;
+    }
+    porCao.set(cao.dogId, { dogId: cao.dogId, dogName: cao.dogName, clientName: cao.clientName, days: [visita] });
+  };
 
   for (const dia of days) {
     const caes = dogsByDay[dia] ?? [];
     perDay.push(caes.length);
-    for (const cao of caes) {
-      const atual = porCao.get(cao.dogId);
-      if (atual) {
-        if (!atual.days.some((item) => item.date === dia)) {
-          atual.days.push({ date: dia, serviceType: cao.serviceType });
-        }
-      } else {
-        porCao.set(cao.dogId, {
-          dogId: cao.dogId,
-          dogName: cao.dogName,
-          clientName: cao.clientName,
-          days: [{ date: dia, serviceType: cao.serviceType }],
-        });
-      }
+    for (const cao of caes) entrar(cao, dia, cao.serviceType, false);
+
+    // Cancelado NÃO conta como visita — e o cancelamento de um cão que já está confirmado no mesmo dia
+    // é descartado (quem veio, veio).
+    const cancelados = (cancelledByDay[dia] ?? []).filter((cao) => !caes.some((item) => item.dogId === cao.dogId));
+    perDayCancelled.push(cancelados.length);
+    for (const cao of cancelados) {
+      entrar(cao, dia, cao.serviceType, true);
     }
   }
 
@@ -135,8 +170,12 @@ export function buildWeeklySummary(days: string[], dogsByDay: Record<string, Day
     to: days[days.length - 1] ?? '',
     days,
     dogs,
-    totalDogs: dogs.length,
-    totalDogDays: dogs.reduce((soma, cao) => soma + cao.days.length, 0),
+    // "dogs this week" e "visits in total" são QUEM VEIO. Um cão que só teve dia cancelado aparece na
+    // lista (é o que o gestor quer conferir) mas não inventa visita: ele conta em `cancelledDogDays`.
+    totalDogs: dogs.filter((cao) => cao.days.some((dia) => !dia.cancelled)).length,
+    totalDogDays: dogs.reduce((soma, cao) => soma + cao.days.filter((dia) => !dia.cancelled).length, 0),
     perDay,
+    cancelledDogDays: dogs.reduce((soma, cao) => soma + cao.days.filter((dia) => dia.cancelled).length, 0),
+    perDayCancelled,
   };
 }

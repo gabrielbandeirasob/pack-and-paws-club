@@ -15,6 +15,7 @@ import {
   type ReservationRecord,
 } from '@/features/calendar/dayMath';
 import { dogsOfDay, limparTexto, TODO_TEXTO_MAX, type DailyTodo, type DayDog, type PackEntry } from './dayOperation';
+import { cancelledVisitsOfDay, type CancelledVisit } from './cancelledDays';
 
 /**
  * TRAVA DO DIA DA OPERAÇÃO (migração 202610020050) — o app do gestor fala a MESMA língua do banco.
@@ -213,6 +214,7 @@ export async function setPackWalker(
 
 type ReservationRow = {
   id: string;
+  status?: 'confirmed' | 'cancelled';
   service_type: 'daycare' | 'boarding';
   start_date: string;
   end_date: string;
@@ -229,7 +231,16 @@ type RecurringRow = {
   transport_required: boolean;
   dog: { id: string; name: string; client: { name: string } };
 };
-type ExceptionRow = { id: string; recurring_schedule_id: string; action: 'skip' | 'transport_on' | 'transport_off'; start_date: string; end_date: string };
+type ExceptionRow = {
+  id: string;
+  recurring_schedule_id: string;
+  action: 'skip' | 'extra' | 'transport_on' | 'transport_off';
+  start_date: string;
+  end_date: string;
+  /** O motivo da pausa: é ele que separa o cancelamento do Google ('Cancelled in Google Calendar') da
+   *  folga marcada no app ('Skipped on this date') — ver `cancelledDays`. */
+  reason?: string | null;
+};
 
 /**
  * Os cães de um dia (daycare + boarding) — é o que alimenta os 5 indicadores, o pack e o histórico.
@@ -261,26 +272,33 @@ export async function loadDayDogs(client: SupabaseClient, organizationId: string
 }
 
 /**
- * Os cães de VÁRIOS dias de uma vez (o resumo da semana, 27/09/2026) — três consultas em vez de
- * três por dia, e a mesma conta do calendário por dia (`buildDay`).
+ * A SEMANA inteira numa consulta (o resumo semanal, 27/09/2026) — três consultas em vez de três por
+ * dia, e a mesma conta do calendário por dia (`buildDay`).
  *
  * As reservas são as que CRUZAM o período (começa antes do fim e termina depois do começo): uma
  * hospedagem de dez dias precisa aparecer em cada um deles.
+ *
+ * Devolve DUAS listas por dia:
+ *  - `dogsByDay` — quem VEIO (o resumo de sempre, só reservas confirmadas);
+ *  - `cancelledByDay` — quem foi CANCELADO naquele dia (pedido do dono, 13/10/2026: o vermelho do
+ *    Google cancela como sempre cancelou, mas agora aparece no resumo da semana). Por isso a consulta
+ *    passou a trazer `status = 'cancelled'` também: essas linhas NÃO entram no dia (`buildDay` as
+ *    ignora) e servem só para marcar o cancelamento na semana.
  */
-export async function loadWeekDogs(
+export async function loadWeek(
   client: SupabaseClient,
   organizationId: string,
   isoDays: string[],
-): Promise<Record<string, DayDog[]>> {
-  if (isoDays.length === 0) return {};
+): Promise<{ dogsByDay: Record<string, DayDog[]>; cancelledByDay: Record<string, CancelledVisit[]> }> {
+  if (isoDays.length === 0) return { dogsByDay: {}, cancelledByDay: {} };
   const inicio = isoDays[0];
   const fim = isoDays[isoDays.length - 1];
   const [reservas, series, excecoes] = await Promise.all([
     client
       .from('reservations')
-      .select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))')
+      .select('id, status, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
-      .eq('status', 'confirmed')
+      .in('status', ['confirmed', 'cancelled'])
       .lte('start_date', fim)
       .gte('end_date', inicio),
     client
@@ -289,15 +307,20 @@ export async function loadWeekDogs(
       .eq('organization_id', organizationId)
       .eq('active', true)
       .lte('start_date', fim),
-    client.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', organizationId),
+    client.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', organizationId),
   ]);
   const erro = reservas.error ?? series.error ?? excecoes.error;
   if (erro) throw new Error(erro.message);
 
   const registros = paraRegistros(reservas.data, series.data, excecoes.data);
-  return Object.fromEntries(
-    isoDays.map((dia) => [dia, dogsOfDaySummary(buildDay(dia, registros.reservas, registros.series, registros.excecoes))]),
-  );
+  return {
+    dogsByDay: Object.fromEntries(
+      isoDays.map((dia) => [dia, dogsOfDaySummary(buildDay(dia, registros.reservas, registros.series, registros.excecoes))]),
+    ),
+    cancelledByDay: Object.fromEntries(
+      isoDays.map((dia) => [dia, cancelledVisitsOfDay(dia, registros.reservas, registros.series, registros.excecoes)]),
+    ),
+  };
 }
 
 /** Linhas do banco -> registros que `buildDay` entende (o dia e a semana passam por aqui). */
@@ -308,6 +331,9 @@ function paraRegistros(
 ): { reservas: ReservationRecord[]; series: RecurringScheduleRecord[]; excecoes: RecurringExceptionRecord[] } {
   const reservasMapeadas: ReservationRecord[] = ((reservas as ReservationRow[] | null) ?? []).map((row) => ({
     id: row.id,
+    // Reserva antiga (ou consulta antiga) sem a coluna lida continua sendo confirmada: quem filtra por
+    // `confirmed` no banco é a tela do dia; aqui a linha cancelada é justamente a que interessa.
+    status: row.status ?? 'confirmed',
     dog: { id: row.dog.id, dogName: row.dog.name, clientName: row.dog.client.name },
     serviceType: row.service_type,
     startDate: row.start_date,
@@ -331,6 +357,7 @@ function paraRegistros(
     action: row.action,
     startDate: row.start_date,
     endDate: row.end_date,
+    reason: row.reason ?? null,
   }));
   return { reservas: reservasMapeadas, series: seriesMapeadas, excecoes: excecoesMapeadas };
 }

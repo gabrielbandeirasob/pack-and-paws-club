@@ -130,3 +130,79 @@ describe('buildWeeklySummary', () => {
     expect(resumo.perDay).toEqual([0, 0, 0, 0, 0, 0, 0]);
   });
 });
+
+/**
+ * DIA CANCELADO (pedido do dono, 13/10/2026): *"quero que quando esteja vermelho do Google calendário
+ * cancele como já fazia antes mas agora apareça no weekly summary que foi cancelado"*.
+ *
+ * Quem monta a lista de cancelados é `cancelledDays.cancelledVisitsOfDay` (provado no arquivo
+ * `dia-cancelado-na-semana`); aqui se prova o que o resumo FAZ com ela: o dia aparece no cartão do cão
+ * marcado como cancelado e **não** conta como visita.
+ */
+describe('buildWeeklySummary — dia cancelado pelo vermelho do Google', () => {
+  const dias = weekDays('2026-09-23');
+  const mowgliVeio = { dogId: 'mowgli', dogName: 'Mowgli', clientName: 'Leigh Ann', serviceType: 'daycare' as const };
+  const lunaVeio = { dogId: 'luna', dogName: 'Luna', clientName: 'Ana', serviceType: 'daycare' as const };
+  const mowgliCancelado = { dogId: 'mowgli', dogName: 'Mowgli', clientName: 'Leigh Ann', serviceType: 'daycare' as const };
+  const zeroCancelados = [0, 0, 0, 0, 0, 0, 0];
+
+  it('marca o dia cancelado no cartão do cão e não conta como visita', () => {
+    const resumo = buildWeeklySummary(dias, { '2026-09-21': [lunaVeio] }, { '2026-09-23': [mowgliCancelado] });
+
+    expect(resumo.dogs.map((cao) => cao.dogName)).toEqual(['Luna', 'Mowgli']);
+    expect(resumo.dogs[1].days).toEqual([{ date: '2026-09-23', serviceType: 'daycare', cancelled: true }]);
+    // "dogs this week"/"visits in total" são quem veio; o cancelado conta separado.
+    expect(resumo.totalDogs).toBe(1);
+    expect(resumo.totalDogDays).toBe(1);
+    expect(resumo.cancelledDogDays).toBe(1);
+    expect(resumo.perDay).toEqual([0, 1, 0, 0, 0, 0, 0]);
+    expect(resumo.perDayCancelled).toEqual([0, 0, 0, 1, 0, 0, 0]);
+  });
+
+  it('cão que só teve dia cancelado na semana aparece na lista (é o que o gestor quer conferir)', () => {
+    const resumo = buildWeeklySummary(dias, {}, { '2026-09-25': [mowgliCancelado] });
+
+    expect(resumo.dogs).toHaveLength(1);
+    expect(resumo.dogs[0].days).toEqual([{ date: '2026-09-25', serviceType: 'daycare', cancelled: true }]);
+    expect(resumo.totalDogs).toBe(0);
+    expect(resumo.totalDogDays).toBe(0);
+    expect(resumo.cancelledDogDays).toBe(1);
+  });
+
+  it('cancelado num dia e confirmado noutro: os dois convivem no mesmo cartão', () => {
+    const resumo = buildWeeklySummary(
+      dias,
+      { '2026-09-21': [mowgliVeio] },
+      { '2026-09-23': [mowgliCancelado] },
+    );
+
+    expect(resumo.dogs).toHaveLength(1);
+    expect(resumo.dogs[0].days).toEqual([
+      { date: '2026-09-21', serviceType: 'daycare' },
+      { date: '2026-09-23', serviceType: 'daycare', cancelled: true },
+    ]);
+    expect(resumo.totalDogDays).toBe(1);
+    expect(resumo.cancelledDogDays).toBe(1);
+  });
+
+  it('confirmado E cancelado no MESMO dia vale quem veio (o escritório repintou o evento)', () => {
+    const resumo = buildWeeklySummary(
+      dias,
+      { '2026-09-21': [mowgliVeio] },
+      { '2026-09-21': [mowgliCancelado] },
+    );
+
+    expect(resumo.dogs[0].days).toEqual([{ date: '2026-09-21', serviceType: 'daycare' }]);
+    expect(resumo.totalDogDays).toBe(1);
+    expect(resumo.cancelledDogDays).toBe(0);
+    expect(resumo.perDayCancelled).toEqual(zeroCancelados);
+  });
+
+  it('sem cancelamento nenhum, o resumo é o de sempre (zeros, não campos ausentes)', () => {
+    const resumo = buildWeeklySummary(dias, { '2026-09-21': [lunaVeio] });
+
+    expect(resumo.cancelledDogDays).toBe(0);
+    expect(resumo.perDayCancelled).toEqual(zeroCancelados);
+    expect(resumo.dogs[0].days).toEqual([{ date: '2026-09-21', serviceType: 'daycare' }]);
+  });
+});
