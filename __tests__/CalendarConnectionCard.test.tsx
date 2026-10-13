@@ -13,6 +13,8 @@ jest.mock('@/features/integrations/google/useCalendarConnection');
 jest.mock('@/features/integrations/google/importService', () => ({
   runCalendarImport: jest.fn(),
   hasImportChanges: jest.requireActual('@/features/integrations/google/importService').hasImportChanges,
+  // A identidade da pendência (evento + cão) é a REGRA em teste no cartão — entra real, não mockada.
+  mesmaPendencia: jest.requireActual('@/features/integrations/google/importService').mesmaPendencia,
 }));
 /**
  * A CREDENCIAL NO SERVIDOR e o RELÓGIO LOCAL, mockados (achado da CI em 28/09/2026).

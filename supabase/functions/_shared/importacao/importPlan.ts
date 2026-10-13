@@ -591,6 +591,59 @@ export function coberturaDaHospedagem(events: RemoteEvent[], labels: EventLabel[
 }
 
 /**
+ * Dias que o calendário CANCELOU (evento vermelho/Tomato), por cão — a chave é `nome|cão`.
+ *
+ * 🚨 Medido em 13/10/2026 (calendário do Pack & Paws): quando alguém pinta **uma ocorrência** de um
+ * evento recorrente de vermelho, o Google devolve **DOIS eventos** para o mesmo dia — a série (cor
+ * original; sem cor = daycare) e a INSTÂNCIA modificada (id com sufixo `_20261013T173000Z`, vermelha).
+ * A importação decidia cada um por si, e as duas decisões eram complementares: a instância cancelava
+ * ("só age em linha `confirmed`" — `alvosDoCancelamento`) e a série restaurava ("age em linha
+ * `cancelled`" — `precisaAtualizar`). Cada rodada desfazia a anterior: **57 alternâncias
+ * `confirmed↔cancelled` em 11 h nas MESMAS 7 linhas**, todas nos minutos `:00/:15/:30/:45`, autor o
+ * robô (`audit_logs`); o `last_sync_result` mostrava `6 atualizados · 1 cancelados` e, no `?dry=1`
+ * seguinte, o espelho `1 atualizados · 6 cancelados`. Na mão do escritório isso é *"apareceu e não
+ * deveria"* (Jasper/Ruby) e *"perde um / acha um cachorro"*.
+ *
+ * Aqui o **vermelho passa a vencer o dia**: a linha cancelada não é restaurada e nenhuma linha nova
+ * nasce para aquele cão naquele dia. Se o escritório tirar o vermelho, a chave desaparece e a
+ * importação volta a restaurar/criar como antes.
+ */
+export function diasCanceladosNoGoogle(
+  events: RemoteEvent[],
+  labels: EventLabel[] = [],
+  window: ImportWindow = { from: '0000-01-01', to: '9999-12-31' },
+): Set<string> {
+  const cancelados = new Set<string>();
+  for (const evento of events) {
+    if (evento.appKey || ehEventoDeOperacao(evento.summary)) continue;
+    const cor = readEventColor(evento, labels).meaning;
+    if (cor?.kind !== 'cancel') continue;
+    const nomes = dogNamesFromTitle(evento.summary);
+    if (nomes.length === 0) continue;
+    const recorrencia = parseRecurrence(evento.recurrence, evento.startDate, evento.endDate);
+    // Série ABERTA (`RRULE` sem `UNTIL`) termina onde começa no parser: se o escritório pintar a série
+    // inteira de vermelho, o vermelho vale até o fim da janela — senão o app recriaria os dias.
+    const fim = recorrencia.openEnded && recorrencia.weekdays.length > 0 && evento.endDate > window.to
+      ? window.to
+      : evento.endDate;
+    let dia = evento.startDate;
+    // Teto de segurança (mesmo do `coberturaDaHospedagem`): série aberta não vira laço infinito.
+    for (let passo = 0; passo < 400 && dia < fim; passo += 1) {
+      const dentro = recorrencia.weekdays.length === 0 ||
+        recorrencia.weekdays.includes(new Date(`${dia}T12:00:00Z`).getUTCDay());
+      if (dentro) for (const nome of nomes) cancelados.add(chaveDoDiaCancelado(nome, dia));
+      dia = addDaysISO(dia, 1);
+    }
+  }
+  return cancelados;
+}
+
+/** Chave de "cão + dia" no conjunto de `diasCanceladosNoGoogle`. */
+export function chaveDoDiaCancelado(dogName: string, dia: string): string {
+  return `${normalizar(dogName)}|${dia}`;
+}
+
+/**
  * Serviço E "vai pro daycare" daquele dia, a partir da COR. O único caso que depende de contexto é o
  * **Cocoa (marrom, fora do horário)**, que o cliente descreveu (28/09/2026) como *"o mesmo que o
  * Avocado, a diferença está no horário"*: ele é uma CHEGADA ou uma SAÍDA do boarding, e o lado se lê da
@@ -688,6 +741,9 @@ export function planCalendarImport(
 
   // Lado do dia para o COCOA (marrom, fora do horário): chegada de hospedagem x saída/dia de daycare.
   const hospedagem = coberturaDaHospedagem(events, labels);
+  // O VERMELHO manda no dia (inclusive a INSTÂNCIA vermelha de um evento recorrente): sem isto o robô
+  // de 15 min pisca a mesma linha para sempre — ver `diasCanceladosNoGoogle`.
+  const diasCancelados = diasCanceladosNoGoogle(events, labels, window);
 
   const resultados: ImportOutcome[] = [];
   const vistos = new Set<string>();
@@ -771,7 +827,24 @@ export function planCalendarImport(
       //    desempatado por tutor: a regra nova nao traz tutor no titulo, entao isso e pendencia.
       const alvo = normalizar(parsed.dogName);
       const candidatos = dogs.filter((cao) => normalizar(cao.name) === alvo);
-      const dogDoTitulo = candidatos.length === 1 ? candidatos[0].id : null;
+      // 🏠 Desempate pela CASA (medido em 13/10/2026): há dois cães chamados `Sam` no cadastro (Jose e
+      // Nina) e o título `Sam/Ollie` traz o `Ollie`, que é do Jose — logo o Sam do Jose é o certo. O
+      // dono já ditou que cães da mesma casa vão juntos; sem isto o dia perdia o cão (*"faltou Sam
+      // (Ollie and Sam)"*) e o escritório tinha de escolher à mão todo dia. O desempate só vale quando
+      // o sinal é ÚNICO: exatamente um candidato da casa de um dos outros nomes do título.
+      const daMesmaCasa = candidatos.filter((cao) => {
+        if (candidatos.length === 1 || !cao.clientId) return false;
+        return parsedTodos.some((outro) => {
+          if (normalizar(outro.dogName) === alvo) return false;
+          const irmaos = dogs.filter((irmao) => normalizar(irmao.name) === normalizar(outro.dogName));
+          return irmaos.length === 1 && irmaos[0].clientId === cao.clientId;
+        });
+      });
+      const dogDoTitulo = candidatos.length === 1
+        ? candidatos[0].id
+        : daMesmaCasa.length === 1
+          ? daMesmaCasa[0].id
+          : null;
 
       // 4.1 Dia de hotel (verde) sem chegada/saída marcada para este cão na janela: mantém a van
       //     (comportamento antigo). Com a marcação, o dia do meio fica FORA da van — é o pedido do
@@ -857,6 +930,14 @@ export function planCalendarImport(
         vistos.add(evento.id);
         const dogId = dogDoTitulo ?? ligada.dogId;
         const servico: ParsedBooking = { ...parsed, ...leituraDoDia(cor, parsed, hospedagem, alvo) };
+        // 🔴 O dia foi CANCELADO no calendário (vermelho — inclusive a INSTÂNCIA vermelha da série
+        // recorrente): a série do mesmo dia NÃO pode ressuscitar a linha. Era exatamente este o vaivém
+        // de 15 em 15 min (`precisaAtualizar` restaura toda linha cancelada; `alvosDoCancelamento`
+        // cancela toda linha confirmada — cada rodada desfazia a outra).
+        if (ligada.kind === 'reservation' && ligada.status === 'cancelled' &&
+            diasCancelados.has(chaveDoDiaCancelado(dogs.find((cao) => cao.id === dogId)?.name ?? servico.dogName, servico.startDate))) {
+          continue;
+        }
         if ((ligada.source === 'google' || (ligada.kind === 'reservation' && ligada.status === 'cancelled')) && (precisaAtualizar(ligada, servico, dogId) || recuperadas.has(ligada.id))) {
           resultados.push({
             kind: 'update',
@@ -879,14 +960,22 @@ export function planCalendarImport(
         resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'unknown dog' });
         continue;
       }
-      if (candidatos.length > 1) {
+      if (candidatos.length > 1 && !dogDoTitulo) {
         resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'ambiguous dog' });
         continue;
       }
 
-      const dogId = candidatos[0].id;
+      const dogId = dogDoTitulo ?? candidatos[0].id;
       const servico: ParsedBooking = { ...parsed, ...leituraDoDia(cor, parsed, hospedagem, alvo) };
       vistos.add(evento.id);
+
+      // 🔴 Dia cancelado no calendário (vermelho — inclusive a INSTÂNCIA vermelha de um evento
+      // recorrente) não nasce no app, mesmo que a série do mesmo cão cubra o dia. É a metade que
+      // faltava do vaivém de 15 em 15 min: a instância cancelava e a série recriava.
+      if (kindOf(servico) === 'reservation' &&
+          diasCancelados.has(chaveDoDiaCancelado(dogs.find((cao) => cao.id === dogId)?.name ?? servico.dogName, servico.startDate))) {
+        continue;
+      }
 
       // 8. Igual a uma reserva que o app ja tem = duplicata: o gestor decide (liga o evento a ela).
       const tipo = kindOf(servico);

@@ -18,6 +18,7 @@ import type { RemoteEvent } from './eventMarkers';
 import type { EventLabel } from '@/features/calendar/googleColors';
 import {
   kindOf,
+  normalizar,
   planCalendarImport,
   type BookingForImport,
   type DogForImport,
@@ -36,6 +37,22 @@ export type ImportReviewItem = {
   reason: ReviewReason;
   parsed: ParsedBooking;
 };
+
+/**
+ * Identidade de uma pendência da importação: **evento + cão**.
+ *
+ * Um mesmo evento pode trazer DOIS cães ("Silvye/Agnes") e cada nome vira uma pendência PRÓPRIA, com o
+ * MESMO `eventId` (a lista `review` nasce uma vez por cão lido, no plano). Resolver uma tem de tirar SÓ
+ * ela: comparando apenas o evento, salvar o primeiro cão apagava as duas linhas da tela e o segundo
+ * ficava **sem reserva nenhuma** — e a pendência voltava na rodada seguinte, o
+ * *"continua pedindo pra salvar toda vez"* que o escritório relatou em 13/10/2026.
+ *
+ * Mora aqui (e não na tela) porque é a identidade do dado, não do desenho — e este módulo é o mesmo no
+ * app e na função do servidor.
+ */
+export function mesmaPendencia(a: ImportReviewItem, b: ImportReviewItem): boolean {
+  return a.eventId === b.eventId && normalizar(a.parsed.dogName) === normalizar(b.parsed.dogName);
+}
 
 export type ImportSummary = {
   created: number;

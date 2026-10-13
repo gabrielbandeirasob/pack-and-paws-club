@@ -27,7 +27,11 @@ jest.mock('@/features/integrations/google/calendarApi', () => ({
   listCalendars: async () => [], getCalendarLabels: async () => [],
   calendarIdDaOrigem: async () => 'primary',
 }));
-jest.mock('@/features/integrations/google/importService', () => ({ runCalendarImport: jest.fn() }));
+jest.mock('@/features/integrations/google/importService', () => ({
+  runCalendarImport: jest.fn(),
+  // A identidade da pendência (evento + cão) é REGRA, não I/O: entra real (ver o cartão).
+  mesmaPendencia: jest.requireActual('@/features/integrations/google/importService').mesmaPendencia,
+}));
 jest.mock('@/features/integrations/google/importSnapshot', () => ({
   carregarSnapshotDaImportacao: async () => [],
 }));

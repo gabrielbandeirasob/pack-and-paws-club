@@ -70,7 +70,7 @@ import {
 import { escolhaDaRevisao, supabaseImportPorts } from './importPorts';
 import { describeImport, describeImportFailure, kindOf, type BookingForImport, type DogForImport } from './importPlan';
 import { carregarSnapshotDaImportacao } from './importSnapshot';
-import { runCalendarImport, type ImportReviewItem, type ImportSummary } from './importService';
+import { mesmaPendencia, runCalendarImport, type ImportReviewItem, type ImportSummary } from './importService';
 import { JANELA_AUTO_MS, esquecerSincronizacao, lerUltimaSincronizacao, marcarSincronizacao, precisaSincronizar } from './lastSyncStore';
 import { ehFalhaDeCredencial } from './credentialFailure';
 import {
@@ -490,7 +490,12 @@ export function CalendarConnectionCard({ organizationId, dogs, bookings, onImpor
         if (error) throw new Error(error.message);
         if (!ligados || ligados.length === 0) throw new Error('Could not link this event. Ask the manager to check your access.');
       }
-      setRevisao((itens) => itens.filter((item) => item.eventId !== escolhendo.eventId));
+      // 🪤 Só a pendência DESTE cão sai da lista (medido em 13/10/2026): o mesmo evento pode trazer DOIS
+      // cães ("Silvye/Agnes") e cada nome vira uma pendência própria com o MESMO `eventId`. Filtrando só
+      // pelo evento, salvar o primeiro cão apagava as duas linhas da tela e o segundo ficava SEM reserva
+      // nenhuma — e a pendência voltava na rodada seguinte (o *"continua pedindo pra salvar toda vez"*
+      // do escritório). A identidade é (evento + cão).
+      setRevisao((itens) => itens.filter((item) => !mesmaPendencia(item, escolhendo)));
       setEscolhendo(null);
       setCaoEscolhido(null);
       setResumo(`Saved from Google · ${escolhendo.parsed.dogName}`);
