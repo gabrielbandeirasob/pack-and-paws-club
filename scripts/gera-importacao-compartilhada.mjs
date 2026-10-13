@@ -25,6 +25,8 @@ const MODULOS = [
   'features/calendar/dayMath.ts',
   'features/integrations/google/calendarChoice.ts',
   'features/integrations/google/credentialFailure.ts',
+  // A marca do cancelamento do vermelho: a importação GRAVA e o resumo semanal LÊ (13/10/2026).
+  'features/integrations/google/cancellationMark.ts',
   // eventMarkers: as marcas dos eventos (`appKey`) ficaram aqui quando o espelho foi removido
   // (05/10/2026) — a importação do servidor continua precisando reconhecer evento criado pelo app.
   'features/integrations/google/eventMarkers.ts',
