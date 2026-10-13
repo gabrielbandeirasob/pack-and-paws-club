@@ -26,6 +26,8 @@ const MODULOS = [
   'features/calendar/dayMath.ts',
   'features/integrations/google/calendarChoice.ts',
   'features/integrations/google/credentialFailure.ts',
+  // A marca do cancelamento do vermelho: a importação GRAVA e o resumo semanal LÊ (13/10/2026).
+  'features/integrations/google/cancellationMark.ts',
   // As marcas dos eventos (`appKey`) mudaram de casa quando o espelho saiu (05/10/2026).
   'features/integrations/google/eventMarkers.ts',
   'features/integrations/google/localReservations.ts',

@@ -15,6 +15,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { ImportPorts } from './importService';
 import { DEFAULT_CALENDAR_ID } from './calendarChoice';
+import { CANCELAMENTO_DO_GOOGLE } from './cancellationMark';
 import { kindOf, type BookingForImport, type ExistingBookingKind, type ParsedBooking } from './importPlan';
 
 /** O que já existe no app e casa com o evento — usado quando o gestor liga o evento a um cão. */
@@ -86,8 +87,11 @@ export function supabaseImportPorts(
    */
   const PAUSA_DO_GOOGLE = 'Pausa marcada no Google Calendar';
 
-  /** O `reason` da pausa de UM dia gravada pelo evento VERMELHO (`skipRecurringDay`). */
-  const CANCELAMENTO_DO_GOOGLE = 'Cancelled in Google Calendar';
+  /**
+   * O `reason` da pausa de UM dia gravada pelo evento VERMELHO (`skipRecurringDay`) mora em
+   * `./cancellationMark`: o resumo semanal do gestor LÊ a mesma marca para mostrar o dia como
+   * cancelado (pedido do dono, 13/10/2026) — um texto só, nos dois lados.
+   */
 
   const gravarPausas = async (scheduleId: string, skipDates: string[]): Promise<void> => {
     /**

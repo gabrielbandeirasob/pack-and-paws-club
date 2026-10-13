@@ -7,6 +7,8 @@ import { fireEvent, render, waitFor, within } from '@testing-library/react-nativ
  * O que este arquivo prova:
  *  - os NÚMEROS por dia da semana (os chips) e os TOTAIS ("N dogs this week" / "N visits in total");
  *  - a lista por cão, com em que dias veio e o serviço de cada dia;
+ *  - o dia CANCELADO (dono, 13/10/2026): aparece marcado no cartão do cão, conta em "visits cancelled"
+ *    e NÃO entra no número de quem veio;
  *  - o estado VAZIO ("No dogs came this week.") — semana sem cão mostra 0, não inventa número;
  *  - o estado de ERRO não mostra número nenhum (nenhum chip, nenhum total);
  *  - a TROCA de semana pelas setas ‹ › (e o "This week" para voltar), recarregando os DIAS daquela semana.
@@ -31,9 +33,9 @@ jest.mock('@/features/auth/useOrganizationRole', () => ({
   useOrganizationRole: () => ({ role: 'manager', view: 'manager', isLoading: false }),
 }));
 
-const mockLoadWeekDogs = jest.fn();
+const mockLoadWeek = jest.fn();
 jest.mock('@/features/dashboard/dayService', () => ({
-  loadWeekDogs: (...args: unknown[]) => mockLoadWeekDogs(...args),
+  loadWeek: (...args: unknown[]) => mockLoadWeek(...args),
 }));
 
 jest.mock('@/lib/supabase', () => ({
@@ -53,15 +55,19 @@ jest.mock('@/lib/supabase', () => ({
 const milo = { dogId: 'd1', dogName: 'Milo', clientName: 'Ana', serviceType: 'daycare' as const };
 const luna = { dogId: 'd2', dogName: 'Luna', clientName: 'John', serviceType: 'boarding' as const };
 
-/** Cães por dia que `loadWeekDogs` devolve (a tela pede a semana dela e recebe esses). */
+/** Cães por dia que `loadWeek` devolve (a tela pede a semana dela e recebe esses). */
 let mockDados: Record<string, unknown[]> = {};
+/** Quem foi CANCELADO em cada dia (`cancelledByDay`) — o vermelho do Google. */
+let mockCancelados: Record<string, unknown[]> = {};
 
 beforeEach(() => {
   mockDados = {};
-  mockLoadWeekDogs.mockReset();
-  mockLoadWeekDogs.mockImplementation(async (_client: unknown, _org: string, dias: string[]) =>
-    Object.fromEntries(dias.map((dia) => [dia, mockDados[dia] ?? []])),
-  );
+  mockCancelados = {};
+  mockLoadWeek.mockReset();
+  mockLoadWeek.mockImplementation(async (_client: unknown, _org: string, dias: string[]) => ({
+    dogsByDay: Object.fromEntries(dias.map((dia) => [dia, mockDados[dia] ?? []])),
+    cancelledByDay: Object.fromEntries(dias.map((dia) => [dia, mockCancelados[dia] ?? []])),
+  }));
 });
 
 function renderTela() {
@@ -128,7 +134,7 @@ describe('tela Weekly summary (gestor)', () => {
   });
 
   it('erro ao carregar a semana não mostra número nenhum', async () => {
-    mockLoadWeekDogs.mockRejectedValueOnce(new Error('Could not reach the office'));
+    mockLoadWeek.mockRejectedValueOnce(new Error('Could not reach the office'));
 
     const tela = await renderTela();
 
@@ -163,7 +169,7 @@ describe('tela Weekly summary (gestor)', () => {
     await waitFor(() => expect(tela.getByText('2 dogs this week')).toBeTruthy());
 
     // a tela pediu os dias da semana CERTA (não recarregou hoje de novo)
-    const ultimaChamada = mockLoadWeekDogs.mock.calls.at(-1);
+    const ultimaChamada = mockLoadWeek.mock.calls.at(-1);
     expect(ultimaChamada?.[2]).toEqual(['2026-09-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26']);
 
     // fora da semana atual aparece o "This week" para voltar
@@ -218,5 +224,60 @@ describe('tela Weekly summary (gestor)', () => {
     await fireEvent.press(tela.getByLabelText('Show whole week'));
     await waitFor(() => expect(tela.getByText('1 dog this week')).toBeTruthy());
     expect(tela.getByText('Milo')).toBeTruthy();
+  });
+
+  /**
+   * PEDIDO DO DONO (13/10/2026): *"quero que quando esteja vermelho do Google calendário cancele como já
+   * fazia antes mas agora apareça no weekly summary que foi cancelado"*.
+   */
+  it('dia cancelado aparece marcado no cartão do cão e não conta como visita', async () => {
+    mockDados = { '2026-09-14': [milo], '2026-09-16': [milo] };
+    mockCancelados = { '2026-09-18': [{ dogId: 'd1', dogName: 'Milo', clientName: 'Ana', serviceType: 'daycare' }] };
+
+    const tela = await renderTela();
+    await waitFor(() => expect(tela.getByText('1 dog this week')).toBeTruthy());
+
+    // o número do dia é quem VEIO: sexta continua 0 mesmo com o cancelamento do Milo
+    expect(chip(tela, 'Fri 18').getByText('0')).toBeTruthy();
+    expect(tela.getByText('2 visits in total')).toBeTruthy();
+    expect(tela.getByText('1 visit cancelled')).toBeTruthy();
+
+    // o cartão do Milo mostra os 2 dias que ele veio E o dia cancelado, marcado
+    expect(cartao(tela, 'Milo').getByText('2 days')).toBeTruthy();
+    expect(cartao(tela, 'Milo').getByText('1 cancelled')).toBeTruthy();
+    expect(cartao(tela, 'Milo').getByText('Cancelled')).toBeTruthy();
+    expect(tela.getByLabelText('Fri 18 — cancelled')).toBeTruthy();
+    // e o chip daquele dia diz o cancelamento para quem usa leitor de tela
+    expect(tela.getByLabelText('Fri 18 — 0 dogs, 1 cancelled')).toBeTruthy();
+  });
+
+  it('cão que só foi cancelado na semana continua na lista (não some)', async () => {
+    mockCancelados = { '2026-09-18': [{ dogId: 'd2', dogName: 'Luna', clientName: 'John', serviceType: 'boarding' }] };
+
+    const tela = await renderTela();
+    await waitFor(() => expect(tela.getByText('0 dogs this week')).toBeTruthy());
+
+    expect(tela.getByText('0 visits in total')).toBeTruthy();
+    expect(tela.getByText('1 visit cancelled')).toBeTruthy();
+    // o cão cancelado está na lista, com o cartão sem "dias que veio" e com o cancelamento
+    expect(tela.getByText('Luna')).toBeTruthy();
+    expect(cartao(tela, 'Luna').getByText('1 cancelled')).toBeTruthy();
+    expect(cartao(tela, 'Luna').getByText('Cancelled')).toBeTruthy();
+    expect(cartao(tela, 'Luna').queryByText('1 day')).toBeNull();
+  });
+
+  it('tocar no chip de um dia só cancelado mostra o cão cancelado (e não "ninguém veio")', async () => {
+    mockDados = { '2026-09-16': [milo] };
+    mockCancelados = { '2026-09-17': [{ dogId: 'd2', dogName: 'Luna', clientName: 'John', serviceType: 'daycare' }] };
+
+    const tela = await renderTela();
+    await waitFor(() => expect(tela.getByText('1 dog this week')).toBeTruthy());
+
+    await fireEvent.press(tela.getByLabelText('Thu 17 — 0 dogs, 1 cancelled'));
+
+    await waitFor(() => expect(tela.getByText('Thu 17 — 0 dogs · 1 cancelled')).toBeTruthy());
+    expect(tela.getByText('Luna')).toBeTruthy();
+    expect(cartao(tela, 'Luna').getByText('Cancelled')).toBeTruthy();
+    expect(tela.queryByText('No dogs came on Thu 17.')).toBeNull();
   });
 });

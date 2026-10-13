@@ -10,8 +10,11 @@
  *   acabou de passar, que é justamente a que o gestor quer conferir nesse dia;
  * - a lista é por CÃO (o gestor procura pelo nome), e cada cão mostra **em que dias veio** e qual foi
  *   o serviço daquele dia (daycare/boarding — o "take care" do áudio era o daycare);
- * - a conta dos cães de cada dia sai do MESMO `buildDay` do calendário (`loadWeekDogs`), para o
+ * - a conta dos cães de cada dia sai do MESMO `buildDay` do calendário (`loadWeek`), para o
  *   resumo não divergir do que o gestor vê no dia.
+ * - **dia CANCELADO aparece marcado** (pedido do dono, 13/10/2026): o vermelho do Google continua
+ *   cancelando como sempre, e o gestor passa a VER isso na semana — o dia fica no cartão daquele cão
+ *   como "Cancelled" (em vermelho) e não conta como visita.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -22,7 +25,8 @@ import { BackHeader } from '@/features/ui/BackHeader';
 import { addDaysISO, todayLocalISO } from '@/features/calendar/dates';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { landingRouteForRole } from '@/features/navigation/roleTabs';
-import { loadWeekDogs } from '@/features/dashboard/dayService';
+import { loadWeek } from '@/features/dashboard/dayService';
+import type { CancelledVisit } from '@/features/dashboard/cancelledDays';
 import { buildWeeklySummary, dayChipLabel, weekDays, weekLabel, weekStart } from '@/features/dashboard/weeklySummary';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
@@ -38,6 +42,8 @@ export default function WeekSummaryScreen() {
   /** Um dia qualquer da semana mostrada (a segunda e o sábado saem dele). */
   const [ancora, setAncora] = useState(todayLocalISO());
   const [caesPorDia, setCaesPorDia] = useState<Record<string, { dogId: string; dogName: string; clientName: string; serviceType: 'daycare' | 'boarding' }[]>>({});
+  /** Quem foi CANCELADO em cada dia (vermelho no Google / "Day cancelled") — ver `cancelledDays`. */
+  const [canceladosPorDia, setCanceladosPorDia] = useState<Record<string, CancelledVisit[]>>({});
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [recarregando, setRecarregando] = useState(false);
@@ -45,7 +51,10 @@ export default function WeekSummaryScreen() {
   const [diaSelecionado, setDiaSelecionado] = useState<string | null>(null);
 
   const dias = useMemo(() => weekDays(ancora), [ancora]);
-  const resumo = useMemo(() => buildWeeklySummary(dias, caesPorDia), [caesPorDia, dias]);
+  const resumo = useMemo(
+    () => buildWeeklySummary(dias, caesPorDia, canceladosPorDia),
+    [caesPorDia, canceladosPorDia, dias],
+  );
   const semanaAtual = useMemo(() => weekStart(todayLocalISO()), []);
 
   /**
@@ -80,7 +89,9 @@ export default function WeekSummaryScreen() {
       return;
     }
     try {
-      setCaesPorDia(await loadWeekDogs(supabase, organizationId, dias));
+      const semana = await loadWeek(supabase, organizationId, dias);
+      setCaesPorDia(semana.dogsByDay);
+      setCanceladosPorDia(semana.cancelledByDay);
     } catch (falha) {
       setErro(falha instanceof Error ? falha.message : 'Could not load the week.');
     }
@@ -101,6 +112,10 @@ export default function WeekSummaryScreen() {
   }, []);
 
   const hoje = todayLocalISO();
+  /** O dia escolhido pelo toque, já com os números do resumo: quem VEIO × quem foi CANCELADO. */
+  const indiceSelecionado = diaSelecionado ? dias.indexOf(diaSelecionado) : -1;
+  const vieramNoDia = indiceSelecionado >= 0 ? resumo.perDay[indiceSelecionado] ?? 0 : 0;
+  const canceladosNoDia = indiceSelecionado >= 0 ? resumo.perDayCancelled[indiceSelecionado] ?? 0 : 0;
 
   if (roleLoading || role !== 'manager') {
     return (
@@ -115,7 +130,7 @@ export default function WeekSummaryScreen() {
       <BackHeader
         tone="light"
         title="Weekly summary"
-        subtitle="Sunday to Saturday — who came, day by day."
+        subtitle="Sunday to Saturday — who came, day by day. Cancelled days are marked."
       />
       <ScrollView
         contentContainerStyle={styles.conteudo}
@@ -182,11 +197,14 @@ export default function WeekSummaryScreen() {
                 const destacado = selecionado || (ehHoje && !algumSelecionado);
                 const contorno = ehHoje && algumSelecionado;
                 const doDia = resumo.perDay[indice] ?? 0;
+                // Cancelamento do dia entra na LEITURA do chip (não no número, que é quem veio): o
+                // gestor que usa leitor de tela ouve "Mon 14 — 1 dog, 1 cancelled".
+                const canceladosDoDia = resumo.perDayCancelled[indice] ?? 0;
                 return (
                   <Pressable
                     key={dia}
                     accessibilityRole="button"
-                    accessibilityLabel={`${dayChipLabel(dia)}${ehHoje ? ' (today)' : ''} — ${doDia === 1 ? '1 dog' : `${doDia} dogs`}`}
+                    accessibilityLabel={`${dayChipLabel(dia)}${ehHoje ? ' (today)' : ''} — ${doDia === 1 ? '1 dog' : `${doDia} dogs`}${canceladosDoDia > 0 ? `, ${canceladosDoDia} cancelled` : ''}`}
                     accessibilityHint="Shows only the dogs that came on this day"
                     accessibilityState={{ selected: selecionado }}
                     onPress={() => setDiaSelecionado((atual) => (atual === dia ? null : dia))}
@@ -215,7 +233,8 @@ export default function WeekSummaryScreen() {
               {diaSelecionado ? (
                 <>
                   <Text style={styles.total}>
-                    {dayChipLabel(diaSelecionado)} — {caesDoDia.length === 1 ? '1 dog' : `${caesDoDia.length} dogs`}
+                    {dayChipLabel(diaSelecionado)} — {vieramNoDia === 1 ? '1 dog' : `${vieramNoDia} dogs`}
+                    {canceladosNoDia > 0 ? ` · ${canceladosNoDia === 1 ? '1 cancelled' : `${canceladosNoDia} cancelled`}` : ''}
                   </Text>
                   <Text style={styles.muted}>Showing only this day of the week.</Text>
                   <Pressable
@@ -235,6 +254,11 @@ export default function WeekSummaryScreen() {
                   <Text style={styles.muted}>
                     {resumo.totalDogDays === 1 ? '1 visit in total' : `${resumo.totalDogDays} visits in total`}
                   </Text>
+                  {resumo.cancelledDogDays > 0 ? (
+                    <Text style={styles.canceladoTotal}>
+                      {resumo.cancelledDogDays === 1 ? '1 visit cancelled' : `${resumo.cancelledDogDays} visits cancelled`}
+                    </Text>
+                  ) : null}
                 </>
               )}
             </View>
@@ -250,20 +274,45 @@ export default function WeekSummaryScreen() {
                 <View key={cao.dogId} style={styles.cartao}>
                   <View style={styles.caoTopo}>
                     <Text style={styles.caoNome}>{cao.dogName}</Text>
-                    <Text style={styles.caoDias}>
-                      {cao.days.length === 1 ? '1 day' : `${cao.days.length} days`}
-                    </Text>
+                    <View style={styles.caoContagem}>
+                      {cao.days.some((visita) => !visita.cancelled) ? (
+                        <Text style={styles.caoDias}>
+                          {cao.days.filter((visita) => !visita.cancelled).length === 1
+                            ? '1 day'
+                            : `${cao.days.filter((visita) => !visita.cancelled).length} days`}
+                        </Text>
+                      ) : null}
+                      {cao.days.some((visita) => visita.cancelled) ? (
+                        <Text style={styles.caoCancelado}>
+                          {cao.days.filter((visita) => visita.cancelled).length === 1
+                            ? '1 cancelled'
+                            : `${cao.days.filter((visita) => visita.cancelled).length} cancelled`}
+                        </Text>
+                      ) : null}
+                    </View>
                   </View>
                   <Text style={styles.muted}>{cao.clientName}</Text>
                   <View style={styles.visitas}>
                     {cao.days.map((visita) => (
                       <View
                         key={visita.date}
-                        style={[styles.visita, visita.date === diaSelecionado && styles.visitaSelecionada]}
+                        accessible
+                        accessibilityLabel={
+                          visita.cancelled
+                            ? `${dayChipLabel(visita.date)} — cancelled`
+                            : `${dayChipLabel(visita.date)} — ${visita.serviceType === 'boarding' ? 'Boarding' : 'Daycare'}`
+                        }
+                        style={[
+                          styles.visita,
+                          visita.date === diaSelecionado && styles.visitaSelecionada,
+                          visita.cancelled && styles.visitaCancelada,
+                        ]}
                       >
-                        <Text style={styles.visitaDia}>{dayChipLabel(visita.date)}</Text>
-                        <Text style={styles.visitaServico}>
-                          {visita.serviceType === 'boarding' ? 'Boarding' : 'Daycare'}
+                        <Text style={[styles.visitaDia, visita.cancelled && styles.visitaDiaCancelado]}>
+                          {dayChipLabel(visita.date)}
+                        </Text>
+                        <Text style={[styles.visitaServico, visita.cancelled && styles.visitaServicoCancelado]}>
+                          {visita.cancelled ? 'Cancelled' : visita.serviceType === 'boarding' ? 'Boarding' : 'Daycare'}
                         </Text>
                       </View>
                     ))}
@@ -311,14 +360,22 @@ const styles = StyleSheet.create({
   total: { fontFamily: 'serif', fontWeight: '800', fontSize: 16, color: colors.ink },
   // M5 da auditoria (02/10/2026): legendas do resumo semanal com pelo menos 12 pt.
   muted: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  // Cancelamento (dono, 13/10/2026): uma linha só, em vermelho — cor forte em texto curto, não em área.
+  canceladoTotal: { color: colors.urgency, fontSize: 12, fontWeight: '800', marginTop: 4 },
   vazio: { color: colors.muted, fontSize: 12.5 },
   erro: { color: colors.urgency, fontSize: 12.5, fontWeight: '700' },
   caoTopo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   caoNome: { fontFamily: 'serif', fontWeight: '800', fontSize: 16, color: colors.ink },
+  caoContagem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   caoDias: { color: colors.forest700, fontSize: 12, fontWeight: '800' },
+  caoCancelado: { color: colors.urgency, fontSize: 12, fontWeight: '800' },
   visitas: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   visita: { borderWidth: 1, borderColor: colors.line, borderRadius: radii.small, paddingHorizontal: 9, paddingVertical: 6, backgroundColor: colors.cream },
   visitaSelecionada: { borderColor: colors.forest900, backgroundColor: colors.sage },
+  // O dia cancelado: contorno vermelho, dia riscado e a palavra "Cancelled" no lugar do serviço.
+  visitaCancelada: { borderColor: colors.urgency, backgroundColor: colors.paper },
   visitaDia: { color: colors.ink, fontSize: 12, fontWeight: '800' },
+  visitaDiaCancelado: { color: colors.muted, textDecorationLine: 'line-through' },
   visitaServico: { color: colors.muted, fontSize: 12, marginTop: 1 },
+  visitaServicoCancelado: { color: colors.urgency, fontWeight: '800' },
 });
