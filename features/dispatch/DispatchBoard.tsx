@@ -1,4 +1,3 @@
-import type { CancelledVisit } from '@/features/dashboard/cancelledDays';
 import { formatTimeOfDay } from '@/lib/clock';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -122,7 +121,6 @@ type Props = {
   onPhaseChange?: (phase: Perna) => void;
   drivers: DispatchDriver[];
   dayItems: DispatchStopItem[];
-  cancelledByDay?: Record<string, CancelledVisit[]>;
   dropoffItems?: DispatchStopItem[];
   routes: DispatchRoute[];
   driverLocations?: Record<string, { latitude: number; longitude: number; updatedAt: string }>;
@@ -211,7 +209,7 @@ function validTime(value: string): boolean {
   return TIME_PATTERN.test(value);
 }
 
-export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseChange, drivers, dayItems, dropoffItems, cancelledByDay, routes, driverLocations = {}, onAssign, onCreateDropoffRoute, pickupDriverByDog, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange,
+export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseChange, drivers, dayItems, dropoffItems, routes, driverLocations = {}, onAssign, onCreateDropoffRoute, pickupDriverByDog, onSaveStop, onRemoveStop, onMoveStop, onMoveDropoff, onSavePins, onOptimize, onPublish, onUnpublish, onCancelRoute, onCompleteRoute, onDateChange,
   optimizeInfo, onUndoOptimize, onSuggestRoutes, onApplySuggestion, vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList, avisoRotaMudou, onReloadRotas }: Props) {
   /**
    * Rota mudada em outro aparelho: enquanto o aviso está na tela, ele é o ÚNICO `Modal` renderizado
@@ -347,9 +345,6 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
     }
   }, [sheet]);
 
-  const cancelled = (cancelledByDay?.[date] ?? []).filter(item => !dayItems.some(dog => dog.dogId === item.dogId) && !dropoffItems?.some(dog => dog.dogId === item.dogId));
-  const cancelledIds = new Set(cancelled.map(item => item.dogId));
-  const cancelledInPool = cancelled.filter(item => !routes.some(route => (route.phase ?? 'pickup') === assignmentPhase && route.stops.some(stop => stop.dogId === item.dogId)));
   const assignedDogIds = useMemo(() => new Set(routes.filter(r => (r.phase ?? 'pickup') === assignmentPhase).flatMap((route) => route.stops.map((stop) => stop.dogId))), [routes, assignmentPhase]);
   /**
    * Cães do DIA confirmado, para CONFERIR as paradas da rota (dono, 03/10/2026). A lista de pick-up
@@ -406,7 +401,7 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
   const routesByDriver = useMemo(() => new Map(routes.map((route) => [`${route.driverId}:${route.phase ?? 'pickup'}`, route])), [routes]);
   // Pedido de 04/10: um motorista e uma perna por vez, mantendo a entrega com quem buscou.
   const [motoristaVisivel, setMotoristaVisivel] = useState<string | null>(null);
-  const paradasDaPerna = (driverId: string, leg: Perna) => routesByDriver.get(`${driverId}:${leg}`)?.stops.filter(stop => !cancelledIds.has(stop.dogId)).length ?? 0;
+  const paradasDaPerna = (driverId: string, leg: Perna) => routesByDriver.get(`${driverId}:${leg}`)?.stops.length ?? 0;
   const motoristaVisivelObj = drivers.find((driver) => driver.id === motoristaVisivel) ?? drivers[0] ?? null;
   /**
    * As DUAS rotas do motorista visível. Legado (rota sem `phase`): a MESMA rota serve às duas pernas —
@@ -436,7 +431,6 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
   const submit = async () => {
     setError(null);
     if (!sheet) return;
-    if (cancelledIds.has(sheet.mode === 'assign' ? sheet.item.dogId : sheet.stop.dogId)) return;
     if (sheet.mode === 'assign' && !driverId) {
       setError('Choose a driver first.');
       return;
@@ -540,12 +534,6 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
             ) : unassigned.length === 0 ? (
               <Text numberOfLines={1} style={styles.assignedOk}>✓ All dogs assigned</Text>
             ) : null}
-            {cancelledInPool.map(item => (
-              <View key={item.dogId} style={[styles.chip, styles.poolChip]}>
-                <Text style={[styles.chipText, styles.textoFraco]}>{item.dogName}</Text>
-                <Text style={styles.muted}>{item.reason}</Text>
-              </View>
-            ))}
             {unassigned.map((item) => (
               <Pressable key={item.dogId} accessibilityRole="button" accessibilityLabel={`Assign ${item.dogName}`} onPress={() => abrirSheet({ mode: 'assign', item, phase: assignmentPhase === 'dropoff' ? 'dropoff' : undefined })} style={[styles.chip, styles.poolChip]}>
                 <Text numberOfLines={1} style={styles.chipText}>{item.dogName}</Text>
@@ -593,7 +581,6 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
               onChooseYard={assignmentPhase === 'pickup' ? onChooseYard : undefined}
               vanDoMotorista={vanDoMotorista} onOpenStopList={onOpenStopList}
               diaDogIds={diaDogIds}
-              cancelled={cancelled}
               onOpenMenu={abrirOverflow}
               onDraggingChange={setArrastando}
               onUnpublish={onUnpublish} onCancelRoute={onCancelRoute} onCompleteRoute={onCompleteRoute} />
@@ -781,7 +768,6 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
               </Text>
             ) : null}
 
-            {!(sheet?.mode === 'edit' && cancelledIds.has(sheet.stop.dogId)) ? <>
             <Text style={styles.fieldLabel}>Driver</Text>
             <View style={styles.driverOptions}>
               {motoristasDaFolha.map((driver) => {
@@ -866,7 +852,6 @@ export const DispatchBoard = memo(function DispatchBoard({ date, phase, onPhaseC
             <Pressable accessibilityRole="button" accessibilityLabel="Save stop" disabled={working} onPress={() => void submit()} style={styles.saveButton}>
               {working ? <ActivityIndicator color={colors.forest900} /> : <Text style={styles.saveText}>{sheet?.mode === 'edit' ? 'Save' : 'Assign'}</Text>}
             </Pressable>
-            </> : null}
             {sheet?.mode === 'edit' ? (
               <Pressable accessibilityRole="button" accessibilityLabel="Remove from route" disabled={working} onPress={() => confirmRemove(sheet.route, sheet.stop)} style={styles.removeButton}>
                 <Text style={styles.removeText}>Remove from route</Text>
@@ -969,7 +954,6 @@ type PropsCartao = Pick<Props, 'onMoveStop' | 'onMoveDropoff' | 'onOptimize' | '
   onOpenStopList?: Props['onOpenStopList'];
   /** Cães do dia confirmado — a linha confere as paradas contra este conjunto (Defeito A, 03/10/2026). */
   diaDogIds?: ReadonlySet<string>;
-  cancelled: CancelledVisit[];
   /** Abre o menu de overflow do cartão (item 8). */
   onOpenMenu?: (estado: { driverName: string; route: DispatchRoute; leg: Perna }) => void;
 };
@@ -978,24 +962,21 @@ const CartaoMotorista = memo(function CartaoMotorista({
   driver, route, leg, optimize, onUndoOptimize, location, working, setSheet, onMoveStop, onMoveDropoff, onOptimize, onPublish,
   onUnpublish, onCancelRoute, onCompleteRoute, onSuggest, suggestionBusy,
   vans, onChooseVan, onChooseYard, vanDoMotorista, onOpenStopList, diaDogIds,
-  onOpenMenu, onDraggingChange, cancelled,
+  onOpenMenu, onDraggingChange,
 }: PropsCartao) {
   // A rota e as ações pertencem somente à perna selecionada.
   const grupos = useMemo(() => route ? [{ leg, route,
     stops: (leg === 'pickup' ? ordemDaBusca : ordemDaEntrega)(route.stops ?? []),
   }] : [], [route, leg]);
   const stops = grupos[0]?.stops ?? [];
-  const cancelledIds = new Set(cancelled.map(item => item.dogId));
-  const activeStops = stops.filter(stop => !cancelledIds.has(stop.dogId));
-  const hasCancelled = activeStops.length !== stops.length;
-  const totalParadas = activeStops.length;
+  const totalParadas = stops.length;
   const semParadas = stops.length === 0;
   /**
    * PARADAS ELEGÍVEIS ao otimizador: só as que ainda podem mudar de lugar. Concluídas e puladas ficam
    * FIXAS no início (o otimizador não as move) e por isso não entram na contagem do cartão — é esse o
    * número que o gestor lê em "Van → 7 pickups → Yard".
    */
-  const paradasElegiveis = activeStops.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped').length;
+  const paradasElegiveis = stops.filter((stop) => stop.status !== 'completed' && stop.status !== 'skipped').length;
   const [salvandoVan, setSalvandoVan] = useState(false);
   const [salvandoYard, setSalvandoYard] = useState(false);
   const avisoRota = avisoDeRotaInvisivel(route?.status);
@@ -1056,7 +1037,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
   const frescor = location ? frescorDaPosicao(location.updatedAt) : null;
   const eta = route && stops.length > 0
     ? nextStopEta(
-        activeStops.map((stop) => ({
+        stops.map((stop) => ({
           id: stop.dogId,
           sequence: stop.sequence,
           clientName: stop.clientName,
@@ -1209,8 +1190,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
           Fica em BLOCO ACIMA da linha de ações (a linha segue com Suggest/Publish/⋯) — a hierarquia de
           ações do item 8 continua a mesma, sem redesenhar o quadro.
         */}
-        {hasCancelled ? <Text style={styles.muted}>Remove cancelled stops to optimize.</Text> : null}
-        {!hasCancelled && !semParadas && route && optimize ? (
+        {!semParadas && route && optimize ? (
           <OptimizeRouteCard
             phase={leg}
             driverName={driver.name}
@@ -1228,7 +1208,7 @@ const CartaoMotorista = memo(function CartaoMotorista({
           <View testID="dispatch-actions-scroll" style={styles.actionsWrap}>
             <View style={styles.driverActions} testID="driver-actions">
               {/* Sem o estado do cartão (quadro usado fora da tela do Dispatch), o botão simples fica. */}
-              {route && !hasCancelled && !optimize && stops.length >= 2 ? (
+              {route && !optimize && stops.length >= 2 ? (
                 <Pressable accessibilityRole="button" accessibilityLabel={`Optimize ${driver.name} route`} disabled={working} onPress={() => void onOptimize(route.routeId)} style={styles.primaryButton}>
                   <Text numberOfLines={1} style={styles.primaryText}>Optimize route</Text>
                 </Pressable>
@@ -1266,8 +1246,8 @@ const CartaoMotorista = memo(function CartaoMotorista({
         const foraDoDiaDaPerna = paradasForaDoDia(rotaDaPerna.stops ?? [], diaDogIds ?? new Set<string>());
         return (
         <View key={`${driver.id}-${leg}`} testID={`dispatch-leg-${leg}-${driver.id}`}>
-          <Text style={styles.grupoRotulo}>{leg === 'pickup' ? 'Pick-ups' : 'Drop-offs'} · {plural(totalParadas, 'stop', 'stops')}</Text>
-          <ReorderableStops stops={paradas} leg={leg} enabled={!hasCancelled && rotaDaPerna.status === 'draft' && paradas.length > 1 && !working && !!moverPerna}
+          <Text style={styles.grupoRotulo}>{leg === 'pickup' ? 'Pick-ups' : 'Drop-offs'} · {plural(paradas.length, 'stop', 'stops')}</Text>
+          <ReorderableStops stops={paradas} leg={leg} enabled={rotaDaPerna.status === 'draft' && paradas.length > 1 && !working && !!moverPerna}
             onDraggingChange={onDraggingChange}
             onMove={(dogId, direction) => { void moverPerna?.(rotaDaPerna.routeId, dogId, direction); }}>
           {(stop, index, handle, accessibility) => {
@@ -1281,17 +1261,16 @@ const CartaoMotorista = memo(function CartaoMotorista({
             const plannedTime = stop.windowStart ? formatTimeOfDay(stop.windowStart) : stop.exactTime ? formatTimeOfDay(stop.exactTime) : null;
             /* DESLOCAMENTO gravado pelo Optimize (migração 041/042) — nunca inventado na tela. */
             const travelSeconds = leg === 'dropoff' ? stop.dropoffTravelSeconds : stop.travelSeconds;
-            const travelText = !offDay && typeof travelSeconds === 'number' && travelSeconds > 0 ? `${Math.round(travelSeconds / 60)} min away` : null;
+            const travelText = typeof travelSeconds === 'number' && travelSeconds > 0 ? `${Math.round(travelSeconds / 60)} min away` : null;
             return (
         <View key={`${driver.id}-${leg}-${stop.dogId}`} style={styles.stop}>
           <View style={styles.position}><Text style={styles.positionText}>{index + 1}</Text></View>
           <View style={styles.stopMain} {...accessibility} accessibilityHint={[accessibility.accessibilityHint, details].filter(Boolean).join(' ')}>
             <View style={styles.stopLine}>
-              <Text numberOfLines={1} style={[styles.stopName, offDay && styles.textoFraco]}>{stop.dogName}</Text>
+              <Text numberOfLines={1} style={styles.stopName}>{stop.dogName}</Text>
               {plannedTime ? <Text style={styles.stopTime}>{plannedTime}</Text> : null}
               {travelText ? <Text style={styles.stopTravel}>{travelText}</Text> : null}
             </View>
-            {offDay && cancelled.find(item => item.dogId === stop.dogId)?.reason ? <Text style={styles.muted}>{cancelled.find(item => item.dogId === stop.dogId)?.reason}</Text> : null}
             <View style={styles.badgeRow} testID={`stop-badges-${leg}-${stop.dogId}`}>
               {alert ? <View style={[styles.badge, { backgroundColor: `${colors.urgency}18` }]}>
                 <Text style={[styles.badgeText, styles.foraDoDiaSelo]} testID={offDay ? `stop-off-day-${stop.dogId}` : undefined}>{alert}</Text>
@@ -1337,7 +1316,6 @@ function TimeTargetButton({ label, accessibilityLabel, value, active, onPress, h
 }
 
 const styles = StyleSheet.create({
-  textoFraco: { color: colors.muted, textDecorationLine: 'line-through' },
   pinRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 5, paddingHorizontal: 4 },
   /** Rótulo do seletor de perna — separa "PLANNING" dos chips de motorista logo abaixo. */
   faseRotulo: { color: '#B9C7B6', fontSize: 10, fontWeight: '900', letterSpacing: 1.1, marginTop: 4, marginLeft: 14, marginBottom: 4 },
