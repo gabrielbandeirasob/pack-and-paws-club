@@ -246,13 +246,13 @@ type ExceptionRow = {
  * Os cães de um dia (daycare + boarding) — é o que alimenta os 5 indicadores, o pack e o histórico.
  * Usa a MESMA conta do calendário (`buildDay`), para a tela do dia não divergir do calendário.
  */
-export async function loadDayDogs(client: SupabaseClient, organizationId: string, isoDay: string): Promise<{ dogsByDay: Record<string, DayDog[]>; cancelledByDay: Record<string, CancelledVisit[]> }> {
+export async function loadDayDogs(client: SupabaseClient, organizationId: string, isoDay: string): Promise<DayDog[]> {
   const [reservas, series, excecoes] = await Promise.all([
     client
       .from('reservations')
-      .select('id, status, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))')
+      .select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
-      .in('status', ['confirmed', 'cancelled'])
+      .eq('status', 'confirmed')
       .lte('start_date', isoDay)
       .gte('end_date', isoDay),
     client
@@ -261,17 +261,14 @@ export async function loadDayDogs(client: SupabaseClient, organizationId: string
       .eq('organization_id', organizationId)
       .eq('active', true)
       .lte('start_date', isoDay),
-    client.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', organizationId),
+    client.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', organizationId),
   ]);
   const erro = reservas.error ?? series.error ?? excecoes.error;
   if (erro) throw new Error(erro.message);
 
   const { reservas: reservasMapeadas, series: seriesMapeadas, excecoes: excecoesMapeadas } = paraRegistros(reservas.data, series.data, excecoes.data);
   const dia = buildDay(isoDay, reservasMapeadas, seriesMapeadas, excecoesMapeadas);
-  return {
-    dogsByDay: { [isoDay]: dogsOfDaySummary(dia) },
-    cancelledByDay: { [isoDay]: cancelledVisitsOfDay(isoDay, reservasMapeadas, seriesMapeadas, excecoesMapeadas, true) },
-  };
+  return dogsOfDaySummary(dia);
 }
 
 /**
@@ -335,7 +332,7 @@ function paraRegistros(
   const reservasMapeadas: ReservationRecord[] = ((reservas as ReservationRow[] | null) ?? []).map((row) => ({
     id: row.id,
     // Consulta antiga sem a coluna lida continua sendo confirmada.
-    // O dia e a semana trazem também as canceladas; buildDay continua ignorando-as.
+    // A semana traz também as canceladas; buildDay continua ignorando-as.
     status: row.status ?? 'confirmed',
     dog: { id: row.dog.id, dogName: row.dog.name, clientName: row.dog.client.name },
     serviceType: row.service_type,

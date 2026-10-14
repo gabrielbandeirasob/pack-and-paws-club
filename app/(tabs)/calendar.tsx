@@ -1,3 +1,4 @@
+import { cancelledVisitsOfDay } from '@/features/dashboard/cancelledDays';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -127,6 +128,11 @@ export default function CalendarScreen() {
   );
 
   const summary = useMemo(() => buildDay(selectedDay, reservations, recurring, exceptions), [selectedDay, reservations, recurring, exceptions]);
+  const cancelled = useMemo(
+    () => cancelledVisitsOfDay(selectedDay, reservations, recurring, exceptions, true),
+    [selectedDay, reservations, recurring, exceptions],
+  );
+
 
   /**
    * O que a IMPORTACAO (Google → app) precisa saber: os cães do cadastro (para casar o nome do
@@ -460,6 +466,23 @@ export default function CalendarScreen() {
               onPressItem={openReservationActions}
               onRemoveLabel={(item) => `Options ${item.dogName}`}
             />
+            {view === 'day' && cancelled.length > 0 ? (
+              <View style={styles.section} testID="calendar-cancelled">
+                <View style={styles.sectionHead}>
+                  <Text style={styles.sectionTitle}>Cancelled</Text>
+                  <Text style={styles.sectionCount}>{cancelled.length} cancelled</Text>
+                </View>
+                {cancelled.map((visit) => (
+                  <View key={visit.dogId} style={styles.itemRow} accessible
+                    accessibilityLabel={`${visit.dogName} — ${visit.reason === 'Skipped on this date' ? 'cancelled — skipped on this date' : 'cancelled in Google Calendar'}`}>
+                    <View style={styles.itemTextBlock}>
+                      <Text style={[styles.itemName, styles.cancelledName]}>{visit.dogName}</Text>
+                      <Text style={styles.itemHint}>{visit.reason}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            ) : null}
             {pausedToday.length > 0 ? (
               <View style={styles.section}>
                 <View style={styles.sectionHead}><View style={[styles.dot, { backgroundColor: colors.muted }]} /><Text style={styles.sectionTitle}>Paused this date</Text><Text style={styles.sectionCount}>{pausedToday.length}</Text></View>
@@ -573,6 +596,7 @@ const styles = StyleSheet.create({
   emptyText: { color: colors.muted, fontSize: 13, marginLeft: 18, marginBottom: 6 },
   itemRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, padding: 14, marginBottom: 8, gap: 12 },
   itemTextBlock: { flex: 1 },
+  cancelledName: { textDecorationLine: 'line-through', color: colors.muted },
   itemName: { color: colors.ink, fontWeight: '800', fontSize: 15 },
   itemBadges: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 3, flexWrap: 'wrap' },
   itemHint: { color: colors.muted, fontSize: 11 },

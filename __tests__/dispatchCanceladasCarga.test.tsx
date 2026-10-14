@@ -14,9 +14,11 @@ jest.mock('@/lib/supabase', () => ({
     auth: { getUser: async () => ({ data: { user: { id: 'manager' } } }) },
     from: (table: string) => {
       let selection = '';
+      let status: string | undefined;
       const chain: Record<string, unknown> = {};
       for (const method of ['select', 'eq', 'in', 'gte', 'lte', 'limit', 'order', 'single']) {
         chain[method] = (...args: unknown[]) => {
+          if (method === 'eq' && args[0] === 'status') status = args[1] as string;
           if (method === 'select') selection = args[0] as string;
           return chain;
         };
@@ -28,7 +30,7 @@ jest.mock('@/lib/supabase', () => ({
         if (table === 'reservations') return ['Active', 'Cancelled'].map(id => ({
           id, status: id === 'Active' ? 'confirmed' : 'cancelled',
           service_type: 'daycare', start_date: '2026-10-14', end_date: '2026-10-14', transport_required: true, dog: dog(id),
-        }));
+        })).filter(row => !status || row.status === status);
         if (table === 'recurring_schedules') return [{
           id: 'series', weekdays: [3], start_date: '2026-10-01', end_date: null,
           active: true, transport_required: true, dog: dog('Skipped'),
@@ -51,20 +53,24 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
-import { render, waitFor, within } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
-import DispatchScreen from '@/app/(tabs)/dispatch';
 
-it('Dispatch loads cancelled reservations and skipped schedules into the pool without inflating unassigned', async () => {
+import { render, waitFor, within } from '@testing-library/react-native';
+import DispatchScreen from '@/app/(tabs)/dispatch';
+import { loadDayDogs } from '@/features/dashboard/dayService';
+import { supabase } from '@/lib/supabase';
+
+it('dispatch: confirmed-only query leaves cancelled and skipped dogs out of the operation pool', async () => {
   const screen = await render(<DispatchScreen />);
-  await waitFor(() => expect(screen.getByText('Cancelled')).toBeTruthy());
+  await waitFor(() => expect(screen.getByText('Active')).toBeTruthy());
   const pool = within(screen.getByTestId('unassigned-pool'));
-  expect(pool.getByText('Active')).toBeTruthy();
-  expect(pool.getByText('Cancelled in Google Calendar')).toBeTruthy();
-  expect(pool.getByText('Skipped on this date')).toBeTruthy();
-  for (const name of ['Cancelled', 'Skipped']) {
-    expect(StyleSheet.flatten(pool.getByText(name).props.style).textDecorationLine).toBe('line-through');
-    expect(screen.queryByLabelText('Assign ' + name)).toBeNull();
-  }
+  expect(pool.queryByText('Cancelled')).toBeNull();
+  expect(pool.queryByText('Skipped')).toBeNull();
+  expect(screen.queryByText('Cancelled in Google Calendar')).toBeNull();
   expect(screen.getByText('1 unassigned')).toBeTruthy();
+});
+
+it('loadDayDogs: returns only the original dog array from confirmed reservations', async () => {
+  const dogs = await loadDayDogs(supabase, 'org', '2026-10-14');
+  expect(dogs.map(dog => dog.dogName)).toEqual(['Active']);
+  expect(Array.isArray(dogs)).toBe(true);
 });
