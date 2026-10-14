@@ -168,7 +168,8 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
           </Pressable>
         ) : null}
         <View style={styles.dogTextBox}>
-          <Text style={styles.title}>{stop.dogName}</Text>
+          <Text style={[styles.title, !!stop.cancellationReason && styles.textoFraco]}>{stop.dogName}</Text>
+          {stop.cancellationReason ? <Text style={styles.address}>{stop.cancellationReason}</Text> : null}
           {endereco ? <Text style={styles.address}>{endereco}</Text> : null}
           {minutos != null ? (
             <Text style={[styles.eta, atraso > 0 && styles.etaLate]}>
@@ -251,6 +252,7 @@ export function NextStopCard({ stop, nextAction, onNavigate, onAction, onNotifyO
 }
 
 const styles = StyleSheet.create({
+  textoFraco: { color: colors.muted, textDecorationLine: 'line-through' },
   /** Cartão do herói: papel do app com borda dourada para o motorista achar sem procurar. */
   card: { backgroundColor: colors.paper, borderRadius: radii.large, padding: 16, marginBottom: 12 },
   /** Rota terminada: mesmo formato, sem o destaque dourado (não há nada a fazer aqui). */

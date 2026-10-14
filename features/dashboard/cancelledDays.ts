@@ -29,6 +29,8 @@ export type CancelledVisit = {
   dogName: string;
   clientName: string;
   serviceType: 'daycare' | 'boarding';
+  /** Present on the daily view; weekly callers retain their existing result shape. */
+  reason?: 'Cancelled in Google Calendar' | 'Skipped on this date';
 };
 
 function diaDaSemana(isoDate: string): number {
@@ -41,6 +43,8 @@ function dentro(isoDate: string, inicio: string, fim: string): boolean {
 }
 
 /**
+ * includeSkipped inclui também folgas do app e o motivo para as telas diárias;
+ * sem a opção, preserva o contrato do resumo semanal.
  * Os cães cancelados NESTE dia. Um cão aparece uma vez só: se houver mais de um motivo de cancelamento
  * (uma reserva cancelada E a pausa da escala, por exemplo), vale o primeiro que chegou — a reserva, que
  * é o serviço que de fato estava agendado. Sem nada cancelado, lista vazia (dia normal).
@@ -50,11 +54,12 @@ export function cancelledVisitsOfDay(
   reservations: ReservationRecord[],
   schedules: RecurringScheduleRecord[],
   exceptions: RecurringExceptionRecord[],
+  includeSkipped = false,
 ): CancelledVisit[] {
   const porCao = new Map<string, CancelledVisit>();
-  const anotar = (dog: { id: string; dogName: string; clientName: string }, serviceType: 'daycare' | 'boarding'): void => {
+  const anotar = (dog: { id: string; dogName: string; clientName: string }, serviceType: 'daycare' | 'boarding', reason: CancelledVisit['reason'] = 'Cancelled in Google Calendar'): void => {
     if (!porCao.has(dog.id)) {
-      porCao.set(dog.id, { dogId: dog.id, dogName: dog.dogName, clientName: dog.clientName, serviceType });
+      porCao.set(dog.id, { dogId: dog.id, dogName: dog.dogName, clientName: dog.clientName, serviceType, ...(includeSkipped ? { reason } : {}) });
     }
   };
 
@@ -68,7 +73,7 @@ export function cancelledVisitsOfDay(
   }
 
   for (const excecao of exceptions) {
-    if (excecao.action !== 'skip' || excecao.reason !== CANCELAMENTO_DO_GOOGLE) continue;
+    if (excecao.action !== 'skip' || (!includeSkipped && excecao.reason !== CANCELAMENTO_DO_GOOGLE)) continue;
     if (!dentro(isoDate, excecao.startDate, excecao.endDate)) continue;
     const escala = schedules.find((item) => item.id === excecao.scheduleId);
     if (!escala || !escala.active) continue;
@@ -79,7 +84,7 @@ export function cancelledVisitsOfDay(
       (outra) => outra.scheduleId === escala.id && outra.action === 'extra' && dentro(isoDate, outra.startDate, outra.endDate),
     );
     if (!escala.weekdays.includes(diaDaSemana(isoDate)) && !diaExtra) continue;
-    anotar(escala.dog, 'daycare');
+    anotar(escala.dog, 'daycare', excecao.reason === CANCELAMENTO_DO_GOOGLE ? 'Cancelled in Google Calendar' : 'Skipped on this date');
   }
 
   return [...porCao.values()];

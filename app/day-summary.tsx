@@ -58,7 +58,7 @@ export default function DaySummaryScreen() {
         loadTodos(supabase, organizationId, dia),
         supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).eq('status', 'active'),
       ]);
-      setDogs(listaDogs);
+      setDogs(listaDogs.dogsByDay[dia]);
       setEntries(listaEntries);
       setPlan(plano);
       setTodos(listaTodos);
