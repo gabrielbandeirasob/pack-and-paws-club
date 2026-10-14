@@ -816,6 +816,19 @@ export function planCalendarImport(
 ): ImportOutcome[] {
   const labels = options.labels ?? [];
   const calendarId = options.calendarId === undefined ? DEFAULT_CALENDAR_ID : options.calendarId;
+  // O Google pode apagar a cor da ocorrência editada e deixar uma etiqueta inacessível.
+  // Resolva pelo master do mesmo feed antes de agrupar estadias/movimentos. A cor própria
+  // reconhecida (inclusive vermelho) sempre vence; título e datas continuam sendo do filho.
+  const porId = new Map(events.map((evento) => [evento.id, evento]));
+  events = events.map((evento) => {
+    const propria = readEventColor(evento, labels);
+    if (!evento.recurringEventId || (propria.source !== 'none' && propria.meaning)) return evento;
+    const master = porId.get(evento.recurringEventId);
+    if (!master) return evento;
+    const corDaSerie = readEventColor(master, labels);
+    if (corDaSerie.source === 'none' || !corDaSerie.meaning) return evento;
+    return { ...evento, colorId: master.colorId, eventLabelId: master.eventLabelId };
+  });
   const agrupadas = agruparHospedagens(events, labels, window);
   events = agrupadas.events;
   const porEvento = new Map<string, BookingForImport[]>();
