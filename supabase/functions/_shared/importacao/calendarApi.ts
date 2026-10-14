@@ -27,13 +27,15 @@ export const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 type GoogleEventResource = {
   id: string;
   summary?: string;
-  start?: { date?: string; dateTime?: string };
+  start?: { date?: string; dateTime?: string; timeZone?: string };
   end?: { date?: string; dateTime?: string };
   /** Cor do evento na paleta antiga (1..11) — só aparece em evento pintado antes das etiquetas. */
   colorId?: string;
   /** Etiqueta de cor do evento (paleta NOVA). */
   eventLabelId?: string;
   recurrence?: string[];
+  recurringEventId?: string;
+  originalStartTime?: { date?: string; dateTime?: string };
   /** Organizador do evento — último recurso para a origem da agenda (ver `RemoteEvent`). */
   organizer?: { email?: string };
   extendedProperties?: { private?: Record<string, string> };
@@ -69,8 +71,25 @@ export function fimExclusivoDoEvento(end?: { date?: string; dateTime?: string } 
   return hora === '00:00' ? dia : addDaysISO(dia, 1);
 }
 
+/** UNTIL em UTC pode cair no dia seguinte ao último dia local (Skippy: 17/10 UTC = 16/10 LA). */
+function localUntil(resource: GoogleEventResource): string | undefined {
+  const until = resource.recurrence?.join(';').match(/UNTIL=(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/);
+  if (!until || !resource.start?.dateTime) return undefined;
+  const instant = new Date(`${until[1]}-${until[2]}-${until[3]}T${until[4]}:${until[5]}:${until[6]}Z`);
+  if (resource.start.timeZone) {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: resource.start.timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(instant);
+    const part = (type: string) => parts.find((item) => item.type === type)?.value;
+    return `${part('year')}-${part('month')}-${part('day')}`;
+  }
+  const offset = /([+-])(\d{2}):(\d{2})$/.exec(resource.start.dateTime);
+  if (!offset) return undefined;
+  const minutes = (Number(offset[2]) * 60 + Number(offset[3])) * (offset[1] === '+' ? 1 : -1);
+  return new Date(instant.getTime() + minutes * 60000).toISOString().slice(0, 10);
+}
+
 /** Resposta da API → formato do planejador. `appKey` presente = evento criado pelo app (legado). */
 export function parseEvent(resource: GoogleEventResource): RemoteEvent {
+  const recurrenceUntilDate = localUntil(resource);
   return {
     id: resource.id,
     appKey: resource.extendedProperties?.private?.[APP_KEY_PROPERTY] ?? null,
@@ -82,6 +101,9 @@ export function parseEvent(resource: GoogleEventResource): RemoteEvent {
     // Paleta NOVA: a etiqueta já faz parte do recurso Event devolvido pela leitura.
     eventLabelId: resource.eventLabelId ?? null,
     recurrence: resource.recurrence ?? null,
+    ...(recurrenceUntilDate ? { recurrenceUntilDate } : {}),
+    ...(resource.recurringEventId ? { recurringEventId: resource.recurringEventId } : {}),
+    originalStartDate: resource.originalStartTime?.date ?? resource.originalStartTime?.dateTime?.slice(0, 10),
     organizerEmail: resource.organizer?.email?.trim() || null,
   };
 }

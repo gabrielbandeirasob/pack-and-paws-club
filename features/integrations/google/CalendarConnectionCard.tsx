@@ -95,6 +95,7 @@ export function janelaDeImportacao(hoje = todayLocalISO()): { from: string; to: 
 
 /** Texto da lista de revisão, por motivo. */
 export function motivoDaRevisao(reason: ImportReviewItem['reason']): string {
+  if (reason.startsWith('nome aproximado:')) return reason;
   if (reason === 'unknown dog') return 'No dog with this name in the app — register the dog and sync again';
   if (reason === 'ambiguous dog') return 'More than one dog with this name — the app does not guess which one';
   if (reason === 'duplicate') return 'A booking like this already exists in the app';
@@ -897,10 +898,21 @@ export type GoogleReviewState = {
 };
 
 export function ReviewItems({ items, onChoose }: GoogleReviewState) {
-  const naoCadastrados = items.filter((item) => item.reason !== 'unrecognized color' && item.reason !== 'purple without schedule');
+  const naoCadastrados = items.filter((item) => item.reason !== 'unrecognized color' && item.reason !== 'purple without schedule' && !item.reason.startsWith('nome aproximado:'));
   const coresDesconhecidas = items.filter((item) => item.reason === 'unrecognized color');
   const alteracoesSemEscala = items.filter((item) => item.reason === 'purple without schedule');
+  const aproximados = items.filter((item) => item.reason.startsWith('nome aproximado:'));
   return (<>
+          {aproximados.length > 0 ? (
+            <View style={styles.revisao} testID="google-calendar-revisao-aproximados">
+              <Text style={styles.revisaoTitulo}>From Google — approximate names to check</Text>
+              {aproximados.map((item) => (
+                <View key={`${item.eventId}:${item.parsed.dogName}`} style={styles.revisaoItem}>
+                  <Text style={styles.revisaoData}>{item.date} · {motivoDaRevisao(item.reason)}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
           {naoCadastrados.length > 0 ? (
             <View style={styles.revisao} testID="google-calendar-revisao">
               <Text style={styles.revisaoTitulo}>From Google — not registered in the app</Text>

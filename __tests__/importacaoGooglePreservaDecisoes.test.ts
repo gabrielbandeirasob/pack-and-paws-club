@@ -216,3 +216,15 @@ describe('importação do Google preserva as decisões do gestor', () => {
     expect(estado.recurring_exceptions.some((pausa) => pausa.id === 'pausa-app')).toBe(true);
   });
 });
+
+it.each([false, true])('boarding movement_day=%s nasce com van e preserva escolha posterior do gestor', async (movementDay) => {
+  const { estado, ports } = bancoFalso({});
+  const parsed: ParsedBooking = { ...doEvento, serviceType: 'boarding', movementDay, transportRequired: true,
+    startDate: movementDay ? '2026-10-16' : '2026-10-14', endDate: '2026-10-16' };
+  await ports.createBooking({ eventId: 'skippy-event', dogId: 'skippy', kind: 'reservation', parsed });
+  expect(estado.reservations).toHaveLength(1);
+  expect(estado.reservations[0]).toMatchObject({ service_type: 'boarding', movement_day: movementDay, transport_required: true });
+  Object.assign(estado.reservations[0], { id: 'skippy-booking', transport_required: false });
+  await ports.updateBooking({ bookingId: 'skippy-booking', eventId: 'skippy-event', dogId: 'skippy', kind: 'reservation', parsed });
+  expect(estado.reservations[0]).toMatchObject({ movement_day: movementDay, transport_required: false });
+});

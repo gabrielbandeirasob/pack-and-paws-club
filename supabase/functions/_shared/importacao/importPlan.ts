@@ -13,7 +13,8 @@
  *     normalizado: caixa e acento nao contam — "Filó" == "filo"). NAO se cria cliente e NAO se cria
  *     cao: nome fora do cadastro NAO entra e aparece na lista "not registered in the app" do cartao,
  *     para o escritorio cadastrar e sincronizar de novo. Silencio total foi recusado pelo dono.
- *     Nome que casa com DOIS caes tambem vai para essa lista, com o motivo — nada de escolher no chute.
+ *     Nome exato repetido desempata pela casa de um irmão exato único; sem sinal único, pendência.
+ *     Sem exato, aproximação única é aceita com revisão.
  *  3. O SERVICO vem da COR do evento, nunca do titulo: verde = boarding, azul = daycare,
  *     vermelho = CANCELAMENTO (cancela a reserva daquele cao naquele dia, se existir; numa serie,
  *     pula o dia). Sao DOIS esquemas de cor: a etiqueta do calendario (paleta nova, classificada pelo
@@ -106,6 +107,67 @@ export function normalizar(valor: string): string {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+}
+
+/** Proximidade conservadora: prefixo de palavra, espaço ou até uma edição (duas em nomes >= 6).
+ * Silvye/Sylvie exige duas substituições; nomes curtos não recebem tolerância de edição.
+ */
+function nomeProximo(a: string, b: string): boolean {
+  a = normalizar(a).replace(/\s+/g, ' ');
+  b = normalizar(b).replace(/\s+/g, ' ');
+  if (a === b || a.replace(/ /g, '') === b.replace(/ /g, '')) return true;
+  if (a.length >= 3 && b.startsWith(`${a} `)) return true;
+  const limite = Math.min(a.length, b.length) >= 6 ? 2 : Math.min(a.length, b.length) >= 4 ? 1 : 0;
+  if (!limite || Math.abs(a.length - b.length) > limite) return false;
+  let anterior = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const atual = [i];
+    for (let j = 1; j <= b.length; j++) {
+      atual[j] = Math.min(atual[j - 1] + 1, anterior[j] + 1, anterior[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    anterior = atual;
+  }
+  return anterior[b.length] <= limite;
+}
+
+function casarNome(nome: string, nomes: string[], dogs: DogForImport[]) {
+  const exatos = dogs.filter((cao) => normalizar(cao.name) === normalizar(nome));
+  const candidatos = exatos.length ? exatos : dogs.filter((cao) => nomeProximo(nome, cao.name));
+  // Só um irmão EXATO e único pode oferecer contexto; nunca encadear palpites.
+  const casas = nomes.filter((outro) => normalizar(outro) !== normalizar(nome)).flatMap((outro) => {
+    const irmaos = dogs.filter((cao) => normalizar(cao.name) === normalizar(outro));
+    return irmaos.length === 1 && irmaos[0].clientId ? [irmaos[0].clientId] : [];
+  });
+  const daCasa = candidatos.filter((cao) => cao.clientId && casas.includes(cao.clientId));
+  const dog = candidatos.length === 1 ? candidatos[0] : daCasa.length === 1 ? daCasa[0] : null;
+  return { candidatos, dog, aproximado: exatos.length === 0 && Boolean(dog) };
+}
+
+/** Recorta masters antigos sem criar datas passadas. Instâncias editadas são pausas da série. */
+function serieNaJanela(evento: RemoteEvent, parsed: ParsedBooking, events: RemoteEvent[], window: ImportWindow): boolean {
+  const regra = evento.recurrence?.find((item) => item.startsWith('RRULE:'));
+  if (!regra) return !antesDaJanela(parsed.startDate, window);
+  if (antesDaJanela(parsed.startDate, window)) {
+    const frequencia = /FREQ=([^;]+)/.exec(regra)?.[1];
+    // O modelo semanal não representa intervalos maiores, COUNT ou regras mensais.
+    if (!['DAILY', 'WEEKLY'].includes(frequencia ?? '') || /(?:INTERVAL=(?!1(?:;|$))|COUNT=)/.test(regra)) return false;
+    const dias = parsed.weekdays.length ? parsed.weekdays : frequencia === 'DAILY' ? [0, 1, 2, 3, 4, 5, 6] : [weekdayOfISO(evento.startDate)];
+    const fim = parsed.openEnded || parsed.endDate > window.to ? window.to : parsed.endDate;
+    const ocorrencias = new Set<number>();
+    for (let dia = window.from; dia <= fim; dia = addDaysISO(dia, 1)) {
+      if (dias.includes(weekdayOfISO(dia)) && !parsed.skipDates.includes(dia)) ocorrencias.add(weekdayOfISO(dia));
+    }
+    if (!ocorrencias.size) return false;
+    parsed.startDate = window.from;
+    parsed.weekdays = [...ocorrencias].sort((a, b) => a - b);
+    if (parsed.openEnded) parsed.endDate = window.from;
+  }
+  if (parsed.weekdays.length) {
+    const excecoes = events.filter((filho) => filho.recurringEventId === evento.id &&
+      filho.startDate >= window.from && filho.startDate <= window.to).map((filho) => filho.startDate);
+    parsed.skipDates = [...new Set([...parsed.skipDates.filter((dia) => dia >= window.from), ...excecoes])].sort();
+  }
+  return true;
 }
 
 /**
@@ -347,10 +409,11 @@ export function parseBookingEvents(event: RemoteEvent, labels: EventLabel[] = []
     cancels: color.meaning?.kind === 'cancel',
     transportRequired,
     // Dia de chegada/saída da hospedagem (avocado/amarelo): o cão está na casa — é parada de rota.
-    movementDay: movimenta === true,
+    movementDay: movimenta === true || (serviceTypeOfMeaning(color.meaning) === 'boarding' && Boolean(event.recurringEventId) && event.summary.includes('🏠')),
     dogName,
     startDate: event.startDate,
     ...recorrencia,
+    ...(event.recurrenceUntilDate ? { endDate: fimNaoAntesDoInicio(event.startDate, event.recurrenceUntilDate) } : {}),
   }));
 }
 
@@ -403,6 +466,7 @@ export type BookingForImport = {
 export type ImportWindow = { from: string; to: string };
 
 export type ReviewReason =
+  | `nome aproximado: ${string}`
   | 'unknown dog'
   | 'ambiguous dog'
   | 'unreadable'
@@ -471,7 +535,7 @@ function precisaAtualizar(reserva: BookingForImport, parsed: ParsedBooking, dogI
     reserva.startDate !== parsed.startDate ||
     (serie ? (reserva.endDate ?? null) !== (parsed.openEnded ? null : parsed.endDate) : reserva.endDate !== parsed.endDate) ||
     (serie ? !mesmosDias(reserva.weekdays, parsed.weekdays) : false) ||
-    (serie ? false : !mesmaLista(reserva.skipDates, parsed.skipDates)) ||
+    !mesmaLista(reserva.skipDates, parsed.skipDates) ||
     reserva.status !== (serie ? 'active' : 'confirmed')
   );
 }
@@ -671,6 +735,75 @@ function leituraDoDia(
   return { serviceType: serviceTypeOfMeaning(cor), goesToDaycare: true };
 }
 
+/** Materializa o boarding recorrente em estadias e mantém o ID real do movimento.
+ * IDs dos grupos adicionais são locais, derivados do master e do começo do grupo.
+ * Não representam eventos novos no Google nem exigem outro campo no banco.
+ */
+function agruparHospedagens(events: RemoteEvent[], labels: EventLabel[], window: ImportWindow) {
+  const removidos = new Set<string>();
+  const estadias = new Set<string>();
+  const movimentos = new Set<string>();
+  const gerados: RemoteEvent[] = [];
+  const vermelhos = diasCanceladosNoGoogle(events, labels, window);
+  for (const master of events) {
+    const parsed = parseBookingEvent(master, labels);
+    const regra = master.recurrence?.find((r) => r.startsWith('RRULE:'));
+    if (master.appKey || !regra || parsed?.serviceType !== 'boarding') continue;
+    removidos.add(master.id);
+    const freq = /FREQ=([^;]+)/.exec(regra)?.[1];
+    // Regras não representáveis não podem cair no caminho das séries de daycare.
+    if (freq !== 'DAILY' && freq !== 'WEEKLY') continue;
+    const intervalo = Number(/INTERVAL=(\d+)/.exec(regra)?.[1] ?? 1);
+    const count = Number(/COUNT=(\d+)/.exec(regra)?.[1] ?? Infinity);
+    const fim = parsed.openEnded ? window.to : [parsed.endDate, window.to].sort()[0];
+    const filhos = events.filter((e) => e.recurringEventId === master.id && !e.appKey);
+    const dias = new Map<string, RemoteEvent>();
+    let n = 0;
+    for (let dia = master.startDate; dia <= fim; dia = addDaysISO(dia, 1)) {
+      const distancia = Math.round((Date.parse(dia) - Date.parse(master.startDate)) / 86400000);
+      const semana = Math.floor((distancia + (weekdayOfISO(master.startDate) + 6) % 7) / 7);
+      const ocorre = freq === 'DAILY'
+        ? distancia % intervalo === 0 && (!parsed.weekdays.length || parsed.weekdays.includes(weekdayOfISO(dia)))
+        : semana % intervalo === 0 && (parsed.weekdays.length ? parsed.weekdays : [weekdayOfISO(master.startDate)]).includes(weekdayOfISO(dia));
+      if (!ocorre) continue;
+      if (++n > count) break;
+      if (dia < window.from || parsed.skipDates.includes(dia)) continue;
+      if (filhos.some((e) => (e.originalStartDate ?? e.startDate) === dia)) continue;
+      dias.set(dia, master);
+    }
+    for (const filho of filhos) {
+      if (filho.startDate < window.from || filho.startDate > window.to) continue;
+      const leitura = parseBookingEvent(filho, labels);
+      if (leitura?.serviceType !== 'boarding') continue;
+      dias.set(filho.startDate, filho);
+      if (leitura.movementDay || filho.summary.includes('🏠')) movimentos.add(filho.id);
+      else removidos.add(filho.id);
+    }
+    // Um vermelho de qualquer evento do cão corta também o intervalo do master.
+    for (const dia of dias.keys()) {
+      if (dogNamesFromTitle(master.summary).some((nome) => vermelhos.has(chaveDoDiaCancelado(nome, dia)))) {
+        const filho = dias.get(dia)!;
+        if (filho !== master) { removidos.add(filho.id); movimentos.delete(filho.id); }
+        dias.delete(dia);
+      }
+    }
+    const grupos: string[][] = [];
+    for (const dia of [...dias.keys()].sort()) {
+      const ultimo = grupos[grupos.length - 1];
+      if (ultimo && addDaysISO(ultimo[ultimo.length - 1], 1) === dia) ultimo.push(dia);
+      else grupos.push([dia]);
+    }
+    grupos.forEach((grupo, i) => {
+      if (grupo.length === 1 && movimentos.has(dias.get(grupo[0])!.id)) return;
+      const id = i === 0 ? master.id : `${master.id}::boarding:${grupo[0]}`;
+      estadias.add(id);
+      gerados.push({ ...master, id, startDate: grupo[0], endDate: addDaysISO(grupo[grupo.length - 1], 1),
+        recurrence: null, recurrenceUntilDate: undefined });
+    });
+  }
+  return { events: [...events.filter((e) => !removidos.has(e.id)), ...gerados], estadias, movimentos };
+}
+
 /**
  * O que fazer com o que está no Google. Determinístico e sem rede.
  *
@@ -686,6 +819,8 @@ export function planCalendarImport(
 ): ImportOutcome[] {
   const labels = options.labels ?? [];
   const calendarId = options.calendarId === undefined ? DEFAULT_CALENDAR_ID : options.calendarId;
+  const agrupadas = agruparHospedagens(events, labels, window);
+  events = agrupadas.events;
   const porEvento = new Map<string, BookingForImport[]>();
   const recuperadas = new Set<string>();
   // Medido em 07/10/2026: Teddy tinha vínculo e Billy não. Só recuperamos uma linha Google
@@ -765,6 +900,12 @@ export function planCalendarImport(
     }
 
     const parsedTodos = parseBookingEvents(evento, labels);
+    for (const parsed of parsedTodos) {
+      if (agrupadas.estadias.has(evento.id) || agrupadas.movimentos.has(evento.id)) {
+        parsed.movementDay = agrupadas.movimentos.has(evento.id);
+        parsed.transportRequired = true;
+      }
+    }
     const primeiro = parsedTodos[0] ?? null;
     // 2. Até evento sem título precisa aparecer para revisão; o calendário é exclusivo do negócio.
     //    Exceção: evento que COMEÇOU antes de hoje não gera nada — nem reserva, nem pendência
@@ -792,7 +933,7 @@ export function planCalendarImport(
       continue;
     }
 
-    if (antesDaJanela(primeiro.startDate, window)) continue;
+    if (!parsedTodos.every((parsed) => serieNaJanela(evento, parsed, events, window))) continue;
 
     // 3. O serviço vem da COR (etiqueta da paleta nova pelo TOM do hex, senão `colorId` legado). Sem
     //    cor (ou cor fora do mapa) NÃO se chuta serviço: o evento entra na lista "color not recognized"
@@ -800,14 +941,15 @@ export function planCalendarImport(
     //    sincroniza de novo.
     const cor: ColorMeaning | null = primeiro.color.meaning;
     if (!cor) {
-      resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed: primeiro, reason: 'unrecognized color' });
+      resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: primeiro.startDate, parsed: primeiro, reason: 'unrecognized color' });
       continue;
     }
 
     // Um vínculo por evento E cão. Medido em 28/09: reutilizar a linha do primeiro cão
     // para o segundo alternava dog_id e deixava 7 cães no dia em vez de 8.
     const grupo = porEvento.get(evento.id) ?? [];
-    const nomesDoEvento = new Set(parsedTodos.map((item) => normalizar(item.dogName)));
+    const casamentos = parsedTodos.map((item) => casarNome(item.dogName, parsedTodos.map((outro) => outro.dogName), dogs));
+    const nomesDoEvento = new Set(parsedTodos.flatMap((item, i) => [normalizar(item.dogName), ...(casamentos[i].dog ? [normalizar(casamentos[i].dog!.name)] : [])]));
     // Um vínculo cancelado do antigo segundo cão não torna ambíguo o único cão ainda ativo.
     const ativas = grupo.filter((item) => item.status === 'confirmed' || item.status === 'active');
     const referenciaUnica = ativas.length === 1 ? ativas[0] : grupo.length === 1 ? grupo[0] : null;
@@ -823,28 +965,21 @@ export function planCalendarImport(
       }
     }
     for (const parsed of parsedTodos) {
-      // 4. Casa o cao pelo NOME do titulo (normalizado). Nome repetido em dois cadastros nao e
-      //    desempatado por tutor: a regra nova nao traz tutor no titulo, entao isso e pendencia.
+      // 4. Exato primeiro; aproximação única depois, sempre registrada para conferência.
       const alvo = normalizar(parsed.dogName);
-      const candidatos = dogs.filter((cao) => normalizar(cao.name) === alvo);
-      // 🏠 Desempate pela CASA (medido em 13/10/2026): há dois cães chamados `Sam` no cadastro (Jose e
-      // Nina) e o título `Sam/Ollie` traz o `Ollie`, que é do Jose — logo o Sam do Jose é o certo. O
-      // dono já ditou que cães da mesma casa vão juntos; sem isto o dia perdia o cão (*"faltou Sam
-      // (Ollie and Sam)"*) e o escritório tinha de escolher à mão todo dia. O desempate só vale quando
-      // o sinal é ÚNICO: exatamente um candidato da casa de um dos outros nomes do título.
-      const daMesmaCasa = candidatos.filter((cao) => {
-        if (candidatos.length === 1 || !cao.clientId) return false;
-        return parsedTodos.some((outro) => {
-          if (normalizar(outro.dogName) === alvo) return false;
-          const irmaos = dogs.filter((irmao) => normalizar(irmao.name) === normalizar(outro.dogName));
-          return irmaos.length === 1 && irmaos[0].clientId === cao.clientId;
-        });
-      });
-      const dogDoTitulo = candidatos.length === 1
-        ? candidatos[0].id
-        : daMesmaCasa.length === 1
-          ? daMesmaCasa[0].id
-          : null;
+      const casamento = casamentos[parsedTodos.indexOf(parsed)];
+      const candidatos = casamento.candidatos;
+      const dogDoTitulo = casamento.dog?.id ?? null;
+      if (casamento.aproximado && casamento.dog) {
+        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: parsed.startDate, parsed: { ...parsed },
+          reason: `nome aproximado: "${parsed.dogName}" -> ${casamento.dog.name}` });
+      }
+      // Sem sinal único da casa de um irmão exato, homônimos seguem pendentes.
+      if (candidatos.length > 1 && !dogDoTitulo) {
+        vistos.add(evento.id);
+        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: parsed.startDate, parsed, reason: 'ambiguous dog' });
+        continue;
+      }
 
       // 4.1 Dia de hotel (verde) sem chegada/saída marcada para este cão na janela: mantém a van
       //     (comportamento antigo). Com a marcação, o dia do meio fica FORA da van — é o pedido do
@@ -875,7 +1010,12 @@ export function planCalendarImport(
       // 6. Evento VERMELHO = cancelamento do dia daquele cão.
       if (cor.kind === 'cancel') {
         vistos.add(evento.id);
-        const alvos = alvosDoCancelamento(evento.id, ligada, dogDoTitulo, evento.startDate, reservations);
+        const reservasDoDia = reservations.map((reserva) => {
+          const estadia = events.find((e) => e.id === reserva.googleEventId && agrupadas.estadias.has(e.id));
+          return estadia && reserva.source === 'google' && !antesDaJanela(reserva.startDate, window)
+            ? { ...reserva, startDate: estadia.startDate, endDate: addDaysISO(estadia.endDate, -1) } : reserva;
+        });
+        const alvos = alvosDoCancelamento(evento.id, ligada, dogDoTitulo, evento.startDate, reservasDoDia);
         for (const alvo of alvos) resultados.push(alvo);
         if (alvos.length === 0 && !dogDoTitulo) {
           // Não há o que cancelar E o cão não está no cadastro: o escritório precisa saber disso.
@@ -883,7 +1023,7 @@ export function planCalendarImport(
             kind: 'review',
             eventId: evento.id,
             title: evento.summary,
-            date: evento.startDate,
+            date: primeiro.startDate,
             parsed,
             reason: candidatos.length > 1 ? 'ambiguous dog' : 'unknown dog',
           });
@@ -909,7 +1049,7 @@ export function planCalendarImport(
             kind: 'review',
             eventId: evento.id,
             title: evento.summary,
-            date: evento.startDate,
+            date: primeiro.startDate,
             parsed,
             reason: dogId ? 'purple without schedule' : candidatos.length > 1 ? 'ambiguous dog' : 'unknown dog',
           });
@@ -920,14 +1060,32 @@ export function planCalendarImport(
           eventId: evento.id,
           dogId: escala.dogId,
           scheduleId: escala.id,
-          date: evento.startDate,
+          date: primeiro.startDate,
           looseBookingId: ligada?.kind === 'reservation' ? ligada.id : null,
         });
         continue;
       }
 
+      // Intervalos de estadia não se sobrepõem; movimento é uma reserva distinta.
+      if (agrupadas.estadias.has(evento.id)) {
+        const dogId = dogDoTitulo ?? ligada?.dogId;
+        const sobrepoe = (inicio: string, fim: string | null | undefined) => inicio <= parsed.endDate && (fim ?? inicio) >= parsed.startDate;
+        const duplicada = reservations.some((r) => {
+          if (r.id === ligada?.id || r.dogId !== dogId || r.serviceType !== 'boarding' || r.movementDay || r.status !== 'confirmed') return false;
+          const destino = events.find((e) => e.id === r.googleEventId && agrupadas.estadias.has(e.id));
+          return sobrepoe(destino?.startDate ?? r.startDate, destino ? addDaysISO(destino.endDate, -1) : r.endDate);
+        }) || resultados.some((r) => r.kind === 'create' && r.dogId === dogId && r.parsed.serviceType === 'boarding' &&
+          !r.parsed.movementDay && sobrepoe(r.parsed.startDate, r.parsed.endDate));
+        if (duplicada) {
+          vistos.add(evento.id);
+          resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: parsed.startDate, parsed, reason: 'duplicate' });
+          continue;
+        }
+      }
+
       if (ligada) {
         vistos.add(evento.id);
+        if (ligada.kind === 'reservation' && (antesDaJanela(ligada.startDate, window) || ligada.startDate > window.to)) continue;
         const dogId = dogDoTitulo ?? ligada.dogId;
         const servico: ParsedBooking = { ...parsed, ...leituraDoDia(cor, parsed, hospedagem, alvo) };
         // 🔴 O dia foi CANCELADO no calendário (vermelho — inclusive a INSTÂNCIA vermelha da série
@@ -957,11 +1115,11 @@ export function planCalendarImport(
       // 7. Cão que não está no cadastro (nenhum ou mais de um) NÃO é importado — e não se cadastra
       //    ninguém: o evento aparece na lista "not registered in the app" para o escritório cadastrar.
       if (candidatos.length === 0) {
-        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'unknown dog' });
+        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: primeiro.startDate, parsed, reason: 'unknown dog' });
         continue;
       }
       if (candidatos.length > 1 && !dogDoTitulo) {
-        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed, reason: 'ambiguous dog' });
+        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: primeiro.startDate, parsed, reason: 'ambiguous dog' });
         continue;
       }
 
@@ -989,7 +1147,7 @@ export function planCalendarImport(
           reserva.status === 'confirmed',
       );
       if (gemea) {
-        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed: servico, reason: 'duplicate' });
+        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: primeiro.startDate, parsed: servico, reason: 'duplicate' });
         continue;
       }
 
@@ -1006,7 +1164,7 @@ export function planCalendarImport(
        */
       const chave = chaveDaMesmaReserva(tipo, dogId, servico);
       if (criadasNaRodada.has(chave)) {
-        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: evento.startDate, parsed: servico, reason: 'duplicate' });
+        resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: primeiro.startDate, parsed: servico, reason: 'duplicate' });
         continue;
       }
       criadasNaRodada.set(chave, evento.id);

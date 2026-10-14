@@ -9,12 +9,14 @@ export function GoogleReviewPanel({ review, selectedDay }: { review: GoogleRevie
   const items = review?.items.filter((item) => item.date === selectedDay) ?? [];
   if (!items.length || !review) return null;
   const counts = {
-    dogs: items.filter((item) => !['unrecognized color', 'purple without schedule', 'duplicate'].includes(item.reason)).length,
+    dogs: items.filter((item) => !item.reason.startsWith('nome aproximado:') && !['unrecognized color', 'purple without schedule', 'duplicate'].includes(item.reason)).length,
+    approximate: items.filter((item) => item.reason.startsWith('nome aproximado:')).length,
     colors: items.filter((item) => item.reason === 'unrecognized color').length,
     duplicates: items.filter((item) => item.reason === 'duplicate').length,
     schedules: items.filter((item) => item.reason === 'purple without schedule').length,
   };
   const summary = `Google: ${[
+    counts.approximate ? `${counts.approximate} approximate names to check` : null,
     counts.dogs ? `${counts.dogs} not registered` : null,
     counts.colors ? `${counts.colors} ${counts.colors === 1 ? 'unrecognized color' : 'unrecognized colors'}` : null,
     counts.duplicates ? `${counts.duplicates} ${counts.duplicates === 1 ? 'duplicate' : 'duplicates'}` : null,

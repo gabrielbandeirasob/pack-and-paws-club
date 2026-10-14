@@ -170,3 +170,15 @@ it('Choose dog no rodapé abre a mesma pesquisa e salva pelo fluxo existente', a
   })));
   await waitFor(() => expect(screen.getByText('Google: 1 unrecognized color · 1 duplicate')).toBeTruthy());
 });
+
+it('nome aproximado aparece para conferência sem oferecer outra importação', async () => {
+  (runCalendarImport as jest.Mock).mockResolvedValue({ created: 1, updated: 0, cancelled: 0, failures: [],
+    review: [item('Honey', 'nome aproximado: "Honey" -> Honey Bea')] });
+  const screen = await openCalendar();
+  expect(screen.getByText('Google: 1 approximate names to check')).toBeTruthy();
+  await fireEvent.press(screen.getByTestId('google-review-toggle'));
+  const review = within(screen.getByTestId('google-calendar-revisao-aproximados'));
+  expect(review.getByText(/nome aproximado: "Honey" -> Honey Bea/)).toBeTruthy();
+  expect(review.queryByRole('button')).toBeNull();
+  expect(screen.queryByText('From Google — not registered in the app')).toBeNull();
+});
