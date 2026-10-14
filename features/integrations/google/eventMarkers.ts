@@ -65,6 +65,12 @@ export type RemoteEvent = {
    */
   eventLabelId?: string | null;
   recurrence?: string[] | null;
+  /** Master da instância editada: o dia dela substitui a série. */
+  recurringEventId?: string | null;
+  /** Dia original da ocorrência, inclusive quando a instância foi movida. */
+  originalStartDate?: string;
+  /** UNTIL convertido para a data local do evento com hora. */
+  recurrenceUntilDate?: string;
   /**
    * E-mail do ORGANIZADOR do evento (`organizer.email`).
    *
