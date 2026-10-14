@@ -44,7 +44,10 @@ jest.mock('@/lib/supabase', () => ({
       const data = table === 'organization_members' ? [{ organization_id: 'org-1' }]
         : table === 'dogs' ? [{ id: 'luna', name: 'Luna', client: { id: 'maria', name: 'Maria' } }] : [];
       const chain: Record<string, unknown> = {};
-      for (const method of ['select', 'eq', 'in', 'gte', 'lte', 'limit']) chain[method] = () => chain;
+      // `order` entrou na lista em 14/10/2026: a tela do dia consulta as reservas com `order` explícito
+      // (o dia não pode depender da ordem que o Postgres devolvesse — ver `uniqueDogs` em `dayMath.ts`).
+      // O cliente falso precisa espelhar a corrente real do PostgREST, senão a tela fica carregando.
+      for (const method of ['select', 'eq', 'in', 'gte', 'lte', 'limit', 'order']) chain[method] = () => chain;
       chain.insert = (values: unknown) => { inserted = true; mockInsert(table, values); return chain; };
       chain.maybeSingle = async () => ({ data: null, error: null });
       chain.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: inserted ? [{ id: 'new' }] : data, error: null }).then(resolve);

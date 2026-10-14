@@ -273,7 +273,17 @@ export function buildDay(
     if (!isWithin(isoDate, reservation.startDate, reservation.endDate)) continue;
     if (reservation.serviceType === 'boarding') {
       boarding.push(itemize('boarding', reservation, null));
-    } else if (isoDate === reservation.startDate) {
+    } else {
+      /**
+       * ⚠️ MUDANÇA DE 14/10/2026 (quebra do escritório: *"tá faltando 1 cachorro lá ainda"*, no grupo
+       * do app). A barra de DAYCARE de VÁRIOS dias é o cão vindo **todo dia** dela: o escritório pinta
+       * UMA barra por semana (medido no banco: `Charlie` 12→17 e `Tiger` 13→16) e a lista de trabalho
+       * dele traz os dois com horário de busca em cada dia (7:25 e 7:35). Antes o dia exigia
+       * `isoDate === reservation.startDate`, então do 2º dia em diante o cão desaparecia do dia, do
+       * Total Pack e da fila do Dispatch — em 14/10 o Tiger e o Charlie sumiram da tela enquanto o
+       * escritório os esperava na rota. O intervalo já é inclusivo pelas duas pontas
+       * (`isWithin`), então cobrir todo dia coberto é o que a barra significa.
+       */
       daycare.push(itemize('daycare', reservation, null));
     }
   }
@@ -311,7 +321,24 @@ export function buildDay(
       dogs.set(item.dogId, existing
         ? { ...existing, transportRequired: existing.transportRequired || item.transportRequired,
           pickupRequired: (existing.pickupRequired ?? existing.transportRequired) || (item.pickupRequired ?? item.transportRequired),
-          dropoffRequired: (existing.dropoffRequired ?? existing.transportRequired) || (item.dropoffRequired ?? item.transportRequired) }
+          dropoffRequired: (existing.dropoffRequired ?? existing.transportRequired) || (item.dropoffRequired ?? item.transportRequired),
+          /**
+           * ⚠️ 14/10/2026 — a ORDEM das linhas do SELECT decidia o dia do cão. Uma chegada/saída de
+           * hospedagem (a linha de UM dia com `movement_day = true`) e a linha da ESTADIA (a barra, sem
+           * a marca) cobrem o mesmo dia, e a agregação antiga deixava valer o que viesse PRIMEIRO: o cão
+           * que devia ser parada da rota ficava preso em "já está na van". Medido com as funções reais
+           * sobre o banco do cliente: 15/10 dava fila 17 × 19 (Elvis e Levi S) e 16/10 dava 12 × 13
+           * (Jasper, Ruby e Skippy) só trocando a ordem das linhas — e as telas consultam sem `order`.
+           * Regra do dia de movimento (cliente, 06/10/2026): o dia de CHEGADA/SAÍDA é parada normal, e
+           * `movementDay` é a marca que manda — então aqui vale o "OU": se QUALQUER linha do dia diz que
+           * o cão se move com o motorista, ele é parada, independente da ordem.
+           */
+          movementDay: existing.movementDay === true || item.movementDay === true,
+          // Mesmo motivo: `goesToDaycare` também não pode depender da ordem. Vale o "OU" (contrato
+          // escrito de 28/09: *"por via de regra todo boarding vai pro daycare"*) — hoje o banco não
+          // tem nenhum dia com as duas linhas discordando, então isso não muda o dia de ninguém; só
+          // tira a sorte de quem chega primeiro.
+          goesToDaycare: existing.goesToDaycare || item.goesToDaycare }
         : item);
     }
     return [...dogs.values()];

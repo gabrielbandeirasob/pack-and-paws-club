@@ -70,7 +70,9 @@ export default function CalendarScreen() {
        * mês de uso (o índice de data nem era usado). A janela ACOMPANHA o dia escolhido (±30 dias atrás,
        * +180 à frente), então navegar para frente e para trás continua trazendo o que interessa.
        */
-      supabase.from('reservations').select('id, status, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).in('status', ['confirmed', 'cancelled']).gte('end_date', janelaDe).lte('start_date', janelaAte),
+      // ⚠️ `order` EXPLÍCITO (14/10/2026): a mesma agregação por cão do dia — sem ordem, o dia podia
+      // mudar por sorte de quem o Postgres devolvesse primeiro (ver `uniqueDogs` em `dayMath.ts`).
+      supabase.from('reservations').select('id, status, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).in('status', ['confirmed', 'cancelled']).gte('end_date', janelaDe).lte('start_date', janelaAte).order('start_date').order('id'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', orgId).gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase.from('dogs').select('id, name, client:clients(id, name)').eq('organization_id', orgId).eq('active', true),

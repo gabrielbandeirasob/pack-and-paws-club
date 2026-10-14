@@ -290,7 +290,9 @@ export default function HomeScreen() {
       supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).eq('role', 'driver').eq('status', 'active'),
       // Quem pode CAMINHAR com um cão (operação, 26/09): qualquer membro ativo, não só o motorista da rota.
       supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).eq('status', 'active'),
-      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte),
+      // ⚠️ `order` EXPLÍCITO (14/10/2026): a Home agrega o dia por cão (indicadores/Total Pack) e, sem
+      // ordem, o resultado podia mudar de uma carga para outra (ver `uniqueDogs` em `dayMath.ts`).
+      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte).order('start_date').order('id'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', organizationId).gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase

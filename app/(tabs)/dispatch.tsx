@@ -262,7 +262,10 @@ export default function DispatchScreen() {
        * segundo vínculo. Na tela ele aparece marcado como "· manager".
        */
       supabase.from('organization_members').select('user_id, role, profiles(full_name)').eq('organization_id', orgId).in('role', ['driver', 'manager']).eq('status', 'active'),
-      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte),
+      // ⚠️ `order` EXPLÍCITO (14/10/2026): sem ele a ordem que o Postgres devolvesse decidia quem era
+      // parada e quem ia para "já está na van" (um dia de movimento podia ser engolido pela barra da
+      // estadia — ver `uniqueDogs` em `features/calendar/dayMath.ts`).
+      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte).order('start_date').order('id'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId).gte('end_date', janelaDe).lte('start_date', janelaAte),
     ]);

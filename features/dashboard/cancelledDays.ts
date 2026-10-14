@@ -17,7 +17,8 @@
  *     para quem confere a semana.
  *
  * A cobertura do dia é a MESMA conta do `buildDay` (o resumo não pode divergir do calendário):
- * reserva de BOARDING cobre todos os dias do período, reserva de DAYCARE só o dia de início; a escala
+ * reserva de BOARDING cobre todos os dias do período; reserva de DAYCARE cobre **todos** os dias da
+ * barra (mudança de 14/10/2026 — antes só o dia de início, e o cão sumia do resto da semana); a escala
  * cobre os dias da semana dela mais o **dia extra** (roxo).
  */
 import type { ReservationRecord, RecurringScheduleRecord, RecurringExceptionRecord } from '@/features/calendar/dayMath';
@@ -68,8 +69,9 @@ export function cancelledVisitsOfDay(
     if (reserva.status !== 'cancelled') continue;
     if (!dentro(isoDate, reserva.startDate, reserva.endDate)) continue;
     if (reserva.serviceType === 'boarding') anotar(reserva.dog, 'boarding');
-    // Daycare avulso só existe no dia de início (é a regra do `buildDay`).
-    else if (isoDate === reserva.startDate) anotar(reserva.dog, 'daycare');
+    // Daycare de VÁRIOS dias vale para TODO dia da barra (14/10/2026 — mesma cobertura do `buildDay`:
+    // o escritório pinta uma barra por semana e o cão vem todo dia dela).
+    else anotar(reserva.dog, 'daycare');
   }
 
   for (const excecao of exceptions) {

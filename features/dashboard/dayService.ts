@@ -254,14 +254,19 @@ export async function loadDayDogs(client: SupabaseClient, organizationId: string
       .eq('organization_id', organizationId)
       .eq('status', 'confirmed')
       .lte('start_date', isoDay)
-      .gte('end_date', isoDay),
+      .gte('end_date', isoDay)
+      // Ordem EXPLÍCITA (14/10/2026): o dia é agregado por cão e, sem `order`, a ordem que o Postgres
+      // devolvesse decidia quem ficava parada e quem ia para "já está na van" (ver `uniqueDogs`).
+      .order('start_date')
+      .order('id'),
     client
       .from('recurring_schedules')
       .select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
       .eq('active', true)
-      .lte('start_date', isoDay),
-    client.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', organizationId),
+      .lte('start_date', isoDay)
+      .order('id'),
+    client.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', organizationId).order('id'),
   ]);
   const erro = reservas.error ?? series.error ?? excecoes.error;
   if (erro) throw new Error(erro.message);
@@ -300,14 +305,19 @@ export async function loadWeek(
       .eq('organization_id', organizationId)
       .in('status', ['confirmed', 'cancelled'])
       .lte('start_date', fim)
-      .gte('end_date', inicio),
+      .gte('end_date', inicio)
+      // Ordem EXPLÍCITA (14/10/2026): o resumo da semana usa o MESMO `buildDay` do dia, então a ordem
+      // das linhas não pode mudar o resultado (ver `uniqueDogs`).
+      .order('start_date')
+      .order('id'),
     client
       .from('recurring_schedules')
       .select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
       .eq('active', true)
-      .lte('start_date', fim),
-    client.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', organizationId),
+      .lte('start_date', fim)
+      .order('id'),
+    client.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', organizationId).order('id'),
   ]);
   const erro = reservas.error ?? series.error ?? excecoes.error;
   if (erro) throw new Error(erro.message);

@@ -21,7 +21,9 @@ jest.mock('@/lib/supabase', () => ({ supabase: {
   auth: { getUser: async () => ({ data: { user: { id: 'manager' } } }) },
   from: (table: string) => {
     const chain: Record<string, unknown> = {};
-    for (const method of ['select', 'eq', 'in', 'limit', 'gte', 'lte']) chain[method] = () => chain;
+    // `order` (14/10/2026): a tela consulta as reservas com `order` explícito — o cliente falso
+    // espelha a corrente real do PostgREST.
+    for (const method of ['select', 'eq', 'in', 'limit', 'gte', 'lte', 'order']) chain[method] = () => chain;
     chain.then = (resolve: (value: unknown) => unknown) => Promise.resolve({
       error: null, data: table === 'organization_members' ? [{ organization_id: 'org' }] : mockRows[table] ?? [],
     }).then(resolve);

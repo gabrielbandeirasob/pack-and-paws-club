@@ -8,8 +8,8 @@
  *
  * Este arquivo prova:
  *  1. as regras puras (`cancelledDays.cancelledVisitsOfDay`) contra a MESMA cobertura de dia do
- *     `buildDay` — daycare avulso só no dia de início, boarding em todos os dias, escala nos dias dela
- *     e no dia extra (roxo);
+ *     `buildDay` — daycare (avulso OU barra de vários dias) em todos os dias que cobre, boarding em
+ *     todos os dias do período, escala nos dias dela e no dia extra (roxo);
  *  2. o que a tela PEDE ao banco (`loadWeek`): reservas confirmadas **e canceladas**, e o `reason` da
  *     exceção — sem isso não há como saber que o dia foi cancelado.
  */
@@ -65,13 +65,25 @@ function pausa(over: Partial<RecurringExceptionRecord> = {}): RecurringException
 /* ---------------------------------- regras puras (cancelado) ---------------------------------- */
 
 describe('cancelledVisitsOfDay — o que o vermelho do Google tira', () => {
-  it('reserva avulsa cancelada: daycare só no dia de início, e com o serviço dela', () => {
+  it('reserva avulsa cancelada: a barra de daycare cancela TODOS os dias dela (14/10/2026)', () => {
     const cancelada = reserva({ id: 'r-1', status: 'cancelled', serviceType: 'daycare', startDate: SEGUNDA, endDate: QUARTA });
 
     expect(cancelledVisitsOfDay(SEGUNDA, [cancelada], [], [])).toEqual([
       { dogId: 'mowgli', dogName: 'Mowgli', clientName: 'Leigh Ann', serviceType: 'daycare' },
     ]);
-    // O daycare avulso não cobre os dias seguintes (regra do `buildDay`).
+    // ⚠️ MUDANÇA DE 14/10/2026: a barra de daycare de vários dias cobre TODO dia dela (antes só o dia
+    // de início, e o cão cancelado "sumia" dos outros dias do resumo). É a MESMA cobertura do dia que o
+    // `buildDay` passou a usar — as duas contas não podem divergir.
+    expect(cancelledVisitsOfDay(TERCA, [cancelada], [], [])).toHaveLength(1);
+    expect(cancelledVisitsOfDay(QUARTA, [cancelada], [], [])).toHaveLength(1);
+    // Fora da barra não cancela nada.
+    expect(cancelledVisitsOfDay('2026-10-15', [cancelada], [], [])).toEqual([]);
+  });
+
+  it('daycare de UM dia cancelado cancela só aquele dia', () => {
+    const cancelada = reserva({ id: 'r-1b', status: 'cancelled', serviceType: 'daycare' });
+
+    expect(cancelledVisitsOfDay(SEGUNDA, [cancelada], [], [])).toHaveLength(1);
     expect(cancelledVisitsOfDay(TERCA, [cancelada], [], [])).toEqual([]);
   });
 

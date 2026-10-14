@@ -45,6 +45,8 @@ beforeEach(() => {
     const chain = {
       // O mock espelha a consulta REAL: a tela filtra por janela de data (vistoria 02/10/2026).
       select: () => chain, eq: () => chain, limit: () => chain, gte: () => chain, lte: () => chain,
+      // `order` (14/10/2026): a tela consulta as reservas com `order` explícito (`start_date`, `id`).
+      order: () => chain,
       in: (column: string, values: string[]) => { expect(column).toBe('status'); statuses = values; return chain; },
       update: mockUpdate,
       then: (resolve: (result: unknown) => unknown) => Promise.resolve({ error: null, data:
