@@ -1,3 +1,4 @@
+import { cancelledVisitsOfDay, type CancelledVisit } from '@/features/dashboard/cancelledDays';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -26,9 +27,9 @@ import { ordenarEMedirRota, pontoBalanceavel, stopsDaRota } from '@/features/dis
 import { motoristaDoPickupPorCao, sugerirRotas, type CaoParaSugerir, type OpcoesDaSugestao } from '@/features/dispatch/routeSuggestion';
 
 type DriverRow = { user_id: string; role: 'manager' | 'driver'; profiles: { full_name: string | null } | null };
-type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; goes_to_daycare: boolean | null; movement_day: boolean | null; dog: { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } } };
+type ReservationRow = { status?: 'confirmed' | 'cancelled'; id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; goes_to_daycare: boolean | null; movement_day: boolean | null; dog: { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } } };
 type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; transport_required: boolean; dog: { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } } };
-type ExceptionRow = { id: string; recurring_schedule_id: string; action: 'skip' | 'transport_on' | 'transport_off'; start_date: string; end_date: string };
+type ExceptionRow = { reason?: string | null; id: string; recurring_schedule_id: string; action: 'skip' | 'transport_on' | 'transport_off'; start_date: string; end_date: string };
 type StopRow = {
   pickup_pin?: Travas['pickupPin'];
   pickup_pin_position?: number | null;
@@ -77,6 +78,8 @@ export default function DispatchScreen() {
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [date, setDate] = useState(todayLocalISO());
   const [drivers, setDrivers] = useState<DispatchDriver[]>([]);
+  const [cancelledByDay, setCancelledByDay] = useState<Record<string, CancelledVisit[]>>({});
+  const cancelledIds = useRef(new Set<string>());
   const [dayItems, setDayItems] = useState<DispatchStopItem[]>([]);
   /**
    * A mesma fila do dia num ref: a atribuição precisa saber quem mora junto (mesmo cliente) no momento
@@ -262,9 +265,9 @@ export default function DispatchScreen() {
        * segundo vínculo. Na tela ele aparece marcado como "· manager".
        */
       supabase.from('organization_members').select('user_id, role, profiles(full_name)').eq('organization_id', orgId).in('role', ['driver', 'manager']).eq('status', 'active'),
-      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte),
+      supabase.from('reservations').select('id, status, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).in('status', ['confirmed', 'cancelled']).gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('active', true),
-      supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId).gte('end_date', janelaDe).lte('start_date', janelaAte),
+      supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', orgId).gte('end_date', janelaDe).lte('start_date', janelaAte),
     ]);
     if (dia !== contexto.current.date) return;
     /*
@@ -289,13 +292,13 @@ export default function DispatchScreen() {
     );
 
     const reservations: ReservationRecord[] = ((reservationResult.data as unknown as ReservationRow[]) ?? []).map((row) => ({
-      id: row.id, dog: toDogRef(row.dog), serviceType: row.service_type, startDate: row.start_date, endDate: row.end_date, transportRequired: row.transport_required, goesToDaycare: row.goes_to_daycare ?? true, movementDay: row.movement_day ?? false,
+      id: row.id, status: row.status ?? 'confirmed', dog: toDogRef(row.dog), serviceType: row.service_type, startDate: row.start_date, endDate: row.end_date, transportRequired: row.transport_required, goesToDaycare: row.goes_to_daycare ?? true, movementDay: row.movement_day ?? false,
     }));
     const recurring: RecurringScheduleRecord[] = ((recurringResult.data as unknown as RecurringRow[]) ?? []).map((row) => ({
       id: row.id, dog: toDogRef(row.dog), weekdays: row.weekdays, startDate: row.start_date, endDate: row.end_date, active: row.active, transportRequired: row.transport_required,
     }));
     const exceptions: RecurringExceptionRecord[] = ((exceptionResult.data as unknown as ExceptionRow[]) ?? []).map((row) => ({
-      id: row.id, scheduleId: row.recurring_schedule_id, action: row.action, startDate: row.start_date, endDate: row.end_date,
+      id: row.id, reason: row.reason, scheduleId: row.recurring_schedule_id, action: row.action, startDate: row.start_date, endDate: row.end_date,
     }));
 
     /**
@@ -312,6 +315,10 @@ export default function DispatchScreen() {
     coordenadasPorCao.current = coordenadas;
 
     const day = buildDay(dia, reservations, recurring, exceptions);
+    const confirmedIds = new Set([...day.daycare, ...day.boarding].filter(item => !item.paused).map(item => item.dogId));
+    const cancelled = cancelledVisitsOfDay(dia, reservations, recurring, exceptions, true).filter(item => !confirmedIds.has(item.dogId));
+    cancelledIds.current = new Set(cancelled.map(item => item.dogId));
+    setCancelledByDay({ [dia]: cancelled });
     const poolEntrega = transportPoolForPhase(day, 'dropoff');
     const entregas = juntarIrmaosDeCasa([
       ...poolEntrega.map(item => ({ dogId: item.dogId, clientName: item.clientName, dogName: item.dogName, clientId: item.clientId, reservationKind: item.kind })),
@@ -861,6 +868,7 @@ export default function DispatchScreen() {
   }, [nomeDoCao]);
 
   const assign = useCallback(async (dogId: string, driverId: string, constraint: DispatchConstraint, phase: Perna = 'pickup') => {
+    if (cancelledIds.current.has(dogId)) return;
     if (phase === 'dropoff') {
       /**
        * TRAVA DO DONO (03/10/2026): o cão desce com quem o buscou. Sem exceção — se o motorista do
@@ -984,7 +992,7 @@ export default function DispatchScreen() {
    * ponto de partida. NADA é gravado aqui — a folha mostra e o gestor confirma.
    */
   const assinaturaDaSugestao = useCallback(() => JSON.stringify({
-    itens: itensDoDia.current, entregas: itensDropoff.current,
+    itens: itensDoDia.current, entregas: itensDropoff.current, cancelados: [...cancelledIds.current],
     coordenadas: [...coordenadasPorCao.current.entries()],
     membros: membrosDoDia.current,
     rotas: routesRef.current.map(r => ({ ...r, versao: versoes.current[r.routeId] })),
@@ -1023,7 +1031,7 @@ export default function DispatchScreen() {
         if (driverIds && !driverIds.includes(driver.user_id)) return false;
         const rota = routesRef.current.find(r => r.driverId === driver.user_id && (r.phase ?? 'pickup') === phase);
         return !rota || (rota.status === 'draft' && rota.stops.every(s =>
-          s.status === 'pending' && !s.pickupPin && !s.dropoffPin));
+          !cancelledIds.current.has(s.dogId) && s.status === 'pending' && !s.pickupPin && !s.dropoffPin));
       });
       if (dia !== contexto.current.date || assinatura !== assinaturaDaSugestao()) return null;
       /*
@@ -1056,6 +1064,7 @@ export default function DispatchScreen() {
         : null;
       const motoristaDaCasa = new Map<string, Set<string>>();
       for (const rota of routesRef.current.filter(r => (r.phase ?? 'pickup') === phase)) for (const stop of rota.stops) {
+        if (cancelledIds.current.has(stop.dogId)) continue;
         if (!stop.clientId) continue;
         const ids = motoristaDaCasa.get(stop.clientId) ?? new Set<string>();
         ids.add(rota.driverId);
@@ -1193,6 +1202,7 @@ export default function DispatchScreen() {
         const routeId = await routeIdForDriver(bloco.driverId, phase);
         for (const cao of bloco.caes) {
           conferirDia();
+          if (cancelledIds.current.has(cao.dogId)) throw new Error('The routes or dogs changed.');
           if (atribuidos.has(cao.dogId)) throw new Error('A dog is already assigned.');
           const { error } = await supabase.rpc('assign_stop_to_route', {
             p_route_id: routeId, p_dog_id: cao.dogId, p_window_start: null, p_window_end: null,
@@ -1293,7 +1303,7 @@ export default function DispatchScreen() {
   const pernasPendentes = useRef<Record<string, Set<Perna>>>({});
   const moverNaPerna = useCallback(async (routeId: string, dogId: string, direction: -1 | 1, perna: Perna) => {
     const rota = routesRef.current.find((item) => item.routeId === routeId);
-    if (!rota) return;
+    if (!rota || rota.stops.some(stop => cancelledIds.current.has(stop.dogId))) return;
     const base = perna === 'pickup' ? rota.stops : ordemDaEntrega(rota.stops).map((stop, i) => ({ ...stop, sequence: i + 1 }));
     const troca = trocarNaOrdem(base, dogId, direction);
     const ordem = perna === 'pickup' ? troca : troca?.map((stop, i) => ({
@@ -1479,6 +1489,7 @@ export default function DispatchScreen() {
   const optimize = useCallback(async (routeId: string) => {
     const route = routesRef.current.find((candidate) => candidate.routeId === routeId);
     if (!route) return;
+    if (route.stops.some(stop => cancelledIds.current.has(stop.dogId))) return;
     // Toque repetido não dispara duas otimizações na mesma rota (o botão também desabilita).
     if (otimizandoAgora.current.has(routeId)) return;
     const phase = route.phase ?? planningPhase;
@@ -1759,6 +1770,7 @@ export default function DispatchScreen() {
           date={summary.date}
           drivers={summary.drivers}
           dayItems={summary.dayItems}
+          cancelledByDay={cancelledByDay}
           dropoffItems={dropoffItems}
           routes={summary.routes}
           driverLocations={driverLocations}

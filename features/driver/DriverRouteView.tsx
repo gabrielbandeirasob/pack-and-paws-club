@@ -1,3 +1,5 @@
+import { SELO_PARADA_FORA_DO_DIA } from '@/features/dispatch/dayReconciliation';
+import type { CancelledVisit } from '@/features/dashboard/cancelledDays';
 import { useState, type ReactNode } from 'react';
 import { formatTimeOfDay } from '@/lib/clock';
 import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
@@ -18,6 +20,7 @@ export type DriverStop = {
   id: string;
   /** Id estável usado para persistir a nova ordem da rota. Pode faltar se a RLS esconder o embed. */
   dogId?: string | null;
+  cancellationReason?: CancelledVisit['reason'];
   /**
    * Parada agrupada por cliente (migration 029): paradas do MESMO cliente na MESMA rota compartilham
    * este id, e a tela mostra "1 parada, N cães" (cada cão com seu status e seu comprovante).
@@ -317,9 +320,13 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
               ) : null}
               {/* Numera pela posicao na rota (1, 2, 3...). O painel do Dispatch ja fazia assim;
                   aqui saia o campo cru do banco, que pode vir 0 ("0. Maria Silva"). */}
-              <Text style={styles.title}>{posicao?.numero ?? index + 1}. {stop.dogName}</Text>
+              <Text style={[styles.title, !!stop.cancellationReason && styles.textoFraco]}>{posicao?.numero ?? index + 1}. {stop.dogName}</Text>
               <StatusBadge status={stop.status} entregue={Boolean(stop.deliveredAt)} />
             </View>
+            {stop.cancellationReason ? <View>
+              <Text style={styles.address}>{SELO_PARADA_FORA_DO_DIA}</Text>
+              <Text style={styles.address}>{stop.cancellationReason}</Text>
+            </View> : null}
             {activeCard ? <Pressable accessibilityRole="button" accessibilityLabel={`Stop details ${stop.dogName}`}
               accessibilityState={{ expanded: Boolean(expanded[stop.id]) }} onPress={() => setExpanded(previous => ({ ...previous, [stop.id]: !previous[stop.id] }))}
               style={styles.segmentOption}><Text style={styles.segmentText}>{showDetails ? 'Hide details' : 'Details'}</Text></Pressable> : null}
@@ -507,6 +514,7 @@ function StatusBadge({ status, entregue }: { status: DriverStop['status']; entre
 }
 
 const styles = StyleSheet.create({
+  textoFraco: { color: colors.muted, textDecorationLine: 'line-through' },
   /** Estilo de CONTEÚDO da lista (antes era contentContainerStyle do ScrollView interno). */
   phaseHeading: { paddingVertical: 8 },
   segment: { flexDirection: 'row', padding: 4, backgroundColor: colors.sage, borderRadius: 12, marginBottom: 8 },

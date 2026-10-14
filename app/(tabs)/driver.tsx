@@ -1,3 +1,4 @@
+import { loadDayDogs } from '@/features/dashboard/dayService';
 import { agruparEmTarefas, posicoesDasParadas } from '@/features/driver/tasks';
 import { RouteSummary } from '@/features/driver/RouteSummary';
 import { useRelendoAoVoltarParaFrente } from '@/features/driver/useVoltaParaFrente';
@@ -608,7 +609,22 @@ export default function DriverTodayScreen() {
             }) }));
           }
           const base = route ? (route.route_stops ?? []).map(rowToStop) : online ? [] : snapshot?.stops ?? [];
-          const confirmadas = reconciliar(base);
+          let confirmadas = reconciliar(base).map(stop => ({
+            ...stop,
+            ...(!online ? { cancellationReason: snapshot?.stops.find(old => old.id === stop.id)?.cancellationReason } : {}),
+          }));
+          if (online && route) {
+            try {
+              const day = todayLocalISO();
+              const { dogsByDay, cancelledByDay } = await loadDayDogs(supabase, route.organization_id, day);
+              const confirmedIds = new Set(dogsByDay[day].map(dog => dog.dogId));
+              const cancelled = new Map(cancelledByDay[day].filter(dog => !confirmedIds.has(dog.dogId)).map(dog => [dog.dogId, dog.reason]));
+              confirmadas = confirmadas.map(stop => ({ ...stop, cancellationReason: cancelled.get(stop.dogId ?? '') }));
+            } catch {
+              // Preserve the last known cancellation if the day's read is unavailable.
+              confirmadas = confirmadas.map(stop => ({ ...stop, cancellationReason: snapshot?.stops.find(old => old.id === stop.id)?.cancellationReason }));
+            }
+          }
           await serializarEscrita(async () => {
             if (!valida()) return;
             if (online && !route) {
