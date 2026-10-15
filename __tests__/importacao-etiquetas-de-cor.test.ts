@@ -92,7 +92,7 @@ describe('etiqueta de cor -> serviço da reserva (paleta NOVA do Google)', () =>
       status: 'confirmed',
     };
     const saida = plano([recurso(3, 'Zara', { eventLabelId: 'lab-tomato' })], [ZARA], [reserva]);
-    expect(soUm(saida, 'cancel').bookingId).toBe('res-zara');
+    expect(soUm(saida, 'cancel_day').bookingId).toBe('res-zara');
   });
 
   it('etiqueta AMARELA importa como BOARDING — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {

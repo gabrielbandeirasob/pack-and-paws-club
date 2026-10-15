@@ -95,23 +95,41 @@ describe('o vermelho da INSTÂNCIA vence o dia (fim do vaivém)', () => {
     expect(cancelados.has(nomeDe('Jasper', '2026-10-20'))).toBe(false);
   });
 
-  it('com a linha confirmada, a instância pede o cancelamento (metade de sempre)', () => {
+  it('com a linha confirmada, a instância pede o cancelamento DO DIA (metade de sempre)', () => {
     const plano = planejar([serie(), instanciaVermelha()], [reserva('dog-jasper', 'confirmed'), reserva('dog-ruby', 'confirmed')]);
-    expect(ids(plano, 'cancel')).toEqual(['r-dog-jasper', 'r-dog-ruby']);
-    expect(plano.filter((item) => item.kind === 'update')).toHaveLength(0);
+    // 14/10/2026: o vermelho cancela o DIA (a linha continua confirmada) — `cancel_day`, não `cancel`.
+    expect(ids(plano, 'cancel_day')).toEqual(['r-dog-jasper', 'r-dog-ruby']);
+    expect(plano.filter((item) => item.kind === 'cancel')).toHaveLength(0);
+    // A série do mesmo dia NÃO restaura nada (era o vaivém): o que ela pede é gravar a MESMA marca do dia.
+    const atualizacoes = plano.filter((item) => item.kind === 'update');
+    expect(atualizacoes.length).toBeGreaterThan(0);
+    for (const item of atualizacoes) {
+      if (item.kind !== 'update') throw new Error('esperava update');
+      expect(item.parsed.cancels).toBe(false);
+      expect(item.parsed.cancelledDays).toEqual(['2026-10-13']);
+    }
   });
 
-  it('com a linha já cancelada, NADA acontece — era aqui que a série ressuscitava o cão', () => {
-    const plano = planejar([serie(), instanciaVermelha()], [reserva('dog-jasper', 'cancelled'), reserva('dog-ruby', 'cancelled')]);
+  it('com o DIA já marcado como cancelado, NADA acontece — era aqui que a série ressuscitava o cão', () => {
+    const dia = '2026-10-13';
+    const plano = planejar([serie(), instanciaVermelha()], [
+      { ...reserva('dog-jasper', 'confirmed'), cancelledDays: [dia] },
+      { ...reserva('dog-ruby', 'confirmed'), cancelledDays: [dia] },
+    ]);
     expect(plano.filter((item) => item.kind === 'update')).toHaveLength(0);
-    expect(plano.filter((item) => item.kind === 'cancel')).toHaveLength(0);
+    expect(plano.filter((item) => item.kind === 'cancel_day')).toHaveLength(0);
     expect(plano.filter((item) => item.kind === 'create')).toHaveLength(0);
   });
 
   it('duas rodadas seguidas devolvem o MESMO plano (idempotente)', () => {
-    const linhas = [reserva('dog-jasper', 'cancelled'), reserva('dog-ruby', 'cancelled')];
+    const dia = '2026-10-13';
+    const linhas = [
+      { ...reserva('dog-jasper', 'confirmed'), cancelledDays: [dia] },
+      { ...reserva('dog-ruby', 'confirmed'), cancelledDays: [dia] },
+    ];
     const primeira = planejar([serie(), instanciaVermelha()], linhas);
     const segunda = planejar([serie(), instanciaVermelha()], linhas);
+    expect(primeira).toEqual([]);
     expect(segunda).toEqual(primeira);
   });
 
@@ -139,6 +157,7 @@ describe('o vermelho da INSTÂNCIA vence o dia (fim do vaivém)', () => {
       recurrence: null,
     };
     const plano = planejar([avulso], [{ ...reserva('dog-jasper', 'confirmed'), googleEventId: AVULSO }]);
-    expect(ids(plano, 'cancel')).toEqual(['r-dog-jasper']);
+    // Evento avulso também cancela o DIA (mesma regra desde 14/10/2026) — a linha fica confirmada.
+    expect(ids(plano, 'cancel_day')).toEqual(['r-dog-jasper']);
   });
 });

@@ -17,6 +17,12 @@ function banco(legado: boolean) {
     google_calendar_id: legado && indice === 1 ? null : 'agenda-A', source: 'google', status: 'confirmed',
   }));
   const cliente = { from: () => ({
+    // A porta `cancelBookingDay` (14/10/2026) LÊ os dias já cancelados antes de gravar a união —
+    // o falso espelha a corrente real do PostgREST (`select('cancelled_days').eq('id',...).maybeSingle()`).
+    select: (_colunas: string) => ({ eq: (_: string, id: string) => ({ maybeSingle: async () => {
+      const linha = linhas.find((item) => item.id === id);
+      return { data: linha ? { cancelled_days: linha.cancelled_days ?? [] } : null, error: null };
+    } }) }),
     insert: async (valores: ReservaParaImportar) => {
       if (linhas.some((linha) => linha.google_event_id === valores.google_event_id && linha.dog_id === valores.dog_id)) {
         return { error: { code: '23505', message: 'reservations_google_event_unico' } };
@@ -65,6 +71,7 @@ for (const [caminho, executar, portas] of [
             createBooking: jest.fn(dbPorts.createBooking),
             updateBooking: jest.fn(dbPorts.updateBooking),
             cancelBooking: jest.fn(dbPorts.cancelBooking),
+            cancelBookingDay: jest.fn(dbPorts.cancelBookingDay),
           };
           const sync = (novos = events) => {
             events = novos;
@@ -76,15 +83,20 @@ for (const [caminho, executar, portas] of [
             });
           };
           const unchanged = async () => {
-            for (const spy of [writes.createBooking, writes.updateBooking, writes.cancelBooking]) spy.mockClear();
+            for (const spy of [writes.createBooking, writes.updateBooking, writes.cancelBooking, writes.cancelBookingDay]) spy.mockClear();
             expect(await sync()).toEqual({ created: 0, already: 0, updated: 0, cancelled: 0, extraDays: 0, review: [], failures: [] });
-            for (const spy of [writes.createBooking, writes.updateBooking, writes.cancelBooking]) expect(spy).not.toHaveBeenCalled();
+            for (const spy of [writes.createBooking, writes.updateBooking, writes.cancelBooking, writes.cancelBookingDay]) expect(spy).not.toHaveBeenCalled();
           };
           const status = (value: string) => {
             expect(linhas.map((row) => [row.id, row.dog_id, row.status, row.google_event_id]))
               .toEqual(caes.map((dog) => [`res-${dog.id}`, dog.id, value, event.id]));
           };
-          return { linhas, event, sync, unchanged, status, doFetch };
+          /** Dias cancelados gravados em `cancelled_days` (o vermelho do escritório cancela o DIA). */
+          const diasCancelados = (value: string[]) => {
+            expect(linhas.map((row) => [row.id, row.cancelled_days ?? []]))
+              .toEqual(caes.map((dog) => [`res-${dog.id}`, value]));
+          };
+          return { linhas, event, sync, unchanged, status, diasCancelados, doFetch };
         }
 
         it('cancelamento local é restaurado na mesma linha e a segunda rodada não escreve', async () => {
@@ -109,14 +121,20 @@ for (const [caminho, executar, portas] of [
           await h.unchanged();
         });
 
-        it.each(['11', '4'])('vermelho %s cancela duas vezes sem reabrir; azul restaura sem duplicar', async (colorId) => {
+        it.each(['11', '4'])('vermelho %s cancela o DIA sem reabrir nem cancelar a linha; azul devolve o dia sem duplicar', async (colorId) => {
           const h = preparar();
+          // 14/10/2026 (item 2 do relatório): o vermelho cancela AQUELE dia — a linha continua confirmada
+          // e o dia fica gravado. Antes a linha inteira ia para `cancelled` (barra de dias morria junto).
           expect(await h.sync([{ ...h.event, colorId }])).toMatchObject({ cancelled: quantidade, updated: 0, created: 0, failures: [] });
-          h.status('cancelled');
+          h.status('confirmed');
+          h.diasCancelados([window.from]);
           await h.unchanged();
-          h.status('cancelled');
+          h.status('confirmed');
+          h.diasCancelados([window.from]);
+          // Pintando de azul de novo, o dia volta: a marca sai e nada é duplicado.
           expect(await h.sync([h.event])).toMatchObject({ updated: quantidade, created: 0, cancelled: 0, failures: [] });
           h.status('confirmed');
+          h.diasCancelados([]);
           await h.unchanged();
         });
 

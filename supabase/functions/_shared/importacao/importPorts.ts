@@ -196,6 +196,11 @@ export function supabaseImportPorts(
         // Dia de CHEGADA/SAIDA da hospedagem (avocado): o cao esta na casa — parada normal da rota,
         // nunca "ja esta na van" (dono, 06/10/2026).
         movement_day: parsed.movementDay ?? false,
+        /**
+         * Dias cancelados pelo vermelho DENTRO da barra (migração `202610150045`): a reserva já nasce com a
+         * marca, então o dia não entra no dia/Total Pack/fila e a linha não precisa ser cancelada.
+         */
+        cancelled_days: parsed.cancelledDays ?? [],
         // Medido em 07/10/2026: omitir o vínculo deixava Billy vivo ao apagar Teddy/Billy.
         // O índice evento+cão permite que cada reserva acompanhe o calendário.
         google_event_id: eventId,
@@ -246,6 +251,9 @@ export function supabaseImportPorts(
            * se o cão entra na fila de pickup do dia.
            */
           movement_day: parsed.movementDay ?? false,
+          // Dias cancelados pelo vermelho DENTRO da barra (migração `202610150045`): reconciliados a
+          // cada rodada a partir da mesma leitura do calendário.
+          cancelled_days: parsed.cancelledDays ?? [],
           /**
            * 🪤 ACHADO DA VISTORIA (02/10/2026): NÃO regrave `transport_required` nem `goes_to_daycare`
            * numa reserva que JÁ existe. Os dois são DECISÃO DO GESTOR no app — "precisa de transporte"
@@ -261,6 +269,28 @@ export function supabaseImportPorts(
         })
         .eq('id', bookingId);
       if (error) throw new Error(error.message);
+    },
+
+    /**
+     * Evento VERMELHO em UM dia de uma reserva: cancela AQUELE dia (`cancelled_days`), não a linha.
+     *
+     * ⚠️ 14/10/2026 (item 2 do relatório da sincronização): antes o vermelho virava
+     * `status = 'cancelled'` na linha inteira — o cão sumia dos outros dias da barra e a série ainda
+     * tentava restaurar, o que dava o vaivém de 15 em 15 min. Lê o que já está gravado e grava a
+     * UNIÃO, para duas passagens (app + robô) não se apagarem.
+     */
+    cancelBookingDay: async ({ bookingId, date }) => {
+      const { data, error } = await client.from('reservations').select('cancelled_days').eq('id', bookingId).maybeSingle();
+      if (error) throw new Error(error.message);
+      const gravados: string[] = (
+        (data as { cancelled_days?: (string | Date)[] | null } | null)?.cancelled_days ?? []
+      ).map((dia) => String(dia).slice(0, 10));
+      if (gravados.includes(date)) return;
+      const { error: erroDeGravacao } = await client
+        .from('reservations')
+        .update({ cancelled_days: [...gravados, date].sort() })
+        .eq('id', bookingId);
+      if (erroDeGravacao) throw new Error(erroDeGravacao.message);
     },
 
     cancelBooking: async ({ bookingId, kind }) => {

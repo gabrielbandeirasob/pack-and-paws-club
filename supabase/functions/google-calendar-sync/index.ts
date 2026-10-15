@@ -127,7 +127,7 @@ async function carregarDadosDaOrganizacao(
   const [reservas, series, excecoes, caes] = await Promise.all([
     admin
       .from('reservations')
-      .select('id, status, service_type, start_date, end_date, google_event_id, google_calendar_id, source, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))')
+      .select('id, status, service_type, start_date, end_date, google_event_id, google_calendar_id, source, goes_to_daycare, movement_day, cancelled_days, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
       .in('status', ['confirmed', 'cancelled']),
     admin
@@ -153,7 +153,7 @@ async function carregarDadosDaOrganizacao(
     google_event_id: string | null;
     google_calendar_id: string | null;
     source: string | null;
-    goes_to_daycare: boolean | null; movement_day: boolean | null;
+    goes_to_daycare: boolean | null; movement_day: boolean | null; cancelled_days: string[] | null;
     dog: { id: string; name: string; client: { name: string } };
   };
   type LinhaDeSerie = LinhaDeReserva & { weekdays: number[] | null; active: boolean };
@@ -183,6 +183,7 @@ async function carregarDadosDaOrganizacao(
     // horário. Sem o campo aqui, o relógio do servidor comparava `undefined` e atualizava à toa.
     goesToDaycare: row.goes_to_daycare ?? true,
     movementDay: row.movement_day ?? false,
+    cancelledDays: row.cancelled_days ?? [],
   }));
 
   const listaExcecoes = ((excecoes.data as unknown as LinhaDeExcecao[]) ?? []).map((row) => ({

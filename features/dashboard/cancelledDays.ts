@@ -65,6 +65,14 @@ export function cancelledVisitsOfDay(
   };
 
   for (const reserva of reservations) {
+    // ⚠️ 14/10/2026: o vermelho de UM dia dentro da barra não cancela mais a linha — o dia fica em
+    // `cancelled_days` e a linha segue confirmada. Para quem confere a semana o efeito é o mesmo: aquele
+    // dia foi cancelado, então ele entra aqui como cancelado (senão o dia sumiria sem explicação).
+    const diasCancelados = reserva.cancelledDays ?? [];
+    if (diasCancelados.length > 0 && diasCancelados.includes(isoDate) && reserva.status !== 'cancelled') {
+      anotar(reserva.dog, reserva.serviceType);
+      continue;
+    }
     // Só o que está de fato cancelado: uma reserva confirmada é um cão que vem (ou veio).
     if (reserva.status !== 'cancelled') continue;
     if (!dentro(isoDate, reserva.startDate, reserva.endDate)) continue;

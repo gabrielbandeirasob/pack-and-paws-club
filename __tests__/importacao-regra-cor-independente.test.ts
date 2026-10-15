@@ -65,7 +65,7 @@ describe('cor do evento -> serviço da reserva (caminho real: API -> parseEvent 
     };
     const plano = planCalendarImport([parseEvent(recurso('ev-vermelho', 'Pietro', VERMELHO) as never)], [PIETRO], [reserva], JANELA);
 
-    expect(plano).toEqual([{ kind: 'cancel', eventId: 'ev-vermelho', bookingKind: 'reservation', bookingId: 'res-pietro' }]);
+    expect(plano).toEqual([{ kind: 'cancel_day', eventId: 'ev-vermelho', bookingKind: 'reservation', bookingId: 'res-pietro', date: '2026-09-25' }]);
   });
 
   it('cão desconhecido NÃO é importado e aparece em "not registered"', () => {

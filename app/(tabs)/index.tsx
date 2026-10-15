@@ -58,7 +58,7 @@ type ReservationRow = {
   start_date: string;
   end_date: string;
   transport_required: boolean;
-  goes_to_daycare: boolean | null; movement_day: boolean | null;
+  goes_to_daycare: boolean | null; movement_day: boolean | null; cancelled_days: string[] | null;
   dog: { id: string; name: string; client: { name: string } };
 };
 type RecurringRow = {
@@ -292,7 +292,7 @@ export default function HomeScreen() {
       supabase.from('organization_members').select('user_id, profiles(full_name)').eq('organization_id', organizationId).eq('status', 'active'),
       // ⚠️ `order` EXPLÍCITO (14/10/2026): a Home agrega o dia por cão (indicadores/Total Pack) e, sem
       // ordem, o resultado podia mudar de uma carga para outra (ver `uniqueDogs` em `dayMath.ts`).
-      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte).order('start_date').order('id'),
+      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, cancelled_days, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte).order('start_date').order('id'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(name))').eq('organization_id', organizationId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', organizationId).gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase
@@ -347,6 +347,7 @@ export default function HomeScreen() {
       transportRequired: row.transport_required,
       goesToDaycare: row.goes_to_daycare ?? true,
       movementDay: row.movement_day ?? false,
+      cancelledDays: row.cancelled_days ?? [],
     }));
     const recurring: RecurringScheduleRecord[] = ((recurringResult.data as unknown as RecurringRow[]) ?? []).map((row) => ({
       id: row.id,

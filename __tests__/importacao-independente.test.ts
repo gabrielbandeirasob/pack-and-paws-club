@@ -75,7 +75,7 @@ describe('REGRA NOVA: o serviço vem da COR e o cão tem de estar cadastrado', (
     const existentes = [reservaLigada({ id: 'res-cancelar', googleEventId: null, source: 'app', startDate: '2026-09-30', endDate: '2026-09-30' })];
     const plano = planCalendarImport([evento('ev-red', 'Pietro', '2026-09-30', { colorId: VERMELHO })], [PIETRO], existentes, JANELA);
 
-    expect(plano).toEqual([{ kind: 'cancel', eventId: 'ev-red', bookingKind: 'reservation', bookingId: 'res-cancelar' }]);
+    expect(plano).toEqual([{ kind: 'cancel_day', eventId: 'ev-red', bookingKind: 'reservation', bookingId: 'res-cancelar', date: '2026-09-30' }]);
   });
 
   it('cão DESCONHECIDO não é importado e aparece na lista (a regra 52-54 foi REVOGADA)', () => {

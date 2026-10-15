@@ -103,8 +103,8 @@ describe('plano com etiqueta (paleta nova)', () => {
     const plano = planCalendarImport([evento('ev-zara', 'zara', { eventLabelId: VERMELHO.id })], [ZARA], [reserva], JANELA, {
       labels: [VERMELHO],
     });
-    const item = plano.find((x) => x.kind === 'cancel');
-    expect(item?.kind).toBe('cancel');
+    const item = plano.find((x) => x.kind === 'cancel_day');
+    expect(item?.kind).toBe('cancel_day');
   });
 
   it('etiqueta amarela vira BOARDING — (dono, 27/09/2026: amarelo e os tons que lembram ele = boarding)', () => {

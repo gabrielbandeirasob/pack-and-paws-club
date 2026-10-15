@@ -50,7 +50,7 @@ function serie(extra: Partial<BookingForImport> & { id: string }): BookingForImp
 }
 
 const cancelados = (outcomes: ImportOutcome[]) =>
-  outcomes.filter((o): o is Extract<ImportOutcome, { kind: 'cancel' }> => o.kind === 'cancel').map((o) => o.bookingId);
+  outcomes.filter((o): o is Extract<ImportOutcome, { kind: 'cancel_day' }> => o.kind === 'cancel_day').map((o) => o.bookingId);
 const pulados = (outcomes: ImportOutcome[]) =>
   outcomes.filter((o): o is Extract<ImportOutcome, { kind: 'skip' }> => o.kind === 'skip').map((o) => o.scheduleId);
 
@@ -148,6 +148,8 @@ function portas(registro: Registro[]): ImportPorts {
     },
     updateBooking: async () => undefined,
     cancelBooking: async () => undefined,
+    // Porta nova (14/10/2026): o vermelho cancela o DIA, nao a linha inteira.
+    cancelBookingDay: async () => undefined,
     skipRecurringDay: async () => undefined,
     addScheduleExtraDay: async () => undefined,
   } as ImportPorts;

@@ -50,7 +50,7 @@ it('filho herda azul e reimporta sem alterações', () => {
 it('vermelho próprio cancela o dia e recorta a série verde', () => {
   const existing = persisted(plan([master, child]));
   const result = plan([master, { ...child, colorId: '11', eventLabelId: null }], existing);
-  expect(result).toContainEqual(expect.objectContaining({ kind: 'cancel', bookingId: child.id }));
+  expect(result).toContainEqual(expect.objectContaining({ kind: 'cancel_day', bookingId: child.id }));
   expect(result.filter((r) => r.kind === 'create')).toEqual([]);
   expect(result).toContainEqual(expect.objectContaining({ kind: 'update', bookingId: master.id,
     parsed: expect.objectContaining({ endDate: '2026-10-15' }) }));

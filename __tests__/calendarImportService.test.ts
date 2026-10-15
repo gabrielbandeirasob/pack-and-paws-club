@@ -43,6 +43,8 @@ function portas(registro: string[] = [], extras: Partial<ImportPorts> = {}): Imp
     cancelBooking: async (entrada) => {
       registro.push(`cancela:${entrada.bookingId}`);
     },
+    // Porta nova (14/10/2026): o vermelho cancela o DIA, nao a linha inteira.
+    cancelBookingDay: async () => undefined,
     skipRecurringDay: async (entrada) => {
       registro.push(`pula:${entrada.scheduleId}:${entrada.date}`);
     },
@@ -135,9 +137,10 @@ describe('runCalendarImport', () => {
     expect(resumo.review ?? []).toEqual([]);
   });
 
-  it('evento VERMELHO cancela a reserva daquele cão naquele dia', async () => {
+  it('evento VERMELHO cancela O DIA daquele cão naquele dia (a linha segue ativa)', async () => {
     const doFetch: CalendarFetch = async () =>
       resposta([{ id: 'e-red', summary: 'Bella', colorId: VERMELHO, start: { date: '2026-10-05' }, end: { date: '2026-10-06' } }]);
+    const diasCancelados: string[] = [];
     const canceladas: string[] = [];
     const resumo = await runCalendarImport({
       accessToken: 'tok',
@@ -164,10 +167,15 @@ describe('runCalendarImport', () => {
         cancelBooking: async ({ bookingId }) => {
           canceladas.push(bookingId);
         },
+        // 14/10/2026: o vermelho cancela o DIA (migração 202610150045) — a linha não é cancelada.
+        cancelBookingDay: async ({ bookingId, date }) => {
+          diasCancelados.push(`${bookingId}@${date}`);
+        },
       }),
     });
 
-    expect(canceladas).toEqual(['r-bella']);
+    expect(diasCancelados).toEqual(['r-bella@2026-10-05']);
+    expect(canceladas).toEqual([]);
     expect(resumo.cancelled).toBe(1);
   });
 
@@ -300,6 +308,8 @@ describe('runCalendarImport', () => {
         cancelBooking: async ({ bookingId }) => {
           canceladas.push(bookingId);
         },
+        // Porta nova (14/10/2026): o vermelho cancela o DIA, nao a linha inteira.
+        cancelBookingDay: async () => undefined,
       }),
     });
     expect(canceladas).toEqual(['r1']);
@@ -363,6 +373,8 @@ describe('runCalendarImport', () => {
         cancelBooking: async () => {
           throw new Error('new row for relation "reservations" violates check constraint "reservations_check"');
         },
+        // Porta nova (14/10/2026): o vermelho cancela o DIA, nao a linha inteira.
+        cancelBookingDay: async () => undefined,
       }),
     });
 
@@ -504,6 +516,7 @@ describe('runCalendarImport', () => {
     expect(Object.keys(contrato).sort()).toEqual([
       'addScheduleExtraDay',
       'cancelBooking',
+      'cancelBookingDay',
       'createBooking',
       'skipRecurringDay',
       'updateBooking',

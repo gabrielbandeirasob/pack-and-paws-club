@@ -39,6 +39,17 @@ export type ReservationRecord = {
    * `202610060041_dia_de_movimento_na_reserva.sql` e a decisão do dono de 06/10/2026.
    */
   movementDay?: boolean;
+  /**
+   * Dias DESTA reserva que o escritório cancelou pintando o VERMELHO naquele dia (migração
+   * `202610150045`). A linha continua ativa e o dia simplesmente não existe para o cão: sai do dia, do
+   * Total Pack, da fila do Dispatch e da entrega, e aparece como cancelado no resumo da semana.
+   *
+   * ⚠️ MUDANÇA DE 14/10/2026 (item 2 do relatório da sincronização): antes o vermelho num dia de uma
+   * barra cancelava a reserva INTEIRA (`status = 'cancelled'`), então o cão sumia também dos dias que o
+   * escritório não cancelou — e a série ainda tentava restaurar a linha, o que produzia o vaivém de 15
+   * em 15 minutos. Agora o dia é que é cancelado, não a linha.
+   */
+  cancelledDays?: string[];
   /** Evento do Google que originou a reserva (reserva importada) — ver migration 025. */
   googleEventId?: string | null;
   /** 'google' = nasceu no Google Calendar (lá manda); 'app' = nasceu no aplicativo. */
@@ -91,6 +102,8 @@ export type DayItem = {
   goesToDaycare: boolean;
   /** Dia de CHEGADA/SAÍDA da hospedagem (avocado) — ver `ReservationRecord.movementDay`. */
   movementDay?: boolean;
+  /** Dias cancelados pelo VERMELHO dentro da barra — ver `ReservationRecord.cancelledDays`. */
+  cancelledDays?: string[];
   // True when this recurring occurrence is currently overridden to skip (paused) on the built day.
   paused?: boolean;
 };
@@ -217,6 +230,7 @@ function itemize(kind: DayItem['kind'], reservation: ReservationRecord | null, s
     dropoffRequired: source.dropoffRequired,
     goesToDaycare: reservation?.goesToDaycare ?? true,
     movementDay: reservation?.movementDay ?? false,
+    cancelledDays: reservation?.cancelledDays ?? [],
   };
 }
 
@@ -265,9 +279,25 @@ export function buildDay(
   const daycare: DayItem[] = [];
   const boarding: DayItem[] = [];
 
+  /** Dias que o vermelho do escritório tirou de um cão (ver `ReservationRecord.cancelledDays`). */
+  const diasCanceladosDoCao = new Set<string>();
+  for (const reserva of reservations) {
+    for (const dia of reserva.cancelledDays ?? []) diasCanceladosDoCao.add(`${reserva.dog.id}|${dia}`);
+  }
+
   for (const reservation of reservations) {
     if (reservation.status === 'cancelled') continue;
     if (!isWithin(isoDate, reservation.startDate, reservation.endDate)) continue;
+    /**
+     * ⚠️ DIA CANCELADO DENTRO DA BARRA (14/10/2026, migração `202610150045`): o escritório pintou o
+     * vermelho naquele dia, não na barra toda. A linha continua ativa nos outros dias — antes o vermelho
+     * cancelava a reserva inteira e o cão sumia também dos dias que ninguém cancelou.
+     *
+     * A marca vale para o CÃO no dia (não só para a linha): se o escritório cancelou aquele dia, ele não
+     * vem — mesmo que outra reserva do mesmo cão cubra a data (barra de daycare + hospedagem, por
+     * exemplo). Por isso o conjunto é montado antes do laço.
+     */
+    if (diasCanceladosDoCao.has(`${reservation.dog.id}|${isoDate}`)) continue;
     if (reservation.serviceType === 'boarding') {
       boarding.push(itemize('boarding', reservation, null));
     } else {
@@ -335,7 +365,10 @@ export function buildDay(
           // escrito de 28/09: *"por via de regra todo boarding vai pro daycare"*) — hoje o banco não
           // tem nenhum dia com as duas linhas discordando, então isso não muda o dia de ninguém; só
           // tira a sorte de quem chega primeiro.
-          goesToDaycare: existing.goesToDaycare || item.goesToDaycare }
+          goesToDaycare: existing.goesToDaycare || item.goesToDaycare,
+          // Dias cancelados do MESMO cão somam (união) — mesma razão: não pode depender da ordem.
+          // Se qualquer linha do dia diz que aquele dia foi cancelado, o cão não aparece naquele dia.
+          cancelledDays: [...new Set([...(existing.cancelledDays ?? []), ...(item.cancelledDays ?? [])])] }
         : item);
     }
     return [...dogs.values()];

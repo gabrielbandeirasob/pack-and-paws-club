@@ -25,6 +25,12 @@ function banco(legado: boolean) {
     google_calendar_id: legado && indice === 1 ? null : 'agenda-A', source: 'google', status: 'confirmed',
   }));
   const cliente = { from: () => ({
+    // A porta `cancelBookingDay` (14/10/2026) LÊ os dias já cancelados antes de gravar a união —
+    // o falso espelha a corrente real do PostgREST (`select('cancelled_days').eq('id',...).maybeSingle()`).
+    select: (_colunas: string) => ({ eq: (_: string, id: string) => ({ maybeSingle: async () => {
+      const linha = linhas.find((item) => item.id === id);
+      return { data: linha ? { cancelled_days: linha.cancelled_days ?? [] } : null, error: null };
+    } }) }),
     insert: async (valores: ReservaParaImportar) => {
       if (linhas.some((linha) => linha.google_event_id === valores.google_event_id && linha.dog_id === valores.dog_id)) {
         return { error: { code: '23505', message: 'reservations_google_event_unico' } };
@@ -88,10 +94,17 @@ for (const [caminho, executar, portas, planejar] of [
           expect(linhas.map((linha) => [linha.id, linha.dog_id])).toEqual([['res-Teddy', 'Teddy'], ['res-Billy', 'Billy']]);
         });
 
-        it('vermelho continua cancelando os DOIS', async () => {
+        it('vermelho cancela o DIA dos DOIS — a linha continua ativa e a rodada seguinte não escreve', async () => {
           const { linhas, sincronizar } = preparar();
           expect(await sincronizar([{ ...evento, colorId: '11' }])).toMatchObject({ cancelled: 2, created: 0, failures: [], review: [] });
-          expect(linhas.every((linha) => linha.status === 'cancelled')).toBe(true);
+          // 14/10/2026 (migração 202610150045): o vermelho marca o DIA em `cancelled_days`; a linha segue
+          // `confirmed` (antes a barra/linha inteira virava `cancelled` e o cão sumia dos outros dias).
+          expect(linhas.map((linha) => [linha.status, linha.cancelled_days])).toEqual([
+            ['confirmed', [window.from]],
+            ['confirmed', [window.from]],
+          ]);
+          // O vaivém de 15 em 15 min não volta: a segunda rodada com o mesmo vermelho não pede nada.
+          expect(await sincronizar([{ ...evento, colorId: '11' }])).toMatchObject({ cancelled: 0, updated: 0, created: 0, failures: [] });
         });
 
         it('troca da cor continua mudando o serviço dos DOIS', async () => {

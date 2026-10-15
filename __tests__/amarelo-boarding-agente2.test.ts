@@ -115,8 +115,8 @@ describe('no plano real do calendário', () => {
     const plano = planCalendarImport([evento({ id: 'ev-vermelho', summary: 'Mowgli/Kona', eventLabelId: VERMELHO.id })],
       CAES, RESERVAS, JANELA, { labels: [VERMELHO] });
     expect(plano).toHaveLength(2);
-    expect(plano.map((item) => item.kind)).toEqual(['cancel', 'cancel']);
-    expect(plano.map((item) => (item.kind === 'cancel' ? item.bookingId : null)).sort()).toEqual(['res-kona', 'res-mowgli']);
+    expect(plano.map((item) => item.kind)).toEqual(['cancel_day', 'cancel_day']);
+    expect(plano.map((item) => (item.kind === 'cancel_day' ? item.bookingId : null)).sort()).toEqual(['res-kona', 'res-mowgli']);
   });
 
   it('a leitura da etiqueta amarela mostra que a ETIQUETA mandou', () => {

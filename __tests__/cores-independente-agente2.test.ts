@@ -75,9 +75,9 @@ describe('cor do evento define o servico (vetores do agente2)', () => {
 
   it('VERMELHO (id 11) CANCELA a reserva do dia daquele cao', () => {
     const saida = plano([evento('ev-pietro', 'Pietro', '11')], [PIETRO], [reservaDoPietro()]);
-    const item = saida.find((x) => x.kind === 'cancel');
-    expect(item?.kind).toBe('cancel');
-    if (item?.kind !== 'cancel') throw new Error('esperava cancel');
+    const item = saida.find((x) => x.kind === 'cancel_day');
+    expect(item?.kind).toBe('cancel_day');
+    if (item?.kind !== 'cancel_day') throw new Error('esperava cancel_day');
     expect(item.bookingId).toBe('res-pietro');
   });
 

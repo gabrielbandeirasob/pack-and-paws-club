@@ -69,6 +69,11 @@ export type ParsedBooking = {
    * estará no day care"*.
    */
   goesToDaycare: boolean;
+  /**
+   * Dias cancelados DENTRO desta reserva (o escritório pintou o VERMELHO naquele dia): a linha
+   * continua ativa e o dia é que não existe. Ver `ReservationRecord.cancelledDays`.
+   */
+  cancelledDays?: string[];
   /** 0 = domingo … 6 = sabado. Vazio = evento de um dia so. */
   weekdays: number[];
   /** Datas (ISO) de pausa (viram EXDATE no evento). */
@@ -439,6 +444,8 @@ export type BookingForImport = {
   goesToDaycare?: boolean;
   /** Aquele dia da hospedagem é o de CHEGADA/SAÍDA (avocado) — o cão está na casa, é parada de rota. */
   movementDay?: boolean | null;
+  /** Dias cancelados dentro da barra (`reservations.cancelled_days`) — ver migração 202610150045. */
+  cancelledDays?: string[] | null;
   /**
    * 'reservation' = data avulsa (`reservations`); 'recurring' = série de dias da semana
    * (`recurring_schedules`). O Google não distingue os dois: quem distingue é o RRULE do evento e
@@ -477,6 +484,12 @@ export type ImportOutcome =
   /** `calendarId` só é preenchido no reparo legado com origem conhecida. */
   | { kind: 'update'; eventId: string; bookingKind: ExistingBookingKind; bookingId: string; dogId: string; parsed: ParsedBooking; semVinculo?: boolean; calendarId?: string }
   | { kind: 'cancel'; eventId: string; bookingKind: ExistingBookingKind; bookingId: string }
+  /**
+   * Evento VERMELHO sobre UM dia de uma reserva: cancela AQUELE dia (`cancelled_days`), não a linha
+   * (migração `202610150045`, 14/10/2026). A linha segue `confirmed`, o cão não some dos outros
+   * dias da barra e a série não tem o que restaurar — era daí que vinha o vaivém de 15 em 15 min.
+   */
+  | { kind: 'cancel_day'; eventId: string; bookingKind: ExistingBookingKind; bookingId: string; date: string }
   /** Dia de uma série pulado (evento vermelho sobre uma escala: não se desativa a série inteira). */
   | { kind: 'skip'; eventId: string; scheduleId: string; date: string }
   /**
@@ -533,6 +546,9 @@ function precisaAtualizar(reserva: BookingForImport, parsed: ParsedBooking, dogI
     (serie ? (reserva.endDate ?? null) !== (parsed.openEnded ? null : parsed.endDate) : reserva.endDate !== parsed.endDate) ||
     (serie ? !mesmosDias(reserva.weekdays, parsed.weekdays) : false) ||
     !mesmaLista(reserva.skipDates, parsed.skipDates) ||
+    // Dia cancelado dentro da barra (14/10/2026): nasce quando o escritório pinta o vermelho e sai
+    // quando ele tira — as duas direções passam por aqui (senão o dia ficaria preso para sempre).
+    (!serie && !mesmaLista(reserva.cancelledDays, parsed.cancelledDays)) ||
     reserva.status !== (serie ? 'active' : 'confirmed')
   );
 }
@@ -583,7 +599,12 @@ function alvosDoCancelamento(
   const usados = new Set<string>();
   const cancelar = (item: BookingForImport): void => {
     usados.add(item.id);
-    alvos.push({ kind: 'cancel', eventId, bookingKind: item.kind, bookingId: item.id });
+    // ⚠️ 14/10/2026 (item 2 do relatório da sincronização): o vermelho cancela o DIA, não a linha.
+    // Antes a barra inteira virava `cancelled` e o cão sumia também dos dias que ninguém cancelou.
+    // O dia JÁ cancelado não gera trabalho de novo — é o que torna a rodada idempotente (o escritório
+    // pintou o vermelho uma vez; a segunda rodada tem de devolver `0 cancelados`).
+    if (item.kind === 'reservation' && (item.cancelledDays ?? []).includes(date)) return;
+    alvos.push({ kind: 'cancel_day', eventId, bookingKind: item.kind, bookingId: item.id, date });
   };
   const pular = (item: BookingForImport): void => {
     usados.add(item.id);
@@ -702,6 +723,27 @@ export function diasCanceladosNoGoogle(
 /** Chave de "cão + dia" no conjunto de `diasCanceladosNoGoogle`. */
 export function chaveDoDiaCancelado(dogName: string, dia: string): string {
   return `${normalizar(dogName)}|${dia}`;
+}
+
+/**
+ * Os dias (ISO) deste cão que o Google marcou de VERMELHO dentro de um intervalo — é o que a reserva
+ * passa a carregar em `cancelled_days` (migração `202610150045`). É a mesma fonte do
+ * `diasCanceladosNoGoogle`, então o dia que o vermelho tirou não pode reaparecer por outra leitura.
+ */
+export function diasCanceladosDoCao(
+  nome: string,
+  inicio: string,
+  fim: string | null,
+  diasCancelados: Set<string>,
+): string[] {
+  const ate = fim && fim >= inicio ? fim : inicio;
+  const dias: string[] = [];
+  let dia = inicio;
+  for (let passo = 0; passo < 400 && dia <= ate; passo += 1) {
+    if (diasCancelados.has(chaveDoDiaCancelado(nome, dia))) dias.push(dia);
+    dia = addDaysISO(dia, 1);
+  }
+  return dias;
 }
 
 /**
@@ -1098,6 +1140,13 @@ export function planCalendarImport(
         if (ligada.kind === 'reservation' && (antesDaJanela(ligada.startDate, window) || ligada.startDate > window.to)) continue;
         const dogId = dogDoTitulo ?? ligada.dogId;
         const servico: ParsedBooking = { ...parsed, ...leituraDoDia(cor, parsed, hospedagem, alvo) };
+        // Dias que o escritório cancelou DENTRO desta reserva (vermelho no dia): a linha segue ativa
+        // nos outros dias (migração 202610150045) — e o valor precisa bater com o do banco, senão a
+        // rodada pede a mesma atualização para sempre.
+        if (kindOf(servico) === 'reservation') {
+          const nomeDoCao = dogs.find((cao) => cao.id === dogId)?.name ?? servico.dogName;
+          servico.cancelledDays = diasCanceladosDoCao(nomeDoCao, servico.startDate, servico.endDate, diasCancelados);
+        }
         // 🔴 O dia foi CANCELADO no calendário (vermelho — inclusive a INSTÂNCIA vermelha da série
         // recorrente): a série do mesmo dia NÃO pode ressuscitar a linha. Era exatamente este o vaivém
         // de 15 em 15 min (`precisaAtualizar` restaura toda linha cancelada; `alvosDoCancelamento`
@@ -1135,6 +1184,11 @@ export function planCalendarImport(
 
       const dogId = dogDoTitulo ?? candidatos[0].id;
       const servico: ParsedBooking = { ...parsed, ...leituraDoDia(cor, parsed, hospedagem, alvo) };
+      // Barra criada já nasce com os dias cancelados que o vermelho marcou dentro dela.
+      if (kindOf(servico) === 'reservation') {
+        const nomeDoCao = dogs.find((cao) => cao.id === dogId)?.name ?? servico.dogName;
+        servico.cancelledDays = diasCanceladosDoCao(nomeDoCao, servico.startDate, servico.endDate, diasCancelados);
+      }
       vistos.add(evento.id);
 
       // 🔴 Dia cancelado no calendário (vermelho — inclusive a INSTÂNCIA vermelha de um evento

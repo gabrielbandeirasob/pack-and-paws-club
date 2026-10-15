@@ -154,6 +154,51 @@ describe('createBooking grava o serviço que veio da COR', () => {
   });
 });
 
+describe('cancelBookingDay (evento vermelho sobre um dia da barra)', () => {
+  const caminhoLeitura = 'reservations:select(cancelled_days):eq(id=r-charlie)';
+
+  it('grava o dia na UNIÃO do que já estava lá (duas pontas não se apagam)', async () => {
+    const chamadas: string[] = [];
+    const cliente = clienteFalso(
+      { [caminhoLeitura]: { data: { cancelled_days: ['2026-10-13'] }, error: null } },
+      chamadas,
+    );
+    const ports = supabaseImportPorts(cliente, 'org-1');
+
+    await ports.cancelBookingDay({ bookingId: 'r-charlie', date: '2026-10-15', eventId: 'ev-vermelho' });
+
+    expect(chamadas).toEqual([
+      caminhoLeitura,
+      'reservations:update(' + JSON.stringify({ cancelled_days: ['2026-10-13', '2026-10-15'] }) + '):eq(id=r-charlie)',
+    ]);
+  });
+
+  it('dia JÁ cancelado não gera escrita (a rodada seguinte é silenciosa)', async () => {
+    const chamadas: string[] = [];
+    const cliente = clienteFalso(
+      { [caminhoLeitura]: { data: { cancelled_days: ['2026-10-15'] }, error: null } },
+      chamadas,
+    );
+    const ports = supabaseImportPorts(cliente, 'org-1');
+
+    await ports.cancelBookingDay({ bookingId: 'r-charlie', date: '2026-10-15', eventId: 'ev-vermelho' });
+
+    expect(chamadas).toEqual([caminhoLeitura]);
+  });
+
+  it('erro do banco sobe (a tela mostra o motivo, não um sucesso falso)', async () => {
+    const caminhoEscrita = 'reservations:update(' + JSON.stringify({ cancelled_days: ['2026-10-15'] }) + '):eq(id=r-charlie)';
+    const cliente = clienteFalso({
+      [caminhoLeitura]: { data: { cancelled_days: [] }, error: null },
+      [caminhoEscrita]: { error: { message: 'RLS negou o dia' } },
+    });
+    const ports = supabaseImportPorts(cliente, 'org-1');
+
+    await expect(ports.cancelBookingDay({ bookingId: 'r-charlie', date: '2026-10-15', eventId: 'ev-vermelho' }))
+      .rejects.toThrow('RLS negou o dia');
+  });
+});
+
 describe('skipRecurringDay (evento vermelho sobre um dia de escala)', () => {
   // 🪤 Auditoria de 02/10/2026: a limpeza passou a filtrar TAMBÉM o motivo, para não apagar a pausa que
   // o GESTOR marcou no app no mesmo dia.

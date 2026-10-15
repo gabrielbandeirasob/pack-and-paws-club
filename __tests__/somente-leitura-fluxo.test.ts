@@ -114,6 +114,8 @@ function portasDeMemoria() {
     },
     updateBooking: async () => undefined,
     cancelBooking: async () => undefined,
+    // Porta nova (14/10/2026): o vermelho cancela o DIA, nao a linha inteira.
+    cancelBookingDay: async () => undefined,
     skipRecurringDay: async () => undefined,
     addScheduleExtraDay: async () => undefined,
   };

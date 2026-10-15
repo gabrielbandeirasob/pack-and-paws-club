@@ -26,7 +26,7 @@ import { ordenarEMedirRota, pontoBalanceavel, stopsDaRota } from '@/features/dis
 import { motoristaDoPickupPorCao, sugerirRotas, type CaoParaSugerir, type OpcoesDaSugestao } from '@/features/dispatch/routeSuggestion';
 
 type DriverRow = { user_id: string; role: 'manager' | 'driver'; profiles: { full_name: string | null } | null };
-type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; goes_to_daycare: boolean | null; movement_day: boolean | null; dog: { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } } };
+type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; goes_to_daycare: boolean | null; movement_day: boolean | null; cancelled_days: string[] | null; dog: { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } } };
 type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; transport_required: boolean; dog: { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } } };
 type ExceptionRow = { id: string; recurring_schedule_id: string; action: 'skip' | 'transport_on' | 'transport_off'; start_date: string; end_date: string };
 type StopRow = {
@@ -265,7 +265,7 @@ export default function DispatchScreen() {
       // ⚠️ `order` EXPLÍCITO (14/10/2026): sem ele a ordem que o Postgres devolvesse decidia quem era
       // parada e quem ia para "já está na van" (um dia de movimento podia ser engolido pela barra da
       // estadia — ver `uniqueDogs` em `features/calendar/dayMath.ts`).
-      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte).order('start_date').order('id'),
+      supabase.from('reservations').select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, cancelled_days, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('status', 'confirmed').gte('end_date', janelaDe).lte('start_date', janelaAte).order('start_date').order('id'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, dog:dogs(id, name, client:clients(id, name, latitude, longitude))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date').eq('organization_id', orgId).gte('end_date', janelaDe).lte('start_date', janelaAte),
     ]);
@@ -292,7 +292,7 @@ export default function DispatchScreen() {
     );
 
     const reservations: ReservationRecord[] = ((reservationResult.data as unknown as ReservationRow[]) ?? []).map((row) => ({
-      id: row.id, dog: toDogRef(row.dog), serviceType: row.service_type, startDate: row.start_date, endDate: row.end_date, transportRequired: row.transport_required, goesToDaycare: row.goes_to_daycare ?? true, movementDay: row.movement_day ?? false,
+      id: row.id, dog: toDogRef(row.dog), serviceType: row.service_type, startDate: row.start_date, endDate: row.end_date, transportRequired: row.transport_required, goesToDaycare: row.goes_to_daycare ?? true, movementDay: row.movement_day ?? false, cancelledDays: row.cancelled_days ?? [],
     }));
     const recurring: RecurringScheduleRecord[] = ((recurringResult.data as unknown as RecurringRow[]) ?? []).map((row) => ({
       id: row.id, dog: toDogRef(row.dog), weekdays: row.weekdays, startDate: row.start_date, endDate: row.end_date, active: row.active, transportRequired: row.transport_required,

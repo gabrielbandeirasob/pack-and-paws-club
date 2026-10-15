@@ -333,7 +333,7 @@ describe('plano da importação — evento VERMELHO cancela o dia daquele cão',
     const existentes = [reservaExistente({ id: 'r-cobre', dogId: 'dog-pietro', serviceType: 'daycare', startDate: '2026-10-05', endDate: '2026-10-08' })];
     const plano = planCalendarImport([evento({ id: 'e-red', summary: 'Pietro', colorId: VERMELHO, startDate: '2026-10-06', endDate: '2026-10-07' })], CAES, existentes, JANELA);
 
-    expect(plano).toEqual([{ kind: 'cancel', eventId: 'e-red', bookingKind: 'reservation', bookingId: 'r-cobre' }]);
+    expect(plano).toEqual([{ kind: 'cancel_day', eventId: 'e-red', bookingKind: 'reservation', bookingId: 'r-cobre', date: '2026-10-06' }]);
   });
 
   it('num dia de SÉRIE, pula só o dia (nunca desativa a escala inteira)', () => {
@@ -384,7 +384,7 @@ describe('plano da importação — evento VERMELHO cancela o dia daquele cão',
   it('vermelho sobre o evento que já está ligado cancela AQUELE agendamento', () => {
     const ligada = [reservaExistente({ id: 'r-link', googleEventId: 'e-red', source: 'google', dogId: 'dog-pietro', serviceType: 'daycare' })];
     const plano = planCalendarImport([evento({ id: 'e-red', summary: 'Pietro', colorId: VERMELHO, startDate: '2026-10-06', endDate: '2026-10-07' })], CAES, ligada, JANELA);
-    expect(plano).toEqual([{ kind: 'cancel', eventId: 'e-red', bookingKind: 'reservation', bookingId: 'r-link' }]);
+    expect(plano).toEqual([{ kind: 'cancel_day', eventId: 'e-red', bookingKind: 'reservation', bookingId: 'r-link', date: '2026-10-06' }]);
   });
 
   it('vermelho sobre evento de SÉRIE pula o dia em vez de desativar a escala inteira', () => {

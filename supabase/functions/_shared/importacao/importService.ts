@@ -87,6 +87,11 @@ export type ImportPorts = {
   /** Cancela a reserva (marca cancelada) ou desativa a série — o cliente desmarcou no Google. */
   cancelBooking: (input: { bookingId: string; kind: ExistingBookingKind; eventId: string }) => Promise<void>;
   /**
+   * Cancela UM dia de uma reserva (evento VERMELHO naquele dia), sem cancelar a linha — o dia sai do
+   * dia/Total Pack/fila e a barra continua ativa nos outros dias (migração `202610150045`).
+   */
+  cancelBookingDay: (input: { bookingId: string; date: string; eventId: string }) => Promise<void>;
+  /**
    * Pula UM dia de uma série: é o que o evento vermelho faz quando o dia cancelado pertence a uma
    * escala (desativar a série inteira por causa de um dia seria destruir o agendamento do cliente).
    */
@@ -208,6 +213,10 @@ async function aplicar(
       parsed: item.parsed,
       semVinculo: item.semVinculo,
     });
+    return null;
+  }
+  if (item.kind === 'cancel_day') {
+    await ports.cancelBookingDay({ bookingId: item.bookingId, date: item.date, eventId: item.eventId });
     return null;
   }
   if (item.kind === 'skip') {

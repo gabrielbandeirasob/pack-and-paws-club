@@ -141,7 +141,8 @@ describe('importação — cores: desconhecida vira pendência, vermelha cancela
       status: 'confirmed',
     };
     const plano = planCalendarImport([evento({ id: 'ev-red', colorId: VERMELHO })], [cao('d1', 'Pietro')], [ligada], JANELA);
-    expect(plano).toEqual([{ kind: 'cancel', eventId: 'ev-red', bookingKind: 'reservation', bookingId: 'res-1' }]);
+    // 14/10/2026 (item 2 do relatório da sincronização): o vermelho cancela o DIA da barra, não a linha.
+    expect(plano).toEqual([{ kind: 'cancel_day', eventId: 'ev-red', bookingKind: 'reservation', bookingId: 'res-1', date: '2026-09-30' }]);
   });
 
   it('cão sem cor nenhuma = DAY CARE (padrão do escritório)', () => {

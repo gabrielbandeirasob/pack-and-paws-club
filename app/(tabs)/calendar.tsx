@@ -21,7 +21,7 @@ import { supabase } from '@/lib/supabase';
 
 type ViewMode = 'day' | 'week' | 'month';
 
-type ReservationRow = { id: string; status: 'confirmed' | 'cancelled'; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; goes_to_daycare: boolean | null; movement_day: boolean | null; google_event_id: string | null; source: 'app' | 'google' | null; dog: { id: string; name: string; client: { name: string } } };
+type ReservationRow = { id: string; status: 'confirmed' | 'cancelled'; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; goes_to_daycare: boolean | null; movement_day: boolean | null; cancelled_days: string[] | null; google_event_id: string | null; source: 'app' | 'google' | null; dog: { id: string; name: string; client: { name: string } } };
 type RecurringRow = { id: string; weekdays: number[]; start_date: string; end_date: string | null; active: boolean; transport_required: boolean; google_event_id: string | null; source: 'app' | 'google' | null; dog: { id: string; name: string; client: { name: string } } };
 type ExceptionRow = { id: string; recurring_schedule_id: string; action: 'skip' | 'transport_on' | 'transport_off'; start_date: string; end_date: string; reason: string | null };
 type DogRow = { id: string; name: string; client: { id: string; name: string } };
@@ -72,7 +72,7 @@ export default function CalendarScreen() {
        */
       // ⚠️ `order` EXPLÍCITO (14/10/2026): a mesma agregação por cão do dia — sem ordem, o dia podia
       // mudar por sorte de quem o Postgres devolvesse primeiro (ver `uniqueDogs` em `dayMath.ts`).
-      supabase.from('reservations').select('id, status, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).in('status', ['confirmed', 'cancelled']).gte('end_date', janelaDe).lte('start_date', janelaAte).order('start_date').order('id'),
+      supabase.from('reservations').select('id, status, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, cancelled_days, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).in('status', ['confirmed', 'cancelled']).gte('end_date', janelaDe).lte('start_date', janelaAte).order('start_date').order('id'),
       supabase.from('recurring_schedules').select('id, weekdays, start_date, end_date, active, transport_required, google_event_id, source, dog:dogs(id, name, client:clients(name))').eq('organization_id', orgId).eq('active', true),
       supabase.from('recurring_exceptions').select('id, recurring_schedule_id, action, start_date, end_date, reason').eq('organization_id', orgId).gte('end_date', janelaDe).lte('start_date', janelaAte),
       supabase.from('dogs').select('id, name, client:clients(id, name)').eq('organization_id', orgId).eq('active', true),
@@ -89,6 +89,7 @@ export default function CalendarScreen() {
       transportRequired: row.transport_required,
       goesToDaycare: row.goes_to_daycare ?? true,
       movementDay: row.movement_day ?? false,
+      cancelledDays: row.cancelled_days ?? [],
       // Vínculo com o Google (importação): a agenda precisa saber que esta reserva já tem evento lá.
       googleEventId: row.google_event_id ?? null,
       source: row.source ?? 'app',
