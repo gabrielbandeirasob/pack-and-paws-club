@@ -2,6 +2,9 @@ import React from 'react';
 import { Share } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 /**
  * Tela do gestor "Driver hours" — pedido do cliente (audio de 16/09/2026): ver por motorista a
  * primeira entrada, a ultima saida e o tempo total, na tela e exportavel.

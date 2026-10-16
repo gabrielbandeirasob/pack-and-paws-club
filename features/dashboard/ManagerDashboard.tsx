@@ -400,18 +400,35 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
  */
 function RevenueStat({ revenueCents, onSave }: { revenueCents: number | null; onSave: (cents: number | null) => void }) {
   const [editando, setEditando] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
   const [texto, setTexto] = useState(formatCents(revenueCents));
   useEffect(() => setTexto(formatCents(revenueCents)), [revenueCents]);
 
   const enviar = () => {
+    /*
+     * NEGATIVO É RECUSADO (medido em 16/10/2026): `parseMoneyToCents` descarta o sinal, então "-25.00"
+     * virava +2500 — o valor mudava de sinal sem avisar ninguém. A coluna é não-negativa por regra; o
+     * gestor passa a ver o motivo em vez de o número virar outro.
+     */
+    if (texto.includes('-')) {
+      setAviso("Revenue can't be negative.");
+      setTexto(formatCents(revenueCents));
+      return;
+    }
     const centavos = parseMoneyToCents(texto);
     if (centavos !== revenueCents) onSave(centavos);
     setTexto(formatCents(centavos));
+    setAviso(null);
     setEditando(false);
   };
 
   if (!editando) {
-    const valor = revenueCents === null || revenueCents === undefined ? '0.00' : formatCents(revenueCents);
+    /*
+     * SEM VALOR NÃO É ZERO (16/10/2026): para o MESMO dia sem plano, a Home mostrava `$0.00` e o Day
+     * summary mostrava "— / not typed". Zero só quando o gestor digitou zero.
+     */
+    const semValor = revenueCents === null || revenueCents === undefined;
+    const valor = semValor ? '—' : `$${formatCents(revenueCents)}`;
     return (
       <Pressable
         accessibilityRole="button"
@@ -419,8 +436,9 @@ function RevenueStat({ revenueCents, onSave }: { revenueCents: number | null; on
         onPress={() => setEditando(true)}
         style={[styles.stat, styles.statReceita]}
       >
-        <Text numberOfLines={1} style={styles.statValueReceita}>{`$${valor}`}</Text>
+        <Text numberOfLines={1} style={styles.statValueReceita}>{valor}</Text>
         <Text style={styles.muted}>Revenue</Text>
+        {semValor ? <Text style={styles.statHint}>not typed</Text> : null}
       </Pressable>
     );
   }
@@ -440,7 +458,7 @@ function RevenueStat({ revenueCents, onSave }: { revenueCents: number | null; on
         placeholderTextColor={colors.muted}
         style={styles.receitaCampo}
       />
-      <Text style={styles.muted}>Revenue</Text>
+      {aviso ? <Text style={[styles.muted, styles.receitaAviso]}>{aviso}</Text> : <Text style={styles.muted}>Revenue</Text>}
     </View>
   );
 }
@@ -472,6 +490,7 @@ const styles = StyleSheet.create({
   statLabelDestaque:{color:colors.forest900,fontSize:11,fontWeight:'700'},
   /** Legenda do indicador (ex.: o que o "Total Pack" conta). */
   statHint:{color:colors.forest900,fontSize:12,lineHeight:15,opacity:.75,marginTop:2},
+  receitaAviso:{color:colors.urgency,fontSize:11,fontWeight:'700'},
   /** Faturamento: campo digitável dentro do quadrado. */
   statReceita:{backgroundColor:colors.paper},
   moeda:{color:colors.forest700,fontFamily:'serif',fontWeight:'800',fontSize:13,marginBottom:2},

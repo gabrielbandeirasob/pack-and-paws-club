@@ -13,6 +13,9 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import DispatchScreen from '@/app/(tabs)/dispatch';
 import { supabase } from '@/lib/supabase';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 const mockRota = {
   id: 'rota', phase: 'pickup', driver_id: 'motorista', status: 'draft', lock_version: 4, published_at: null,
   route_stops: ['Luna', 'Max'].map((nome, i) => ({

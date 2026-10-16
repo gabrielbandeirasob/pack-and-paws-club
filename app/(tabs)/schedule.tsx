@@ -11,27 +11,45 @@ import { supabase } from '@/lib/supabase';
 
 type RouteRow = { id: string; route_date: string; status: string; route_stops: { id: string }[] };
 
-function Section({ titulo, rotas, onOpen }: { titulo: string; rotas: RouteRow[]; onOpen: (id: string) => void }) {
+function Section({ titulo, rotas, onOpen, nota }: { titulo: string; rotas: RouteRow[]; onOpen?: (id: string) => void; nota?: string }) {
   if (rotas.length === 0) return null;
  return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>{titulo}</Text>
-      {rotas.map((rota) => (
-        <Pressable
-          key={rota.id}
-          accessibilityLabel={`Open route ${formatDayLabel(rota.route_date)}`}
-          style={styles.card}
-          onPress={() => onOpen(rota.id)}
-        >
-          <View style={styles.cardTop}>
-            <Text style={styles.date}>{formatDayLabel(rota.route_date)}</Text>
-            <View style={[styles.chip, rota.status === 'published' ? styles.chipLive : styles.chipIdle]}>
-              <Text style={styles.chipText}>{routeStatusLabel(rota.status)}</Text>
+      {nota ? <Text style={styles.sectionHint}>{nota}</Text> : null}
+      {rotas.map((rota) => {
+        const conteudo = (
+          <>
+            <View style={styles.cardTop}>
+              <Text style={styles.date}>{formatDayLabel(rota.route_date)}</Text>
+              <View style={[styles.chip, rota.status === 'published' ? styles.chipLive : styles.chipIdle]}>
+                <Text style={styles.chipText}>{routeStatusLabel(rota.status)}</Text>
+              </View>
             </View>
+            <Text style={styles.meta}>{plural(rota.route_stops.length, 'stop', 'stops')}</Text>
+          </>
+        );
+        /*
+         * SÓ A ROTA DE HOJE ABRE (medido em 16/10/2026): a tela do motorista mostra o dia de HOJE e
+         * ignora o `routeId` da URL, então tocar numa rota antiga levava para a rota de hoje (ou para
+         * "No published route today") — o toque prometia uma coisa e abria outra. Sem outra rota
+         * antiga, o honesto é não oferecer o toque.
+         */
+        return onOpen ? (
+          <Pressable
+            key={rota.id}
+            accessibilityLabel={`Open route ${formatDayLabel(rota.route_date)}`}
+            style={styles.card}
+            onPress={() => onOpen(rota.id)}
+          >
+            {conteudo}
+          </Pressable>
+        ) : (
+          <View key={rota.id} style={styles.card} accessibilityLabel={`Route ${formatDayLabel(rota.route_date)}`}>
+            {conteudo}
           </View>
-          <Text style={styles.meta}>{plural(rota.route_stops.length, 'stop', 'stops')}</Text>
-        </Pressable>
-      ))}
+        );
+      })}
     </View>
   );
 }
@@ -39,16 +57,25 @@ function Section({ titulo, rotas, onOpen }: { titulo: string; rotas: RouteRow[];
 export default function DriverScheduleScreen() {
   const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Falha de carga não é "nenhuma rota publicada" (medido em 16/10/2026, o mesmo defeito do Assigned). */
+  const [erro, setErro] = useState<string | null>(null);
   const router = useRouter();
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('routes')
       .select('id, route_date, status, route_stops(id)')
       .eq('driver_id', user?.id ?? '')
       .order('route_date', { ascending: false });
+    if (error) {
+      setErro('Could not load your routes. Check your connection and try again.');
+      setRoutes([]);
+      setLoading(false);
+      return;
+    }
+    setErro(null);
     setRoutes((data as unknown as RouteRow[]) ?? []);
     setLoading(false);
   }, []);
@@ -83,13 +110,20 @@ export default function DriverScheduleScreen() {
       <View style={styles.body}>
         {loading ? (
           <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
+        ) : erro ? (
+          <View style={styles.erroBox}>
+            <Text style={styles.empty}>{erro}</Text>
+            <Pressable accessibilityRole="button" style={styles.erroBotao} onPress={() => void load()}>
+              <Text style={styles.erroBotaoTexto}>Try again</Text>
+            </Pressable>
+          </View>
         ) : routes.length === 0 ? (
           <Text style={styles.empty}>No routes published to you yet.</Text>
         ) : (
           <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" contentContainerStyle={styles.list}>
             <Section titulo="Today" rotas={grupos.today} onOpen={abrirRota} />
-            <Section titulo="Upcoming" rotas={grupos.upcoming} onOpen={abrirRota} />
-            <Section titulo="Past" rotas={grupos.past} onOpen={abrirRota} />
+            <Section titulo="Upcoming" rotas={grupos.upcoming} nota="Today's route opens from the top — this list is a heads-up." />
+            <Section titulo="Past" rotas={grupos.past} nota="History: past routes are read-only here." />
           </ScrollView>
         )}
       </View>
@@ -106,9 +140,14 @@ const styles = StyleSheet.create({
   body: { flex: 1, backgroundColor: colors.cream },
   center: { marginTop: 80 },
   empty: { color: colors.muted, textAlign: 'center', marginTop: 90, paddingHorizontal: 30, fontSize: 14 },
+  /** Falha de carga dita em voz alta (16/10/2026) — igual à aba Assigned. */
+  erroBox: { marginTop: 60, paddingHorizontal: 24, alignItems: 'center' },
+  erroBotao: { marginTop: 14, backgroundColor: colors.forest700, borderRadius: radii.medium, paddingHorizontal: 22, paddingVertical: 12 },
+  erroBotaoTexto: { color: 'white', fontWeight: '800', fontSize: 13 },
   list: { padding: 16, paddingBottom: 40 },
   section: { marginBottom: 18 },
   sectionTitle: { color: colors.forest700, fontSize: 12, fontWeight: '900', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 },
+  sectionHint: { color: colors.muted, fontSize: 11, marginTop: -4, marginBottom: 8 },
   card: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, padding: 15, marginBottom: 9 },
   cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   date: { color: colors.ink, fontFamily: 'serif', fontWeight: '800', fontSize: 16 },

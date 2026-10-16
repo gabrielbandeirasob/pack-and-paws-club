@@ -3,6 +3,7 @@ import { Tabs } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, Text, type ColorValue } from 'react-native';
 import { View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { NoAccess } from '@/features/auth/NoAccess';
 import { useAuth } from '@/features/auth/AuthProvider';
@@ -34,6 +35,7 @@ const ALL_TABS = [...MANAGER_TABS, ...DRIVER_TABS];
 export default function TabLayout() {
   const { role, view, isLoading, reload } = useOrganizationRole();
   const { session } = useAuth();
+  const insets = useSafeAreaInsets();
   /**
    * BOLINHA DO MENU (operação, 26/09/2026): "vai gerar tipo aquela bolinha para você clicar no
    * menu". O número são os itens ABERTOS da to-do list do dia, que a Home publica no store — a aba
@@ -60,7 +62,19 @@ export default function TabLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.forest700,
         tabBarInactiveTintColor: colors.muted,
-        tabBarStyle: { backgroundColor: colors.paper, borderTopColor: colors.line, paddingTop: 8 },
+        /*
+         * ALTURA COM ESPAÇO PARA O RÓTULO (medido 16/10/2026 no build web, 393×852): a barra ficava com
+         * 40 px de altura, o rótulo de 12 px caía 7 px ABAIXO da borda da tela (bottom 859 em 852) e as
+         * abas ficavam abaixo do alvo mínimo de 44 px. Altura explícita + o inset do aparelho resolve os
+         * dois: o rótulo sobe para dentro e a área de toque passa de 44 px.
+         */
+        tabBarStyle: {
+          backgroundColor: colors.paper,
+          borderTopColor: colors.line,
+          height: 58 + insets.bottom,
+          paddingTop: 6,
+          paddingBottom: 6 + insets.bottom,
+        },
         tabBarLabelStyle: { fontSize: 12, fontWeight: '700' },
         tabBarLabelPosition: 'below-icon',
       }}

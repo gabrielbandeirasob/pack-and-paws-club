@@ -38,6 +38,7 @@ import {
 import { colors, radii } from '@/features/theme/tokens';
 import { showAlert } from '@/features/ui/alert';
 import { supabase } from '@/lib/supabase';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 const KIND_LABEL: Record<LocationKind, string> = { van: 'Van', yard: 'Yard', other: 'Other' };
 
@@ -49,6 +50,7 @@ function kindHint(kind: LocationKind): string {
 }
 
 export default function VanLocationsScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [locais, setLocais] = useState<OrganizationLocation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -202,6 +204,9 @@ export default function VanLocationsScreen() {
       ],
     );
   };
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>

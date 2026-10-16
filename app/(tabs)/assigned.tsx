@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { todayLocalISO } from '@/features/calendar/dates';
+import { umCaoPorLinha } from '@/features/driver/assignedDogs';
 import { ordenarParadasDoDia } from '@/features/driver/dayOrder';
 import { stopLabel, stopStatusLabel } from '@/features/driver/routeLabels';
 import { colors, radii } from '@/features/theme/tokens';
@@ -16,30 +17,56 @@ type StopRow = {
   dropoff_sequence?: number | null;
   dropoffSequence?: number | null;
   status: string;
-  dog: { name: string | null; client: { name: string | null; address_line_1: string | null; city: string | null } | null } | null;
+  /** Dono do cão: é a chave que junta as duas pernas do dia numa linha só. */
+  dogId?: string | null;
+  dog: { id?: string | null; name: string | null; client: { name: string | null; address_line_1: string | null; city: string | null } | null } | null;
 };
 
 export default function DriverAssignedScreen() {
   const [stops, setStops] = useState<StopRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [erro, setErro] = useState<string | null>(null);
   const router = useRouter();
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
-    const { data } = await supabase
+    /*
+     * FALHA DE CARGA NÃO É "NÃO TEM CÃO" (medido em 16/10/2026): com a consulta devolvendo 503 o
+     * `data` chegava nulo e a tela AFIRMAVA "No dogs assigned to you today." — o motorista lia que o
+     * dia estava vazio quando o que havia era falta de rede. Agora o erro é dito.
+     */
+    const { data, error } = await supabase
       .from('routes')
-      .select('route_stops(id, sequence, dropoff_sequence, status, dog:dogs(name, client:clients(name, address_line_1, city)))')
+      .select('route_stops(id, sequence, dropoff_sequence, status, dog:dogs(id, name, client:clients(name, address_line_1, city)))')
       .eq('driver_id', user?.id ?? '')
       .eq('route_date', todayLocalISO())
       .eq('status', 'published');
+    if (error) {
+      setErro('Could not load your day. Check your connection and try again.');
+      setStops([]);
+      setLoading(false);
+      return;
+    }
+    setErro(null);
     const rows = ((data as unknown as { route_stops: StopRow[] }[]) ?? []).flatMap((route) => route.route_stops ?? []);
     /**
      * A MESMA ordem da tela da rota (`features/driver/dayOrder`): busca enquanto houver busca, depois a
      * ordem da ENTREGA publicada pelo gestor. Antes esta lista ordenava só por `sequence` e, na tarde,
      * discordava da numeração que o motorista vê na rota.
      */
-    setStops(ordenarParadasDoDia(rows.map((row) => ({ ...row, sequence: row.sequence ?? 0, dropoffSequence: row.dropoff_sequence ?? null }))));
+    const naOrdem = ordenarParadasDoDia(rows.map((row) => ({
+      ...row,
+      dogId: row.dog?.id ?? row.dogId ?? null,
+      sequence: row.sequence ?? 0,
+      dropoffSequence: row.dropoff_sequence ?? null,
+    })));
+    /**
+     * ⚠️ UMA linha por CÃO: o dia tem duas rotas publicadas (busca e entrega) e o mesmo cão tem parada
+     * nas duas — sem juntar, o cabeçalho contava o dobro ("4 dogs · 2 done" para 2 cães, 16/10/2026) e
+     * o cão aparecia como Pending e Done ao mesmo tempo. Ver `features/driver/assignedDogs.ts`.
+     */
+    setStops(umCaoPorLinha(naOrdem));
     setLoading(false);
   }, []);
 
@@ -66,12 +93,22 @@ export default function DriverAssignedScreen() {
       <View style={styles.body}>
         {loading ? (
           <ActivityIndicator style={styles.center} color={colors.gold} size="large" />
+        ) : erro ? (
+          <View style={styles.erroBox}>
+            <Text style={styles.empty}>{erro}</Text>
+            <Pressable accessibilityRole="button" style={styles.erroBotao} onPress={() => void load()}>
+              <Text style={styles.erroBotaoTexto}>Try again</Text>
+            </Pressable>
+          </View>
         ) : stops.length === 0 ? (
           <Text style={styles.empty}>No dogs assigned to you today.</Text>
         ) : (
           <ScrollView automaticallyAdjustContentInsets={false} contentInsetAdjustmentBehavior="never" contentContainerStyle={styles.list}>
             {stops.map((stop, indice) => {
               const endereco = [stop.dog?.client?.address_line_1, stop.dog?.client?.city].filter(Boolean).join(' · ');
+              /** Cada estado tem o SEU chip: o cão pulado (problema) não é o mesmo que o pendente. */
+              const chip = stop.status === 'completed' ? styles.chipDone : stop.status === 'skipped' ? styles.chipProblem : styles.chipPending;
+              const chipTexto = stop.status === 'completed' ? styles.chipTextDone : stop.status === 'skipped' ? styles.chipTextProblem : styles.chipTextPending;
               return (
                 <Pressable
                   key={stop.id}
@@ -83,8 +120,8 @@ export default function DriverAssignedScreen() {
                     <Text style={styles.name}>
                       {indice + 1}. {stopLabel(stop.dog?.client?.name, stop.dog?.name)}
                     </Text>
-                    <View style={[styles.chip, stop.status === 'completed' ? styles.chipDone : styles.chipPending]}>
-                      <Text style={[styles.chipText, stop.status === 'completed' ? styles.chipTextDone : styles.chipTextPending]}>{stopStatusLabel(stop.status)}</Text>
+                    <View style={[styles.chip, chip]}>
+                      <Text style={[styles.chipText, chipTexto]}>{stopStatusLabel(stop.status)}</Text>
                     </View>
                   </View>
                   {endereco ? <Text style={styles.address}>{endereco}</Text> : null}
@@ -108,6 +145,10 @@ const styles = StyleSheet.create({
   body: { flex: 1, backgroundColor: colors.cream },
   center: { marginTop: 80 },
   empty: { color: colors.muted, textAlign: 'center', marginTop: 90, paddingHorizontal: 30, fontSize: 14 },
+  /** Falha de carga dita em voz alta (16/10/2026): mensagem + uma ação, nunca "o dia está vazio". */
+  erroBox: { marginTop: 60, paddingHorizontal: 24, alignItems: 'center' },
+  erroBotao: { marginTop: 14, backgroundColor: colors.forest700, borderRadius: radii.medium, paddingHorizontal: 22, paddingVertical: 12 },
+  erroBotaoTexto: { color: 'white', fontWeight: '800', fontSize: 13 },
   list: { padding: 16, paddingBottom: 40 },
   card: { backgroundColor: colors.paper, borderRadius: radii.medium, borderWidth: 1, borderColor: colors.line, padding: 15, marginBottom: 9 },
   cardTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -116,6 +157,8 @@ const styles = StyleSheet.create({
   chip: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   chipDone: { backgroundColor: colors.forest700 },
   chipPending: { backgroundColor: colors.gold },
+  /** Cão pulado = problema na rua (o motorista já sinalizou): fundo de urgência, não o dourado do "esperando". */
+  chipProblem: { backgroundColor: colors.urgency },
   /**
    * 🪤 ACHADO DA VISTORIA (02/10/2026): o texto era BRANCO sobre o dourado do "Pending" (2,31:1,
    * abaixo do mínimo) e saía em 10 px. Cada fundo tem o SEU texto: branco no verde escuro (contraste
@@ -124,5 +167,6 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
   chipTextDone: { color: 'white' },
   chipTextPending: { color: colors.forest900 },
+  chipTextProblem: { color: 'white' },
   hint: { color: colors.muted, fontSize: 12, textAlign: 'center', marginTop: 10 },
 });

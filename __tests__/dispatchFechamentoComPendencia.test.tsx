@@ -10,6 +10,9 @@ import { Alert, type AlertButton } from 'react-native';
 import DispatchScreen from '@/app/(tabs)/dispatch';
 import { supabase } from '@/lib/supabase';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 /**
  * Fechar ("Done"), despublicar ou CANCELAR (✕) tira a rota da tela do motorista (ele só lê rota
  * `published`). Com parada pendente, a tela NÃO pode escrever o status antes do ok do gestor — e o

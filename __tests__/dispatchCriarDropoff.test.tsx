@@ -1,3 +1,6 @@
+
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
 // Pedido do dono (04/10): escolher a perna antes de agir nela; mesmas asserções de negócio.
 /**
  * DEFEITO B (03/10/2026) — criar a PERNA de drop-off que nunca existiu.

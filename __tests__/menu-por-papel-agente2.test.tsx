@@ -32,6 +32,9 @@ jest.mock('@/lib/supabase', () => ({
 
 import MenuMore from '../app/(tabs)/more';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 it('MOTORISTA nao ve Team nem Activity no menu', async () => {
   conta.role = 'driver';
   empurrados.length = 0;

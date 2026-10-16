@@ -4,6 +4,9 @@ import { RefreshControl } from 'react-native';
 import RouteStopsScreen from '@/app/route-stops';
 import { supabase } from '@/lib/supabase';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 /**
  * TELA "ROUTE STOPS" (gestor) — pedido do cliente em áudio (01/10/2026): *"no Today's Routes seria
  * ideal se você conseguisse clicar no driver e abrir uma lista dos pick-up que tem e os que ainda

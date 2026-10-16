@@ -14,11 +14,13 @@ import { createDogsWithPhotos } from '@/features/dogs/dogPhoto';
 import { fillClientCoordinates } from '@/features/maps/geocodeService';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 type ClientRow = { id: string; name: string; phone: string | null; address_line_1: string | null; city: string | null; state: string | null; active: boolean; dogs: { name: string; photo_url: string | null }[] };
 type MembershipRow = { organization_id: string };
 
 export default function ClientsScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const router = useRouter();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [clients, setClients] = useState<ClientWithDogs[]>([]);
@@ -247,6 +249,9 @@ export default function ClientsScreen() {
     }
     await load();
   };
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>

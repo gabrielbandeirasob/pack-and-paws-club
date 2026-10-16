@@ -11,6 +11,9 @@ import { Alert } from 'react-native';
 import DispatchScreen from '@/app/(tabs)/dispatch';
 import { supabase } from '@/lib/supabase';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 const mockParadas = ['Luna', 'Max', 'Filó'].map((nome, indice) => ({
   dog_id: nome, sequence: indice + 1, status: 'pending', priority: 'normal',
   window_start: null, window_end: null, exact_time: null,

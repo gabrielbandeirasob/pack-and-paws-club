@@ -59,6 +59,9 @@ import DispatchScreen from '@/app/(tabs)/dispatch';
 import { loadDayDogs } from '@/features/dashboard/dayService';
 import { supabase } from '@/lib/supabase';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 it('dispatch: confirmed-only query leaves cancelled and skipped dogs out of the operation pool', async () => {
   const screen = await render(<DispatchScreen />);
   await waitFor(() => expect(screen.getByText('Active')).toBeTruthy());

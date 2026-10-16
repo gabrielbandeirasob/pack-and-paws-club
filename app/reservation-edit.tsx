@@ -11,6 +11,7 @@ import { EditReservationForm } from '@/features/calendar/EditReservationForm';
 import { reservationUpdatePayload, type ReservationFormValues } from '@/features/calendar/reservationsService';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 type LoadedRow = {
   service_type: string;
@@ -23,6 +24,7 @@ type LoadedRow = {
 };
 
 export default function ReservationEditScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [initial, setInitial] = useState<ReservationFormValues | null>(null);
@@ -83,6 +85,9 @@ export default function ReservationEditScreen() {
       setSaving(false);
     }
   };
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>

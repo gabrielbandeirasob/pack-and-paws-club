@@ -28,6 +28,7 @@ import {
 import { loadDriverNames, loadOrganizationRoutes, loadOrganizationShifts, stopFromRow } from '@/features/driver/shiftService';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 type Janela = 'today' | 'week';
 
@@ -37,6 +38,7 @@ function inicioDoDia(offsetDias = 0): string {
 }
 
 export default function DriverHoursScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const [janela, setJanela] = useState<Janela>('today');
   const [resumos, setResumos] = useState<DriverDaySummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,6 +105,9 @@ export default function DriverHoursScreen() {
       setError('Could not open the share sheet.');
     }
   };
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>

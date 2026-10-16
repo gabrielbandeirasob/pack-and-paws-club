@@ -1,5 +1,8 @@
 import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 /**
  * TELA "Day summary" (gestor) — histórico do dia. Estava com 0% de cobertura.
  *

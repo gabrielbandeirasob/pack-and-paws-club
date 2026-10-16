@@ -2,6 +2,12 @@ import React from 'react';
 import { Pressable, Text } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
+/** A tela real das abas lê o inset do aparelho (SafeAreaProvider no app); no teste o mock da lib devolve zeros. */
+jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default);
+
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 const mockConta = { role: 'manager' };
 const mockSetView = jest.fn();
 const mockReplace = jest.fn();

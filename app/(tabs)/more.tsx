@@ -9,8 +9,10 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/features/auth/AuthProvider';
 import { useOrganizationRole } from '@/features/auth/useOrganizationRole';
 import { DriveSwitchRow } from '@/features/auth/DriveSwitchRow';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 export default function MoreScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const { session } = useAuth();
   const { view } = useOrganizationRole();
   /** Só o gestor vê "Team" e "Activity" (ver o comentário na lista). */
@@ -22,6 +24,9 @@ export default function MoreScreen() {
   const signOut = async () => {
     await supabase.auth.signOut();
   };
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>

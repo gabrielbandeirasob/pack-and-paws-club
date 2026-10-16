@@ -59,6 +59,9 @@ jest.mock('expo-router', () => ({
 
 import ActivityScreen from '@/app/activity';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 /** Meia-noite local de N dias atrás — a mesma conta que a tela faz. */
 function inicioDoDia(diasAtras: number): Date {
   const agora = new Date();

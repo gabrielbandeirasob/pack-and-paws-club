@@ -10,6 +10,11 @@ import { render, waitFor } from '@testing-library/react-native';
  * Correcao: papel driver e redirecionado para "/(tabs)/driver" e o painel nao renderiza.
  */
 jest.mock('expo-router', () => ({
+  /** A trava de papel (`useRoleGuard`) usa o `router` direto, não o `useRouter()`. */
+  router: {
+    replace: (route: string) => (globalThis as any).__replace(route),
+    push: () => undefined,
+  },
   useRouter: () => ({
     replace: (route: string) => (globalThis as any).__replace(route),
     push: () => undefined,
@@ -53,6 +58,9 @@ jest.mock('@/lib/supabase', () => {
 
 // eslint-disable-next-line import/first
 import HomeScreen from '@/app/(tabs)/index';
+
+/** A tela real das abas lê o inset do aparelho (SafeAreaProvider no app); no teste o mock da lib devolve zeros. */
+jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default);
 
 const replaceMock = jest.fn();
 

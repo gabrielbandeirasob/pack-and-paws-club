@@ -16,6 +16,7 @@ import { BackHeader } from '@/features/ui/BackHeader';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
 import { describeAuditEntry, tempoRelativo, type AuditEntry } from '@/features/audit/describe';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 type Janela = 'today' | 'week';
 
@@ -28,6 +29,7 @@ function inicioDoDia(diasAtras: number): Date {
 }
 
 export default function ActivityScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const [janela, setJanela] = useState<Janela>('today');
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -76,6 +78,9 @@ export default function ActivityScreen() {
   useEffect(() => {
     void carregar(janela);
   }, [janela, carregar]);
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>

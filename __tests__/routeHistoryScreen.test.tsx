@@ -1,5 +1,8 @@
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 /**
  * TELA "Route history" (gestor) — histórico do que foi executado nas rotas. Estava com 0% de cobertura.
  *

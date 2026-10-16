@@ -13,6 +13,9 @@ import { optimizeRoute } from '@/features/dispatch/routeOptimizer';
 import { fetchTravelTimes } from '@/features/dispatch/trafficProvider';
 import { supabase } from '@/lib/supabase';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 jest.mock('@/features/dispatch/trafficProvider', () => ({
   fetchTravelTimes: jest.fn(async () => ({ travel: null, source: 'estimated' })),
 }));

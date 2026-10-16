@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { formatTimeOfDay } from '@/lib/clock';
+import { plural } from '@/lib/plural';
 import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 
 import { ordenarParadasDoDia } from '@/features/driver/dayOrder';
@@ -176,7 +177,7 @@ export function DriverRouteView({ stops, onAction, onNotifyOwner, start, onNavig
     const delivered = stops.map(stop => stop.deliveredAt).filter((value): value is string => Boolean(value)).sort();
     return <View style={styles.list} testID="route-complete">
       <Text style={styles.timelineTitle}>Route complete</Text>
-      <Text style={styles.closingSub}>{tarefas.length} stops {stops.some(stop => stop.status === 'skipped') ? 'resolved' : 'completed'}{delivered.length ? ` · Completed at ${clockText(delivered[delivered.length - 1])}` : ''}</Text>
+      <Text style={styles.closingSub}>{plural(tarefas.length, 'stop', 'stops')} {stops.some(stop => stop.status === 'skipped') ? 'resolved' : 'completed'}{delivered.length ? ` · Completed at ${clockText(delivered[delivered.length - 1])}` : ''}</Text>
       {closing ? <View style={styles.closing} testID="route-closing">
         <Text style={styles.closingTitle}>{closing.title}</Text>
         {onNavigateClosing ? <Pressable accessibilityRole="button" accessibilityLabel={closing.kind === 'van' ? 'Return to van' : 'Return to yard'} onPress={onNavigateClosing}

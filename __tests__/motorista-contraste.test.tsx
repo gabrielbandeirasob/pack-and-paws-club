@@ -19,6 +19,9 @@ import AssignedScreen from '@/app/(tabs)/assigned';
 import TabLayout from '@/app/(tabs)/_layout';
 import { colors } from '@/features/theme/tokens';
 
+/** A tela real das abas lê o inset do aparelho (SafeAreaProvider no app); no teste o mock da lib devolve zeros. */
+jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default);
+
 const capturado: { screenOptions: Record<string, any> | null } = { screenOptions: null };
 
 jest.mock('expo-router', () => {

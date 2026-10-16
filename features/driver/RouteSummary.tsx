@@ -2,6 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import type { DriverStop } from './DriverRouteView';
 import { paradaDaFaseConcluida, type DayPhase } from './dayPhase';
 import { agruparEmTarefas } from './tasks';
+import { plural } from '@/lib/plural';
 import { colors } from '@/features/theme/tokens';
 
 /**
@@ -16,7 +17,7 @@ export function RouteSummary({ stops, fase }: { stops: DriverStop[]; fase: DayPh
   if (!tasks.length) return null;
   return <View testID="route-summary" style={styles.card}>
     <View style={styles.row}>
-      <Text style={styles.label}>{tasks.length} stops · {fase === 'pickup' ? 'Pick-ups' : 'Drop-offs'}</Text>
+      <Text style={styles.label}>{plural(tasks.length, 'stop', 'stops')} · {fase === 'pickup' ? 'Pick-ups' : 'Drop-offs'}</Text>
       <Text style={styles.caption}>{done}/{tasks.length}</Text>
       <View accessible accessibilityRole="progressbar" accessibilityLabel="Route progress"
         accessibilityValue={{ min: 0, max: tasks.length, now: done }} style={styles.track}>

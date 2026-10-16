@@ -23,6 +23,7 @@ import { BackHeader } from '@/features/ui/BackHeader';
 import { formatDayLabel } from '@/features/calendar/dates';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 /** Rótulos da situação da parada (mesmos do app do motorista — a operação lê em inglês). */
 const SITUACAO: Record<string, string> = {
@@ -53,6 +54,7 @@ async function carregarFimDaRotaComYard(client: SupabaseClient, routeId: string)
 }
 
 export default function RouteStopsScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const parametros = useLocalSearchParams<{ route?: string; driver?: string; day?: string }>();
   const routeId = typeof parametros.route === 'string' ? parametros.route : null;
   const motorista = typeof parametros.driver === 'string' && parametros.driver.trim() ? parametros.driver.trim() : 'Driver';
@@ -147,6 +149,9 @@ export default function RouteStopsScreen() {
     }),
     [paradas, fimDaRota],
   );
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <SafeAreaView style={styles.tela} edges={['top']}>

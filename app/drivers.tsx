@@ -11,6 +11,7 @@ import { normalizeForSearch } from '@/features/clients/clientsService';
 import { showAlert } from '@/features/ui/alert';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 type DriverRow = { user_id: string; status: string; role?: string | null; profiles: { full_name: string | null } | null };
 
@@ -26,6 +27,7 @@ function hojeLocal(): string {
 }
 
 export default function DriversScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [drivers, setDrivers] = useState<DriverRow[]>([]);
@@ -209,6 +211,9 @@ export default function DriversScreen() {
   const visiveis = termo.length > 0
     ? drivers.filter((driver) => normalizeForSearch(driver.profiles?.full_name ?? '').includes(termo))
     : drivers;
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>

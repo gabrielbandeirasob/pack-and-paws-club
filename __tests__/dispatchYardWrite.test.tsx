@@ -15,6 +15,9 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import DispatchScreen from '@/app/(tabs)/dispatch';
 import { supabase } from '@/lib/supabase';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 const mockParadas = ['Luna', 'Max'].map((nome, indice) => ({
   dog_id: nome, sequence: indice + 1, status: 'pending', priority: 'normal',
   pickup_pin: null, pickup_pin_position: null, dropoff_pin: null, dropoff_pin_position: null, dropoff_sequence: null,

@@ -23,6 +23,9 @@ import DispatchScreen from '@/app/(tabs)/dispatch';
 import { todayLocalISO } from '@/features/calendar/dates';
 import { supabase } from '@/lib/supabase';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 const HOJE = todayLocalISO();
 const reserva = (id: string, dogId: string, dogName: string, clientId: string, clientName: string) => ({
   id, service_type: 'daycare' as const, start_date: HOJE, end_date: HOJE, transport_required: true,

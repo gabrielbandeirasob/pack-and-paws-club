@@ -9,6 +9,9 @@
  * conversa em grupo no iOS) e a saudação com os dois nomes. A parte de tela entra pelos testes do
  * cartão do motorista.
  */
+import fs from 'node:fs';
+import path from 'node:path';
+
 import {
   etaMessageText,
   messengerLink,
@@ -92,5 +95,27 @@ describe('etaMessageText com o segundo dono', () => {
   it('sem segundo dono, o texto é o de antes', () => {
     const texto = etaMessageText({ ...base, clientName: 'Sarah', phase: 'pickup' });
     expect(texto.startsWith('Good morning, Sarah!')).toBe(true);
+  });
+});
+
+/**
+ * A OUTRA METADE — A CONSULTA (medido em 16/10/2026).
+ *
+ * O aviso de dois números estava certo e mesmo assim chegava UM destinatário só: a consulta da rota
+ * (`app/(tabs)/driver.tsx`) não pedia `second_owner_name`/`second_owner_phone` ao PostgREST, então
+ * `rowToStop` recebia `null` nos dois campos e o link do SMS saía com um número. Peça pura verde,
+ * dado ausente: o defeito morava no SELECT. Este bloco trava os dois lados do fio.
+ */
+describe('a consulta da rota entrega os DOIS tutores ao aviso', () => {
+  const ler = (rel: string) => fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+
+  it('a rota do motorista pede os dois campos do cadastro', () => {
+    expect(ler('app/(tabs)/driver.tsx')).toContain('second_owner_name, second_owner_phone');
+  });
+
+  it('a linha da parada lê os dois campos do cliente', () => {
+    const linhas = ler('features/driver/rows.ts');
+    expect(linhas).toContain('clientPhone2: client?.second_owner_phone');
+    expect(linhas).toContain('secondOwnerName: client?.second_owner_name');
   });
 });

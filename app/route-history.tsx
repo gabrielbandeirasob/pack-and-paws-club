@@ -10,6 +10,7 @@ import { routeStatusStyle, stopSummaryLabel, summarizeStops, type HistoryStop } 
 import { BackHeader } from '@/features/ui/BackHeader';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 type RouteRow = {
   id: string;
@@ -27,6 +28,7 @@ const TONES: Record<string, { bg: string; fg: string }> = {
 };
 
 export default function RouteHistoryScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const [routes, setRoutes] = useState<RouteRow[]>([]);
   const [driverNames, setDriverNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -64,6 +66,9 @@ export default function RouteHistoryScreen() {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>

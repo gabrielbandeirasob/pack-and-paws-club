@@ -32,6 +32,7 @@ import { showAlert } from '@/features/ui/alert';
 import { colors } from '@/features/theme/tokens';
 import { fillClientCoordinates } from '@/features/maps/geocodeService';
 import { supabase } from '@/lib/supabase';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 type Loaded = {
   current: EditableClient;
@@ -53,6 +54,7 @@ function hojeLocal(): string {
 }
 
 export default function ClientEditScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
@@ -343,6 +345,9 @@ export default function ClientEditScreen() {
     if (falha) { setError(`Could not undo the deletion: ${falha.message}`); return; }
     router.back();
   };
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>

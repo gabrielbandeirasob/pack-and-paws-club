@@ -48,6 +48,7 @@ import { frescorDaPosicao, isPastDeadline, nextStopEta } from '@/features/driver
 import { rotuloDeEtaMinutos } from '@/features/dashboard/routeEtaLabel';
 import { colors } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 type MembershipRow = { organization_id: string };
 type ProfileRow = { full_name: string | null };
@@ -186,6 +187,7 @@ export function toDashboardRoute(
 }
 
 export default function HomeScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const router = useRouter();
   const { view, isLoading: roleLoading } = useOrganizationRole();
   const landingRoute = landingRouteForRole(view, roleLoading);
@@ -625,6 +627,9 @@ export default function HomeScreen() {
       </SafeAreaView>
     );
   }
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <>

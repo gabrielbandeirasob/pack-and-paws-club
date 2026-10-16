@@ -18,10 +18,12 @@ import { loadDayDogs, loadDayPlan, loadPackEntries, loadTodos, PLANO_VAZIO, type
 import { BackHeader } from '@/features/ui/BackHeader';
 import { colors, radii } from '@/features/theme/tokens';
 import { supabase } from '@/lib/supabase';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 type MembroRow = { user_id: string; profiles: { full_name: string | null } | null };
 
 export default function DaySummaryScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [dia, setDia] = useState(todayLocalISO());
   const [dogs, setDogs] = useState<DayDog[]>([]);
@@ -86,6 +88,9 @@ export default function DaySummaryScreen() {
     entries,
     revenueCents: plan.revenueCents,
   });
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <SafeAreaView style={styles.tela} edges={['top']}>

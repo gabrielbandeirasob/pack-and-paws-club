@@ -26,6 +26,9 @@ import { cleanup, render, waitFor, within } from '@testing-library/react-native'
 import { StartStateCard } from '@/features/driver/StartStateCard';
 import { clockInGate, type OrganizationLocation } from '@/features/organization/locations';
 
+/** A tela real das abas lê o inset do aparelho (SafeAreaProvider no app); no teste o mock da lib devolve zeros. */
+jest.mock('react-native-safe-area-context', () => require('react-native-safe-area-context/jest/mock').default);
+
 /* ------------------------------------------------------------------ *
  * FIXTURES — van em San Mateo; o motorista "longe" está a ~9.702 km
  * ------------------------------------------------------------------ */

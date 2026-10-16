@@ -12,7 +12,7 @@ import { DriverRouteView, type DriverAction, type DriverStartPoint, type DriverS
 import { resolveDriverOptimizationOrigin } from '@/features/driver/driverRouteLocation';
 import { clockInGate, distanceText, estaNaVan, loadOrganizationLocations, loadRouteEndLocationForDriver, loadVanLocationForDriver, motivoDoClockIn, travaDoClockIn, vanLocationForRoute, type OrganizationLocation } from '@/features/organization/locations';
 import { ETA_MAXIMO_PLAUSIVEL_MIN, frescorDaPosicao, lateMinutesForStop, minutosAteParada, minutesToStop, nextStopEta, type EtaResult } from '@/features/driver/eta';
-import { etaMessageText, etaNoticeError, messengerLink, phaseForStop } from '@/features/driver/etaMessage';
+import { etaMessageText, etaNoticeError, messengerLink } from '@/features/driver/etaMessage';
 
 import { NextStopCard, nextActionForStatus } from '@/features/driver/NextStopCard';
 import { buscaTerminou, entregaTerminou, fechamentoDaRota } from '@/features/driver/routeClosing';
@@ -528,7 +528,7 @@ export default function DriverTodayScreen() {
           let snapshot = await loadRouteSnapshot();
           let rotas: RouteResult[] | null = null;
           let online = false;
-      const campos = 'id, organization_id, lock_version, published_at, start_location_id, end_location_id, route_stops(id, sequence, dropoff_sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, delivered_at, travel_seconds, dropoff_travel_seconds, status_updated_at, eta_notice_at, eta_notice_kind, handed_from_name, handed_at, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))';
+      const campos = 'id, organization_id, lock_version, published_at, start_location_id, end_location_id, route_stops(id, sequence, dropoff_sequence, status, stop_group_id, window_start, window_end, exact_time, priority, pickup_proof_path, dropoff_proof_path, arrived_at, picked_up_at, completed_at, skipped_at, delivered_at, travel_seconds, dropoff_travel_seconds, status_updated_at, eta_notice_at, eta_notice_kind, handed_from_name, handed_at, dog:dogs(id, name, behavior_notes, medical_notes, photo_url, client:clients(name, phone, second_owner_name, second_owner_phone, address_line_1, city, latitude, longitude, client_instructions(pickup_access_instructions))))';
           try {
             const consultar = (comFase: boolean) => supabase.from('routes')
               .select(comFase ? `phase, ${campos}` : campos)
@@ -1240,7 +1240,12 @@ export default function DriverTodayScreen() {
       secondOwnerName: stop.secondOwnerName ?? null,
       driverName,
       dogName: stop.dogName,
-      phase: phaseForStop(stop.status),
+      /*
+       * A FASE É A PERNA QUE O MOTORISTA ESTÁ RODANDO, não o status da parada (medido 16/10/2026).
+       * Entrega que nasce `pending` (o normal: o cão só é embarcado de manhã) era anunciada como
+       * "to pick up" e escapava do piso das 14h — a mesma perna que rotula "Drop-offs" na tela.
+       */
+      phase: fase,
       minutes: stop.etaMinutes ?? 0,
       lateMinutes: stop.lateMinutes ?? 0,
       now: new Date(),
@@ -1260,7 +1265,7 @@ export default function DriverTodayScreen() {
     } catch {
       // Se o mensageiro não abrir, o registro do aviso ainda vale (o motorista avisa por telefone).
     }
-    const phase = phaseForStop(stop.status);
+    const phase = fase;
     try {
       await markEtaNotice(supabase, stop.id, phase);
       void load(true);

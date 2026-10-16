@@ -4,6 +4,9 @@ import DispatchScreen from '@/app/(tabs)/dispatch';
 import { todayLocalISO, addDaysISO } from '@/features/calendar/dates';
 import { supabase } from '@/lib/supabase';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 const mockHoje = todayLocalISO();
 const mockReservas = ['sam', 'ollie', 'sammy', 'hotel'].map((id, i) => ({
   id, service_type: i === 3 ? 'boarding' : 'daycare', start_date: i === 3 ? addDaysISO(mockHoje, -1) : mockHoje,

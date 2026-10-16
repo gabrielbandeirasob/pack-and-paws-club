@@ -28,6 +28,9 @@ import DispatchScreen from '@/app/(tabs)/dispatch';
 import { todayLocalISO } from '@/features/calendar/dates';
 import { supabase } from '@/lib/supabase';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 const mockHoje = todayLocalISO();
 
 /** Cães que o "banco" devolve na fila do dia — o teste troca isto e força o foco de novo. */

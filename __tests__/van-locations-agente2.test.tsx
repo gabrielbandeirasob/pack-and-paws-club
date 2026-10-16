@@ -12,6 +12,9 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 const mockAlertas: { titulo: string; mensagem?: string }[] = [];
 jest.mock('@/features/ui/alert', () => ({
   showAlert: (titulo: string, mensagem?: string) => {

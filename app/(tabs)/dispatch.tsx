@@ -24,6 +24,7 @@ import { loadOrganizationLocations, origemDaEntregaDaRota, vanDaRota, vanLocatio
 import { MAX_MATRIX_SIZE } from '@/features/dispatch/travelMatrix';
 import { ordenarEMedirRota, pontoBalanceavel, stopsDaRota } from '@/features/dispatch/routeBalancer';
 import { motoristaDoPickupPorCao, sugerirRotas, type CaoParaSugerir, type OpcoesDaSugestao } from '@/features/dispatch/routeSuggestion';
+import { useSomenteGestor } from '@/features/auth/somenteGestor';
 
 type DriverRow = { user_id: string; role: 'manager' | 'driver'; profiles: { full_name: string | null } | null };
 type ReservationRow = { id: string; service_type: 'daycare' | 'boarding'; start_date: string; end_date: string; transport_required: boolean; goes_to_daycare: boolean | null; movement_day: boolean | null; cancelled_days: string[] | null; dog: { id: string; name: string; client: { id: string; name: string; latitude: number | null; longitude: number | null } } };
@@ -73,6 +74,7 @@ function erroParcial(mensagem: string): Error {
 }
 
 export default function DispatchScreen() {
+  const bloqueioDePapel = useSomenteGestor();
   const router = useRouter();
   const [organizationId, setOrganizationId] = useState<string | null>(null);
   const [date, setDate] = useState(todayLocalISO());
@@ -1752,6 +1754,9 @@ export default function DispatchScreen() {
    * de atribuição não oferecer outro motorista na perna de drop-off.
    */
   const pickupDriverByDog = useMemo(() => motoristaDoPickupPorCao(summary.routes), [summary.routes]);
+
+  /** Telas do GESTOR: o motorista não entra por link (varredura de 16/10/2026). */
+  if (bloqueioDePapel) return bloqueioDePapel;
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>

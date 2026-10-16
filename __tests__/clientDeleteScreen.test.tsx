@@ -14,6 +14,9 @@
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 
+/** Trava de papel das telas do gestor: aqui o alvo é a tela, não a trava (que tem teste próprio). */
+jest.mock('@/features/auth/somenteGestor', () => ({ useSomenteGestor: () => null }));
+
 const mockChamadas: string[] = [];
 const mockVoltar = jest.fn();
 /** Contagens que a tela le para montar o aviso; cada teste ajusta o cenario. */
