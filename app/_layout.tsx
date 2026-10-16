@@ -9,6 +9,8 @@ import 'react-native-reanimated';
 import { AuthProvider, useAuth } from '@/features/auth/AuthProvider';
 import { installGlobalErrorHandler } from '@/features/errors/errorReporter';
 import { PushRegistrar } from '@/features/notifications/PushRegistrar';
+import { AtualizacaoObrigatoria } from '@/features/release/AtualizacaoObrigatoria';
+import { useAtualizacaoObrigatoria } from '@/features/release/useAtualizacaoObrigatoria';
 import { colors } from '@/features/theme/tokens';
 
 // tela de erro da marca + registro automatico (substitui a ErrorBoundary crua do expo-router)
@@ -30,6 +32,11 @@ export default function RootLayout(){
 
 function RootNavigator(){
   const {isLoading,isAuthenticated,mustChangePassword}=useAuth();
+  const versao=useAtualizacaoObrigatoria();
+  // PORTAO DE VERSAO: build anterior a publicada nao entra (nem a tela de login) — o escritorio e o
+  // motorista tem de ver a MESMA coisa, e build velha ja rendeu relato de defeito que nao existia mais.
+  // Sem informacao (tabela vazia, leitura falhou, web/dev) NAO bloqueia — ver regraDeAtualizacao.ts.
+  if(versao.obrigatoria)return <AtualizacaoObrigatoria buildAtual={versao.buildAtual} buildMinima={versao.buildMinima} conferindo={versao.conferindo} onRechecar={versao.rechecar}/>;
   if(isLoading)return <View style={styles.loading}><ActivityIndicator size="large" color={colors.gold}/></View>;
   return <Stack screenOptions={{headerShown:false}}>
     <Stack.Protected guard={!isAuthenticated}><Stack.Screen name="login"/></Stack.Protected>
