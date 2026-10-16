@@ -4,14 +4,18 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { supabase } from '@/lib/supabase';
 import { colors } from '@/features/theme/tokens';
 
-type Props = { email?: string | null; onRetry?: () => void };
+type Props = { email?: string | null; onRetry?: () => void; semConexao?: boolean };
 
 /**
  * Tela para quem entrou mas ainda não tem vínculo ativo com a equipe.
  * Antes disso o app mostrava o indicador de carregamento para sempre — do lado do motorista
  * isso era "não consegui entrar na conta". Agora o motivo aparece e há saída.
+ *
+ * `semConexao` (16/10/2026): a MESMA tela atendia duas causas muito diferentes — conta sem vínculo e
+ * falha ao consultar o vínculo (rede/servidor). Quem tinha vínculo ativo e perdeu a rede lia "não
+ * está vinculada à equipe". Com a marca, a frase fala de conexão.
  */
-export function NoAccess({ email, onRetry }: Props) {
+export function NoAccess({ email, onRetry, semConexao = false }: Props) {
   const [saindo, setSaindo] = useState(false);
   const [conferindo, setConferindo] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -37,10 +41,11 @@ export function NoAccess({ email, onRetry }: Props) {
     <View style={styles.screen}>
       <View style={styles.card}>
         <Text style={styles.eyebrow}>PACK &amp; PAWS CLUB</Text>
-        <Text style={styles.title}>Your account isn&apos;t linked yet</Text>
+        <Text style={styles.title}>{semConexao ? "We couldn't reach the server" : "Your account isn't linked yet"}</Text>
         <Text style={styles.body}>
-          The sign-in worked, but this account is not linked to a Pack &amp; Paws team. Ask your administrator to
-          add you to the team, then try again.
+          {semConexao
+            ? 'Your sign-in worked, but the app could not check your team right now. Check your connection and try again.'
+            : 'The sign-in worked, but this account is not linked to a Pack & Paws team. Ask your administrator to add you to the team, then try again.'}
         </Text>
         {email ? <Text style={styles.email}>{email}</Text> : null}
 

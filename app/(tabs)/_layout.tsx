@@ -33,7 +33,7 @@ const DRIVER_TABS: TabSpec[] = [
 const ALL_TABS = [...MANAGER_TABS, ...DRIVER_TABS];
 
 export default function TabLayout() {
-  const { role, view, isLoading, reload } = useOrganizationRole();
+  const { role, view, isLoading, reload, erroDeVinculo } = useOrganizationRole();
   const { session } = useAuth();
   const insets = useSafeAreaInsets();
   /**
@@ -50,7 +50,7 @@ export default function TabLayout() {
   }
 
   if (!role) {
-    return <NoAccess email={session?.user?.email ?? null} onRetry={reload} />;
+    return <NoAccess email={session?.user?.email ?? null} onRetry={reload} semConexao={erroDeVinculo} />;
   }
 
   const activeNames = new Set((view === 'manager' ? MANAGER_TABS : DRIVER_TABS).map((tab) => tab.name));

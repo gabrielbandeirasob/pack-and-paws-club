@@ -17,6 +17,12 @@ type RoleState = {
   role: OrganizationRole | null;
   isLoading: boolean;
   /**
+   * A LEITURA DO VÍNCULO FALHOU (rede/servidor) — 16/10/2026. Antes, um 503 nesta consulta devolvia
+   * `data` nulo e a tela dizia "Your account isn't linked yet": o motorista com vínculo ativo lia que
+   * não era da equipe. Com esta marca a tela fala de conexão e oferece tentar de novo.
+   */
+  erroDeVinculo: boolean;
+  /**
    * VISÃO que o app deve mostrar agora (interruptor gestor↔motorista, áudio de 27/09/2026).
    * Igual ao papel, exceto quando um GESTOR liga o interruptor para dirigir: aí vira 'driver' sem
    * deslogar e sem mudar o vínculo no banco.
@@ -35,8 +41,8 @@ type RoleState = {
  */
 export function useOrganizationRole(): RoleState & { reload: () => void } {
   const { session } = useAuth();
-  const [state, setState] = useState<{ role: OrganizationRole | null; isLoading: boolean }>(
-    { role: null, isLoading: true },
+  const [state, setState] = useState<{ role: OrganizationRole | null; isLoading: boolean; erroDeVinculo: boolean }>(
+    { role: null, isLoading: true, erroDeVinculo: false },
   );
   const [tentativa, setTentativa] = useState(0);
 
@@ -63,7 +69,7 @@ export function useOrganizationRole(): RoleState & { reload: () => void } {
         return;
       }
       setState((atual) => ({ ...atual, isLoading: true }));
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('organization_members')
         .select('role')
         .eq('user_id', session.user.id)
@@ -73,7 +79,8 @@ export function useOrganizationRole(): RoleState & { reload: () => void } {
       if (!cancelled) {
         setState((atual) => ({
           ...atual,
-          role: (data?.role as OrganizationRole | undefined) ?? null,
+          role: error ? null : (data?.role as OrganizationRole | undefined) ?? null,
+          erroDeVinculo: Boolean(error),
           isLoading: false,
         }));
       }
@@ -99,6 +106,7 @@ export function useOrganizationRole(): RoleState & { reload: () => void } {
   return {
     role: state.role,
     isLoading: state.isLoading || !visaoCarregada,
+    erroDeVinculo: state.erroDeVinculo,
     view: visaoEfetiva(state.role, escolhida),
     canSwitchView: podeAlternarVisao(state.role),
     setView,

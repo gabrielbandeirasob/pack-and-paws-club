@@ -43,4 +43,20 @@ describe('NoAccess', () => {
 
     expect(screen.getByText(/not linked to a Pack & Paws team/)).toBeTruthy();
   });
+
+  /**
+   * A MESMA tela para duas causas (16/10/2026): falha ao consultar o vínculo NÃO é conta sem vínculo.
+   * Antes, um 503 na consulta de `organization_members` fazia o motorista com vínculo ativo ler que não
+   * era da equipe. O hook marca `erroDeVinculo` e o layout repassa `semConexao`.
+   */
+  it('distingue falha de conexão de conta sem vínculo', async () => {
+    const semRede = await render(<NoAccess email="motorista@packandpaws.com" semConexao />);
+
+    expect(semRede.getByText("We couldn't reach the server")).toBeTruthy();
+    expect(semRede.getByText(/Check your connection/)).toBeTruthy();
+    expect(semRede.queryByText(/not linked to a Pack & Paws team/)).toBeNull();
+
+    const semVinculo = await render(<NoAccess email="motorista@packandpaws.com" />);
+    expect(semVinculo.getByText("Your account isn't linked yet")).toBeTruthy();
+  });
 });
