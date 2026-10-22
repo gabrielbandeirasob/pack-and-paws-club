@@ -90,7 +90,15 @@ import { useCalendarConnection } from './useCalendarConnection';
 export function janelaDeImportacao(hoje = todayLocalISO()): { from: string; to: string; timeMin: string; timeMax: string } {
   const from = hoje;
   const to = addDaysISO(hoje, 180);
-  return { from, to, timeMin: `${from}T00:00:00Z`, timeMax: `${to}T00:00:00Z` };
+  /**
+   * A CONSULTA começa dois anos antes (cliente, 22/10/2026). Com `singleEvents=false`, o Google só
+   * devolve um evento recorrente quando a PRIMEIRA ocorrência cai dentro da janela pedida — uma escala
+   * fixa criada meses antes ficava invisível e o dia aparecia com 9 cães em vez dos 21 do calendário.
+   * Quem decide o que entra continua sendo `window` (from..to); o passado só serve para o Google
+   * devolver os MESTRES das séries.
+   */
+  const consultaDe = addDaysISO(hoje, -730);
+  return { from, to, timeMin: `${consultaDe}T00:00:00Z`, timeMax: `${to}T00:00:00Z` };
 }
 
 /** Texto da lista de revisão, por motivo. */

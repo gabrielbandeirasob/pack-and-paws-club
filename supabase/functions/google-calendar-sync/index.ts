@@ -55,7 +55,10 @@ const CRON_SECRET = Deno.env.get('CRON_SECRET') ?? '';
  */
 function janelaDeImportacao(hoje = todayLocalISO(FUSO_DO_NEGOCIO)): { from: string; to: string; timeMin: string; timeMax: string } {
   const to = addDaysISO(hoje, 180);
-  return { from: hoje, to, timeMin: `${hoje}T00:00:00Z`, timeMax: `${to}T00:00:00Z` };
+  // Consulta dois anos para trás: com `singleEvents=false` o Google só devolve a série se a PRIMEIRA
+  // ocorrência cair na janela. Escala fixa antiga ficava invisível (cliente, 22/10/2026).
+  const consultaDe = addDaysISO(hoje, -730);
+  return { from: hoje, to, timeMin: `${consultaDe}T00:00:00Z`, timeMax: `${to}T00:00:00Z` };
 }
 
 function json(body: unknown, status = 200): Response {

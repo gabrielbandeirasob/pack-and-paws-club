@@ -473,6 +473,22 @@ describe('CalendarConnectionCard', () => {
     expect(chamada.window.to).toBe(addDaysISO(hoje, 180));
   });
 
+  /**
+   * CLIENTE, 22/10/2026: o dia tinha 21 cães no Google e 9 no app. A consulta começava em HOJE e, com
+   * `singleEvents=false`, o Google só devolve a série se a PRIMEIRA ocorrência cair na janela — todas as
+   * escalas fixas antigas ficavam invisíveis. A consulta agora começa dois anos antes; a JANELA de
+   * decisão continua de hoje para frente.
+   */
+  it('consulta o Google dois anos para trás para achar as séries fixas, sem mover a janela', () => {
+    const hoje = '2026-10-22';
+    const janela = janelaDeImportacao(hoje);
+
+    expect(janela.from).toBe(hoje);
+    expect(janela.to).toBe(addDaysISO(hoje, 180));
+    expect(janela.timeMin).toBe(`${addDaysISO(hoje, -730)}T00:00:00Z`);
+    expect(janela.timeMin < janela.from).toBe(true);
+  });
+
   it('lista o que veio do Google sem nome utilizável, com o motivo', async () => {
     useCalendarConnection.mockReturnValue(conexao('connected'));
     runCalendarImport.mockResolvedValue({
