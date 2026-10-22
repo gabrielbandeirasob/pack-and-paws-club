@@ -12,6 +12,7 @@ import {
   type ReservationRecord,
 } from '@/features/calendar/dayMath';
 import { ManagerDashboard, type DashboardMember, type DashboardRoute } from '@/features/dashboard/ManagerDashboard';
+import { idadeDaSincronizacao, useCalendarHealth } from '@/features/integrations/google/useCalendarHealth';
 import { packProgress, totalPack as contarPack, type PackRoute } from '@/features/dashboard/packProgress';
 import { dayIndicatorsFrom, nextTodoPosition, packRows, pendingTodos, type DailyTodo, type DayDog, type PackEntry } from '@/features/dashboard/dayOperation';
 import { addTodo,
@@ -236,6 +237,20 @@ export default function HomeScreen() {
   const leituraHome = useRef(0);
   /** Sábado (6) é o dia em que a semana fecha — o atalho do resumo diz isso. */
   const ehSabado = weekdayOfISO(hojeISO) === 6;
+
+  /**
+   * AGENDA DO GOOGLE (cliente, 21/10/2026): se a última sincronização passou de 48h, os números do dia
+   * estão incompletos — o aviso vai para cima dos indicadores, antes de o gestor duvidar da tela.
+   */
+  const calendario = useCalendarHealth();
+  const calendarioAlerta = calendario.atrasada
+    ? {
+        texto: `Last sync with ${calendario.email ?? 'Google Calendar'} was ${idadeDaSincronizacao(
+          calendario.horasSemSync,
+        )}. Bookings made there are not in the app yet — reconnect to bring them in.`,
+        onPress: () => router.push('/calendar'),
+      }
+    : null;
 
   /** Arrasta o painel para o lado: -1 = dia anterior, +1 = dia seguinte (limite: ±30 dias). */
   const irParaDia = useCallback((passo: number) => {
@@ -657,6 +672,7 @@ export default function HomeScreen() {
             onToday: irParaHoje,
           }}
           viewSwitch={<DriveSwitchRow />}
+          calendarAlert={calendarioAlerta}
           greeting={header.greeting}
           initials={header.initials}
           daycare={counts.daycare}

@@ -83,6 +83,12 @@ type Props = {
   onOpenWeekSummary: () => void;
   /** Texto de apoio do atalho — no sábado a semana fechou, e a frase muda. */
   weekSummaryHint: string;
+  /**
+   * AVISO DA AGENDA (cliente, 21/10/2026): quando a sincronização com o Google Calendar está atrasada,
+   * os números do dia ficam INCOMPLETOS — a Home precisa dizer isso antes de o gestor desconfiar do app
+   * (foi assim que ele viu 9 cães num dia que tinha 21 no calendário).
+   */
+  calendarAlert?: { texto: string; onPress: () => void } | null;
 };
 
 /**
@@ -105,7 +111,7 @@ export type DashboardDayNav = {
 /** Quanto o dedo precisa andar para valer como "arrastou para o lado" (não é toque, não é scroll). */
 const ARRASTO_MINIMO = 60;
 
-export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, initials, daycare, boarding, progress, routes, day, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours, onOpenWeekSummary, weekSummaryHint, onOpenRoute }: Props) {
+export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, initials, daycare, boarding, progress, routes, day, onOpenProgress, onOpenDispatch, onOpenClients, onNewReservation, onOpenDriverHours, onOpenWeekSummary, weekSummaryHint, onOpenRoute, calendarAlert }: Props) {
   const [folhaAberta, setFolhaAberta] = useState(false);
 
   /**
@@ -200,6 +206,20 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
           "Total Pack" é o termo DELES (matilha / pack walk): o cliente perguntou o que era o número
           (áudio de 23/09/2026), então a legenda fica aqui em vez de trocar o nome que eles usam.
         */}
+        {/* Aviso de agenda atrasada: vai ANTES dos números, porque a ressalva é sobre eles. */}
+        {calendarAlert ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Google Calendar is out of date"
+            onPress={calendarAlert.onPress}
+            style={styles.calendarAlert}
+          >
+            <Text style={styles.calendarAlertTitle}>Google Calendar is out of date</Text>
+            <Text numberOfLines={3} style={styles.calendarAlertText}>{calendarAlert.texto}</Text>
+            <Text style={styles.calendarAlertLink}>Open calendar ›</Text>
+          </Pressable>
+        ) : null}
+
         <View style={styles.statsRow}>
           <Stat value={String(daycare)} label="Daycare" />
           <Stat value={String(boarding)} label="Boarding" />
@@ -250,9 +270,12 @@ export function ManagerDashboard({ dateLabel, dayNav, greeting, viewSwitch, init
           <View style={styles.progressRow}>
             <Text style={styles.muted}>
               {progress.total === 0
-                ? dayNav.isToday
-                  ? 'Nothing scheduled for today'
-                  : 'Nothing scheduled for this day'
+                ? day.totalDogs > 0
+                  ? // Cães existem, rota ainda não: dizer "nada agendado" era MENTIRA (cliente, 21/10/2026).
+                    `${day.totalDogs} dog${day.totalDogs === 1 ? '' : 's'} scheduled — no route created yet`
+                  : dayNav.isToday
+                    ? 'Nothing scheduled for today'
+                    : 'Nothing scheduled for this day'
                 : `${progress.done} of ${progress.total} dogs done`}
             </Text>
             {progress.total > 0 ? <Text style={styles.progressPct}>{pct}%</Text> : null}
@@ -474,6 +497,18 @@ function Stat({ value, label, hint, destaque = false }: { value: string; label: 
 }
 
 const styles = StyleSheet.create({
+  calendarAlert: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 12,
+    borderRadius: radii.medium,
+    borderWidth: 1,
+    borderColor: '#E8B341',
+    backgroundColor: '#FDF6E3',
+  },
+  calendarAlertTitle: { color: '#7A4E00', fontWeight: '700', fontSize: 13 },
+  calendarAlertText: { color: '#7A4E00', fontSize: 12, marginTop: 2 },
+  calendarAlertLink: { color: '#7A4E00', fontSize: 12, fontWeight: '700', marginTop: 6 },
   screen:{flex:1,backgroundColor:colors.forest700},content:{paddingBottom:28},scroll:{flex:1,backgroundColor:colors.cream},hero:{backgroundColor:colors.forest700,paddingHorizontal:18,paddingTop:6,paddingBottom:22,borderBottomLeftRadius:radii.hero,borderBottomRightRadius:radii.hero},brandRow:{flexDirection:'row',justifyContent:'space-between',alignItems:'center'},brandBlock:{flexDirection:'row',alignItems:'center',gap:10},logo:{width:30,height:30,borderRadius:9,borderWidth:1,borderColor:colors.gold},brand:{color:'white',fontFamily:'serif',fontSize:15,fontWeight:'700',letterSpacing:.4},avatar:{width:32,height:32,borderRadius:16,backgroundColor:'#F0DB9C',alignItems:'center',justifyContent:'center'},avatarText:{color:colors.forest700,fontWeight:'800'},date:{color:'#D7E1D4',fontSize:12,letterSpacing:.7,textAlign:'center'},
   /** Navegação por dia: setas nas pontas, data no meio (o gestor também pode arrastar). */
   dayNavRow:{flexDirection:'row',alignItems:'center',gap:8,marginTop:8},

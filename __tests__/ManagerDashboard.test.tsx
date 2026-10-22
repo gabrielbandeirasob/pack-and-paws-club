@@ -363,3 +363,42 @@ it('com onOpenRoute, tocar no cartão do motorista abre a lista daquela rota', a
   await fireEvent.press(screen.getByLabelText('Open Jordan route'));
   expect(onOpenRoute).toHaveBeenLastCalledWith('route-2');
 });
+
+  /**
+   * CLIENTE, 21/10/2026: o dia tinha 9 cães no app (e 21 no calendário) e o cartão dizia
+   * "Nothing scheduled for this day" — porque o progresso só conta ROTAS criadas. O texto tem de
+   * dizer o que existe de verdade: os cães estão lá, a rota ainda não.
+   */
+  it('não diz "nothing scheduled" quando há cães no dia mas nenhuma rota criada', async () => {
+    const { screen } = await setup({ progress: { done: 0, total: 0 }, day: dia({ totalDogs: 9 }) });
+
+    expect(screen.getByText('9 dogs scheduled — no route created yet')).toBeTruthy();
+    expect(screen.queryByText('Nothing scheduled for today')).toBeNull();
+    expect(screen.queryByText('Nothing scheduled for this day')).toBeNull();
+  });
+
+  it('sem cães e sem rota continua dizendo que não há nada agendado', async () => {
+    const { screen } = await setup({ progress: { done: 0, total: 0 }, day: dia({ totalDogs: 0 }) });
+
+    expect(screen.getByText('Nothing scheduled for today')).toBeTruthy();
+  });
+
+  /** A Home precisa denunciar agenda atrasada antes de o gestor duvidar dos números (21/10/2026). */
+  it('mostra o aviso da agenda do Google atrasada e leva para a agenda ao tocar', async () => {
+    const onPress = jest.fn();
+    const { screen } = await setup({
+      calendarAlert: { texto: 'Last sync with packandpawsclub@gmail.com was 6 days ago.', onPress },
+    });
+
+    expect(screen.getByText('Google Calendar is out of date')).toBeTruthy();
+    expect(screen.getByText('Last sync with packandpawsclub@gmail.com was 6 days ago.')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('Google Calendar is out of date'));
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('sem problema na agenda, nenhum aviso aparece', async () => {
+    const { screen } = await setup();
+
+    expect(screen.queryByText('Google Calendar is out of date')).toBeNull();
+  });
