@@ -1138,7 +1138,25 @@ export function planCalendarImport(
         }
       }
 
-      if (ligada) {
+      /**
+       * 🔴 SÉRIE ligada a uma reserva AVULSA de uma rodada antiga (cliente, 22/10/2026).
+       *
+       * Cada escala fixa do Google ganhou UMA reserva no dia em que foi lida (12–16/10). Da rodada
+       * seguinte em diante, `antesDaJanela(ligada.startDate)` mandava `continue` e a série nunca mais
+       * criava um dia: o app ficou com 8 cães num dia em que o calendário tinha 21. Uma linha avulsa
+       * NÃO representa a escala — se o cão ainda não tem escala ativa no app, a série tem de nascer.
+       * Se já tem escala ativa, o dia fixo do cão já é conhecido: nada a fazer (nem pendência).
+       */
+      const serieLigadaAAvulsa = Boolean(ligada) && ligada!.kind === 'reservation' && kindOf(parsed) === 'recurring';
+      const escalaDoCao = serieLigadaAAvulsa && dogDoTitulo
+        ? (reservations.find((item) => item.kind === 'recurring' && item.dogId === dogDoTitulo && item.status === 'active') ?? null)
+        : null;
+      if (serieLigadaAAvulsa) {
+        vistos.add(evento.id);
+        if (escalaDoCao) continue;
+      }
+
+      if (ligada && !serieLigadaAAvulsa) {
         vistos.add(evento.id);
         if (ligada.kind === 'reservation' && (antesDaJanela(ligada.startDate, window) || ligada.startDate > window.to)) continue;
         const dogId = dogDoTitulo ?? ligada.dogId;
