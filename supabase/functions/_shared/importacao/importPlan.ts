@@ -117,9 +117,25 @@ export function normalizar(valor: string): string {
 /** Proximidade conservadora: prefixo de palavra, espaço ou até uma edição (duas em nomes >= 6).
  * Silvye/Sylvie exige duas substituições; nomes curtos não recebem tolerância de edição.
  */
+/**
+ * Nome como o calendário ESCREVE x nome como está no cadastro.
+ *
+ * O escritório usa o mesmo calendário para tudo (cliente, 25/10/2026: "o calendário deve continuar
+ * como a cabeça, é exigência do cliente"): o título do cão vem com emoji de casa ("Woody 🏠"), com
+ * apelido entre parênteses ("Charlie (Gio)") e com nome curto ("Lulu" para "Lulu Puppy"). Sem limpar
+ * isso, o cão existe no app e mesmo assim o evento cai em "unknown dog".
+ */
+function limparNomeParaCasar(valor: string): string {
+  return normalizar(valor)
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{FE0F}\u{200D}]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function nomeProximo(a: string, b: string): boolean {
-  a = normalizar(a).replace(/\s+/g, ' ');
-  b = normalizar(b).replace(/\s+/g, ' ');
+  a = limparNomeParaCasar(a);
+  b = limparNomeParaCasar(b);
   if (a === b || a.replace(/ /g, '') === b.replace(/ /g, '')) return true;
   if (a.length >= 3 && b.startsWith(`${a} `)) return true;
   const limite = Math.min(a.length, b.length) >= 6 ? 2 : Math.min(a.length, b.length) >= 4 ? 1 : 0;
@@ -136,7 +152,7 @@ function nomeProximo(a: string, b: string): boolean {
 }
 
 function casarNome(nome: string, nomes: string[], dogs: DogForImport[]) {
-  const exatos = dogs.filter((cao) => normalizar(cao.name) === normalizar(nome));
+  const exatos = dogs.filter((cao) => limparNomeParaCasar(cao.name) === limparNomeParaCasar(nome));
   const candidatos = exatos.length ? exatos : dogs.filter((cao) => nomeProximo(nome, cao.name));
   // Só um irmão EXATO e único pode oferecer contexto; nunca encadear palpites.
   const casas = nomes.filter((outro) => normalizar(outro) !== normalizar(nome)).flatMap((outro) => {
@@ -1195,10 +1211,19 @@ export function planCalendarImport(
       // 7. Cão que não está no cadastro (nenhum ou mais de um) NÃO é importado — e não se cadastra
       //    ninguém: o evento aparece na lista "not registered in the app" para o escritório cadastrar.
       if (candidatos.length === 0) {
+        /**
+         * ⚠️ O evento EXISTE — só o NOME não está no cadastro. Marcar como visto é o que impede a
+         * reserva que já aponta para ele de ser cancelada no fim da rodada (cliente, 25/10/2026:
+         * "Lulu" estava no calendário, o app conhecia "Lulu Puppy" e a reserva dela ia ser apagada).
+         * Cão desconhecido = pendência para cadastrar, nunca sinônimo de evento apagado.
+         */
+        vistos.add(evento.id);
         resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: primeiro.startDate, parsed, reason: 'unknown dog' });
         continue;
       }
       if (candidatos.length > 1 && !dogDoTitulo) {
+        // Mesma regra do cão desconhecido: homônimo é dúvida de cadastro, não evento apagado.
+        vistos.add(evento.id);
         resultados.push({ kind: 'review', eventId: evento.id, title: evento.summary, date: primeiro.startDate, parsed, reason: 'ambiguous dog' });
         continue;
       }
