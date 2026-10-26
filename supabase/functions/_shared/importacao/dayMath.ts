@@ -105,6 +105,17 @@ export type DayItem = {
   goesToDaycare: boolean;
   /** Dia de CHEGADA/SAÍDA da hospedagem (avocado) — ver `ReservationRecord.movementDay`. */
   movementDay?: boolean;
+  /**
+   * DIREÇÃO do dia de movimento (cliente em áudio, 26/10/2026): *"a última lá da casinha foi embora de
+   * manhã cedo, e os outros dois, o Lucky e o Levi Miller, vão embora à tarde — como a gente consegue
+   * fazer pra ele ter essa leitura?"*. O calendário marca chegada e saída com a MESMA cor, então o
+   * booleano `movementDay` não dizia para onde o cão anda: `arrival` = o cão está em casa e o motorista
+   * busca; `departure` = o cão está na van/hotel e o motorista leva para casa.
+   *
+   * Sai das DATAS (a linha da estadia que termina hoje = saída), nunca do horário do bloco: o escritório
+   * confirmou em 26/10/2026 que a hora do evento 🏠 é só marcador do dia.
+   */
+  movementToday?: 'arrival' | 'departure' | null;
   /** Dias cancelados pelo VERMELHO dentro da barra — ver `ReservationRecord.cancelledDays`. */
   cancelledDays?: string[];
   // True when this recurring occurrence is currently overridden to skip (paused) on the built day.
@@ -154,7 +165,7 @@ export function dogsJaNaVan(day: DaySummary): Set<string> {
        * tiver de voltar para casa. Quem NÃO vai pro daycare (`goesToDaycare = false`, chegada fora do
        * horário) continua sendo parada normal da rota.
        */
-      .filter((item) => item.goesToDaycare && item.movementDay !== true)
+      .filter((item) => item.goesToDaycare && item.movementToday !== 'arrival')
       .map((item) => item.dogId),
   );
 }
@@ -178,7 +189,7 @@ export function transportPoolForPhase(day: DaySummary, phase: 'pickup' | 'dropof
     const required = phase === 'pickup' ? item.pickupRequired : item.dropoffRequired;
     if (!(required ?? item.transportRequired)) return false;
     if (phase === 'pickup' && jaNaVan.has(item.dogId)) return false;
-    if (phase === 'dropoff' && boarding.has(item.dogId)) return false;
+    if (phase === 'dropoff' && boarding.has(item.dogId) && item.movementToday !== 'departure') return false;
     if (vistos.has(item.dogId)) return false;
     vistos.add(item.dogId);
     return true;
@@ -215,7 +226,7 @@ function isWithin(isoDate: string, start: string, end: string): boolean {
   return isoDate >= start && isoDate <= end;
 }
 
-function itemize(kind: DayItem['kind'], reservation: ReservationRecord | null, schedule: RecurringScheduleRecord | null): DayItem {
+function itemize(kind: DayItem['kind'], reservation: ReservationRecord | null, schedule: RecurringScheduleRecord | null, isoDate?: string): DayItem {
   const source = reservation ?? schedule;
   if (!source) throw new Error('itemize requires a reservation or a schedule');
   const dog = source.dog;
@@ -233,8 +244,30 @@ function itemize(kind: DayItem['kind'], reservation: ReservationRecord | null, s
     dropoffRequired: source.dropoffRequired,
     goesToDaycare: reservation?.goesToDaycare ?? true,
     movementDay: reservation?.movementDay ?? false,
+    movementToday: direcaoDoMovimento(reservation, isoDate),
     cancelledDays: reservation?.cancelledDays ?? [],
   };
+}
+
+/**
+ * Para onde o cão anda no dia de movimento da hospedagem.
+ *
+ * `departure` vence `arrival`: no dia em que a estadia termina o escritório costuma ter DUAS linhas
+ * cobrindo o dia (a barra da estadia, que termina hoje, e a linha de um dia com `movement_day`). A
+ * barra é a que diz a verdade sobre a direção — o cão dormiu aqui, então hoje ele vai para casa.
+ *
+ * Uma linha de UM dia só (`startDate === endDate === hoje`, sem barra) fica como `arrival`: sem o
+ * histórico da estadia o app não tem como provar que o cão já estava com a gente — e inventar saída
+ * mandaria a van para a casa de um cão que ainda está chegando.
+ */
+function direcaoDoMovimento(reservation: ReservationRecord | null, isoDate?: string): 'arrival' | 'departure' | null {
+  if (!reservation || !isoDate || reservation.serviceType !== 'boarding') return null;
+  /* A estadia que termina hoje é SAÍDA mesmo sem marca: o cão dormiu aqui. */
+  if (reservation.endDate === isoDate && reservation.startDate < isoDate) return 'departure';
+  /* A CHEGADA só é chegada quando o escritório marcou o dia (avocado/amarelo). Sem a marca vale a
+   * guarda antiga do dia de hotel — o cão já está na van — para não mexer em reserva legada. */
+  if (reservation.startDate === isoDate && reservation.movementDay === true) return 'arrival';
+  return null;
 }
 
 function compareByName(a: DayItem, b: DayItem): number {
@@ -302,7 +335,7 @@ export function buildDay(
      */
     if (diasCanceladosDoCao.has(`${reservation.dog.id}|${isoDate}`)) continue;
     if (reservation.serviceType === 'boarding') {
-      boarding.push(itemize('boarding', reservation, null));
+      boarding.push(itemize('boarding', reservation, null, isoDate));
     } else {
       /**
        * ⚠️ MUDANÇA DE 14/10/2026 (quebra do escritório: *"tá faltando 1 cachorro lá ainda"*, no grupo
@@ -314,7 +347,7 @@ export function buildDay(
        * escritório os esperava na rota. O intervalo já é inclusivo pelas duas pontas
        * (`isWithin`), então cobrir todo dia coberto é o que a barra significa.
        */
-      daycare.push(itemize('daycare', reservation, null));
+      daycare.push(itemize('daycare', reservation, null, isoDate));
     }
   }
 
@@ -325,7 +358,7 @@ export function buildDay(
     if (schedule.endDate && isoDate > schedule.endDate) continue;
     if (!schedule.weekdays.includes(weekday)) continue;
     if (isSkipped(schedule.id, isoDate, exceptions)) continue;
-    daycare.push({ ...itemize('recurring-daycare', null, schedule), transportRequired: transportForSchedule(schedule, isoDate, exceptions) });
+    daycare.push({ ...itemize('recurring-daycare', null, schedule, isoDate), transportRequired: transportForSchedule(schedule, isoDate, exceptions) });
   }
 
   // Dia EXTRA (evento ROXO no Google): o dia não está nos `weekdays`, mas faz parte da escala daquele
@@ -337,7 +370,7 @@ export function buildDay(
     if (schedule.weekdays.includes(weekday)) continue; // dia normal da escala: já entrou acima
     if (!isExtraDay(schedule.id, isoDate, exceptions)) continue;
     if (isSkipped(schedule.id, isoDate, exceptions)) continue;
-    daycare.push({ ...itemize('recurring-daycare', null, schedule), transportRequired: transportForSchedule(schedule, isoDate, exceptions) });
+    daycare.push({ ...itemize('recurring-daycare', null, schedule, isoDate), transportRequired: transportForSchedule(schedule, isoDate, exceptions) });
   }
 
   daycare.sort(compareByName);
@@ -364,6 +397,10 @@ export function buildDay(
            * o cão se move com o motorista, ele é parada, independente da ordem.
            */
           movementDay: existing.movementDay === true || item.movementDay === true,
+          /** Direção: saída vence chegada quando as duas linhas do dia discordam (ver `direcaoDoMovimento`). */
+          movementToday: existing.movementToday === 'departure' || item.movementToday === 'departure'
+            ? 'departure'
+            : existing.movementToday === 'arrival' || item.movementToday === 'arrival' ? 'arrival' : null,
           // Mesmo motivo: `goesToDaycare` também não pode depender da ordem. Vale o "OU" (contrato
           // escrito de 28/09: *"por via de regra todo boarding vai pro daycare"*) — hoje o banco não
           // tem nenhum dia com as duas linhas discordando, então isso não muda o dia de ninguém; só
