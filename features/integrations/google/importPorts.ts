@@ -193,6 +193,8 @@ export function supabaseImportPorts(
         // Dia de CHEGADA/SAIDA da hospedagem (avocado): o cao esta na casa — parada normal da rota,
         // nunca "ja esta na van" (dono, 06/10/2026).
         movement_day: parsed.movementDay ?? false,
+        // ☀️ no titulo = o tutor busca de manha: conta no dia, sem van (migracao 202610260900).
+        owner_pickup: parsed.ownerPickup ?? false,
         /**
          * Dias cancelados pelo vermelho DENTRO da barra (migração `202610150045`): a reserva já nasce com a
          * marca, então o dia não entra no dia/Total Pack/fila e a linha não precisa ser cancelada.
@@ -248,6 +250,8 @@ export function supabaseImportPorts(
            * se o cão entra na fila de pickup do dia.
            */
           movement_day: parsed.movementDay ?? false,
+          // ☀️ no titulo = o tutor busca de manha: conta no dia, sem van (migracao 202610260900).
+          owner_pickup: parsed.ownerPickup ?? false,
           // Dias cancelados pelo vermelho DENTRO da barra (migração `202610150045`): reconciliados a
           // cada rodada a partir da mesma leitura do calendário.
           cancelled_days: parsed.cancelledDays ?? [],

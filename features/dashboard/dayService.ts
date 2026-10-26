@@ -219,7 +219,7 @@ type ReservationRow = {
   start_date: string;
   end_date: string;
   transport_required: boolean;
-  goes_to_daycare?: boolean | null; movement_day?: boolean | null; cancelled_days?: string[] | null;
+  goes_to_daycare?: boolean | null; movement_day?: boolean | null; owner_pickup?: boolean | null; cancelled_days?: string[] | null;
   dog: { id: string; name: string; client: { name: string } };
 };
 type RecurringRow = {
@@ -250,7 +250,7 @@ export async function loadDayDogs(client: SupabaseClient, organizationId: string
   const [reservas, series, excecoes] = await Promise.all([
     client
       .from('reservations')
-      .select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, cancelled_days, dog:dogs(id, name, client:clients(name))')
+      .select('id, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, owner_pickup, cancelled_days, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
       .eq('status', 'confirmed')
       .lte('start_date', isoDay)
@@ -301,7 +301,7 @@ export async function loadWeek(
   const [reservas, series, excecoes] = await Promise.all([
     client
       .from('reservations')
-      .select('id, status, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, cancelled_days, dog:dogs(id, name, client:clients(name))')
+      .select('id, status, service_type, start_date, end_date, transport_required, goes_to_daycare, movement_day, owner_pickup, cancelled_days, dog:dogs(id, name, client:clients(name))')
       .eq('organization_id', organizationId)
       .in('status', ['confirmed', 'cancelled'])
       .lte('start_date', fim)
@@ -351,6 +351,7 @@ function paraRegistros(
     transportRequired: row.transport_required,
     goesToDaycare: row.goes_to_daycare ?? true,
     movementDay: row.movement_day ?? false,
+    ownerPickup: row.owner_pickup ?? false,
     cancelledDays: row.cancelled_days ?? [],
   }));
   const seriesMapeadas: RecurringScheduleRecord[] = ((series as RecurringRow[] | null) ?? []).map((row) => ({

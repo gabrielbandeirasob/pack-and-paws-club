@@ -43,6 +43,11 @@ export type ReservationRecord = {
    */
   movementDay?: boolean;
   /**
+   * O TUTOR BUSCA DE MANHÃ (☀️): o cão conta no dia mas não pede van nenhuma — fora do pickup E da
+   * entrega. Ver `ParsedBooking.ownerPickup` e a migração `202610260900`.
+   */
+  ownerPickup?: boolean;
+  /**
    * Dias DESTA reserva que o escritório cancelou pintando o VERMELHO naquele dia (migração
    * `202610150045`). A linha continua ativa e o dia simplesmente não existe para o cão: sai do dia, do
    * Total Pack, da fila do Dispatch e da entrega, e aparece como cancelado no resumo da semana.
@@ -116,6 +121,8 @@ export type DayItem = {
    * confirmou em 26/10/2026 que a hora do evento 🏠 é só marcador do dia.
    */
   movementToday?: 'arrival' | 'departure' | null;
+  /** ☀️ neste dia: o tutor busca de manhã — nenhuma perna da rota pede este cão. */
+  ownerPickupToday?: boolean;
   /** Dias cancelados pelo VERMELHO dentro da barra — ver `ReservationRecord.cancelledDays`. */
   cancelledDays?: string[];
   // True when this recurring occurrence is currently overridden to skip (paused) on the built day.
@@ -186,6 +193,8 @@ export function transportPoolForPhase(day: DaySummary, phase: 'pickup' | 'dropof
   const boarding = new Set(day.boarding.map(item => item.dogId));
   const vistos = new Set<string>();
   return [...day.daycare, ...day.boarding].filter((item) => {
+    /* ☀️ — o tutor busca de manhã (cliente, 26/10/2026): conta no dia, mas não pede van nenhuma. */
+    if (item.ownerPickupToday) return false;
     const required = phase === 'pickup' ? item.pickupRequired : item.dropoffRequired;
     if (!(required ?? item.transportRequired)) return false;
     if (phase === 'pickup' && jaNaVan.has(item.dogId)) return false;
@@ -245,6 +254,7 @@ function itemize(kind: DayItem['kind'], reservation: ReservationRecord | null, s
     goesToDaycare: reservation?.goesToDaycare ?? true,
     movementDay: reservation?.movementDay ?? false,
     movementToday: direcaoDoMovimento(reservation, isoDate),
+    ownerPickupToday: reservation?.ownerPickup === true,
     cancelledDays: reservation?.cancelledDays ?? [],
   };
 }
@@ -398,6 +408,7 @@ export function buildDay(
            */
           movementDay: existing.movementDay === true || item.movementDay === true,
           /** Direção: saída vence chegada quando as duas linhas do dia discordam (ver `direcaoDoMovimento`). */
+          ownerPickupToday: existing.ownerPickupToday === true || item.ownerPickupToday === true,
           movementToday: existing.movementToday === 'departure' || item.movementToday === 'departure'
             ? 'departure'
             : existing.movementToday === 'arrival' || item.movementToday === 'arrival' ? 'arrival' : null,

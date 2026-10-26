@@ -98,6 +98,15 @@ export type ParsedBooking = {
    * (`movement_day`) e o dia de movimento entra como parada normal da rota, sem entrega.
    */
   movementDay?: boolean;
+  /**
+   * O TUTOR BUSCA DE MANHÃ (☀️ no título do bloco de saída) — decisão do dono de 26/10/2026, a partir do
+   * áudio do cliente: *"a última lá da casinha foi embora de manhã cedo … como que a gente consegue fazer
+   * pra ele ter essa leitura?"*. O cão conta no dia, mas não pede van: fica fora do pickup e da entrega.
+   *
+   * O horário do bloco NÃO serve de sinal — o escritório confirmou em 26/10/2026 que a hora do evento 🏠 é
+   * "só um marcador do dia". O canal é o título, o mesmo lugar onde ele já escreve o 🏠.
+   */
+  ownerPickup?: boolean;
 };
 
 const BYDAY = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
@@ -409,7 +418,12 @@ export function parseRecurrence(
  * (`route_stops.stop_group_id`), então dois cães da mesma casa caem na mesma parada sozinhos.
  */
 export function parseBookingEvents(event: RemoteEvent, labels: EventLabel[] = []): ParsedBooking[] {
-  const nomes = dogNamesFromTitle(event.summary);
+  /* O ☀️/"AM" é marcação, não nome: sai antes de casar (o emoji já sai em `limparNomeParaCasar`, o "AM"
+   * não — e "Indie 🏠 AM" cairia como cão desconhecido). */
+  const tituloParaNome = event.summary.includes('🏠') || event.summary.includes('☀')
+    ? event.summary.replace(/\bAM\b/gi, ' ')
+    : event.summary;
+  const nomes = dogNamesFromTitle(tituloParaNome);
   if (nomes.length === 0) return [];
   const color = readEventColor(event, labels);
   const recorrencia = parseRecurrence(event.recurrence, event.startDate, event.endDate);
@@ -417,6 +431,8 @@ export function parseBookingEvents(event: RemoteEvent, labels: EventLabel[] = []
   // de hospedagem, e aí vale `true`).
   const movimenta = movimentaOCao(color);
   const transportRequired = movimenta ?? true;
+  /** ☀️ (ou "AM") no bloco de saída = o tutor busca de manhã; ver `ParsedBooking.ownerPickup`. */
+  const marcaDeManha = event.summary.includes('☀') || (event.summary.includes('🏠') && /\bAM\b/.test(event.summary));
 
   return nomes.map((dogName) => ({
     serviceType: serviceTypeOfMeaning(color.meaning),
@@ -427,7 +443,10 @@ export function parseBookingEvents(event: RemoteEvent, labels: EventLabel[] = []
     cancels: color.meaning?.kind === 'cancel',
     transportRequired,
     // Dia de chegada/saída da hospedagem (avocado/amarelo): o cão está na casa — é parada de rota.
-    movementDay: movimenta === true || (serviceTypeOfMeaning(color.meaning) === 'boarding' && Boolean(event.recurringEventId) && event.summary.includes('🏠')),
+    movementDay: movimenta === true || marcaDeManha || (serviceTypeOfMeaning(color.meaning) === 'boarding' && Boolean(event.recurringEventId) && event.summary.includes('🏠')),
+    /* Só faz sentido em bloco de hospedagem que movimenta o cão: o ☀️ num evento de daycare é enfeite. */
+    /* Só existe quando é verdade: objeto limpo (e nenhum campo novo em evento sem a marca). */
+    ownerPickup: (marcaDeManha && (movimenta === true || event.summary.includes('🏠') || serviceTypeOfMeaning(color.meaning) === 'boarding')) || undefined,
     dogName,
     startDate: event.startDate,
     ...recorrencia,
@@ -460,6 +479,8 @@ export type BookingForImport = {
   goesToDaycare?: boolean;
   /** Aquele dia da hospedagem é o de CHEGADA/SAÍDA (avocado) — o cão está na casa, é parada de rota. */
   movementDay?: boolean | null;
+  /** O tutor busca de manhã (☀️): conta no dia, sem van (migração `202610260900`). */
+  ownerPickup?: boolean | null;
   /** Dias cancelados dentro da barra (`reservations.cancelled_days`) — ver migração 202610150045. */
   cancelledDays?: string[] | null;
   /**
@@ -558,6 +579,8 @@ function precisaAtualizar(reserva: BookingForImport, parsed: ParsedBooking, dogI
     // O dia de MOVIMENTO é o que o evento diz (avocado = chegada/saída): quando o escritório repinta o
     // dia, a reserva tem de acompanhar — é ele que decide se o cão entra na fila de pickup.
     (reserva.movementDay ?? false) !== (parsed.movementDay ?? false) ||
+    // ☀️ ligado/desligado no título tem de acompanhar a reserva do dia (senão o cão fica preso na rota).
+    (reserva.ownerPickup ?? false) !== (parsed.ownerPickup ?? false) ||
     reserva.startDate !== parsed.startDate ||
     (serie ? (reserva.endDate ?? null) !== (parsed.openEnded ? null : parsed.endDate) : reserva.endDate !== parsed.endDate) ||
     (serie ? !mesmosDias(reserva.weekdays, parsed.weekdays) : false) ||

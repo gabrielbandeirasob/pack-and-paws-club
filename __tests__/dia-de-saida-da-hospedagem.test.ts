@@ -13,6 +13,8 @@
  * evento 🏠 é só marcador do dia ("é só um marcador do dia").
  */
 import { buildDay, dogsJaNaVan, transportPoolForPhase, vanPool, type ReservationRecord } from '@/features/calendar/dayMath';
+import { parseBookingEvents } from '@/features/integrations/google/importPlan';
+import type { RemoteEvent } from '@/features/integrations/google/eventMarkers';
 
 const HOJE = '2026-10-26';
 
@@ -91,5 +93,56 @@ describe('dia de SAÍDA da hospedagem', () => {
     expect(nomes(transportPoolForPhase(dia, 'pickup'))).toContain('Lucky');
     expect(nomes(transportPoolForPhase(dia, 'dropoff'))).toContain('Lucky');
     expect(dia.daycare[0].movementToday).toBeNull();
+  });
+});
+
+
+/**
+ * ☀️ = o TUTOR BUSCA DE MANHÃ — decisão do dono (26/10/2026), a partir do mesmo áudio do cliente.
+ * O canal é o TÍTULO (o horário do bloco é só marcador do dia, confirmado pelo escritório):
+ *   Lucky 🏠     → vai para casa à tarde → entra na entrega
+ *   Indie 🏠 ☀️  → o tutor busca de manhã → conta no dia, mas fora das duas pernas
+ */
+const evento = (summary: string): RemoteEvent => ({
+  id: 'e-1',
+  summary,
+  startDate: HOJE,
+  endDate: HOJE,
+  appKey: null,
+  colorId: '2', // Sage (verde) = hospedagem
+  recurrence: null,
+});
+
+describe('☀️ no título do bloco de saída', () => {
+  it('lê a marca e mantém o nome do cão limpo', () => {
+    const [lido] = parseBookingEvents(evento('Indie 🏠 ☀️'), []);
+    expect(lido).toMatchObject({ dogName: 'Indie', movementDay: true, ownerPickup: true });
+  });
+
+  it('aceita a variante em texto ("AM") e não deixa o AM virar nome', () => {
+    const [lido] = parseBookingEvents(evento('Indie 🏠 AM'), []);
+    expect(lido).toMatchObject({ dogName: 'Indie', ownerPickup: true });
+  });
+
+  it('🏠 sozinho continua sendo saída da TARDE', () => {
+    const [lido] = parseBookingEvents(evento('Lucky 🏠'), []);
+    expect(lido?.dogName).toBe('Lucky');
+    expect(lido?.ownerPickup).toBeUndefined();
+  });
+
+  it('o ☀️ tira o cão das DUAS pernas e ele continua contando no dia', () => {
+    const comDono = reserva({ id: 'r-marcador', serviceType: 'boarding', startDate: HOJE, endDate: HOJE, movementDay: true, ownerPickup: true });
+    const dia = buildDay(HOJE, [estadiaQueTerminaHoje, comDono], []);
+    expect(nomes(transportPoolForPhase(dia, 'pickup'))).not.toContain('Lucky');
+    expect(nomes(transportPoolForPhase(dia, 'dropoff'))).not.toContain('Lucky');
+    // conta no dia (aparece no boarding e na lista de quem já está na van)
+    expect(nomes(dia.boarding)).toContain('Lucky');
+    expect(dogsJaNaVan(dia).has('dog-lucky')).toBe(true);
+  });
+
+  it('sem o ☀️ o mesmo cão entra na entrega (a marca é o que muda o dia)', () => {
+    const semDono = reserva({ id: 'r-marcador', serviceType: 'boarding', startDate: HOJE, endDate: HOJE, movementDay: true });
+    const dia = buildDay(HOJE, [estadiaQueTerminaHoje, semDono], []);
+    expect(nomes(transportPoolForPhase(dia, 'dropoff'))).toContain('Lucky');
   });
 });
